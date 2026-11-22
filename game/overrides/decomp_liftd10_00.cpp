@@ -18365,7 +18365,7 @@ void setScrDemoMangerFinishCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 void eventBgmAllClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145AEB0u, 0)) { eventBgmAllClose_0x145aeb0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x136AA50u, lift_d1::bgmStop), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(eventBgmAllClose, a2_5); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 5)}; A3_IN(339); const uint32_t a2_r = typed::eventBgmAllClose(rdram, runtime, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x136AA50u, lift_d1::bgmStop), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(eventBgmAllClose, a2_5); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[12]), Ps2GprU64(ctx, 5)}; A3_IN(334); const uint32_t a2_r = typed::eventBgmAllClose(rdram, runtime, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), s0 = Ps2GprU32(ctx, 16), s1 = Ps2GprU32(ctx, 17), s2 = Ps2GprU32(ctx, 18), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     float f12 = ctx->f[12];

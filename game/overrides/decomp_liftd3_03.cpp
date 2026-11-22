@@ -3906,7 +3906,7 @@ L_141348c:
 void gamecore_sub_014140B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14140B8u, 0)) { gamecore_sub_014140B8_0x14140b8(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x14144D0u, lift_d1::gamecore_sub_014144D0) && A3_HOLDS(0x14144F0u, lift_d1::gamecore_sub_014144F0), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f0 = ctx->f[0]; const float a2_f20 = ctx->f[20]; A3_CHK(gamecore_sub_014140B8, a2_4, a2_5, a2_f0, a2_f20); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[20])}; A3_IN(335); const float a2_r = typed::gamecore_sub_014140B8(rdram, runtime, a2_4, a2_5, a2_f0, a2_f20, a3_xo); A3_OUT(); ctx->f[0] = a2_r; ctx->f[20] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x14144D0u, lift_d1::gamecore_sub_014144D0) && A3_HOLDS(0x14144F0u, lift_d1::gamecore_sub_014144F0), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f0 = ctx->f[0]; const float a2_f20 = ctx->f[20]; A3_CHK(gamecore_sub_014140B8, a2_4, a2_5, a2_f0, a2_f20); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[20])}; A3_IN(330); const float a2_r = typed::gamecore_sub_014140B8(rdram, runtime, a2_4, a2_5, a2_f0, a2_f20, a3_xo); A3_OUT(); ctx->f[0] = a2_r; ctx->f[20] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), a1 = Ps2GprU32(ctx, 5), s1 = Ps2GprU32(ctx, 17), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14], f20 = ctx->f[20];
@@ -9613,7 +9613,7 @@ void is_hit_leave_plane_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 void is_view_angle_zoom_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1425518u, 0)) { is_view_angle_zoom_game_camera_0x1425518(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x1342EF8u, lift_d1::GAMEUTIL_is_push_or_down_1p_button), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(is_view_angle_zoom_game_camera, a2_4); A3_IN(336); const uint64_t a2_r = typed::is_view_angle_zoom_game_camera(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x1342EF8u, lift_d1::GAMEUTIL_is_push_or_down_1p_button), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(is_view_angle_zoom_game_camera, a2_4); A3_IN(331); const uint64_t a2_r = typed::is_view_angle_zoom_game_camera(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)326 << 16))));

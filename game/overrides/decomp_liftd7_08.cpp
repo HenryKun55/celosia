@@ -27709,7 +27709,7 @@ L_13eeb50:
 void gamecore_sub_013EF210(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13EF210u, 0)) { gamecore_sub_013EF210_0x13ef210(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(gamecore_sub_013EF210, a2_4, a2_5, a2_6); A3_IN(283); const a1::RetVF a2_r = typed::gamecore_sub_013EF210(rdram, runtime, a2_4, a2_5, a2_6); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(gamecore_sub_013EF210, a2_4, a2_5, a2_6); A3_IN(278); const a1::RetVF a2_r = typed::gamecore_sub_013EF210(rdram, runtime, a2_4, a2_5, a2_6); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t1 = Ps2GprU32(ctx, 9), t3 = Ps2GprU32(ctx, 11), t4 = Ps2GprU32(ctx, 12), t6 = Ps2GprU32(ctx, 14), t7 = Ps2GprU32(ctx, 15), t8 = Ps2GprU32(ctx, 24), t9 = Ps2GprU32(ctx, 25), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), t0 = Ps2GprU64(ctx, 8), t2 = Ps2GprU64(ctx, 10), t5 = Ps2GprU64(ctx, 13);
     float f0 = ctx->f[0];
@@ -30995,7 +30995,7 @@ L_13f94f8:
 void initWeaponSpriteStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13F95A0u, 0)) { initWeaponSpriteStatus_0x13f95a0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(initWeaponSpriteStatus); A3_IN(292); const a1::RetVF a2_r = typed::initWeaponSpriteStatus(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(initWeaponSpriteStatus); A3_IN(287); const a1::RetVF a2_r = typed::initWeaponSpriteStatus(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
     v0 = 0x1200000u;
@@ -34309,7 +34309,7 @@ void gamecore_sub_013FF298(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 void checkChangeWeaponTypeSwordToOther(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13FF4A8u, 0)) { checkChangeWeaponTypeSwordToOther_0x13ff4a8(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x13883B0u, lift_d1::fadeout_weakpoint_effect) && A3_HOLDS(0x13883F8u, lift_d1::cancel_fadeout_weakpoint_effect), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(checkChangeWeaponTypeSwordToOther, a2_4, a2_5); A3_IN(333); const uint64_t a2_r = typed::checkChangeWeaponTypeSwordToOther(rdram, runtime, a2_4, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x13883B0u, lift_d1::fadeout_weakpoint_effect) && A3_HOLDS(0x13883F8u, lift_d1::cancel_fadeout_weakpoint_effect), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(checkChangeWeaponTypeSwordToOther, a2_4, a2_5); A3_IN(328); const uint64_t a2_r = typed::checkChangeWeaponTypeSwordToOther(rdram, runtime, a2_4, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     bool df_sp = false;

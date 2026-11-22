@@ -1,7 +1,6 @@
-# a3_typed.txt: round A3's typed functions (tools/typed_lift2.py stage 3; docs/decomp_a3.md). 340 converted; tiers {'frame depth 1': 14, 'frame leaf': 2, 'leaf': 168, 'loop frame depth 1': 7, 'loop frame leaf': 3, 'loop leaf': 146}; returns {'uint32_t': 155, 'uint64_t': 118, 'void': 14, 'float': 21, 'a1::RetVF': 32}
+# a3_typed.txt: round A3's typed functions (tools/typed_lift2.py stage 3; docs/decomp_a3.md). 335 converted; tiers {'frame depth 1': 14, 'frame leaf': 2, 'leaf': 168, 'loop frame depth 1': 7, 'loop frame leaf': 3, 'loop leaf': 141}; returns {'uint32_t': 153, 'uint64_t': 116, 'void': 13, 'float': 21, 'a1::RetVF': 32}
 # address name | C signature | dropped scratch slots | tier | PS2 float helpers
 001004b8 RelocateElfInfoHeader | uint32_t RelocateElfInfoHeader(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g3,g4,g5,g6,g7,g8,g9 | loop2 depth0 | 
-001018b8 RelocateSelfSymbol | uint32_t RelocateSelfSymbol(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g10,g11,g12,g3,g4,g6,g7,g8,g9 | loop1 depth0 | 
 00102730 LoaderSysEntryExternalIntcHandlerList | uint32_t LoaderSysEntryExternalIntcHandlerList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g6,g7,g8,g9 | loop1 depth0 | 
 00102790 LoaderSysEntryExternalThreadList | uint32_t LoaderSysEntryExternalThreadList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7,g8 | loop1 depth0 | 
 001027e0 LoaderSysEntryExternalSemaList | uint32_t LoaderSysEntryExternalSemaList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g5,g6,g7,g8 | loop1 depth0 | 
@@ -170,7 +169,6 @@
 010c9888 manager_sub_010C9888 | uint64_t manager_sub_010C9888(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f0,f1,f2,g1,g3,g5,g6,g7,g8,g9,xfcr31 | depth0 | a1f::le,a1f::lt
 010cc4f0 InitScriptControlButtonCallBack | uint64_t InitScriptControlButtonCallBack(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
 010cd400 manager_sub_010CD400 | void manager_sub_010CD400(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, float f12, uint64_t *xo = nullptr) | f0,f1,f2,f3,f4,f5,g2,g3,g5,xfcr31 | depth0 | a1f::add,a1f::div,a1f::le,a1f::lt,a1f::mul,a1f::sub
-010d2848 OptimizeMotionOrient | uint64_t OptimizeMotionOrient(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g12,g13,g14,g3,g4,g5,g6,g7,g8,g9,xhi,xlo | loop1 depth0 | 
 010d2b18 RequestCharacterClassMotionChangeWithParam | uint32_t RequestCharacterClassMotionChangeWithParam(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, float f12, uint64_t *xo = nullptr) | g3,g5 | depth0 | 
 010de398 charrootdyn_getLimitMode | uint32_t charrootdyn_getLimitMode(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | f0 | depth0 | 
 010e2170 resetExpressionLocalHeightDiff | uint32_t resetExpressionLocalHeightDiff(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3,g5 | loop1 depth0 | 
@@ -185,7 +183,6 @@
 01101650 InitBinarySize | uint32_t InitBinarySize(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt) | g3 | loop1 depth0 | 
 0110a670 SetScriptAnimationGlobalBaseInfo | uint64_t SetScriptAnimationGlobalBaseInfo(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6,g7 | depth0 | 
 0110a7d8 CopyScriptAnimationWindGeometryPointer | uint64_t CopyScriptAnimationWindGeometryPointer(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8 | loop1 depth0 | 
-011117c0 manager_sub_011117C0 | uint64_t manager_sub_011117C0(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g10,g11,g12,g13,g3,g4,g5,g6,g7,g9 | loop2 depth0 | 
 01111998 GetSpriteMenuClass | uint64_t GetSpriteMenuClass(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g4 | depth0 | 
 011119d8 SpriteMenuSetPadEventCallback | uint32_t SpriteMenuSetPadEventCallback(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | depth0 | 
 01111a08 SpriteSubMenuSetPadEventCallback | uint32_t SpriteSubMenuSetPadEventCallback(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | g3,g4,g7 | depth0 | 
@@ -215,7 +212,6 @@
 011418d8 manager_sub_011418D8 | uint32_t manager_sub_011418D8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint32_t a2, uint64_t *xo = nullptr) | f0,g3 | depth0 | 
 01141e80 manager_sub_01141E80 | uint32_t manager_sub_01141E80(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
 01145ba8 get_particle_parameter_blend_disp | a1::RetVF get_particle_parameter_blend_disp(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1, uint64_t a2, uint64_t a3, float f12, uint64_t *xo = nullptr) | f1,f2,f3,g1,g3,g5,g8,g9,xfcr31 | depth0 | a1f::add,a1f::addFinite,a1f::lt,a1f::mul,a1f::sub
-011479b0 InitModifiedManager | void InitModifiedManager(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1, uint64_t *xo = nullptr) | g2,g3,g6 | loop1 depth0 | 
 01147a78 InitTwoWayLink | void InitTwoWayLink(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) |  | depth0 | 
 01147a88 AddTwoWayLinkNext | uint32_t AddTwoWayLinkNext(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint32_t a1) |  | depth0 | 
 01147ab0 DeleteTwoWayLink | uint32_t DeleteTwoWayLink(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0) | g3 | depth0 | 
@@ -223,7 +219,6 @@
 0115a060 dsysFileInit | uint32_t dsysFileInit(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t *xo = nullptr) | g3,g4,g5,g6,g7,g8,g9 | loop1 depth0 | 
 0115cf90 sheetFileGetDataAdrs | uint32_t sheetFileGetDataAdrs(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t *xo = nullptr) | g3,g4,g5,xhi,xlo | depth0 | 
 0115ec60 sheetMgrSheetHeaderSearchSheetDataObj | uint32_t sheetMgrSheetHeaderSearchSheetDataObj(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32_t a0, uint64_t a1) | g3,g4 | loop1 depth0 | 
-0115ed70 sheetMgrCheckSegInitList | uint32_t sheetMgrCheckSegInitList(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0) | g3 | loop1 depth0 | 
 011629e8 manager_sub_011629E8 | uint32_t manager_sub_011629E8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g3,g5,g6 | loop1 depth0 | 
 01163848 get_hit_region_ofst_camera_region | float get_hit_region_ofst_camera_region(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t *xo = nullptr) | g2,g3 | depth0 | 
 011644d0 set_scissor_screen_size | uint32_t set_scissor_screen_size(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint64_t *xo = nullptr) | g4,g5 | depth0 | 

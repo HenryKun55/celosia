@@ -3474,7 +3474,7 @@ L_iu_1138e6c:
 void GetClothWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1139128u, 0)) { GetClothWorkSize_0x1139128(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(GetClothWorkSize, a2_4); A3_IN(207); const uint32_t a2_r = typed::GetClothWorkSize(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(GetClothWorkSize, a2_4); A3_IN(204); const uint32_t a2_r = typed::GetClothWorkSize(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), a3 = Ps2GprU32(ctx, 7), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6);
     uint64_t hi = ctx->hi;
@@ -5498,7 +5498,7 @@ void sheetHeaderObjSearchSheetId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
 void sheetMgrSheetHeaderSearchSheetDataObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x115EC60u, 0)) { sheetMgrSheetHeaderSearchSheetDataObj_0x115ec60(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(sheetMgrSheetHeaderSearchSheetDataObj, a2_4, a2_5); A3_IN(222); const uint32_t a2_r = typed::sheetMgrSheetHeaderSearchSheetDataObj(rdram, runtime, a2_4, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(sheetMgrSheetHeaderSearchSheetDataObj, a2_4, a2_5); A3_IN(218); const uint32_t a2_r = typed::sheetMgrSheetHeaderSearchSheetDataObj(rdram, runtime, a2_4, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     bool df_v0 = false, df_v1 = false;

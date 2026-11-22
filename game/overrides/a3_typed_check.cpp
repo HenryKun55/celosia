@@ -1247,7 +1247,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x10845b0u: ref::is_reach_src_value_double_spring_interp_cntrl(rdram, ctx, runtime); break;
     case 0x14269d0u: ref::gamecore_sub_014269D0(rdram, ctx, runtime); break;
     case 0x1004b8u: ref::RelocateElfInfoHeader(rdram, ctx, runtime); break;
-    case 0x1018b8u: ref::RelocateSelfSymbol(rdram, ctx, runtime); break;
     case 0x102730u: ref::LoaderSysEntryExternalIntcHandlerList(rdram, ctx, runtime); break;
     case 0x102790u: ref::LoaderSysEntryExternalThreadList(rdram, ctx, runtime); break;
     case 0x1027e0u: ref::LoaderSysEntryExternalSemaList(rdram, ctx, runtime); break;
@@ -1416,7 +1415,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x10c9888u: ref::manager_sub_010C9888(rdram, ctx, runtime); break;
     case 0x10cc4f0u: ref::InitScriptControlButtonCallBack(rdram, ctx, runtime); break;
     case 0x10cd400u: ref::manager_sub_010CD400(rdram, ctx, runtime); break;
-    case 0x10d2848u: ref::OptimizeMotionOrient(rdram, ctx, runtime); break;
     case 0x10d2b18u: ref::RequestCharacterClassMotionChangeWithParam(rdram, ctx, runtime); break;
     case 0x10de398u: ref::charrootdyn_getLimitMode(rdram, ctx, runtime); break;
     case 0x10e2170u: ref::resetExpressionLocalHeightDiff(rdram, ctx, runtime); break;
@@ -1431,7 +1429,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x1101650u: ref::InitBinarySize(rdram, ctx, runtime); break;
     case 0x110a670u: ref::SetScriptAnimationGlobalBaseInfo(rdram, ctx, runtime); break;
     case 0x110a7d8u: ref::CopyScriptAnimationWindGeometryPointer(rdram, ctx, runtime); break;
-    case 0x11117c0u: ref::manager_sub_011117C0(rdram, ctx, runtime); break;
     case 0x1111998u: ref::GetSpriteMenuClass(rdram, ctx, runtime); break;
     case 0x11119d8u: ref::SpriteMenuSetPadEventCallback(rdram, ctx, runtime); break;
     case 0x1111a08u: ref::SpriteSubMenuSetPadEventCallback(rdram, ctx, runtime); break;
@@ -1461,7 +1458,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x11418d8u: ref::manager_sub_011418D8(rdram, ctx, runtime); break;
     case 0x1141e80u: ref::manager_sub_01141E80(rdram, ctx, runtime); break;
     case 0x1145ba8u: ref::get_particle_parameter_blend_disp(rdram, ctx, runtime); break;
-    case 0x11479b0u: ref::InitModifiedManager(rdram, ctx, runtime); break;
     case 0x1147a78u: ref::InitTwoWayLink(rdram, ctx, runtime); break;
     case 0x1147a88u: ref::AddTwoWayLinkNext(rdram, ctx, runtime); break;
     case 0x1147ab0u: ref::DeleteTwoWayLink(rdram, ctx, runtime); break;
@@ -1469,7 +1465,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x115a060u: ref::dsysFileInit(rdram, ctx, runtime); break;
     case 0x115cf90u: ref::sheetFileGetDataAdrs(rdram, ctx, runtime); break;
     case 0x115ec60u: ref::sheetMgrSheetHeaderSearchSheetDataObj(rdram, ctx, runtime); break;
-    case 0x115ed70u: ref::sheetMgrCheckSegInitList(rdram, ctx, runtime); break;
     case 0x11629e8u: ref::manager_sub_011629E8(rdram, ctx, runtime); break;
     case 0x1163848u: ref::get_hit_region_ofst_camera_region(rdram, ctx, runtime); break;
     case 0x11644d0u: ref::set_scissor_screen_size(rdram, ctx, runtime); break;
@@ -1603,21 +1598,9 @@ void RelocateElfInfoHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     if (!ckLeg([&] { v0 = a1_sx64(ty::RelocateElfInfoHeader(rdram, runtime, p4, xo)); })) return;
     ckEnd(0, ctx, c, 1, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
-void RelocateSelfSymbol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
-{
-    if (!ckBegin(1, rdram, runtime)) return;
-    R5900Context &c = ckCtx(ctx);
-    if (!ckLeg([&] { ref::RelocateSelfSymbol(rdram, &c, runtime); })) return;
-    ckMid();
-    uint64_t v0 = 0u;
-    float f0 = 0.0f;
-    uint64_t xo[6] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
-    if (!ckLeg([&] { v0 = a1_sx64(ty::RelocateSelfSymbol(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(1, ctx, c, 1, v0, f0, 0x1fd8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4] || Ps2GprU64(&c, 11) != xo[5]);
-}
 void LoaderSysEntryExternalIntcHandlerList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(2, rdram, runtime)) return;
+    if (!ckBegin(1, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysEntryExternalIntcHandlerList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1625,11 +1608,11 @@ void LoaderSysEntryExternalIntcHandlerList(uint8_t *rdram, R5900Context *ctx, PS
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysEntryExternalIntcHandlerList(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(2, ctx, c, 1, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(1, ctx, c, 1, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void LoaderSysEntryExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(3, rdram, runtime)) return;
+    if (!ckBegin(2, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysEntryExternalThreadList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1637,22 +1620,22 @@ void LoaderSysEntryExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Runt
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysEntryExternalThreadList(rdram, runtime, p4, xo)); })) return;
-    ckEnd(3, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(2, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void LoaderSysEntryExternalSemaList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(4, rdram, runtime)) return;
+    if (!ckBegin(3, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysEntryExternalSemaList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysEntryExternalSemaList(rdram, runtime, p4)); })) return;
-    ckEnd(4, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, false);
+    ckEnd(3, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, false);
 }
 void LoaderSysEntryExternalIopMemoryList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(5, rdram, runtime)) return;
+    if (!ckBegin(4, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysEntryExternalIopMemoryList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1660,22 +1643,22 @@ void LoaderSysEntryExternalIopMemoryList(uint8_t *rdram, R5900Context *ctx, PS2R
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::LoaderSysEntryExternalIopMemoryList(rdram, runtime, p4, xo)); })) return;
-    ckEnd(5, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(4, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void LoaderSysDeleteExternalIntcHandlerList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(6, rdram, runtime)) return;
+    if (!ckBegin(5, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysDeleteExternalIntcHandlerList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::LoaderSysDeleteExternalIntcHandlerList(rdram, runtime, p4)); })) return;
-    ckEnd(6, ctx, c, 2, v0, f0, 0x68u, 0x0u, false);
+    ckEnd(5, ctx, c, 2, v0, f0, 0x68u, 0x0u, false);
 }
 void LoaderSysDeleteExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(7, rdram, runtime)) return;
+    if (!ckBegin(6, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysDeleteExternalThreadList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1683,11 +1666,11 @@ void LoaderSysDeleteExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::LoaderSysDeleteExternalThreadList(rdram, runtime, p4, xo)); })) return;
-    ckEnd(7, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(6, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void LoaderSysDeleteExternalSemaList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(8, rdram, runtime)) return;
+    if (!ckBegin(7, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysDeleteExternalSemaList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1695,11 +1678,11 @@ void LoaderSysDeleteExternalSemaList(uint8_t *rdram, R5900Context *ctx, PS2Runti
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::LoaderSysDeleteExternalSemaList(rdram, runtime, p4, xo)); })) return;
-    ckEnd(8, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(7, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void LoaderSysDeleteExternalIopMemoryList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(9, rdram, runtime)) return;
+    if (!ckBegin(8, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysDeleteExternalIopMemoryList(rdram, &c, runtime); })) return;
     ckMid();
@@ -1707,55 +1690,55 @@ void LoaderSysDeleteExternalIopMemoryList(uint8_t *rdram, R5900Context *ctx, PS2
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::LoaderSysDeleteExternalIopMemoryList(rdram, runtime, p4, xo)); })) return;
-    ckEnd(9, ctx, c, 2, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(8, ctx, c, 2, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void LoaderSysInitExternalIntcHandlerList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(10, rdram, runtime)) return;
+    if (!ckBegin(9, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysInitExternalIntcHandlerList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysInitExternalIntcHandlerList(rdram, runtime)); })) return;
-    ckEnd(10, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(9, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void LoaderSysInitExternalSemaList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(11, rdram, runtime)) return;
+    if (!ckBegin(10, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysInitExternalSemaList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysInitExternalSemaList(rdram, runtime)); })) return;
-    ckEnd(11, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(10, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void LoaderSysInitExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(12, rdram, runtime)) return;
+    if (!ckBegin(11, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysInitExternalThreadList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysInitExternalThreadList(rdram, runtime)); })) return;
-    ckEnd(12, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(11, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void LoaderSysInitExternalIopMemoryList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(13, rdram, runtime)) return;
+    if (!ckBegin(12, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysInitExternalIopMemoryList(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::LoaderSysInitExternalIopMemoryList(rdram, runtime)); })) return;
-    ckEnd(13, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(12, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void LoaderSysGetMemoryInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p28)
 {
-    if (!ckBegin(14, rdram, runtime)) return;
+    if (!ckBegin(13, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::LoaderSysGetMemoryInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -1763,110 +1746,110 @@ void LoaderSysGetMemoryInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::LoaderSysGetMemoryInfo(rdram, runtime, p4, p28, xo)); })) return;
-    ckEnd(14, ctx, c, 2, v0, f0, 0x1ff8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
+    ckEnd(13, ctx, c, 2, v0, f0, 0x1ff8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
 }
 void ScrollDisplay(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p28)
 {
-    if (!ckBegin(15, rdram, runtime)) return;
+    if (!ckBegin(14, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ScrollDisplay(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::ScrollDisplay(rdram, runtime, p28)); })) return;
-    ckEnd(15, ctx, c, 2, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(14, ctx, c, 2, v0, f0, 0xf8u, 0x0u, false);
 }
 void ClearDisplay(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p28)
 {
-    if (!ckBegin(16, rdram, runtime)) return;
+    if (!ckBegin(15, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ClearDisplay(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::ClearDisplay(rdram, runtime, p28)); })) return;
-    ckEnd(16, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
+    ckEnd(15, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
 }
 void sub_00109640(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(17, rdram, runtime)) return;
+    if (!ckBegin(16, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00109640(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_00109640(rdram, runtime, p4, p5)); })) return;
-    ckEnd(17, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(16, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
 }
 void sub_0010F370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(18, rdram, runtime)) return;
+    if (!ckBegin(17, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0010F370(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0010F370(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(18, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(17, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
 }
 void sub_0010FC08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(19, rdram, runtime)) return;
+    if (!ckBegin(18, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0010FC08(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0010FC08(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(19, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(18, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
 }
 void sub_0010FC40(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(20, rdram, runtime)) return;
+    if (!ckBegin(19, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0010FC40(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sub_0010FC40(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(20, ctx, c, 2, v0, f0, 0x10u, 0x0u, false);
+    ckEnd(19, ctx, c, 2, v0, f0, 0x10u, 0x0u, false);
 }
 void sub_0010FE50(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(21, rdram, runtime)) return;
+    if (!ckBegin(20, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0010FE50(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0010FE50(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(21, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(20, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
 }
 void sub_0010FFC0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint64_t p6)
 {
-    if (!ckBegin(22, rdram, runtime)) return;
+    if (!ckBegin(21, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0010FFC0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0010FFC0(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(22, ctx, c, 1, v0, f0, 0xb8u, 0x0u, false);
+    ckEnd(21, ctx, c, 1, v0, f0, 0xb8u, 0x0u, false);
 }
 void sub_00110270(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(23, rdram, runtime)) return;
+    if (!ckBegin(22, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00110270(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_00110270(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(23, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(22, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
 }
 void sub_00110910(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(24, rdram, runtime)) return;
+    if (!ckBegin(23, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00110910(rdram, &c, runtime); })) return;
     ckMid();
@@ -1874,11 +1857,11 @@ void sub_00110910(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::sub_00110910(rdram, runtime, p4, xo)); })) return;
-    ckEnd(24, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5]);
+    ckEnd(23, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5]);
 }
 void iGetTimerSystemTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(25, rdram, runtime)) return;
+    if (!ckBegin(24, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iGetTimerSystemTime(rdram, &c, runtime); })) return;
     ckMid();
@@ -1886,11 +1869,11 @@ void iGetTimerSystemTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::iGetTimerSystemTime(rdram, runtime, xo)); })) return;
-    ckEnd(25, ctx, c, 2, v0, f0, 0x718u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
+    ckEnd(24, ctx, c, 2, v0, f0, 0x718u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
 void iAllocTimerCounter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(26, rdram, runtime)) return;
+    if (!ckBegin(25, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iAllocTimerCounter(rdram, &c, runtime); })) return;
     ckMid();
@@ -1898,11 +1881,11 @@ void iAllocTimerCounter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iAllocTimerCounter(rdram, runtime, xo)); })) return;
-    ckEnd(26, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(25, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void iGetTimerBaseTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(27, rdram, runtime)) return;
+    if (!ckBegin(26, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iGetTimerBaseTime(rdram, &c, runtime); })) return;
     ckMid();
@@ -1910,22 +1893,22 @@ void iGetTimerBaseTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::iGetTimerBaseTime(rdram, runtime, p4, xo)); })) return;
-    ckEnd(27, ctx, c, 2, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(26, ctx, c, 2, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void ps2__InitAlarm(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(28, rdram, runtime)) return;
+    if (!ckBegin(27, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2__InitAlarm(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::ps2__InitAlarm(rdram, runtime)); })) return;
-    ckEnd(28, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(27, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
 }
 void sceVif1PkAddGsData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(29, rdram, runtime)) return;
+    if (!ckBegin(28, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sceVif1PkAddGsData(rdram, &c, runtime); })) return;
     ckMid();
@@ -1933,11 +1916,11 @@ void sceVif1PkAddGsData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::sceVif1PkAddGsData(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(29, ctx, c, 2, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(28, ctx, c, 2, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void sceGsSetDefAlphaEnv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(30, rdram, runtime)) return;
+    if (!ckBegin(29, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sceGsSetDefAlphaEnv(rdram, &c, runtime); })) return;
     ckMid();
@@ -1945,11 +1928,11 @@ void sceGsSetDefAlphaEnv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::sceGsSetDefAlphaEnv(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(30, ctx, c, 2, v0, f0, 0x3e8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(29, ctx, c, 2, v0, f0, 0x3e8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void sceGsSetHalfOffset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7)
 {
-    if (!ckBegin(31, rdram, runtime)) return;
+    if (!ckBegin(30, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sceGsSetHalfOffset(rdram, &c, runtime); })) return;
     ckMid();
@@ -1957,22 +1940,22 @@ void sceGsSetHalfOffset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::sceGsSetHalfOffset(rdram, runtime, p4, p5, p6, p7, xo)); })) return;
-    ckEnd(31, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(30, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void sub_001157D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(32, rdram, runtime)) return;
+    if (!ckBegin(31, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_001157D8(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sub_001157D8(rdram, runtime, p4, p5)); })) return;
-    ckEnd(32, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, false);
+    ckEnd(31, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, false);
 }
 void sub_0011BAE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(33, rdram, runtime)) return;
+    if (!ckBegin(32, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0011BAE8(rdram, &c, runtime); })) return;
     ckMid();
@@ -1980,11 +1963,11 @@ void sub_0011BAE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0011BAE8(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(33, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(32, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void sub_0011BBB8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(34, rdram, runtime)) return;
+    if (!ckBegin(33, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0011BBB8(rdram, &c, runtime); })) return;
     ckMid();
@@ -1992,22 +1975,22 @@ void sub_0011BBB8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_0011BBB8(rdram, runtime, p4, xo)); })) return;
-    ckEnd(34, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(33, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void sub_0011BF68(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(35, rdram, runtime)) return;
+    if (!ckBegin(34, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_0011BF68(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sub_0011BF68(rdram, runtime, p4)); })) return;
-    ckEnd(35, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(34, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
 }
 void _sceMcFatInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(36, rdram, runtime)) return;
+    if (!ckBegin(35, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_sceMcFatInit(rdram, &c, runtime); })) return;
     ckMid();
@@ -2015,11 +1998,11 @@ void _sceMcFatInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::_sceMcFatInit(rdram, runtime, xo)); })) return;
-    ckEnd(36, ctx, c, 1, v0, f0, 0x5f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
+    ckEnd(35, ctx, c, 1, v0, f0, 0x5f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
 void _sceMcFatInit2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(37, rdram, runtime)) return;
+    if (!ckBegin(36, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_sceMcFatInit2(rdram, &c, runtime); })) return;
     ckMid();
@@ -2027,44 +2010,44 @@ void _sceMcFatInit2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::_sceMcFatInit2(rdram, runtime, p4, xo)); })) return;
-    ckEnd(37, ctx, c, 1, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
+    ckEnd(36, ctx, c, 1, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
 }
 void _sceMcpInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(38, rdram, runtime)) return;
+    if (!ckBegin(37, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_sceMcpInit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::_sceMcpInit(rdram, runtime)); })) return;
-    ckEnd(38, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(37, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
 }
 void _sceMcpIsSpeckOutBlock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(39, rdram, runtime)) return;
+    if (!ckBegin(38, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_sceMcpIsSpeckOutBlock(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::_sceMcpIsSpeckOutBlock(rdram, runtime, p4, p5)); })) return;
-    ckEnd(39, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(38, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void sub_00121EC0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(40, rdram, runtime)) return;
+    if (!ckBegin(39, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00121EC0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sub_00121EC0(rdram, runtime)); })) return;
-    ckEnd(40, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(39, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
 }
 void sceNetcnfifGetResult(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(41, rdram, runtime)) return;
+    if (!ckBegin(40, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sceNetcnfifGetResult(rdram, &c, runtime); })) return;
     ckMid();
@@ -2072,22 +2055,22 @@ void sceNetcnfifGetResult(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::sceNetcnfifGetResult(rdram, runtime, p4, xo)); })) return;
-    ckEnd(41, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(40, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void sub_00125080(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(42, rdram, runtime)) return;
+    if (!ckBegin(41, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00125080(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sub_00125080(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(42, ctx, c, 2, v0, f0, 0x1fb8u, 0x0u, false);
+    ckEnd(41, ctx, c, 2, v0, f0, 0x1fb8u, 0x0u, false);
 }
 void sub_00125998(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(43, rdram, runtime)) return;
+    if (!ckBegin(42, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00125998(rdram, &c, runtime); })) return;
     ckMid();
@@ -2095,22 +2078,22 @@ void sub_00125998(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_00125998(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(43, ctx, c, 1, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(42, ctx, c, 1, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void sub_001259E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(44, rdram, runtime)) return;
+    if (!ckBegin(43, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_001259E0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sub_001259E0(rdram, runtime, p4, p5)); })) return;
-    ckEnd(44, ctx, c, 1, v0, f0, 0x1d8u, 0x0u, false);
+    ckEnd(43, ctx, c, 1, v0, f0, 0x1d8u, 0x0u, false);
 }
 void sub_00125A38(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(45, rdram, runtime)) return;
+    if (!ckBegin(44, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00125A38(rdram, &c, runtime); })) return;
     ckMid();
@@ -2118,11 +2101,11 @@ void sub_00125A38(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::sub_00125A38(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(45, ctx, c, 2, v0, f0, 0x300fff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
+    ckEnd(44, ctx, c, 2, v0, f0, 0x300fff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
 }
 void sub_001262B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(46, rdram, runtime)) return;
+    if (!ckBegin(45, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_001262B8(rdram, &c, runtime); })) return;
     ckMid();
@@ -2130,11 +2113,11 @@ void sub_001262B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::sub_001262B8(rdram, runtime, p4, xo)); })) return;
-    ckEnd(46, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(45, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void sub_00126388(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(47, rdram, runtime)) return;
+    if (!ckBegin(46, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sub_00126388(rdram, &c, runtime); })) return;
     ckMid();
@@ -2142,11 +2125,11 @@ void sub_00126388(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::sub_00126388(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(47, ctx, c, 2, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(46, ctx, c, 2, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void ps2___unpack_d(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(48, rdram, runtime)) return;
+    if (!ckBegin(47, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2___unpack_d(rdram, &c, runtime); })) return;
     ckMid();
@@ -2154,11 +2137,11 @@ void ps2___unpack_d(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::ps2___unpack_d(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(48, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(47, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void ps2__Bfree(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(49, rdram, runtime)) return;
+    if (!ckBegin(48, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2__Bfree(rdram, &c, runtime); })) return;
     ckMid();
@@ -2166,11 +2149,11 @@ void ps2__Bfree(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { ty::ps2__Bfree(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(49, ctx, c, 0, v0, f0, 0x1cu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(48, ctx, c, 0, v0, f0, 0x1cu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void ps2___mcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(50, rdram, runtime)) return;
+    if (!ckBegin(49, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2___mcmp(rdram, &c, runtime); })) return;
     ckMid();
@@ -2178,11 +2161,11 @@ void ps2___mcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::ps2___mcmp(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(50, ctx, c, 1, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4]);
+    ckEnd(49, ctx, c, 1, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4]);
 }
 void _ulp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(51, rdram, runtime)) return;
+    if (!ckBegin(50, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_ulp(rdram, &c, runtime); })) return;
     ckMid();
@@ -2190,11 +2173,11 @@ void _ulp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::_ulp(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(51, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(50, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void iosCdStStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(52, rdram, runtime)) return;
+    if (!ckBegin(51, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosCdStStart(rdram, &c, runtime); })) return;
     ckMid();
@@ -2202,11 +2185,11 @@ void iosCdStStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::iosCdStStart(rdram, runtime, p4, xo)); })) return;
-    ckEnd(52, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(51, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void iosGetTCountExtension(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(53, rdram, runtime)) return;
+    if (!ckBegin(52, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosGetTCountExtension(rdram, &c, runtime); })) return;
     ckMid();
@@ -2214,11 +2197,11 @@ void iosGetTCountExtension(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::iosGetTCountExtension(rdram, runtime, xo)); })) return;
-    ckEnd(53, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(52, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void iosResetCpuRapCounter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(54, rdram, runtime)) return;
+    if (!ckBegin(53, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosResetCpuRapCounter(rdram, &c, runtime); })) return;
     ckMid();
@@ -2226,11 +2209,11 @@ void iosResetCpuRapCounter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iosResetCpuRapCounter(rdram, runtime, p4, xo)); })) return;
-    ckEnd(54, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(53, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void iosPadRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(55, rdram, runtime)) return;
+    if (!ckBegin(54, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosPadRead(rdram, &c, runtime); })) return;
     ckMid();
@@ -2238,11 +2221,11 @@ void iosPadRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::iosPadRead(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(55, ctx, c, 2, v0, f0, 0x1fau, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(54, ctx, c, 2, v0, f0, 0x1fau, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void iosMemToSprDmaAdrCopy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(56, rdram, runtime)) return;
+    if (!ckBegin(55, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosMemToSprDmaAdrCopy(rdram, &c, runtime); })) return;
     ckMid();
@@ -2250,33 +2233,33 @@ void iosMemToSprDmaAdrCopy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iosMemToSprDmaAdrCopy(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(56, ctx, c, 1, v0, f0, 0xf98u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(55, ctx, c, 1, v0, f0, 0xf98u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
 }
 void Init_Shock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(57, rdram, runtime)) return;
+    if (!ckBegin(56, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Init_Shock(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::Init_Shock(rdram, runtime)); })) return;
-    ckEnd(57, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, false);
+    ckEnd(56, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, false);
 }
 void kernel_sub_001B40D0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(58, rdram, runtime)) return;
+    if (!ckBegin(57, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001B40D0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::kernel_sub_001B40D0(rdram, runtime, p4)); })) return;
-    ckEnd(58, ctx, c, 1, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(57, ctx, c, 1, v0, f0, 0x78u, 0x0u, false);
 }
 void iosLoaderGetFileSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(59, rdram, runtime)) return;
+    if (!ckBegin(58, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosLoaderGetFileSize(rdram, &c, runtime); })) return;
     ckMid();
@@ -2284,11 +2267,11 @@ void iosLoaderGetFileSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iosLoaderGetFileSize(rdram, runtime, p4, xo)); })) return;
-    ckEnd(59, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(58, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void initDldSys(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(60, rdram, runtime)) return;
+    if (!ckBegin(59, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initDldSys(rdram, &c, runtime); })) return;
     ckMid();
@@ -2296,11 +2279,11 @@ void initDldSys(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::initDldSys(rdram, runtime, xo)); })) return;
-    ckEnd(60, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(59, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void kernel_sub_001BA690(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(61, rdram, runtime)) return;
+    if (!ckBegin(60, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001BA690(rdram, &c, runtime); })) return;
     ckMid();
@@ -2308,11 +2291,11 @@ void kernel_sub_001BA690(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::kernel_sub_001BA690(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(61, ctx, c, 3, v0, f0, 0x1ffeu, 0x3eu, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(60, ctx, c, 3, v0, f0, 0x1ffeu, 0x3eu, Ps2GprU64(&c, 2) != xo[0]);
 }
 void iosGetTableCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(62, rdram, runtime)) return;
+    if (!ckBegin(61, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosGetTableCos(rdram, &c, runtime); })) return;
     ckMid();
@@ -2320,11 +2303,11 @@ void iosGetTableCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { const a1::RetVF r = ty::iosGetTableCos(rdram, runtime, p4, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(62, ctx, c, 4, v0, f0, 0x1au, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(61, ctx, c, 4, v0, f0, 0x1au, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void iosSetDCViewPortCenter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8, uint64_t p9, uint64_t p10)
 {
-    if (!ckBegin(63, rdram, runtime)) return;
+    if (!ckBegin(62, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosSetDCViewPortCenter(rdram, &c, runtime); })) return;
     ckMid();
@@ -2332,11 +2315,11 @@ void iosSetDCViewPortCenter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::iosSetDCViewPortCenter(rdram, runtime, p4, p5, p6, p7, p8, p9, p10, xo)); })) return;
-    ckEnd(63, ctx, c, 2, v0, f0, 0x1e08u, 0x0u, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1] || Ps2GprU64(&c, 11) != xo[2]);
+    ckEnd(62, ctx, c, 2, v0, f0, 0x1e08u, 0x0u, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1] || Ps2GprU64(&c, 11) != xo[2]);
 }
 void iosUsedPacketBufferSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(64, rdram, runtime)) return;
+    if (!ckBegin(63, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosUsedPacketBufferSize(rdram, &c, runtime); })) return;
     ckMid();
@@ -2344,11 +2327,11 @@ void iosUsedPacketBufferSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { const a1::RetVF r = ty::iosUsedPacketBufferSize(rdram, runtime, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(64, ctx, c, 4, v0, f0, 0x38u, 0x2u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(63, ctx, c, 4, v0, f0, 0x38u, 0x2u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
 void iosAllocPacketPtrPath1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(65, rdram, runtime)) return;
+    if (!ckBegin(64, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosAllocPacketPtrPath1(rdram, &c, runtime); })) return;
     ckMid();
@@ -2356,11 +2339,11 @@ void iosAllocPacketPtrPath1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iosAllocPacketPtrPath1(rdram, runtime, p4, xo)); })) return;
-    ckEnd(65, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(64, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void iosDlChainTail(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(66, rdram, runtime)) return;
+    if (!ckBegin(65, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosDlChainTail(rdram, &c, runtime); })) return;
     ckMid();
@@ -2368,11 +2351,11 @@ void iosDlChainTail(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::iosDlChainTail(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(66, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(65, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void kernel_sub_001C1538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(67, rdram, runtime)) return;
+    if (!ckBegin(66, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001C1538(rdram, &c, runtime); })) return;
     ckMid();
@@ -2380,11 +2363,11 @@ void kernel_sub_001C1538(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11), Ps2GprU64(ctx, 12), Ps2GprU64(ctx, 13), Ps2GprU64(ctx, 14), Ps2GprU64(ctx, 15)};
     if (!ckLeg([&] { v0 = (ty::kernel_sub_001C1538(rdram, runtime, xo)); })) return;
-    ckEnd(67, ctx, c, 2, v0, f0, 0xfff8u, 0x0u, Ps2GprU64(&c, 10) != xo[0] || Ps2GprU64(&c, 11) != xo[1] || Ps2GprU64(&c, 12) != xo[2] || Ps2GprU64(&c, 13) != xo[3] || Ps2GprU64(&c, 14) != xo[4] || Ps2GprU64(&c, 15) != xo[5]);
+    ckEnd(66, ctx, c, 2, v0, f0, 0xfff8u, 0x0u, Ps2GprU64(&c, 10) != xo[0] || Ps2GprU64(&c, 11) != xo[1] || Ps2GprU64(&c, 12) != xo[2] || Ps2GprU64(&c, 13) != xo[3] || Ps2GprU64(&c, 14) != xo[4] || Ps2GprU64(&c, 15) != xo[5]);
 }
 void iosGsSetMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(68, rdram, runtime)) return;
+    if (!ckBegin(67, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosGsSetMode(rdram, &c, runtime); })) return;
     ckMid();
@@ -2392,11 +2375,11 @@ void iosGsSetMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::iosGsSetMode(rdram, runtime, xo)); })) return;
-    ckEnd(68, ctx, c, 1, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2] || Ps2GprU64(&c, 11) != xo[3]);
+    ckEnd(67, ctx, c, 1, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2] || Ps2GprU64(&c, 11) != xo[3]);
 }
 void iosChkGpDlTransExec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(69, rdram, runtime)) return;
+    if (!ckBegin(68, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosChkGpDlTransExec(rdram, &c, runtime); })) return;
     ckMid();
@@ -2404,33 +2387,33 @@ void iosChkGpDlTransExec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::iosChkGpDlTransExec(rdram, runtime, xo)); })) return;
-    ckEnd(69, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(68, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void getTWH(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(70, rdram, runtime)) return;
+    if (!ckBegin(69, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getTWH(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::getTWH(rdram, runtime, p4)); })) return;
-    ckEnd(70, ctx, c, 2, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(69, ctx, c, 2, v0, f0, 0x28u, 0x0u, false);
 }
 void isysGetLinkNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(71, rdram, runtime)) return;
+    if (!ckBegin(70, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::isysGetLinkNum(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::isysGetLinkNum(rdram, runtime)); })) return;
-    ckEnd(71, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(70, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
 }
 void getVIntrDiffTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(72, rdram, runtime)) return;
+    if (!ckBegin(71, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getVIntrDiffTime(rdram, &c, runtime); })) return;
     ckMid();
@@ -2438,11 +2421,11 @@ void getVIntrDiffTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { const a1::RetVF r = ty::getVIntrDiffTime(rdram, runtime, p4, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(72, ctx, c, 4, v0, f0, 0x2au, 0x3eu, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(71, ctx, c, 4, v0, f0, 0x2au, 0x3eu, Ps2GprU64(&c, 5) != xo[0]);
 }
 void addVIntrTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(73, rdram, runtime)) return;
+    if (!ckBegin(72, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::addVIntrTime(rdram, &c, runtime); })) return;
     ckMid();
@@ -2450,11 +2433,11 @@ void addVIntrTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[12]), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { const a1::RetVF r = ty::addVIntrTime(rdram, runtime, p4, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(73, ctx, c, 4, v0, f0, 0x2au, 0x101eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(72, ctx, c, 4, v0, f0, 0x2au, 0x101eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
 void ischedStop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(74, rdram, runtime)) return;
+    if (!ckBegin(73, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ischedStop(rdram, &c, runtime); })) return;
     ckMid();
@@ -2462,11 +2445,11 @@ void ischedStop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::ischedStop(rdram, runtime, xo)); })) return;
-    ckEnd(74, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(73, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void get_next_letter_in_post(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(75, rdram, runtime)) return;
+    if (!ckBegin(74, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::get_next_letter_in_post(rdram, &c, runtime); })) return;
     ckMid();
@@ -2474,44 +2457,44 @@ void get_next_letter_in_post(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 3)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::get_next_letter_in_post(rdram, runtime, p4, xo)); })) return;
-    ckEnd(75, ctx, c, 1, v0, f0, 0x8u, 0x0u, Ps2GprU64(&c, 3) != xo[0]);
+    ckEnd(74, ctx, c, 1, v0, f0, 0x8u, 0x0u, Ps2GprU64(&c, 3) != xo[0]);
 }
 void entry_new_letter_type(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(76, rdram, runtime)) return;
+    if (!ckBegin(75, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::entry_new_letter_type(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::entry_new_letter_type(rdram, runtime, p4)); })) return;
-    ckEnd(76, ctx, c, 2, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(75, ctx, c, 2, v0, f0, 0x28u, 0x0u, false);
 }
 void init_letter_type_store(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(77, rdram, runtime)) return;
+    if (!ckBegin(76, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::init_letter_type_store(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::init_letter_type_store(rdram, runtime)); })) return;
-    ckEnd(77, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(76, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void kernel_sub_001C8B98(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(78, rdram, runtime)) return;
+    if (!ckBegin(77, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001C8B98(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::kernel_sub_001C8B98(rdram, runtime, p4)); })) return;
-    ckEnd(78, ctx, c, 1, v0, f0, 0x7ff8u, 0x0u, false);
+    ckEnd(77, ctx, c, 1, v0, f0, 0x7ff8u, 0x0u, false);
 }
 void iosGetFontInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(79, rdram, runtime)) return;
+    if (!ckBegin(78, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::iosGetFontInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -2519,11 +2502,11 @@ void iosGetFontInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::iosGetFontInfo(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(79, ctx, c, 2, v0, f0, 0xeau, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(78, ctx, c, 2, v0, f0, 0xeau, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void sndSepPlayerSrh(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(80, rdram, runtime)) return;
+    if (!ckBegin(79, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndSepPlayerSrh(rdram, &c, runtime); })) return;
     ckMid();
@@ -2531,11 +2514,11 @@ void sndSepPlayerSrh(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uin
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::sndSepPlayerSrh(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(80, ctx, c, 2, v0, f0, 0x798u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
+    ckEnd(79, ctx, c, 2, v0, f0, 0x798u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
 void sndSepPlayerSrh2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(81, rdram, runtime)) return;
+    if (!ckBegin(80, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndSepPlayerSrh2(rdram, &c, runtime); })) return;
     ckMid();
@@ -2543,11 +2526,11 @@ void sndSepPlayerSrh2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::sndSepPlayerSrh2(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(81, ctx, c, 2, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 9) != xo[0]);
+    ckEnd(80, ctx, c, 2, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 9) != xo[0]);
 }
 void sndSepSetVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(82, rdram, runtime)) return;
+    if (!ckBegin(81, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndSepSetVol(rdram, &c, runtime); })) return;
     ckMid();
@@ -2555,33 +2538,33 @@ void sndSepSetVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { const a1::RetVF r = ty::sndSepSetVol(rdram, runtime, p4, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(82, ctx, c, 4, v0, f0, 0x6au, 0x1002u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(81, ctx, c, 4, v0, f0, 0x6au, 0x1002u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void sndSepSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(83, rdram, runtime)) return;
+    if (!ckBegin(82, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndSepSetPan(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::sndSepSetPan(rdram, runtime, p4, pf12); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(83, ctx, c, 4, v0, f0, 0x2u, 0x1002u, false);
+    ckEnd(82, ctx, c, 4, v0, f0, 0x2u, 0x1002u, false);
 }
 void sndSepStopTypeAll(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(84, rdram, runtime)) return;
+    if (!ckBegin(83, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndSepStopTypeAll(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::sndSepStopTypeAll(rdram, runtime, p4)); })) return;
-    ckEnd(84, ctx, c, 2, v0, f0, 0xe8u, 0x0u, false);
+    ckEnd(83, ctx, c, 2, v0, f0, 0xe8u, 0x0u, false);
 }
 void sndVabCreate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(85, rdram, runtime)) return;
+    if (!ckBegin(84, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndVabCreate(rdram, &c, runtime); })) return;
     ckMid();
@@ -2589,22 +2572,22 @@ void sndVabCreate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::sndVabCreate(rdram, runtime, xo)); })) return;
-    ckEnd(85, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
+    ckEnd(84, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
 void sndVabInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(86, rdram, runtime)) return;
+    if (!ckBegin(85, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sndVabInit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sndVabInit(rdram, runtime)); })) return;
-    ckEnd(86, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(85, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
 }
 void AddStrHashKey(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(87, rdram, runtime)) return;
+    if (!ckBegin(86, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::AddStrHashKey(rdram, &c, runtime); })) return;
     ckMid();
@@ -2612,11 +2595,11 @@ void AddStrHashKey(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint3
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::AddStrHashKey(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(87, ctx, c, 1, v0, f0, 0xc8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(86, ctx, c, 1, v0, f0, 0xc8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void Sg2CtrlEntryTickProcById(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(88, rdram, runtime)) return;
+    if (!ckBegin(87, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2CtrlEntryTickProcById(rdram, &c, runtime); })) return;
     ckMid();
@@ -2624,33 +2607,33 @@ void Sg2CtrlEntryTickProcById(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::Sg2CtrlEntryTickProcById(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(88, ctx, c, 2, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(87, ctx, c, 2, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void Sg2DspInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(89, rdram, runtime)) return;
+    if (!ckBegin(88, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2DspInit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2DspInit(rdram, runtime)); })) return;
-    ckEnd(89, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(88, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void ps2_____VolPerBackup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(90, rdram, runtime)) return;
+    if (!ckBegin(89, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2_____VolPerBackup(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::ps2_____VolPerBackup(rdram, runtime, p4, p5)); })) return;
-    ckEnd(90, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(89, ctx, c, 1, v0, f0, 0x38u, 0x0u, false);
 }
 void kernel_sub_001CDDE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(91, rdram, runtime)) return;
+    if (!ckBegin(90, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001CDDE8(rdram, &c, runtime); })) return;
     ckMid();
@@ -2658,33 +2641,33 @@ void kernel_sub_001CDDE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::kernel_sub_001CDDE8(rdram, runtime, p4, xo)); })) return;
-    ckEnd(91, ctx, c, 2, v0, f0, 0x100fffau, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(90, ctx, c, 2, v0, f0, 0x100fffau, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
 }
 void kernel_sub_001CDF38(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(92, rdram, runtime)) return;
+    if (!ckBegin(91, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001CDF38(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::kernel_sub_001CDF38(rdram, runtime, p4)); })) return;
-    ckEnd(92, ctx, c, 1, v0, f0, 0x3ffau, 0x0u, false);
+    ckEnd(91, ctx, c, 1, v0, f0, 0x3ffau, 0x0u, false);
 }
 void Sg2SepMidiOut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(93, rdram, runtime)) return;
+    if (!ckBegin(92, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SepMidiOut(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SepMidiOut(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(93, ctx, c, 2, v0, f0, 0xff8u, 0x0u, false);
+    ckEnd(92, ctx, c, 2, v0, f0, 0xff8u, 0x0u, false);
 }
 void Sg2SlotGetSlotClassIdx(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(94, rdram, runtime)) return;
+    if (!ckBegin(93, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotGetSlotClassIdx(rdram, &c, runtime); })) return;
     ckMid();
@@ -2692,11 +2675,11 @@ void Sg2SlotGetSlotClassIdx(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotGetSlotClassIdx(rdram, runtime, xo)); })) return;
-    ckEnd(94, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(93, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void Sg2SlotBlock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(95, rdram, runtime)) return;
+    if (!ckBegin(94, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotBlock(rdram, &c, runtime); })) return;
     ckMid();
@@ -2704,11 +2687,11 @@ void Sg2SlotBlock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotBlock(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(95, ctx, c, 1, v0, f0, 0x3fe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
+    ckEnd(94, ctx, c, 1, v0, f0, 0x3fe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
 }
 void Sg2SlotCheckSlotClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(96, rdram, runtime)) return;
+    if (!ckBegin(95, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotCheckSlotClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -2716,66 +2699,66 @@ void Sg2SlotCheckSlotClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotCheckSlotClass(rdram, runtime, p4, xo)); })) return;
-    ckEnd(96, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(95, ctx, c, 2, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void Sg2SlotFindLoop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(97, rdram, runtime)) return;
+    if (!ckBegin(96, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindLoop(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindLoop(rdram, runtime, p4)); })) return;
-    ckEnd(97, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(96, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
 }
 void Sg2SlotFindVab(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(98, rdram, runtime)) return;
+    if (!ckBegin(97, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindVab(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindVab(rdram, runtime, p4, p5)); })) return;
-    ckEnd(98, ctx, c, 2, v0, f0, 0xd8u, 0x0u, false);
+    ckEnd(97, ctx, c, 2, v0, f0, 0xd8u, 0x0u, false);
 }
 void Sg2SlotFindVabCh(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(99, rdram, runtime)) return;
+    if (!ckBegin(98, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindVabCh(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindVabCh(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(99, ctx, c, 2, v0, f0, 0x198u, 0x0u, false);
+    ckEnd(98, ctx, c, 2, v0, f0, 0x198u, 0x0u, false);
 }
 void Sg2SlotFindVabChNote(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6, uint64_t p7)
 {
-    if (!ckBegin(100, rdram, runtime)) return;
+    if (!ckBegin(99, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindVabChNote(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindVabChNote(rdram, runtime, p4, p5, p6, p7)); })) return;
-    ckEnd(100, ctx, c, 2, v0, f0, 0x318u, 0x0u, false);
+    ckEnd(99, ctx, c, 2, v0, f0, 0x318u, 0x0u, false);
 }
 void Sg2SlotFindVabChSsaBaseNote(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
-    if (!ckBegin(101, rdram, runtime)) return;
+    if (!ckBegin(100, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindVabChSsaBaseNote(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindVabChSsaBaseNote(rdram, runtime, p4, p5, p6, p7, p8)); })) return;
-    ckEnd(101, ctx, c, 2, v0, f0, 0x618u, 0x0u, false);
+    ckEnd(100, ctx, c, 2, v0, f0, 0x618u, 0x0u, false);
 }
 void Sg2SlotFindSlotClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(102, rdram, runtime)) return;
+    if (!ckBegin(101, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindSlotClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -2783,11 +2766,11 @@ void Sg2SlotFindSlotClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindSlotClass(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(102, ctx, c, 2, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(101, ctx, c, 2, v0, f0, 0xd8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void Sg2SlotFindSlotClassCh(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(103, rdram, runtime)) return;
+    if (!ckBegin(102, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindSlotClassCh(rdram, &c, runtime); })) return;
     ckMid();
@@ -2795,22 +2778,22 @@ void Sg2SlotFindSlotClassCh(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindSlotClassCh(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(103, ctx, c, 2, v0, f0, 0x198u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(102, ctx, c, 2, v0, f0, 0x198u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void Sg2SlotFindSlotClassChNote(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6, uint64_t p7)
 {
-    if (!ckBegin(104, rdram, runtime)) return;
+    if (!ckBegin(103, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindSlotClassChNote(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindSlotClassChNote(rdram, runtime, p4, p5, p6, p7)); })) return;
-    ckEnd(104, ctx, c, 2, v0, f0, 0x318u, 0x0u, false);
+    ckEnd(103, ctx, c, 2, v0, f0, 0x318u, 0x0u, false);
 }
 void Sg2SlotFindSlotClassChSsaBaseNote(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
-    if (!ckBegin(105, rdram, runtime)) return;
+    if (!ckBegin(104, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotFindSlotClassChSsaBaseNote(rdram, &c, runtime); })) return;
     ckMid();
@@ -2818,11 +2801,11 @@ void Sg2SlotFindSlotClassChSsaBaseNote(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotFindSlotClassChSsaBaseNote(rdram, runtime, p4, p5, p6, p7, p8, xo)); })) return;
-    ckEnd(105, ctx, c, 2, v0, f0, 0x618u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2]);
+    ckEnd(104, ctx, c, 2, v0, f0, 0x618u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2]);
 }
 void Sg2SlotSetMasVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(106, rdram, runtime)) return;
+    if (!ckBegin(105, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetMasVol(rdram, &c, runtime); })) return;
     ckMid();
@@ -2830,11 +2813,11 @@ void Sg2SlotSetMasVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetMasVol(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(106, ctx, c, 1, v0, f0, 0x7b8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5]);
+    ckEnd(105, ctx, c, 1, v0, f0, 0x7b8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5]);
 }
 void Sg2SlotSetSeMasVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(107, rdram, runtime)) return;
+    if (!ckBegin(106, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetSeMasVol(rdram, &c, runtime); })) return;
     ckMid();
@@ -2842,11 +2825,11 @@ void Sg2SlotSetSeMasVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetSeMasVol(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(107, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(106, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void Sg2SlotSetBaseVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(108, rdram, runtime)) return;
+    if (!ckBegin(107, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetBaseVol(rdram, &c, runtime); })) return;
     ckMid();
@@ -2854,11 +2837,11 @@ void Sg2SlotSetBaseVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetBaseVol(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(108, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(107, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void Sg2SlotSetVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(109, rdram, runtime)) return;
+    if (!ckBegin(108, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetVol(rdram, &c, runtime); })) return;
     ckMid();
@@ -2866,11 +2849,11 @@ void Sg2SlotSetVol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint3
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetVol(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(109, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(108, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void Sg2SlotSetMasPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(110, rdram, runtime)) return;
+    if (!ckBegin(109, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetMasPan(rdram, &c, runtime); })) return;
     ckMid();
@@ -2878,11 +2861,11 @@ void Sg2SlotSetMasPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetMasPan(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(110, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(109, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void Sg2SlotSetBasePan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(111, rdram, runtime)) return;
+    if (!ckBegin(110, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetBasePan(rdram, &c, runtime); })) return;
     ckMid();
@@ -2890,11 +2873,11 @@ void Sg2SlotSetBasePan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetBasePan(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(111, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(110, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void Sg2SlotSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(112, rdram, runtime)) return;
+    if (!ckBegin(111, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetPan(rdram, &c, runtime); })) return;
     ckMid();
@@ -2902,11 +2885,11 @@ void Sg2SlotSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint3
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetPan(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(112, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(111, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void Sg2SlotSetMasTune(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(113, rdram, runtime)) return;
+    if (!ckBegin(112, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetMasTune(rdram, &c, runtime); })) return;
     ckMid();
@@ -2914,11 +2897,11 @@ void Sg2SlotSetMasTune(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetMasTune(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(113, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(112, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void Sg2SlotSetVolPhase(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(114, rdram, runtime)) return;
+    if (!ckBegin(113, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetVolPhase(rdram, &c, runtime); })) return;
     ckMid();
@@ -2926,11 +2909,11 @@ void Sg2SlotSetVolPhase(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotSetVolPhase(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(114, ctx, c, 2, v0, f0, 0x198u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(113, ctx, c, 2, v0, f0, 0x198u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void Sg2SlotSetLfoPitchTbl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(115, rdram, runtime)) return;
+    if (!ckBegin(114, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetLfoPitchTbl(rdram, &c, runtime); })) return;
     ckMid();
@@ -2938,11 +2921,11 @@ void Sg2SlotSetLfoPitchTbl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotSetLfoPitchTbl(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(115, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(114, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void Sg2SlotSetLfoPitchDepth(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(116, rdram, runtime)) return;
+    if (!ckBegin(115, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetLfoPitchDepth(rdram, &c, runtime); })) return;
     ckMid();
@@ -2950,11 +2933,11 @@ void Sg2SlotSetLfoPitchDepth(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::Sg2SlotSetLfoPitchDepth(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(116, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4]);
+    ckEnd(115, ctx, c, 2, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4]);
 }
 void Sg2SlotSetPoltamentParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, float pf12)
 {
-    if (!ckBegin(117, rdram, runtime)) return;
+    if (!ckBegin(116, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotSetPoltamentParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -2962,33 +2945,33 @@ void Sg2SlotSetPoltamentParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[12])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotSetPoltamentParam(rdram, runtime, p4, p5, pf12, xo)); })) return;
-    ckEnd(117, ctx, c, 1, v0, f0, 0x1au, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
+    ckEnd(116, ctx, c, 1, v0, f0, 0x1au, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
 }
 void Sg2SlotTbl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(118, rdram, runtime)) return;
+    if (!ckBegin(117, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SlotTbl(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SlotTbl(rdram, runtime, p4, p5)); })) return;
-    ckEnd(118, ctx, c, 1, v0, f0, 0x1ff8u, 0x0u, false);
+    ckEnd(117, ctx, c, 1, v0, f0, 0x1ff8u, 0x0u, false);
 }
 void Sg2SmfpMidiOut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p6)
 {
-    if (!ckBegin(119, rdram, runtime)) return;
+    if (!ckBegin(118, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2SmfpMidiOut(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::Sg2SmfpMidiOut(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(119, ctx, c, 1, v0, f0, 0x7fau, 0x0u, false);
+    ckEnd(118, ctx, c, 1, v0, f0, 0x7fau, 0x0u, false);
 }
 void get_vabid(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(120, rdram, runtime)) return;
+    if (!ckBegin(119, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::get_vabid(rdram, &c, runtime); })) return;
     ckMid();
@@ -2996,11 +2979,11 @@ void get_vabid(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::get_vabid(rdram, runtime, xo)); })) return;
-    ckEnd(120, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(119, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void kernel_sub_001D9F08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(121, rdram, runtime)) return;
+    if (!ckBegin(120, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001D9F08(rdram, &c, runtime); })) return;
     ckMid();
@@ -3008,11 +2991,11 @@ void kernel_sub_001D9F08(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::kernel_sub_001D9F08(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(121, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(120, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void kernel_sub_001DAAB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(122, rdram, runtime)) return;
+    if (!ckBegin(121, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001DAAB0(rdram, &c, runtime); })) return;
     ckMid();
@@ -3020,11 +3003,11 @@ void kernel_sub_001DAAB0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[5] = {(uint64_t)a1ck::ckBits(ctx->f[0]), Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { ty::kernel_sub_001DAAB0(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(122, ctx, c, 0, v0, f0, 0x1feu, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
+    ckEnd(121, ctx, c, 0, v0, f0, 0x1feu, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
 }
 void kernel_sub_001DAC18(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint64_t p6)
 {
-    if (!ckBegin(123, rdram, runtime)) return;
+    if (!ckBegin(122, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001DAC18(rdram, &c, runtime); })) return;
     ckMid();
@@ -3032,11 +3015,11 @@ void kernel_sub_001DAC18(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[0]), (uint64_t)a1ck::ckBits(ctx->f[1]), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::kernel_sub_001DAC18(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(123, ctx, c, 1, v0, f0, 0x48u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[1]) != (uint32_t)xo[1] || Ps2GprU64(&c, 6) != xo[2]);
+    ckEnd(122, ctx, c, 1, v0, f0, 0x48u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[1]) != (uint32_t)xo[1] || Ps2GprU64(&c, 6) != xo[2]);
 }
 void kernel_sub_001DB678(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(124, rdram, runtime)) return;
+    if (!ckBegin(123, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001DB678(rdram, &c, runtime); })) return;
     ckMid();
@@ -3044,33 +3027,33 @@ void kernel_sub_001DB678(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::kernel_sub_001DB678(rdram, runtime, xo)); })) return;
-    ckEnd(124, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(123, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void IirFilter(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint32_t p6)
 {
-    if (!ckBegin(125, rdram, runtime)) return;
+    if (!ckBegin(124, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::IirFilter(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::IirFilter(rdram, runtime, p4, p5, p6); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(125, ctx, c, 4, v0, f0, 0x8u, 0x7ffeu, false);
+    ckEnd(124, ctx, c, 4, v0, f0, 0x8u, 0x7ffeu, false);
 }
 void ps2___ieee754_fmodf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13)
 {
-    if (!ckBegin(126, rdram, runtime)) return;
+    if (!ckBegin(125, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ps2___ieee754_fmodf(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::ps2___ieee754_fmodf(rdram, runtime, pf12, pf13); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(126, ctx, c, 4, v0, f0, 0x7fau, 0x2u, false);
+    ckEnd(125, ctx, c, 4, v0, f0, 0x7fau, 0x2u, false);
 }
 void GAMEUTIL_inc_or_dec_for_near_to_aim_pitch(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, float pf12, float pf13, float pf14, float pf15, float pf16)
 {
-    if (!ckBegin(127, rdram, runtime)) return;
+    if (!ckBegin(126, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_inc_or_dec_for_near_to_aim_pitch(rdram, &c, runtime); })) return;
     ckMid();
@@ -3078,11 +3061,11 @@ void GAMEUTIL_inc_or_dec_for_near_to_aim_pitch(uint8_t *rdram, R5900Context *ctx
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = (ty::GAMEUTIL_inc_or_dec_for_near_to_aim_pitch(rdram, runtime, p4, p5, pf12, pf13, pf14, pf15, pf16, xo)); })) return;
-    ckEnd(127, ctx, c, 2, v0, f0, 0xau, 0x407fu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(126, ctx, c, 2, v0, f0, 0xau, 0x407fu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void GAMEUTIL_get_interp_pitch(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(128, rdram, runtime)) return;
+    if (!ckBegin(127, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_get_interp_pitch(rdram, &c, runtime); })) return;
     ckMid();
@@ -3090,11 +3073,11 @@ void GAMEUTIL_get_interp_pitch(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[13]), Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::GAMEUTIL_get_interp_pitch(rdram, runtime, pf12, pf13, pf14, xo); })) return;
-    ckEnd(128, ctx, c, 3, v0, f0, 0x6u, 0x203eu, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1]);
+    ckEnd(127, ctx, c, 3, v0, f0, 0x6u, 0x203eu, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1]);
 }
 void GAMEUTIL_is_diff_nearly_equal_zero(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(129, rdram, runtime)) return;
+    if (!ckBegin(128, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_is_diff_nearly_equal_zero(rdram, &c, runtime); })) return;
     ckMid();
@@ -3102,11 +3085,11 @@ void GAMEUTIL_is_diff_nearly_equal_zero(uint8_t *rdram, R5900Context *ctx, PS2Ru
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[12])};
     if (!ckLeg([&] { const a1::RetVF r = ty::GAMEUTIL_is_diff_nearly_equal_zero(rdram, runtime, pf12, pf13, pf14, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(129, ctx, c, 4, v0, f0, 0x0u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
+    ckEnd(128, ctx, c, 4, v0, f0, 0x0u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
 }
 void GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5, uint32_t p6, uint32_t p7, uint32_t p8, float pf12)
 {
-    if (!ckBegin(130, rdram, runtime)) return;
+    if (!ckBegin(129, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor(rdram, &c, runtime); })) return;
     ckMid();
@@ -3114,11 +3097,11 @@ void GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor(uint8_t *rdram, R5
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { const a1::RetVF r = ty::GAMEUTIL_get_cross_position_coefficient_t_by_dist_factor(rdram, runtime, p4, p5, p6, p7, p8, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(130, ctx, c, 4, v0, f0, 0x61au, 0x7eu, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1]);
+    ckEnd(129, ctx, c, 4, v0, f0, 0x61au, 0x7eu, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1]);
 }
 void GAMEUTIL_get_segment_num_and_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(131, rdram, runtime)) return;
+    if (!ckBegin(130, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_get_segment_num_and_data(rdram, &c, runtime); })) return;
     ckMid();
@@ -3126,11 +3109,11 @@ void GAMEUTIL_get_segment_num_and_data(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GAMEUTIL_get_segment_num_and_data(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(131, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(130, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void GAMEUTIL_get_new_velocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14, float pf15, float pf16)
 {
-    if (!ckBegin(132, rdram, runtime)) return;
+    if (!ckBegin(131, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_get_new_velocity(rdram, &c, runtime); })) return;
     ckMid();
@@ -3138,11 +3121,11 @@ void GAMEUTIL_get_new_velocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::GAMEUTIL_get_new_velocity(rdram, runtime, pf12, pf13, pf14, pf15, pf16, xo); })) return;
-    ckEnd(132, ctx, c, 3, v0, f0, 0xeu, 0x2002u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(131, ctx, c, 3, v0, f0, 0xeu, 0x2002u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void GAMEUTIL_increase_pitch(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, float pf12, float pf13, float pf14, float pf15)
 {
-    if (!ckBegin(133, rdram, runtime)) return;
+    if (!ckBegin(132, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_increase_pitch(rdram, &c, runtime); })) return;
     ckMid();
@@ -3150,11 +3133,11 @@ void GAMEUTIL_increase_pitch(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15])};
     if (!ckLeg([&] { const a1::RetVF r = ty::GAMEUTIL_increase_pitch(rdram, runtime, p4, p5, pf12, pf13, pf14, pf15, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(133, ctx, c, 4, v0, f0, 0xau, 0xc006u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1]);
+    ckEnd(132, ctx, c, 4, v0, f0, 0xau, 0xc006u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1]);
 }
 void GAMEUTIL_get_difference_yaw_and_yaw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13)
 {
-    if (!ckBegin(134, rdram, runtime)) return;
+    if (!ckBegin(133, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_get_difference_yaw_and_yaw(rdram, &c, runtime); })) return;
     ckMid();
@@ -3162,11 +3145,11 @@ void GAMEUTIL_get_difference_yaw_and_yaw(uint8_t *rdram, R5900Context *ctx, PS2R
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[13])};
     if (!ckLeg([&] { f0 = ty::GAMEUTIL_get_difference_yaw_and_yaw(rdram, runtime, pf12, pf13, xo); })) return;
-    ckEnd(134, ctx, c, 3, v0, f0, 0x2u, 0x2000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0]);
+    ckEnd(133, ctx, c, 3, v0, f0, 0x2u, 0x2000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0]);
 }
 void GAMEUTIL_is_reach_aim_pitch_angle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(135, rdram, runtime)) return;
+    if (!ckBegin(134, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_is_reach_aim_pitch_angle(rdram, &c, runtime); })) return;
     ckMid();
@@ -3174,11 +3157,11 @@ void GAMEUTIL_is_reach_aim_pitch_angle(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GAMEUTIL_is_reach_aim_pitch_angle(rdram, runtime, p4, pf12, pf13, pf14, xo)); })) return;
-    ckEnd(135, ctx, c, 1, v0, f0, 0xau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(134, ctx, c, 1, v0, f0, 0xau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void GAMEUTIL_reset_interp_ratio_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(136, rdram, runtime)) return;
+    if (!ckBegin(135, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_reset_interp_ratio_cntrl(rdram, &c, runtime); })) return;
     ckMid();
@@ -3186,11 +3169,11 @@ void GAMEUTIL_reset_interp_ratio_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GAMEUTIL_reset_interp_ratio_cntrl(rdram, runtime, p4, xo)); })) return;
-    ckEnd(136, ctx, c, 1, v0, f0, 0xau, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(135, ctx, c, 1, v0, f0, 0xau, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void reset_double_spring_interp_cntrl3D(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(137, rdram, runtime)) return;
+    if (!ckBegin(136, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::reset_double_spring_interp_cntrl3D(rdram, &c, runtime); })) return;
     ckMid();
@@ -3198,11 +3181,11 @@ void reset_double_spring_interp_cntrl3D(uint8_t *rdram, R5900Context *ctx, PS2Ru
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { const a1::RetVF r = ty::reset_double_spring_interp_cntrl3D(rdram, runtime, p4, p5, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(137, ctx, c, 4, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(136, ctx, c, 4, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void endBossDeathEffect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(138, rdram, runtime)) return;
+    if (!ckBegin(137, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::endBossDeathEffect(rdram, &c, runtime); })) return;
     ckMid();
@@ -3210,11 +3193,11 @@ void endBossDeathEffect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::endBossDeathEffect(rdram, runtime, xo)); })) return;
-    ckEnd(138, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(137, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void fsEffectSetParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(139, rdram, runtime)) return;
+    if (!ckBegin(138, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::fsEffectSetParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -3222,11 +3205,11 @@ void fsEffectSetParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::fsEffectSetParam(rdram, runtime, p4, xo)); })) return;
-    ckEnd(139, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(138, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void fsEffectManagerSetDemoParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(140, rdram, runtime)) return;
+    if (!ckBegin(139, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::fsEffectManagerSetDemoParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -3234,33 +3217,33 @@ void fsEffectManagerSetDemoParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::fsEffectManagerSetDemoParam(rdram, runtime, p4, xo)); })) return;
-    ckEnd(140, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(139, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void fsEffectManagerInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(141, rdram, runtime)) return;
+    if (!ckBegin(140, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::fsEffectManagerInit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::fsEffectManagerInit(rdram, runtime)); })) return;
-    ckEnd(141, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
+    ckEnd(140, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
 }
 void initFsEffect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(142, rdram, runtime)) return;
+    if (!ckBegin(141, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initFsEffect(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::initFsEffect(rdram, runtime, p4)); })) return;
-    ckEnd(142, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
+    ckEnd(141, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
 }
 void setFogParamDefault(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(143, rdram, runtime)) return;
+    if (!ckBegin(142, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::setFogParamDefault(rdram, &c, runtime); })) return;
     ckMid();
@@ -3268,11 +3251,11 @@ void setFogParamDefault(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::setFogParamDefault(rdram, runtime, xo)); })) return;
-    ckEnd(143, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(142, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void glBlendFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(144, rdram, runtime)) return;
+    if (!ckBegin(143, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::glBlendFunc(rdram, &c, runtime); })) return;
     ckMid();
@@ -3280,11 +3263,11 @@ void glBlendFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::glBlendFunc(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(144, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
+    ckEnd(143, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
 }
 void glBlendFuncParticle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(145, rdram, runtime)) return;
+    if (!ckBegin(144, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::glBlendFuncParticle(rdram, &c, runtime); })) return;
     ckMid();
@@ -3292,11 +3275,11 @@ void glBlendFuncParticle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::glBlendFuncParticle(rdram, runtime, p4, xo)); })) return;
-    ckEnd(145, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(144, ctx, c, 2, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void glColor4f(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14, float pf15)
 {
-    if (!ckBegin(146, rdram, runtime)) return;
+    if (!ckBegin(145, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::glColor4f(rdram, &c, runtime); })) return;
     ckMid();
@@ -3304,11 +3287,11 @@ void glColor4f(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf1
     float f0 = 0.0f;
     uint64_t xo[5] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13]), (uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15]), Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { const a1::RetVF r = ty::glColor4f(rdram, runtime, pf12, pf13, pf14, pf15, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(146, ctx, c, 4, v0, f0, 0x1au, 0xf006u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[3] || Ps2GprU64(&c, 4) != xo[4]);
+    ckEnd(145, ctx, c, 4, v0, f0, 0x1au, 0xf006u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[3] || Ps2GprU64(&c, 4) != xo[4]);
 }
 void glColor4fv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(147, rdram, runtime)) return;
+    if (!ckBegin(146, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::glColor4fv(rdram, &c, runtime); })) return;
     ckMid();
@@ -3316,11 +3299,11 @@ void glColor4fv(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t
     float f0 = 0.0f;
     uint64_t xo[5] = {(uint64_t)a1ck::ckBits(ctx->f[2]), (uint64_t)a1ck::ckBits(ctx->f[3]), (uint64_t)a1ck::ckBits(ctx->f[4]), (uint64_t)a1ck::ckBits(ctx->f[5]), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { const a1::RetVF r = ty::glColor4fv(rdram, runtime, p4, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(147, ctx, c, 4, v0, f0, 0x2au, 0x3eu, a1ck::ckBits(c.f[2]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[3]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[4]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[5]) != (uint32_t)xo[3] || Ps2GprU64(&c, 5) != xo[4]);
+    ckEnd(146, ctx, c, 4, v0, f0, 0x2au, 0x3eu, a1ck::ckBits(c.f[2]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[3]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[4]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[5]) != (uint32_t)xo[3] || Ps2GprU64(&c, 5) != xo[4]);
 }
 void modelGetDlLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(148, rdram, runtime)) return;
+    if (!ckBegin(147, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::modelGetDlLayer(rdram, &c, runtime); })) return;
     ckMid();
@@ -3328,11 +3311,11 @@ void modelGetDlLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uin
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::modelGetDlLayer(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(148, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(147, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void modelResetSurface(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(149, rdram, runtime)) return;
+    if (!ckBegin(148, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::modelResetSurface(rdram, &c, runtime); })) return;
     ckMid();
@@ -3340,11 +3323,11 @@ void modelResetSurface(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::modelResetSurface(rdram, runtime, p4, xo)); })) return;
-    ckEnd(149, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(148, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void modelSetMatrixTransTag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p5, uint64_t p6, uint64_t p7)
 {
-    if (!ckBegin(150, rdram, runtime)) return;
+    if (!ckBegin(149, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::modelSetMatrixTransTag(rdram, &c, runtime); })) return;
     ckMid();
@@ -3352,11 +3335,11 @@ void modelSetMatrixTransTag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::modelSetMatrixTransTag(rdram, runtime, p5, p6, p7, xo)); })) return;
-    ckEnd(150, ctx, c, 2, v0, f0, 0x3f78u, 0x0u, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1] || Ps2GprU64(&c, 11) != xo[2]);
+    ckEnd(149, ctx, c, 2, v0, f0, 0x3f78u, 0x0u, Ps2GprU64(&c, 9) != xo[0] || Ps2GprU64(&c, 10) != xo[1] || Ps2GprU64(&c, 11) != xo[2]);
 }
 void ptclmanBuildMatPacket(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12, float pf13)
 {
-    if (!ckBegin(151, rdram, runtime)) return;
+    if (!ckBegin(150, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ptclmanBuildMatPacket(rdram, &c, runtime); })) return;
     ckMid();
@@ -3364,11 +3347,11 @@ void ptclmanBuildMatPacket(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { const a1::RetVF r = ty::ptclmanBuildMatPacket(rdram, runtime, p4, pf12, pf13, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(151, ctx, c, 4, v0, f0, 0x1ffau, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
+    ckEnd(150, ctx, c, 4, v0, f0, 0x1ffau, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
 }
 void GetMeshClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(152, rdram, runtime)) return;
+    if (!ckBegin(151, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetMeshClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -3376,11 +3359,11 @@ void GetMeshClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::GetMeshClass(rdram, runtime, p4, xo)); })) return;
-    ckEnd(152, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(151, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void meshFlip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(153, rdram, runtime)) return;
+    if (!ckBegin(152, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::meshFlip(rdram, &c, runtime); })) return;
     ckMid();
@@ -3388,11 +3371,11 @@ void meshFlip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::meshFlip(rdram, runtime, p4, xo)); })) return;
-    ckEnd(153, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(152, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void spriteSetTextureCoordinateST(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12, float pf13, float pf14, float pf15)
 {
-    if (!ckBegin(154, rdram, runtime)) return;
+    if (!ckBegin(153, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::spriteSetTextureCoordinateST(rdram, &c, runtime); })) return;
     ckMid();
@@ -3400,11 +3383,11 @@ void spriteSetTextureCoordinateST(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15])};
     if (!ckLeg([&] { v0 = (ty::spriteSetTextureCoordinateST(rdram, runtime, p4, pf12, pf13, pf14, pf15, xo)); })) return;
-    ckEnd(154, ctx, c, 2, v0, f0, 0x8u, 0xc000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1]);
+    ckEnd(153, ctx, c, 2, v0, f0, 0x8u, 0xc000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1]);
 }
 void spriteSetBlendMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7)
 {
-    if (!ckBegin(155, rdram, runtime)) return;
+    if (!ckBegin(154, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::spriteSetBlendMode(rdram, &c, runtime); })) return;
     ckMid();
@@ -3412,11 +3395,11 @@ void spriteSetBlendMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::spriteSetBlendMode(rdram, runtime, p4, p5, p6, p7, xo)); })) return;
-    ckEnd(155, ctx, c, 2, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(154, ctx, c, 2, v0, f0, 0x1e8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void texGetTexTBPSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint32_t p6)
 {
-    if (!ckBegin(156, rdram, runtime)) return;
+    if (!ckBegin(155, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::texGetTexTBPSize(rdram, &c, runtime); })) return;
     ckMid();
@@ -3424,11 +3407,11 @@ void texGetTexTBPSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::texGetTexTBPSize(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(156, ctx, c, 2, v0, f0, 0xb8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(155, ctx, c, 2, v0, f0, 0xb8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void manager_sub_010AE658(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint32_t p6, float pf12, float pf13)
 {
-    if (!ckBegin(157, rdram, runtime)) return;
+    if (!ckBegin(156, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_010AE658(rdram, &c, runtime); })) return;
     ckMid();
@@ -3436,11 +3419,11 @@ void manager_sub_010AE658(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[0]), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = (ty::manager_sub_010AE658(rdram, runtime, p4, p5, p6, pf12, pf13, xo)); })) return;
-    ckEnd(157, ctx, c, 2, v0, f0, 0x7e8u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2]);
+    ckEnd(156, ctx, c, 2, v0, f0, 0x7e8u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 9) != xo[1] || Ps2GprU64(&c, 10) != xo[2]);
 }
 void getBlendBaseMotion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(158, rdram, runtime)) return;
+    if (!ckBegin(157, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getBlendBaseMotion(rdram, &c, runtime); })) return;
     ckMid();
@@ -3448,33 +3431,33 @@ void getBlendBaseMotion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::getBlendBaseMotion(rdram, runtime, p4, xo)); })) return;
-    ckEnd(158, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(157, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void GetMotionFrameDirectResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint64_t p6, float pf12, float pf13)
 {
-    if (!ckBegin(159, rdram, runtime)) return;
+    if (!ckBegin(158, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetMotionFrameDirectResource(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::GetMotionFrameDirectResource(rdram, runtime, p4, p5, p6, pf12, pf13); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(159, ctx, c, 4, v0, f0, 0x48u, 0x1006u, false);
+    ckEnd(158, ctx, c, 4, v0, f0, 0x48u, 0x1006u, false);
 }
 void GetMotionOptionNodeParentId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(160, rdram, runtime)) return;
+    if (!ckBegin(159, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetMotionOptionNodeParentId(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetMotionOptionNodeParentId(rdram, runtime, p4, p5)); })) return;
-    ckEnd(160, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(159, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
 }
 void InitMotionBoolInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(161, rdram, runtime)) return;
+    if (!ckBegin(160, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::InitMotionBoolInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -3482,11 +3465,11 @@ void InitMotionBoolInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::InitMotionBoolInfo(rdram, runtime, p4, xo)); })) return;
-    ckEnd(161, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(160, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void ResetCharacterClassIKInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(162, rdram, runtime)) return;
+    if (!ckBegin(161, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ResetCharacterClassIKInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -3494,11 +3477,11 @@ void ResetCharacterClassIKInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::ResetCharacterClassIKInfo(rdram, runtime, p4, xo)); })) return;
-    ckEnd(162, ctx, c, 1, v0, f0, 0x1au, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(161, ctx, c, 1, v0, f0, 0x1au, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void GetCharacterClassCurAnimationCurFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(163, rdram, runtime)) return;
+    if (!ckBegin(162, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetCharacterClassCurAnimationCurFrame(rdram, &c, runtime); })) return;
     ckMid();
@@ -3506,11 +3489,11 @@ void GetCharacterClassCurAnimationCurFrame(uint8_t *rdram, R5900Context *ctx, PS
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { f0 = ty::GetCharacterClassCurAnimationCurFrame(rdram, runtime, p4, xo); })) return;
-    ckEnd(163, ctx, c, 3, v0, f0, 0x10u, 0x2u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(162, ctx, c, 3, v0, f0, 0x10u, 0x2u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void SetCharacterObjControlBypassFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(164, rdram, runtime)) return;
+    if (!ckBegin(163, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SetCharacterObjControlBypassFunc(rdram, &c, runtime); })) return;
     ckMid();
@@ -3518,11 +3501,11 @@ void SetCharacterObjControlBypassFunc(uint8_t *rdram, R5900Context *ctx, PS2Runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SetCharacterObjControlBypassFunc(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(164, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(163, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void SetCharacterObjParentPlaneDiscontinuousJudgeFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(165, rdram, runtime)) return;
+    if (!ckBegin(164, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SetCharacterObjParentPlaneDiscontinuousJudgeFunc(rdram, &c, runtime); })) return;
     ckMid();
@@ -3530,11 +3513,11 @@ void SetCharacterObjParentPlaneDiscontinuousJudgeFunc(uint8_t *rdram, R5900Conte
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SetCharacterObjParentPlaneDiscontinuousJudgeFunc(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(165, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(164, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void SetCharacterObjParentPointXZFitGpChangeJudgeFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(166, rdram, runtime)) return;
+    if (!ckBegin(165, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SetCharacterObjParentPointXZFitGpChangeJudgeFunc(rdram, &c, runtime); })) return;
     ckMid();
@@ -3542,11 +3525,11 @@ void SetCharacterObjParentPointXZFitGpChangeJudgeFunc(uint8_t *rdram, R5900Conte
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SetCharacterObjParentPointXZFitGpChangeJudgeFunc(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(166, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(165, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void manager_sub_010C9888(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(167, rdram, runtime)) return;
+    if (!ckBegin(166, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_010C9888(rdram, &c, runtime); })) return;
     ckMid();
@@ -3554,11 +3537,11 @@ void manager_sub_010C9888(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = (ty::manager_sub_010C9888(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(167, ctx, c, 2, v0, f0, 0x3eau, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(166, ctx, c, 2, v0, f0, 0x3eau, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void InitScriptControlButtonCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(168, rdram, runtime)) return;
+    if (!ckBegin(167, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::InitScriptControlButtonCallBack(rdram, &c, runtime); })) return;
     ckMid();
@@ -3566,11 +3549,11 @@ void InitScriptControlButtonCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runti
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::InitScriptControlButtonCallBack(rdram, runtime, p4, xo)); })) return;
-    ckEnd(168, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(167, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void manager_sub_010CD400(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(169, rdram, runtime)) return;
+    if (!ckBegin(168, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_010CD400(rdram, &c, runtime); })) return;
     ckMid();
@@ -3578,23 +3561,11 @@ void manager_sub_010CD400(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[0]), Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { ty::manager_sub_010CD400(rdram, runtime, p4, pf12, xo); })) return;
-    ckEnd(169, ctx, c, 0, v0, f0, 0x2cu, 0x3fu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1] || Ps2GprU64(&c, 5) != xo[2]);
-}
-void OptimizeMotionOrient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
-{
-    if (!ckBegin(170, rdram, runtime)) return;
-    R5900Context &c = ckCtx(ctx);
-    if (!ckLeg([&] { ref::OptimizeMotionOrient(rdram, &c, runtime); })) return;
-    ckMid();
-    uint64_t v0 = 0u;
-    float f0 = 0.0f;
-    uint64_t xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
-    if (!ckLeg([&] { v0 = (ty::OptimizeMotionOrient(rdram, runtime, p4, xo)); })) return;
-    ckEnd(170, ctx, c, 2, v0, f0, 0x7ff8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(168, ctx, c, 0, v0, f0, 0x2cu, 0x3fu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 2) != xo[1] || Ps2GprU64(&c, 5) != xo[2]);
 }
 void RequestCharacterClassMotionChangeWithParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6, float pf12)
 {
-    if (!ckBegin(171, rdram, runtime)) return;
+    if (!ckBegin(169, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::RequestCharacterClassMotionChangeWithParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -3602,11 +3573,11 @@ void RequestCharacterClassMotionChangeWithParam(uint8_t *rdram, R5900Context *ct
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::RequestCharacterClassMotionChangeWithParam(rdram, runtime, p4, p5, p6, pf12, xo)); })) return;
-    ckEnd(171, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(169, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void charrootdyn_getLimitMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(172, rdram, runtime)) return;
+    if (!ckBegin(170, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::charrootdyn_getLimitMode(rdram, &c, runtime); })) return;
     ckMid();
@@ -3614,22 +3585,22 @@ void charrootdyn_getLimitMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::charrootdyn_getLimitMode(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(172, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(170, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void resetExpressionLocalHeightDiff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(173, rdram, runtime)) return;
+    if (!ckBegin(171, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::resetExpressionLocalHeightDiff(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::resetExpressionLocalHeightDiff(rdram, runtime, p4)); })) return;
-    ckEnd(173, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(171, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
 }
 void GetDemoOrientNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(174, rdram, runtime)) return;
+    if (!ckBegin(172, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetDemoOrientNext(rdram, &c, runtime); })) return;
     ckMid();
@@ -3637,11 +3608,11 @@ void GetDemoOrientNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetDemoOrientNext(rdram, runtime, p4, xo)); })) return;
-    ckEnd(174, ctx, c, 1, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4]);
+    ckEnd(172, ctx, c, 1, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4]);
 }
 void UpdateFogCol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(175, rdram, runtime)) return;
+    if (!ckBegin(173, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::UpdateFogCol(rdram, &c, runtime); })) return;
     ckMid();
@@ -3649,22 +3620,22 @@ void UpdateFogCol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::UpdateFogCol(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(175, ctx, c, 3, v0, f0, 0xeu, 0x6u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(173, ctx, c, 3, v0, f0, 0xeu, 0x6u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void IsEnvelopeDistantLightType(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(176, rdram, runtime)) return;
+    if (!ckBegin(174, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::IsEnvelopeDistantLightType(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::IsEnvelopeDistantLightType(rdram, runtime, p4, p5)); })) return;
-    ckEnd(176, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, false);
+    ckEnd(174, ctx, c, 1, v0, f0, 0x1e8u, 0x0u, false);
 }
 void globalLightCalcLightNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(177, rdram, runtime)) return;
+    if (!ckBegin(175, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::globalLightCalcLightNum(rdram, &c, runtime); })) return;
     ckMid();
@@ -3672,22 +3643,22 @@ void globalLightCalcLightNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::globalLightCalcLightNum(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(177, ctx, c, 1, v0, f0, 0x48u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(175, ctx, c, 1, v0, f0, 0x48u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void GetImpactWorstWorkLightClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(178, rdram, runtime)) return;
+    if (!ckBegin(176, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetImpactWorstWorkLightClass(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetImpactWorstWorkLightClass(rdram, runtime, p4)); })) return;
-    ckEnd(178, ctx, c, 1, v0, f0, 0x38u, 0x3u, false);
+    ckEnd(176, ctx, c, 1, v0, f0, 0x38u, 0x3u, false);
 }
 void GetLwsOrientNodeNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(179, rdram, runtime)) return;
+    if (!ckBegin(177, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetLwsOrientNodeNum(rdram, &c, runtime); })) return;
     ckMid();
@@ -3695,11 +3666,11 @@ void GetLwsOrientNodeNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetLwsOrientNodeNum(rdram, runtime, p4, xo)); })) return;
-    ckEnd(179, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1]);
+    ckEnd(177, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1]);
 }
 void manager_sub_010FC618(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(180, rdram, runtime)) return;
+    if (!ckBegin(178, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_010FC618(rdram, &c, runtime); })) return;
     ckMid();
@@ -3707,11 +3678,11 @@ void manager_sub_010FC618(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::manager_sub_010FC618(rdram, runtime, p4, xo)); })) return;
-    ckEnd(180, ctx, c, 2, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(178, ctx, c, 2, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
 }
 void initAnimationObjResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(181, rdram, runtime)) return;
+    if (!ckBegin(179, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initAnimationObjResource(rdram, &c, runtime); })) return;
     ckMid();
@@ -3719,22 +3690,22 @@ void initAnimationObjResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::initAnimationObjResource(rdram, runtime, p4, xo)); })) return;
-    ckEnd(181, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(179, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void InitBinarySize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(182, rdram, runtime)) return;
+    if (!ckBegin(180, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::InitBinarySize(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::InitBinarySize(rdram, runtime)); })) return;
-    ckEnd(182, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(180, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void SetScriptAnimationGlobalBaseInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(183, rdram, runtime)) return;
+    if (!ckBegin(181, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SetScriptAnimationGlobalBaseInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -3742,11 +3713,11 @@ void SetScriptAnimationGlobalBaseInfo(uint8_t *rdram, R5900Context *ctx, PS2Runt
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::SetScriptAnimationGlobalBaseInfo(rdram, runtime, p4, xo)); })) return;
-    ckEnd(183, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(181, ctx, c, 2, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void CopyScriptAnimationWindGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(184, rdram, runtime)) return;
+    if (!ckBegin(182, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::CopyScriptAnimationWindGeometryPointer(rdram, &c, runtime); })) return;
     ckMid();
@@ -3754,23 +3725,11 @@ void CopyScriptAnimationWindGeometryPointer(uint8_t *rdram, R5900Context *ctx, P
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::CopyScriptAnimationWindGeometryPointer(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(184, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 8) != xo[0]);
-}
-void manager_sub_011117C0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
-{
-    if (!ckBegin(185, rdram, runtime)) return;
-    R5900Context &c = ckCtx(ctx);
-    if (!ckLeg([&] { ref::manager_sub_011117C0(rdram, &c, runtime); })) return;
-    ckMid();
-    uint64_t v0 = 0u;
-    float f0 = 0.0f;
-    uint64_t xo[2] = {Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
-    if (!ckLeg([&] { v0 = (ty::manager_sub_011117C0(rdram, runtime, p4, xo)); })) return;
-    ckEnd(185, ctx, c, 2, v0, f0, 0x3ef8u, 0x0u, Ps2GprU64(&c, 10) != xo[0] || Ps2GprU64(&c, 11) != xo[1]);
+    ckEnd(182, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 8) != xo[0]);
 }
 void GetSpriteMenuClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(186, rdram, runtime)) return;
+    if (!ckBegin(183, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetSpriteMenuClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -3778,11 +3737,11 @@ void GetSpriteMenuClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::GetSpriteMenuClass(rdram, runtime, p4, xo)); })) return;
-    ckEnd(186, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(183, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void SpriteMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(187, rdram, runtime)) return;
+    if (!ckBegin(184, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetPadEventCallback(rdram, &c, runtime); })) return;
     ckMid();
@@ -3790,11 +3749,11 @@ void SpriteMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetPadEventCallback(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(187, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(184, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void SpriteSubMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(188, rdram, runtime)) return;
+    if (!ckBegin(185, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteSubMenuSetPadEventCallback(rdram, &c, runtime); })) return;
     ckMid();
@@ -3802,11 +3761,11 @@ void SpriteSubMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteSubMenuSetPadEventCallback(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(188, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(185, ctx, c, 1, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void SpriteMenuSetDispFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint64_t p6)
 {
-    if (!ckBegin(189, rdram, runtime)) return;
+    if (!ckBegin(186, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetDispFlag(rdram, &c, runtime); })) return;
     ckMid();
@@ -3814,11 +3773,11 @@ void SpriteMenuSetDispFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetDispFlag(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(189, ctx, c, 1, v0, f0, 0xb8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(186, ctx, c, 1, v0, f0, 0xb8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void SpriteMenuSetDispFlagByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(190, rdram, runtime)) return;
+    if (!ckBegin(187, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetDispFlagByHash(rdram, &c, runtime); })) return;
     ckMid();
@@ -3826,11 +3785,11 @@ void SpriteMenuSetDispFlagByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::SpriteMenuSetDispFlagByHash(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(190, ctx, c, 2, v0, f0, 0xfb8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4] || Ps2GprU64(&c, 11) != xo[5]);
+    ckEnd(187, ctx, c, 2, v0, f0, 0xfb8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4] || Ps2GprU64(&c, 11) != xo[5]);
 }
 void SpriteMenuSetLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(191, rdram, runtime)) return;
+    if (!ckBegin(188, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetLayer(rdram, &c, runtime); })) return;
     ckMid();
@@ -3838,11 +3797,11 @@ void SpriteMenuSetLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetLayer(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(191, ctx, c, 1, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(188, ctx, c, 1, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void SpriteMenuGetLayerStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(192, rdram, runtime)) return;
+    if (!ckBegin(189, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetLayerStatus(rdram, &c, runtime); })) return;
     ckMid();
@@ -3850,11 +3809,11 @@ void SpriteMenuGetLayerStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuGetLayerStatus(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(192, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(189, ctx, c, 1, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void SpriteMenuGetLayerByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(193, rdram, runtime)) return;
+    if (!ckBegin(190, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetLayerByHash(rdram, &c, runtime); })) return;
     ckMid();
@@ -3862,11 +3821,11 @@ void SpriteMenuGetLayerByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::SpriteMenuGetLayerByHash(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(193, ctx, c, 2, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(190, ctx, c, 2, v0, f0, 0x3d8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void SpriteMenuGetLayerNoByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(194, rdram, runtime)) return;
+    if (!ckBegin(191, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetLayerNoByHash(rdram, &c, runtime); })) return;
     ckMid();
@@ -3874,11 +3833,11 @@ void SpriteMenuGetLayerNoByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::SpriteMenuGetLayerNoByHash(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(194, ctx, c, 2, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
+    ckEnd(191, ctx, c, 2, v0, f0, 0x1d8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3]);
 }
 void SpriteMenuGetMenuIdByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(195, rdram, runtime)) return;
+    if (!ckBegin(192, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetMenuIdByHash(rdram, &c, runtime); })) return;
     ckMid();
@@ -3886,11 +3845,11 @@ void SpriteMenuGetMenuIdByHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::SpriteMenuGetMenuIdByHash(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(195, ctx, c, 2, v0, f0, 0xfb8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4] || Ps2GprU64(&c, 11) != xo[5]);
+    ckEnd(192, ctx, c, 2, v0, f0, 0xfb8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3] || Ps2GprU64(&c, 10) != xo[4] || Ps2GprU64(&c, 11) != xo[5]);
 }
 void SpriteMenuGetSelectMenuIdBySpriteMenuClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(196, rdram, runtime)) return;
+    if (!ckBegin(193, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetSelectMenuIdBySpriteMenuClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -3898,11 +3857,11 @@ void SpriteMenuGetSelectMenuIdBySpriteMenuClass(uint8_t *rdram, R5900Context *ct
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuGetSelectMenuIdBySpriteMenuClass(rdram, runtime, p4, xo)); })) return;
-    ckEnd(196, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(193, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void SpriteMenuSetSelectMenuId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(197, rdram, runtime)) return;
+    if (!ckBegin(194, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetSelectMenuId(rdram, &c, runtime); })) return;
     ckMid();
@@ -3910,11 +3869,11 @@ void SpriteMenuSetSelectMenuId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetSelectMenuId(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(197, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(194, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void SpriteMenuGetSelectMenuMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(198, rdram, runtime)) return;
+    if (!ckBegin(195, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuGetSelectMenuMode(rdram, &c, runtime); })) return;
     ckMid();
@@ -3922,11 +3881,11 @@ void SpriteMenuGetSelectMenuMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuGetSelectMenuMode(rdram, runtime, p4, xo)); })) return;
-    ckEnd(198, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(195, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void SpriteMenuSetDefaultSelectMenu(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(199, rdram, runtime)) return;
+    if (!ckBegin(196, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetDefaultSelectMenu(rdram, &c, runtime); })) return;
     ckMid();
@@ -3934,11 +3893,11 @@ void SpriteMenuSetDefaultSelectMenu(uint8_t *rdram, R5900Context *ctx, PS2Runtim
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetDefaultSelectMenu(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(199, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
+    ckEnd(196, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3]);
 }
 void SpriteMenuSetNumPartsFormatByPartsParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(200, rdram, runtime)) return;
+    if (!ckBegin(197, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetNumPartsFormatByPartsParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -3946,11 +3905,11 @@ void SpriteMenuSetNumPartsFormatByPartsParam(uint8_t *rdram, R5900Context *ctx, 
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::SpriteMenuSetNumPartsFormatByPartsParam(rdram, runtime, p5, p6, xo)); })) return;
-    ckEnd(200, ctx, c, 1, v0, f0, 0x48u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(197, ctx, c, 1, v0, f0, 0x48u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void SpriteMenuSetAnimParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p6, uint64_t p7, float pf12)
 {
-    if (!ckBegin(201, rdram, runtime)) return;
+    if (!ckBegin(198, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SpriteMenuSetAnimParam(rdram, &c, runtime); })) return;
     ckMid();
@@ -3958,11 +3917,11 @@ void SpriteMenuSetAnimParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { ty::SpriteMenuSetAnimParam(rdram, runtime, p4, p5, p6, p7, pf12, xo); })) return;
-    ckEnd(201, ctx, c, 0, v0, f0, 0x11cu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(198, ctx, c, 0, v0, f0, 0x11cu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void GetSpriteClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(202, rdram, runtime)) return;
+    if (!ckBegin(199, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetSpriteClass(rdram, &c, runtime); })) return;
     ckMid();
@@ -3970,44 +3929,44 @@ void GetSpriteClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = (ty::GetSpriteClass(rdram, runtime, p4, xo)); })) return;
-    ckEnd(202, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(199, ctx, c, 2, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void ChangeCollisionResourceAttribute(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8, uint64_t p9, uint64_t p10)
 {
-    if (!ckBegin(203, rdram, runtime)) return;
+    if (!ckBegin(200, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ChangeCollisionResourceAttribute(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::ChangeCollisionResourceAttribute(rdram, runtime, p4, p5, p6, p7, p8, p9, p10)); })) return;
-    ckEnd(203, ctx, c, 2, v0, f0, 0x3a18u, 0x0u, false);
+    ckEnd(200, ctx, c, 2, v0, f0, 0x3a18u, 0x0u, false);
 }
 void ConstructorCollisionObjectJudgeCallbackData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(204, rdram, runtime)) return;
+    if (!ckBegin(201, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ConstructorCollisionObjectJudgeCallbackData(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::ConstructorCollisionObjectJudgeCallbackData(rdram, runtime, p4)); })) return;
-    ckEnd(204, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
+    ckEnd(201, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
 }
 void CopyCollisionFinder(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(205, rdram, runtime)) return;
+    if (!ckBegin(202, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::CopyCollisionFinder(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::CopyCollisionFinder(rdram, runtime, p4, p5)); })) return;
-    ckEnd(205, ctx, c, 2, v0, f0, 0x48u, 0x0u, false);
+    ckEnd(202, ctx, c, 2, v0, f0, 0x48u, 0x0u, false);
 }
 void GetGeometryPointerObjectParentNodeId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(206, rdram, runtime)) return;
+    if (!ckBegin(203, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetGeometryPointerObjectParentNodeId(rdram, &c, runtime); })) return;
     ckMid();
@@ -4015,22 +3974,22 @@ void GetGeometryPointerObjectParentNodeId(uint8_t *rdram, R5900Context *ctx, PS2
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetGeometryPointerObjectParentNodeId(rdram, runtime, p4, xo)); })) return;
-    ckEnd(206, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(203, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void GetClothWorkSize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(207, rdram, runtime)) return;
+    if (!ckBegin(204, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetClothWorkSize(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetClothWorkSize(rdram, runtime, p4)); })) return;
-    ckEnd(207, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(204, ctx, c, 1, v0, f0, 0xf8u, 0x0u, false);
 }
 void manager_sub_01140630(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(208, rdram, runtime)) return;
+    if (!ckBegin(205, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_01140630(rdram, &c, runtime); })) return;
     ckMid();
@@ -4038,11 +3997,11 @@ void manager_sub_01140630(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::manager_sub_01140630(rdram, runtime, xo)); })) return;
-    ckEnd(208, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(205, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void manager_sub_011408E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5)
 {
-    if (!ckBegin(209, rdram, runtime)) return;
+    if (!ckBegin(206, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_011408E0(rdram, &c, runtime); })) return;
     ckMid();
@@ -4050,33 +4009,33 @@ void manager_sub_011408E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = (ty::manager_sub_011408E0(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(209, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
+    ckEnd(206, ctx, c, 2, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2] || Ps2GprU64(&c, 9) != xo[3]);
 }
 void manager_sub_01140E60(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(210, rdram, runtime)) return;
+    if (!ckBegin(207, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_01140E60(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::manager_sub_01140E60(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(210, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(207, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void manager_sub_01140FD8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(211, rdram, runtime)) return;
+    if (!ckBegin(208, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_01140FD8(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::manager_sub_01140FD8(rdram, runtime, p4, p5); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(211, ctx, c, 4, v0, f0, 0xau, 0x2u, false);
+    ckEnd(208, ctx, c, 4, v0, f0, 0xau, 0x2u, false);
 }
 void manager_sub_011418D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(212, rdram, runtime)) return;
+    if (!ckBegin(209, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_011418D8(rdram, &c, runtime); })) return;
     ckMid();
@@ -4084,22 +4043,22 @@ void manager_sub_011418D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::manager_sub_011418D8(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(212, ctx, c, 1, v0, f0, 0x8u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(209, ctx, c, 1, v0, f0, 0x8u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void manager_sub_01141E80(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(213, rdram, runtime)) return;
+    if (!ckBegin(210, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_01141E80(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::manager_sub_01141E80(rdram, runtime, p4)); })) return;
-    ckEnd(213, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(210, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void get_particle_parameter_blend_disp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint64_t p6, uint64_t p7, float pf12)
 {
-    if (!ckBegin(214, rdram, runtime)) return;
+    if (!ckBegin(211, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::get_particle_parameter_blend_disp(rdram, &c, runtime); })) return;
     ckMid();
@@ -4107,56 +4066,44 @@ void get_particle_parameter_blend_disp(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { const a1::RetVF r = ty::get_particle_parameter_blend_disp(rdram, runtime, p4, p5, p6, p7, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(214, ctx, c, 4, v0, f0, 0x32au, 0xeu, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1]);
-}
-void InitModifiedManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
-{
-    if (!ckBegin(215, rdram, runtime)) return;
-    R5900Context &c = ckCtx(ctx);
-    if (!ckLeg([&] { ref::InitModifiedManager(rdram, &c, runtime); })) return;
-    ckMid();
-    uint64_t v0 = 0u;
-    float f0 = 0.0f;
-    uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
-    if (!ckLeg([&] { ty::InitModifiedManager(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(215, ctx, c, 0, v0, f0, 0x4cu, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(211, ctx, c, 4, v0, f0, 0x32au, 0xeu, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1]);
 }
 void InitTwoWayLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(216, rdram, runtime)) return;
+    if (!ckBegin(212, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::InitTwoWayLink(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { ty::InitTwoWayLink(rdram, runtime, p4, p5); })) return;
-    ckEnd(216, ctx, c, 0, v0, f0, 0x0u, 0x0u, false);
+    ckEnd(212, ctx, c, 0, v0, f0, 0x0u, 0x0u, false);
 }
 void AddTwoWayLinkNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(217, rdram, runtime)) return;
+    if (!ckBegin(213, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::AddTwoWayLinkNext(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::AddTwoWayLinkNext(rdram, runtime, p4, p5)); })) return;
-    ckEnd(217, ctx, c, 1, v0, f0, 0x0u, 0x0u, false);
+    ckEnd(213, ctx, c, 1, v0, f0, 0x0u, 0x0u, false);
 }
 void DeleteTwoWayLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(218, rdram, runtime)) return;
+    if (!ckBegin(214, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::DeleteTwoWayLink(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::DeleteTwoWayLink(rdram, runtime, p4)); })) return;
-    ckEnd(218, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(214, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
 }
 void adpcmSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(219, rdram, runtime)) return;
+    if (!ckBegin(215, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::adpcmSetPan(rdram, &c, runtime); })) return;
     ckMid();
@@ -4164,11 +4111,11 @@ void adpcmSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::adpcmSetPan(rdram, runtime, p4, pf12, xo)); })) return;
-    ckEnd(219, ctx, c, 1, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(215, ctx, c, 1, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void dsysFileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(220, rdram, runtime)) return;
+    if (!ckBegin(216, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::dsysFileInit(rdram, &c, runtime); })) return;
     ckMid();
@@ -4176,11 +4123,11 @@ void dsysFileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::dsysFileInit(rdram, runtime, xo)); })) return;
-    ckEnd(220, ctx, c, 1, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1]);
+    ckEnd(216, ctx, c, 1, v0, f0, 0x3f8u, 0x0u, Ps2GprU64(&c, 8) != xo[0] || Ps2GprU64(&c, 9) != xo[1]);
 }
 void sheetFileGetDataAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(221, rdram, runtime)) return;
+    if (!ckBegin(217, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sheetFileGetDataAdrs(rdram, &c, runtime); })) return;
     ckMid();
@@ -4188,33 +4135,22 @@ void sheetFileGetDataAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::sheetFileGetDataAdrs(rdram, runtime, p4, xo)); })) return;
-    ckEnd(221, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(217, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void sheetMgrSheetHeaderSearchSheetDataObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(222, rdram, runtime)) return;
+    if (!ckBegin(218, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::sheetMgrSheetHeaderSearchSheetDataObj(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::sheetMgrSheetHeaderSearchSheetDataObj(rdram, runtime, p4, p5)); })) return;
-    ckEnd(222, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
-}
-void sheetMgrCheckSegInitList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
-{
-    if (!ckBegin(223, rdram, runtime)) return;
-    R5900Context &c = ckCtx(ctx);
-    if (!ckLeg([&] { ref::sheetMgrCheckSegInitList(rdram, &c, runtime); })) return;
-    ckMid();
-    uint64_t v0 = 0u;
-    float f0 = 0.0f;
-    if (!ckLeg([&] { v0 = a1_sx64(ty::sheetMgrCheckSegInitList(rdram, runtime, p4)); })) return;
-    ckEnd(223, ctx, c, 1, v0, f0, 0x8u, 0x0u, false);
+    ckEnd(218, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void manager_sub_011629E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(224, rdram, runtime)) return;
+    if (!ckBegin(219, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_011629E8(rdram, &c, runtime); })) return;
     ckMid();
@@ -4222,11 +4158,11 @@ void manager_sub_011629E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::manager_sub_011629E8(rdram, runtime, p4, xo)); })) return;
-    ckEnd(224, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(219, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void get_hit_region_ofst_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(225, rdram, runtime)) return;
+    if (!ckBegin(220, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::get_hit_region_ofst_camera_region(rdram, &c, runtime); })) return;
     ckMid();
@@ -4234,11 +4170,11 @@ void get_hit_region_ofst_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::get_hit_region_ofst_camera_region(rdram, runtime, p4, xo); })) return;
-    ckEnd(225, ctx, c, 3, v0, f0, 0xcu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(220, ctx, c, 3, v0, f0, 0xcu, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void set_scissor_screen_size(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5, uint32_t p6, uint32_t p7)
 {
-    if (!ckBegin(226, rdram, runtime)) return;
+    if (!ckBegin(221, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::set_scissor_screen_size(rdram, &c, runtime); })) return;
     ckMid();
@@ -4246,11 +4182,11 @@ void set_scissor_screen_size(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::set_scissor_screen_size(rdram, runtime, p4, p5, p6, p7, xo)); })) return;
-    ckEnd(226, ctx, c, 1, v0, f0, 0x30u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(221, ctx, c, 1, v0, f0, 0x30u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void DecreaseDamageLockTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(227, rdram, runtime)) return;
+    if (!ckBegin(222, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::DecreaseDamageLockTime(rdram, &c, runtime); })) return;
     ckMid();
@@ -4258,11 +4194,11 @@ void DecreaseDamageLockTime(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::DecreaseDamageLockTime(rdram, runtime, p4, pf12, xo)); })) return;
-    ckEnd(227, ctx, c, 1, v0, f0, 0x0u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(222, ctx, c, 1, v0, f0, 0x0u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void GetDamagerClassDamageSheetType(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(228, rdram, runtime)) return;
+    if (!ckBegin(223, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetDamagerClassDamageSheetType(rdram, &c, runtime); })) return;
     ckMid();
@@ -4270,11 +4206,11 @@ void GetDamagerClassDamageSheetType(uint8_t *rdram, R5900Context *ctx, PS2Runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GetDamagerClassDamageSheetType(rdram, runtime, p4, xo)); })) return;
-    ckEnd(228, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(223, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void ResetAnimeFrameTableInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(229, rdram, runtime)) return;
+    if (!ckBegin(224, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ResetAnimeFrameTableInfo(rdram, &c, runtime); })) return;
     ckMid();
@@ -4282,11 +4218,11 @@ void ResetAnimeFrameTableInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::ResetAnimeFrameTableInfo(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(229, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(224, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void rintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12)
 {
-    if (!ckBegin(230, rdram, runtime)) return;
+    if (!ckBegin(225, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::rintf(rdram, &c, runtime); })) return;
     ckMid();
@@ -4294,11 +4230,11 @@ void rintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12)
     float f0 = 0.0f;
     uint64_t xo[7] = {(uint64_t)a1ck::ckBits(ctx->f[12]), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { const a1::RetVF r = ty::rintf(rdram, runtime, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(230, ctx, c, 4, v0, f0, 0x3fau, 0x1002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3] || Ps2GprU64(&c, 7) != xo[4] || Ps2GprU64(&c, 8) != xo[5] || Ps2GprU64(&c, 9) != xo[6]);
+    ckEnd(225, ctx, c, 4, v0, f0, 0x3fau, 0x1002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3] || Ps2GprU64(&c, 7) != xo[4] || Ps2GprU64(&c, 8) != xo[5] || Ps2GprU64(&c, 9) != xo[6]);
 }
 void GAMEUTIL_set_parameter_look_at_vs_offset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12, float pf13, float pf14, float pf15, float pf16)
 {
-    if (!ckBegin(231, rdram, runtime)) return;
+    if (!ckBegin(226, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_set_parameter_look_at_vs_offset(rdram, &c, runtime); })) return;
     ckMid();
@@ -4306,11 +4242,11 @@ void GAMEUTIL_set_parameter_look_at_vs_offset(uint8_t *rdram, R5900Context *ctx,
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13]), (uint64_t)a1ck::ckBits(ctx->f[14])};
     if (!ckLeg([&] { f0 = ty::GAMEUTIL_set_parameter_look_at_vs_offset(rdram, runtime, p4, pf12, pf13, pf14, pf15, pf16, xo); })) return;
-    ckEnd(231, ctx, c, 3, v0, f0, 0x2u, 0x7000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[2]);
+    ckEnd(226, ctx, c, 3, v0, f0, 0x2u, 0x7000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[2]);
 }
 void GAMEUTIL_doit_status_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6, float pf12)
 {
-    if (!ckBegin(232, rdram, runtime)) return;
+    if (!ckBegin(227, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_doit_status_manager(rdram, &c, runtime); })) return;
     ckMid();
@@ -4318,11 +4254,11 @@ void GAMEUTIL_doit_status_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::GAMEUTIL_doit_status_manager(rdram, runtime, p4, p5, p6, pf12, xo)); })) return;
-    ckEnd(232, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(227, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void ReleaseGame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(233, rdram, runtime)) return;
+    if (!ckBegin(228, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::ReleaseGame(rdram, &c, runtime); })) return;
     ckMid();
@@ -4330,11 +4266,11 @@ void ReleaseGame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::ReleaseGame(rdram, runtime, p4, xo)); })) return;
-    ckEnd(233, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(228, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void getDemoBarFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(234, rdram, runtime)) return;
+    if (!ckBegin(229, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getDemoBarFade(rdram, &c, runtime); })) return;
     ckMid();
@@ -4342,11 +4278,11 @@ void getDemoBarFade(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[1])};
     if (!ckLeg([&] { const a1::RetVF r = ty::getDemoBarFade(rdram, runtime, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(234, ctx, c, 4, v0, f0, 0x2u, 0x2u, a1ck::ckBits(c.f[1]) != (uint32_t)xo[0]);
+    ckEnd(229, ctx, c, 4, v0, f0, 0x2u, 0x2u, a1ck::ckBits(c.f[1]) != (uint32_t)xo[0]);
 }
 void set_base_pitch_parameter_nico_yaw_pitch_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, float pf12, float pf13, float pf14, float pf15, float pf16, float pf17)
 {
-    if (!ckBegin(235, rdram, runtime)) return;
+    if (!ckBegin(230, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::set_base_pitch_parameter_nico_yaw_pitch_cntrl(rdram, &c, runtime); })) return;
     ckMid();
@@ -4354,11 +4290,11 @@ void set_base_pitch_parameter_nico_yaw_pitch_cntrl(uint8_t *rdram, R5900Context 
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15]), (uint64_t)a1ck::ckBits(ctx->f[16])};
     if (!ckLeg([&] { f0 = ty::set_base_pitch_parameter_nico_yaw_pitch_cntrl(rdram, runtime, p4, p5, pf12, pf13, pf14, pf15, pf16, pf17, xo); })) return;
-    ckEnd(235, ctx, c, 3, v0, f0, 0x2u, 0x1f000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[16]) != (uint32_t)xo[2]);
+    ckEnd(230, ctx, c, 3, v0, f0, 0x2u, 0x1f000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[16]) != (uint32_t)xo[2]);
 }
 void gamecore_sub_01347B28(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12, float pf13)
 {
-    if (!ckBegin(236, rdram, runtime)) return;
+    if (!ckBegin(231, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01347B28(rdram, &c, runtime); })) return;
     ckMid();
@@ -4366,11 +4302,11 @@ void gamecore_sub_01347B28(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_01347B28(rdram, runtime, p4, pf12, pf13, xo)); })) return;
-    ckEnd(236, ctx, c, 2, v0, f0, 0x28u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(231, ctx, c, 2, v0, f0, 0x28u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_01347B88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(237, rdram, runtime)) return;
+    if (!ckBegin(232, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01347B88(rdram, &c, runtime); })) return;
     ckMid();
@@ -4378,11 +4314,11 @@ void gamecore_sub_01347B88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { f0 = ty::gamecore_sub_01347B88(rdram, runtime, p4, p5, p6, xo); })) return;
-    ckEnd(237, ctx, c, 3, v0, f0, 0x8cu, 0xeu, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(232, ctx, c, 3, v0, f0, 0x8cu, 0xeu, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void backStageCheckPointSave(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(238, rdram, runtime)) return;
+    if (!ckBegin(233, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::backStageCheckPointSave(rdram, &c, runtime); })) return;
     ckMid();
@@ -4390,11 +4326,11 @@ void backStageCheckPointSave(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::backStageCheckPointSave(rdram, runtime, p4, xo)); })) return;
-    ckEnd(238, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
+    ckEnd(233, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
 }
 void backStageCheckPointLoad(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(239, rdram, runtime)) return;
+    if (!ckBegin(234, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::backStageCheckPointLoad(rdram, &c, runtime); })) return;
     ckMid();
@@ -4402,11 +4338,11 @@ void backStageCheckPointLoad(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::backStageCheckPointLoad(rdram, runtime, p4, xo)); })) return;
-    ckEnd(239, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
+    ckEnd(234, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4]);
 }
 void _optionWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(240, rdram, runtime)) return;
+    if (!ckBegin(235, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_optionWorkSet(rdram, &c, runtime); })) return;
     ckMid();
@@ -4414,11 +4350,11 @@ void _optionWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { ty::_optionWorkSet(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(240, ctx, c, 0, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(235, ctx, c, 0, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void _gameFlagSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(241, rdram, runtime)) return;
+    if (!ckBegin(236, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameFlagSet(rdram, &c, runtime); })) return;
     ckMid();
@@ -4426,11 +4362,11 @@ void _gameFlagSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 1), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::_gameFlagSet(rdram, runtime, p4, xo)); })) return;
-    ckEnd(241, ctx, c, 2, v0, f0, 0x7au, 0x0u, Ps2GprU64(&c, 1) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3]);
+    ckEnd(236, ctx, c, 2, v0, f0, 0x7au, 0x0u, Ps2GprU64(&c, 1) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3]);
 }
 void _gameFlagCls(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(242, rdram, runtime)) return;
+    if (!ckBegin(237, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameFlagCls(rdram, &c, runtime); })) return;
     ckMid();
@@ -4438,11 +4374,11 @@ void _gameFlagCls(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::_gameFlagCls(rdram, runtime, p4, xo)); })) return;
-    ckEnd(242, ctx, c, 2, v0, f0, 0x7au, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
+    ckEnd(237, ctx, c, 2, v0, f0, 0x7au, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
 }
 void _gameFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(243, rdram, runtime)) return;
+    if (!ckBegin(238, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4450,11 +4386,11 @@ void _gameFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::_gameFlagChk(rdram, runtime, p4, xo)); })) return;
-    ckEnd(243, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(238, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
 void _gameWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(244, rdram, runtime)) return;
+    if (!ckBegin(239, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameWorkSet(rdram, &c, runtime); })) return;
     ckMid();
@@ -4462,11 +4398,11 @@ void _gameWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 1)};
     if (!ckLeg([&] { ty::_gameWorkSet(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(244, ctx, c, 0, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 1) != xo[0]);
+    ckEnd(239, ctx, c, 0, v0, f0, 0x12u, 0x0u, Ps2GprU64(&c, 1) != xo[0]);
 }
 void _gameFWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(245, rdram, runtime)) return;
+    if (!ckBegin(240, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameFWorkSet(rdram, &c, runtime); })) return;
     ckMid();
@@ -4474,11 +4410,11 @@ void _gameFWorkSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint3
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::_gameFWorkSet(rdram, runtime, p4, pf12, xo)); })) return;
-    ckEnd(245, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(240, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void _gameFWorkChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(246, rdram, runtime)) return;
+    if (!ckBegin(241, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_gameFWorkChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4486,11 +4422,11 @@ void _gameFWorkChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint3
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { const a1::RetVF r = ty::_gameFWorkChk(rdram, runtime, p4, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(246, ctx, c, 4, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(241, ctx, c, 4, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void fruitsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p7)
 {
-    if (!ckBegin(247, rdram, runtime)) return;
+    if (!ckBegin(242, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::fruitsFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4498,11 +4434,11 @@ void fruitsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint6
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::fruitsFlagChk(rdram, runtime, p4, p5, p7, xo)); })) return;
-    ckEnd(247, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(242, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void gameFlagCheckPointLoad(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8, uint64_t p9)
 {
-    if (!ckBegin(248, rdram, runtime)) return;
+    if (!ckBegin(243, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gameFlagCheckPointLoad(rdram, &c, runtime); })) return;
     ckMid();
@@ -4510,11 +4446,11 @@ void gameFlagCheckPointLoad(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::gameFlagCheckPointLoad(rdram, runtime, p4, p5, p6, p7, p8, p9, xo)); })) return;
-    ckEnd(248, ctx, c, 2, v0, f0, 0x3ff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
+    ckEnd(243, ctx, c, 2, v0, f0, 0x3ff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
 }
 void tailsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p7)
 {
-    if (!ckBegin(249, rdram, runtime)) return;
+    if (!ckBegin(244, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::tailsFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4522,11 +4458,11 @@ void tailsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::tailsFlagChk(rdram, runtime, p4, p5, p7, xo)); })) return;
-    ckEnd(249, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 8) != xo[0]);
+    ckEnd(244, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 8) != xo[0]);
 }
 void gexsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p7)
 {
-    if (!ckBegin(250, rdram, runtime)) return;
+    if (!ckBegin(245, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gexsFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4534,11 +4470,11 @@ void gexsFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gexsFlagChk(rdram, runtime, p4, p5, p7, xo)); })) return;
-    ckEnd(250, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(245, ctx, c, 1, v0, f0, 0x1c8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void _omakeGetFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(251, rdram, runtime)) return;
+    if (!ckBegin(246, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_omakeGetFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4546,11 +4482,11 @@ void _omakeGetFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::_omakeGetFlagChk(rdram, runtime, p4, xo)); })) return;
-    ckEnd(251, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(246, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void _omakeSelectFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(252, rdram, runtime)) return;
+    if (!ckBegin(247, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::_omakeSelectFlagChk(rdram, &c, runtime); })) return;
     ckMid();
@@ -4558,11 +4494,11 @@ void _omakeSelectFlagChk(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime,
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::_omakeSelectFlagChk(rdram, runtime, p4, xo)); })) return;
-    ckEnd(252, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(247, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
 void gameflowBossEyeCameraDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(253, rdram, runtime)) return;
+    if (!ckBegin(248, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gameflowBossEyeCameraDisable(rdram, &c, runtime); })) return;
     ckMid();
@@ -4570,11 +4506,11 @@ void gameflowBossEyeCameraDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gameflowBossEyeCameraDisable(rdram, runtime, p4, xo)); })) return;
-    ckEnd(253, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(248, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void gameModeSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(254, rdram, runtime)) return;
+    if (!ckBegin(249, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gameModeSet(rdram, &c, runtime); })) return;
     ckMid();
@@ -4582,11 +4518,11 @@ void gameModeSet(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::gameModeSet(rdram, runtime, p4, xo)); })) return;
-    ckEnd(254, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
+    ckEnd(249, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
 }
 void gameModeCls(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(255, rdram, runtime)) return;
+    if (!ckBegin(250, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gameModeCls(rdram, &c, runtime); })) return;
     ckMid();
@@ -4594,11 +4530,11 @@ void gameModeCls(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { ty::gameModeCls(rdram, runtime, p4, xo); })) return;
-    ckEnd(255, ctx, c, 0, v0, f0, 0x3fcu, 0x0u, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3] || Ps2GprU64(&c, 7) != xo[4] || Ps2GprU64(&c, 8) != xo[5] || Ps2GprU64(&c, 9) != xo[6]);
+    ckEnd(250, ctx, c, 0, v0, f0, 0x3fcu, 0x0u, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 5) != xo[2] || Ps2GprU64(&c, 6) != xo[3] || Ps2GprU64(&c, 7) != xo[4] || Ps2GprU64(&c, 8) != xo[5] || Ps2GprU64(&c, 9) != xo[6]);
 }
 void gStatPlaceIdToSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(256, rdram, runtime)) return;
+    if (!ckBegin(251, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gStatPlaceIdToSavePoint(rdram, &c, runtime); })) return;
     ckMid();
@@ -4606,11 +4542,11 @@ void gStatPlaceIdToSavePoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gStatPlaceIdToSavePoint(rdram, runtime, p4, xo)); })) return;
-    ckEnd(256, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(251, ctx, c, 1, v0, f0, 0xe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void gstatBootMcSetLastSaveOmakeStat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(257, rdram, runtime)) return;
+    if (!ckBegin(252, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gstatBootMcSetLastSaveOmakeStat(rdram, &c, runtime); })) return;
     ckMid();
@@ -4618,11 +4554,11 @@ void gstatBootMcSetLastSaveOmakeStat(uint8_t *rdram, R5900Context *ctx, PS2Runti
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gstatBootMcSetLastSaveOmakeStat(rdram, runtime, p4, xo)); })) return;
-    ckEnd(257, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 8) != xo[1]);
+    ckEnd(252, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 8) != xo[1]);
 }
 void opflowSetDemoFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12)
 {
-    if (!ckBegin(258, rdram, runtime)) return;
+    if (!ckBegin(253, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::opflowSetDemoFrame(rdram, &c, runtime); })) return;
     ckMid();
@@ -4630,11 +4566,11 @@ void opflowSetDemoFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[12])};
     if (!ckLeg([&] { const a1::RetVF r = ty::opflowSetDemoFrame(rdram, runtime, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(258, ctx, c, 4, v0, f0, 0x2u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
+    ckEnd(253, ctx, c, 4, v0, f0, 0x2u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
 }
 void getStageChipID(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(259, rdram, runtime)) return;
+    if (!ckBegin(254, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getStageChipID(rdram, &c, runtime); })) return;
     ckMid();
@@ -4642,11 +4578,11 @@ void getStageChipID(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { const a1::RetVF r = ty::getStageChipID(rdram, runtime, p4, p5, p6, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(259, ctx, c, 4, v0, f0, 0x8au, 0xeu, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(254, ctx, c, 4, v0, f0, 0x8au, 0xeu, Ps2GprU64(&c, 7) != xo[0]);
 }
 void gamecore_sub_01358A68(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(260, rdram, runtime)) return;
+    if (!ckBegin(255, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01358A68(rdram, &c, runtime); })) return;
     ckMid();
@@ -4654,11 +4590,11 @@ void gamecore_sub_01358A68(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01358A68(rdram, runtime, p4, xo)); })) return;
-    ckEnd(260, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(255, ctx, c, 1, v0, f0, 0x1f8u, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void stagemanager_checkstageAlreadyLoadRequestedByStrptr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(261, rdram, runtime)) return;
+    if (!ckBegin(256, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::stagemanager_checkstageAlreadyLoadRequestedByStrptr(rdram, &c, runtime); })) return;
     ckMid();
@@ -4666,11 +4602,11 @@ void stagemanager_checkstageAlreadyLoadRequestedByStrptr(uint8_t *rdram, R5900Co
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::stagemanager_checkstageAlreadyLoadRequestedByStrptr(rdram, runtime, p4, xo)); })) return;
-    ckEnd(261, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(256, ctx, c, 1, v0, f0, 0xf8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void gcGetStageData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(262, rdram, runtime)) return;
+    if (!ckBegin(257, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gcGetStageData(rdram, &c, runtime); })) return;
     ckMid();
@@ -4678,11 +4614,11 @@ void gcGetStageData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gcGetStageData(rdram, runtime, p4, xo)); })) return;
-    ckEnd(262, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(257, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void stagemanager_getStageNumberWithStageDataStrptr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(263, rdram, runtime)) return;
+    if (!ckBegin(258, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::stagemanager_getStageNumberWithStageDataStrptr(rdram, &c, runtime); })) return;
     ckMid();
@@ -4690,11 +4626,11 @@ void stagemanager_getStageNumberWithStageDataStrptr(uint8_t *rdram, R5900Context
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::stagemanager_getStageNumberWithStageDataStrptr(rdram, runtime, p4, xo)); })) return;
-    ckEnd(263, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
+    ckEnd(258, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
 }
 void PauseStageBoundaryManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(264, rdram, runtime)) return;
+    if (!ckBegin(259, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::PauseStageBoundaryManager(rdram, &c, runtime); })) return;
     ckMid();
@@ -4702,11 +4638,11 @@ void PauseStageBoundaryManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
     float f0 = 0.0f;
     uint64_t xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::PauseStageBoundaryManager(rdram, runtime, p4, xo)); })) return;
-    ckEnd(264, ctx, c, 1, v0, f0, 0x1ff8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
+    ckEnd(259, ctx, c, 1, v0, f0, 0x1ff8u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2] || Ps2GprU64(&c, 7) != xo[3] || Ps2GprU64(&c, 8) != xo[4] || Ps2GprU64(&c, 9) != xo[5] || Ps2GprU64(&c, 10) != xo[6] || Ps2GprU64(&c, 11) != xo[7]);
 }
 void initBgmScript(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(265, rdram, runtime)) return;
+    if (!ckBegin(260, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initBgmScript(rdram, &c, runtime); })) return;
     ckMid();
@@ -4714,22 +4650,22 @@ void initBgmScript(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::initBgmScript(rdram, runtime, xo)); })) return;
-    ckEnd(265, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
+    ckEnd(260, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1] || Ps2GprU64(&c, 6) != xo[2]);
 }
 void gamecore_sub_0136A328(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(266, rdram, runtime)) return;
+    if (!ckBegin(261, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0136A328(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0136A328(rdram, runtime, p4)); })) return;
-    ckEnd(266, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
+    ckEnd(261, ctx, c, 1, v0, f0, 0x28u, 0x0u, false);
 }
 void GetBossPartsDamagePerParts(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(267, rdram, runtime)) return;
+    if (!ckBegin(262, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GetBossPartsDamagePerParts(rdram, &c, runtime); })) return;
     ckMid();
@@ -4737,11 +4673,11 @@ void GetBossPartsDamagePerParts(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { const a1::RetVF r = ty::GetBossPartsDamagePerParts(rdram, runtime, p4, p5, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(267, ctx, c, 4, v0, f0, 0xc8u, 0x2u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
+    ckEnd(262, ctx, c, 4, v0, f0, 0xc8u, 0x2u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1]);
 }
 void getexpressiondatapoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(268, rdram, runtime)) return;
+    if (!ckBegin(263, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getexpressiondatapoint(rdram, &c, runtime); })) return;
     ckMid();
@@ -4749,11 +4685,11 @@ void getexpressiondatapoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { f0 = ty::getexpressiondatapoint(rdram, runtime, p4, p5, xo); })) return;
-    ckEnd(268, ctx, c, 3, v0, f0, 0x20u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(263, ctx, c, 3, v0, f0, 0x20u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void controllerAlertDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(269, rdram, runtime)) return;
+    if (!ckBegin(264, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::controllerAlertDisable(rdram, &c, runtime); })) return;
     ckMid();
@@ -4761,11 +4697,11 @@ void controllerAlertDisable(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::controllerAlertDisable(rdram, runtime, p4, xo)); })) return;
-    ckEnd(269, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(264, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void gamecore_sub_01386B98(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(270, rdram, runtime)) return;
+    if (!ckBegin(265, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01386B98(rdram, &c, runtime); })) return;
     ckMid();
@@ -4773,33 +4709,33 @@ void gamecore_sub_01386B98(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01386B98(rdram, runtime, xo)); })) return;
-    ckEnd(270, ctx, c, 1, v0, f0, 0x1ff8u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(265, ctx, c, 1, v0, f0, 0x1ff8u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void fadeout_weakpoint_effect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(271, rdram, runtime)) return;
+    if (!ckBegin(266, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::fadeout_weakpoint_effect(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::fadeout_weakpoint_effect(rdram, runtime)); })) return;
-    ckEnd(271, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(266, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void cancel_fadeout_weakpoint_effect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(272, rdram, runtime)) return;
+    if (!ckBegin(267, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::cancel_fadeout_weakpoint_effect(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::cancel_fadeout_weakpoint_effect(rdram, runtime)); })) return;
-    ckEnd(272, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(267, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void set_node_data_expression(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint32_t p6, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(273, rdram, runtime)) return;
+    if (!ckBegin(268, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::set_node_data_expression(rdram, &c, runtime); })) return;
     ckMid();
@@ -4807,22 +4743,22 @@ void set_node_data_expression(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { ty::set_node_data_expression(rdram, runtime, p4, p5, p6, pf12, pf13, pf14, xo); })) return;
-    ckEnd(273, ctx, c, 0, v0, f0, 0x9cu, 0x0u, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
+    ckEnd(268, ctx, c, 0, v0, f0, 0x9cu, 0x0u, Ps2GprU64(&c, 2) != xo[0] || Ps2GprU64(&c, 4) != xo[1] || Ps2GprU64(&c, 7) != xo[2]);
 }
 void constructor_expression_change(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(274, rdram, runtime)) return;
+    if (!ckBegin(269, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::constructor_expression_change(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::constructor_expression_change(rdram, runtime, p4)); })) return;
-    ckEnd(274, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
+    ckEnd(269, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
 }
 void EnableArrowWater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(275, rdram, runtime)) return;
+    if (!ckBegin(270, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::EnableArrowWater(rdram, &c, runtime); })) return;
     ckMid();
@@ -4830,11 +4766,11 @@ void EnableArrowWater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::EnableArrowWater(rdram, runtime, p4, xo)); })) return;
-    ckEnd(275, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(270, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void EndArrowWater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(276, rdram, runtime)) return;
+    if (!ckBegin(271, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::EndArrowWater(rdram, &c, runtime); })) return;
     ckMid();
@@ -4842,11 +4778,11 @@ void EndArrowWater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint6
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::EndArrowWater(rdram, runtime, p4, xo)); })) return;
-    ckEnd(276, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(271, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void gamecore_sub_01393E58(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7, float pf12)
 {
-    if (!ckBegin(277, rdram, runtime)) return;
+    if (!ckBegin(272, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01393E58(rdram, &c, runtime); })) return;
     ckMid();
@@ -4854,22 +4790,22 @@ void gamecore_sub_01393E58(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[6] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { const a1::RetVF r = ty::gamecore_sub_01393E58(rdram, runtime, p4, p5, p6, p7, pf12, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(277, ctx, c, 4, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5]);
+    ckEnd(272, ctx, c, 4, v0, f0, 0x7f8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5]);
 }
 void gamecore_sub_0139F3B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(278, rdram, runtime)) return;
+    if (!ckBegin(273, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0139F3B0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_0139F3B0(rdram, runtime, p4)); })) return;
-    ckEnd(278, ctx, c, 2, v0, f0, 0xf8u, 0x0u, false);
+    ckEnd(273, ctx, c, 2, v0, f0, 0xf8u, 0x0u, false);
 }
 void AI_GetPosition3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14, float pf15, float pf16, float pf17)
 {
-    if (!ckBegin(279, rdram, runtime)) return;
+    if (!ckBegin(274, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::AI_GetPosition3(rdram, &c, runtime); })) return;
     ckMid();
@@ -4877,11 +4813,11 @@ void AI_GetPosition3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, flo
     float f0 = 0.0f;
     uint64_t xo[4] = {(uint64_t)a1ck::ckBits(ctx->f[13]), (uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[16]), (uint64_t)a1ck::ckBits(ctx->f[17])};
     if (!ckLeg([&] { f0 = ty::AI_GetPosition3(rdram, runtime, pf12, pf13, pf14, pf15, pf16, pf17, xo); })) return;
-    ckEnd(279, ctx, c, 3, v0, f0, 0x2u, 0x3701eu, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[16]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[17]) != (uint32_t)xo[3]);
+    ckEnd(274, ctx, c, 3, v0, f0, 0x2u, 0x3701eu, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[16]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[17]) != (uint32_t)xo[3]);
 }
 void AI_GetInterRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14, float pf15, float pf16)
 {
-    if (!ckBegin(280, rdram, runtime)) return;
+    if (!ckBegin(275, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::AI_GetInterRatio(rdram, &c, runtime); })) return;
     ckMid();
@@ -4889,11 +4825,11 @@ void AI_GetInterRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, fl
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[14])};
     if (!ckLeg([&] { f0 = ty::AI_GetInterRatio(rdram, runtime, pf12, pf13, pf14, pf15, pf16, xo); })) return;
-    ckEnd(280, ctx, c, 3, v0, f0, 0x0u, 0x4002u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0]);
+    ckEnd(275, ctx, c, 3, v0, f0, 0x0u, 0x4002u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0]);
 }
 void AI_GetInterRatioOutCut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14, float pf15, float pf16)
 {
-    if (!ckBegin(281, rdram, runtime)) return;
+    if (!ckBegin(276, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::AI_GetInterRatioOutCut(rdram, &c, runtime); })) return;
     ckMid();
@@ -4901,11 +4837,11 @@ void AI_GetInterRatioOutCut(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[14])};
     if (!ckLeg([&] { f0 = ty::AI_GetInterRatioOutCut(rdram, runtime, pf12, pf13, pf14, pf15, pf16, xo); })) return;
-    ckEnd(281, ctx, c, 3, v0, f0, 0x0u, 0x4002u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0]);
+    ckEnd(276, ctx, c, 3, v0, f0, 0x0u, 0x4002u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0]);
 }
 void Kite_CmpPathPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(282, rdram, runtime)) return;
+    if (!ckBegin(277, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Kite_CmpPathPoint(rdram, &c, runtime); })) return;
     ckMid();
@@ -4913,22 +4849,22 @@ void Kite_CmpPathPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, u
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 4)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::Kite_CmpPathPoint(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(282, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
+    ckEnd(277, ctx, c, 1, v0, f0, 0x18u, 0x0u, Ps2GprU64(&c, 4) != xo[0]);
 }
 void gamecore_sub_013EF210(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p6)
 {
-    if (!ckBegin(283, rdram, runtime)) return;
+    if (!ckBegin(278, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013EF210(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::gamecore_sub_013EF210(rdram, runtime, p4, p5, p6); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(283, ctx, c, 4, v0, f0, 0x300ffb8u, 0x0u, false);
+    ckEnd(278, ctx, c, 4, v0, f0, 0x300ffb8u, 0x0u, false);
 }
 void getSObjNode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(284, rdram, runtime)) return;
+    if (!ckBegin(279, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getSObjNode(rdram, &c, runtime); })) return;
     ckMid();
@@ -4936,11 +4872,11 @@ void getSObjNode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_
     float f0 = 0.0f;
     uint64_t xo[7] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::getSObjNode(rdram, runtime, p4, xo)); })) return;
-    ckEnd(284, ctx, c, 1, v0, f0, 0xfe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
+    ckEnd(279, ctx, c, 1, v0, f0, 0xfe8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 8) != xo[3] || Ps2GprU64(&c, 9) != xo[4] || Ps2GprU64(&c, 10) != xo[5] || Ps2GprU64(&c, 11) != xo[6]);
 }
 void gamecore_sub_013F1290(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(285, rdram, runtime)) return;
+    if (!ckBegin(280, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F1290(rdram, &c, runtime); })) return;
     ckMid();
@@ -4948,22 +4884,22 @@ void gamecore_sub_013F1290(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_013F1290(rdram, runtime, p4, xo)); })) return;
-    ckEnd(285, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(280, ctx, c, 1, v0, f0, 0x28u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void gamecore_sub_013F12F0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(286, rdram, runtime)) return;
+    if (!ckBegin(281, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F12F0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_013F12F0(rdram, runtime, p4, p5)); })) return;
-    ckEnd(286, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(281, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
 }
 void gamecore_sub_013F1330(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(287, rdram, runtime)) return;
+    if (!ckBegin(282, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F1330(rdram, &c, runtime); })) return;
     ckMid();
@@ -4971,11 +4907,11 @@ void gamecore_sub_013F1330(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_013F1330(rdram, runtime, p4, xo)); })) return;
-    ckEnd(287, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(282, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void gamecore_sub_013F1370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(288, rdram, runtime)) return;
+    if (!ckBegin(283, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F1370(rdram, &c, runtime); })) return;
     ckMid();
@@ -4983,22 +4919,22 @@ void gamecore_sub_013F1370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[5] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_013F1370(rdram, runtime, p4, xo)); })) return;
-    ckEnd(288, ctx, c, 2, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(283, ctx, c, 2, v0, f0, 0xff8u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
 }
 void gamecore_sub_013F13E0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(289, rdram, runtime)) return;
+    if (!ckBegin(284, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F13E0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_013F13E0(rdram, runtime, p4, p5)); })) return;
-    ckEnd(289, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(284, ctx, c, 1, v0, f0, 0x18u, 0x0u, false);
 }
 void gamecore_sub_013F1430(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(290, rdram, runtime)) return;
+    if (!ckBegin(285, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F1430(rdram, &c, runtime); })) return;
     ckMid();
@@ -5006,11 +4942,11 @@ void gamecore_sub_013F1430(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 7)};
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_013F1430(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(290, ctx, c, 2, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
+    ckEnd(285, ctx, c, 2, v0, f0, 0x98u, 0x0u, Ps2GprU64(&c, 7) != xo[0]);
 }
 void gamecore_sub_013F2558(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(291, rdram, runtime)) return;
+    if (!ckBegin(286, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F2558(rdram, &c, runtime); })) return;
     ckMid();
@@ -5018,22 +4954,22 @@ void gamecore_sub_013F2558(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_013F2558(rdram, runtime, p4, xo)); })) return;
-    ckEnd(291, ctx, c, 1, v0, f0, 0x8u, 0xfu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(286, ctx, c, 1, v0, f0, 0x8u, 0xfu, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void initWeaponSpriteStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(292, rdram, runtime)) return;
+    if (!ckBegin(287, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initWeaponSpriteStatus(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::initWeaponSpriteStatus(rdram, runtime); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(292, ctx, c, 4, v0, f0, 0x1au, 0x6u, false);
+    ckEnd(287, ctx, c, 4, v0, f0, 0x1au, 0x6u, false);
 }
 void get_camera_collision_data_base_filter_radius(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(293, rdram, runtime)) return;
+    if (!ckBegin(288, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::get_camera_collision_data_base_filter_radius(rdram, &c, runtime); })) return;
     ckMid();
@@ -5041,11 +4977,11 @@ void get_camera_collision_data_base_filter_radius(uint8_t *rdram, R5900Context *
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[13])};
     if (!ckLeg([&] { f0 = ty::get_camera_collision_data_base_filter_radius(rdram, runtime, pf12, pf13, pf14, xo); })) return;
-    ckEnd(293, ctx, c, 3, v0, f0, 0x2u, 0x3000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0]);
+    ckEnd(288, ctx, c, 3, v0, f0, 0x2u, 0x3000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0]);
 }
 void is_cliff_rise_ok_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(294, rdram, runtime)) return;
+    if (!ckBegin(289, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::is_cliff_rise_ok_camera_place_status(rdram, &c, runtime); })) return;
     ckMid();
@@ -5053,11 +4989,11 @@ void is_cliff_rise_ok_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS2
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = (ty::is_cliff_rise_ok_camera_place_status(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(294, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(289, ctx, c, 2, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 4) != xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
 void act_local_vs_ofst_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(295, rdram, runtime)) return;
+    if (!ckBegin(290, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::act_local_vs_ofst_camera_place_status(rdram, &c, runtime); })) return;
     ckMid();
@@ -5065,22 +5001,22 @@ void act_local_vs_ofst_camera_place_status(uint8_t *rdram, R5900Context *ctx, PS
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::act_local_vs_ofst_camera_place_status(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(295, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(290, ctx, c, 2, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void gamecore_sub_014144F0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(296, rdram, runtime)) return;
+    if (!ckBegin(291, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_014144F0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { f0 = ty::gamecore_sub_014144F0(rdram, runtime, pf12, pf13, pf14); })) return;
-    ckEnd(296, ctx, c, 3, v0, f0, 0x6u, 0x6u, false);
+    ckEnd(291, ctx, c, 3, v0, f0, 0x6u, 0x6u, false);
 }
 void gamecore_sub_01414E78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(297, rdram, runtime)) return;
+    if (!ckBegin(292, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01414E78(rdram, &c, runtime); })) return;
     ckMid();
@@ -5088,22 +5024,22 @@ void gamecore_sub_01414E78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01414E78(rdram, runtime, p4, xo)); })) return;
-    ckEnd(297, ctx, c, 1, v0, f0, 0xau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(292, ctx, c, 1, v0, f0, 0xau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_0141B6C0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p7)
 {
-    if (!ckBegin(298, rdram, runtime)) return;
+    if (!ckBegin(293, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0141B6C0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::gamecore_sub_0141B6C0(rdram, runtime, p4, p7)); })) return;
-    ckEnd(298, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
+    ckEnd(293, ctx, c, 2, v0, f0, 0x1f8u, 0x0u, false);
 }
 void gamecore_sub_0141B900(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(299, rdram, runtime)) return;
+    if (!ckBegin(294, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0141B900(rdram, &c, runtime); })) return;
     ckMid();
@@ -5111,11 +5047,11 @@ void gamecore_sub_0141B900(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0141B900(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(299, ctx, c, 1, v0, f0, 0x28u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(294, ctx, c, 1, v0, f0, 0x28u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_0141BA40(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(300, rdram, runtime)) return;
+    if (!ckBegin(295, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0141BA40(rdram, &c, runtime); })) return;
     ckMid();
@@ -5123,11 +5059,11 @@ void gamecore_sub_0141BA40(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0141BA40(rdram, runtime, p4, pf12, xo)); })) return;
-    ckEnd(300, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(295, ctx, c, 1, v0, f0, 0x0u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_0141BC78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, float pf12, float pf13)
 {
-    if (!ckBegin(301, rdram, runtime)) return;
+    if (!ckBegin(296, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0141BC78(rdram, &c, runtime); })) return;
     ckMid();
@@ -5135,33 +5071,33 @@ void gamecore_sub_0141BC78(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0141BC78(rdram, runtime, p4, p5, pf12, pf13, xo)); })) return;
-    ckEnd(301, ctx, c, 1, v0, f0, 0x48u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(296, ctx, c, 1, v0, f0, 0x48u, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void add_camera_mode_common_param_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(302, rdram, runtime)) return;
+    if (!ckBegin(297, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::add_camera_mode_common_param_segment(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { ty::add_camera_mode_common_param_segment(rdram, runtime, p4); })) return;
-    ckEnd(302, ctx, c, 0, v0, f0, 0x7cu, 0x0u, false);
+    ckEnd(297, ctx, c, 0, v0, f0, 0x7cu, 0x0u, false);
 }
 void add_camera_mode_manager_segment(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(303, rdram, runtime)) return;
+    if (!ckBegin(298, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::add_camera_mode_manager_segment(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { ty::add_camera_mode_manager_segment(rdram, runtime, p4); })) return;
-    ckEnd(303, ctx, c, 0, v0, f0, 0x7fcu, 0x0u, false);
+    ckEnd(298, ctx, c, 0, v0, f0, 0x7fcu, 0x0u, false);
 }
 void is_base_default_dir_attr_change_game_camera_param_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(304, rdram, runtime)) return;
+    if (!ckBegin(299, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::is_base_default_dir_attr_change_game_camera_param_manager(rdram, &c, runtime); })) return;
     ckMid();
@@ -5169,11 +5105,11 @@ void is_base_default_dir_attr_change_game_camera_param_manager(uint8_t *rdram, R
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::is_base_default_dir_attr_change_game_camera_param_manager(rdram, runtime, p4, xo)); })) return;
-    ckEnd(304, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(299, ctx, c, 1, v0, f0, 0x78u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void gamecore_sub_0142C7A0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6)
 {
-    if (!ckBegin(305, rdram, runtime)) return;
+    if (!ckBegin(300, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0142C7A0(rdram, &c, runtime); })) return;
     ckMid();
@@ -5181,11 +5117,11 @@ void gamecore_sub_0142C7A0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0142C7A0(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(305, ctx, c, 1, v0, f0, 0xcau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(300, ctx, c, 1, v0, f0, 0xcau, 0x3u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_01430248(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5, uint32_t p6, uint64_t p7, uint64_t p8, uint32_t p9, float pf12)
 {
-    if (!ckBegin(306, rdram, runtime)) return;
+    if (!ckBegin(301, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01430248(rdram, &c, runtime); })) return;
     ckMid();
@@ -5193,11 +5129,11 @@ void gamecore_sub_01430248(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[5] = {(uint64_t)a1ck::ckBits(ctx->f[0]), (uint64_t)a1ck::ckBits(ctx->f[12]), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01430248(rdram, runtime, p4, p5, p6, p7, p8, p9, pf12, xo)); })) return;
-    ckEnd(306, ctx, c, 1, v0, f0, 0x7c98u, 0x1001u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[12]) != (uint32_t)xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
+    ckEnd(301, ctx, c, 1, v0, f0, 0x7c98u, 0x1001u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[12]) != (uint32_t)xo[1] || Ps2GprU64(&c, 7) != xo[2] || Ps2GprU64(&c, 10) != xo[3] || Ps2GprU64(&c, 11) != xo[4]);
 }
 void getPathDataAddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(307, rdram, runtime)) return;
+    if (!ckBegin(302, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getPathDataAddr(rdram, &c, runtime); })) return;
     ckMid();
@@ -5205,11 +5141,11 @@ void getPathDataAddr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uin
     float f0 = 0.0f;
     uint64_t xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)};
     if (!ckLeg([&] { v0 = (ty::getPathDataAddr(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(307, ctx, c, 2, v0, f0, 0x1dau, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
+    ckEnd(302, ctx, c, 2, v0, f0, 0x1dau, 0x0u, Ps2GprU64(&c, 6) != xo[0] || Ps2GprU64(&c, 7) != xo[1] || Ps2GprU64(&c, 8) != xo[2]);
 }
 void gamecore_sub_01434610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5, uint64_t p6)
 {
-    if (!ckBegin(308, rdram, runtime)) return;
+    if (!ckBegin(303, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01434610(rdram, &c, runtime); })) return;
     ckMid();
@@ -5217,11 +5153,11 @@ void gamecore_sub_01434610(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[4] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01434610(rdram, runtime, p4, p5, p6, xo)); })) return;
-    ckEnd(308, ctx, c, 1, v0, f0, 0x79au, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
+    ckEnd(303, ctx, c, 1, v0, f0, 0x79au, 0x0u, Ps2GprU64(&c, 7) != xo[0] || Ps2GprU64(&c, 8) != xo[1] || Ps2GprU64(&c, 9) != xo[2] || Ps2GprU64(&c, 10) != xo[3]);
 }
 void calcDownSpeedRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(309, rdram, runtime)) return;
+    if (!ckBegin(304, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::calcDownSpeedRatio(rdram, &c, runtime); })) return;
     ckMid();
@@ -5229,11 +5165,11 @@ void calcDownSpeedRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13])};
     if (!ckLeg([&] { f0 = ty::calcDownSpeedRatio(rdram, runtime, pf12, pf13, pf14, xo); })) return;
-    ckEnd(309, ctx, c, 3, v0, f0, 0x2u, 0x3006u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
+    ckEnd(304, ctx, c, 3, v0, f0, 0x2u, 0x3006u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
 }
 void gamecore_sub_0143D6F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(310, rdram, runtime)) return;
+    if (!ckBegin(305, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_0143D6F8(rdram, &c, runtime); })) return;
     ckMid();
@@ -5241,11 +5177,11 @@ void gamecore_sub_0143D6F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_0143D6F8(rdram, runtime, p4, xo)); })) return;
-    ckEnd(310, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(305, ctx, c, 1, v0, f0, 0x68u, 0x0u, Ps2GprU64(&c, 5) != xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void setRunStopTurnAngleFastLegCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(311, rdram, runtime)) return;
+    if (!ckBegin(306, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::setRunStopTurnAngleFastLegCtrlWork(rdram, &c, runtime); })) return;
     ckMid();
@@ -5253,11 +5189,11 @@ void setRunStopTurnAngleFastLegCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Ru
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[12])};
     if (!ckLeg([&] { f0 = ty::setRunStopTurnAngleFastLegCtrlWork(rdram, runtime, p4, pf12, xo); })) return;
-    ckEnd(311, ctx, c, 3, v0, f0, 0x2u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
+    ckEnd(306, ctx, c, 3, v0, f0, 0x2u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
 }
 void gamecore_sub_01441020(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(312, rdram, runtime)) return;
+    if (!ckBegin(307, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01441020(rdram, &c, runtime); })) return;
     ckMid();
@@ -5265,11 +5201,11 @@ void gamecore_sub_01441020(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01441020(rdram, runtime, p4, xo)); })) return;
-    ckEnd(312, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
+    ckEnd(307, ctx, c, 1, v0, f0, 0x38u, 0x0u, Ps2GprU64(&c, 5) != xo[0]);
 }
 void gamecore_sub_01441210(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(313, rdram, runtime)) return;
+    if (!ckBegin(308, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01441210(rdram, &c, runtime); })) return;
     ckMid();
@@ -5277,11 +5213,11 @@ void gamecore_sub_01441210(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01441210(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(313, ctx, c, 1, v0, f0, 0x4au, 0xfu, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(308, ctx, c, 1, v0, f0, 0x4au, 0xfu, Ps2GprU64(&c, 6) != xo[0]);
 }
 void gamecore_sub_01444370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint64_t p5)
 {
-    if (!ckBegin(314, rdram, runtime)) return;
+    if (!ckBegin(309, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_01444370(rdram, &c, runtime); })) return;
     ckMid();
@@ -5289,11 +5225,11 @@ void gamecore_sub_01444370(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[0]), Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::gamecore_sub_01444370(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(314, ctx, c, 1, v0, f0, 0x4au, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 6) != xo[1]);
+    ckEnd(309, ctx, c, 1, v0, f0, 0x4au, 0x7u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0] || Ps2GprU64(&c, 6) != xo[1]);
 }
 void adjustAnglePI(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float pf12)
 {
-    if (!ckBegin(315, rdram, runtime)) return;
+    if (!ckBegin(310, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::adjustAnglePI(rdram, &c, runtime); })) return;
     ckMid();
@@ -5301,22 +5237,22 @@ void adjustAnglePI(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, float
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[12])};
     if (!ckLeg([&] { f0 = ty::adjustAnglePI(rdram, runtime, pf12, xo); })) return;
-    ckEnd(315, ctx, c, 3, v0, f0, 0x2u, 0x1002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
+    ckEnd(310, ctx, c, 3, v0, f0, 0x2u, 0x1002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0]);
 }
 void initBeardIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p6)
 {
-    if (!ckBegin(316, rdram, runtime)) return;
+    if (!ckBegin(311, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initBeardIKWork(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::initBeardIKWork(rdram, runtime, p6)); })) return;
-    ckEnd(316, ctx, c, 1, v0, f0, 0x40u, 0x0u, false);
+    ckEnd(311, ctx, c, 1, v0, f0, 0x40u, 0x0u, false);
 }
 void setRatioGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12, float pf13, float pf14)
 {
-    if (!ckBegin(317, rdram, runtime)) return;
+    if (!ckBegin(312, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::setRatioGazeIKWork(rdram, &c, runtime); })) return;
     ckMid();
@@ -5324,44 +5260,44 @@ void setRatioGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, 
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[0])};
     if (!ckLeg([&] { v0 = a1_sx64(ty::setRatioGazeIKWork(rdram, runtime, p4, pf12, pf13, pf14, xo)); })) return;
-    ckEnd(317, ctx, c, 1, v0, f0, 0x2u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
+    ckEnd(312, ctx, c, 1, v0, f0, 0x2u, 0x1u, a1ck::ckBits(c.f[0]) != (uint32_t)xo[0]);
 }
 void setWormIKNodeLimit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf12)
 {
-    if (!ckBegin(318, rdram, runtime)) return;
+    if (!ckBegin(313, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::setWormIKNodeLimit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::setWormIKNodeLimit(rdram, runtime, p4, pf12)); })) return;
-    ckEnd(318, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
+    ckEnd(313, ctx, c, 1, v0, f0, 0x10u, 0x0u, false);
 }
 void kernel_sub_001AD958(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, uint32_t p6)
 {
-    if (!ckBegin(319, rdram, runtime)) return;
+    if (!ckBegin(314, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::kernel_sub_001AD958(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::kernel_sub_001AD958(rdram, runtime, p4, p5, p6)); })) return;
-    ckEnd(319, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(314, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
 }
 void Sg2CtrlInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(320, rdram, runtime)) return;
+    if (!ckBegin(315, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::Sg2CtrlInit(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::Sg2CtrlInit(rdram, runtime)); })) return;
-    ckEnd(320, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(315, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
 }
 void GAMEUTIL_reset_interp_value_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12)
 {
-    if (!ckBegin(321, rdram, runtime)) return;
+    if (!ckBegin(316, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::GAMEUTIL_reset_interp_value_cntrl(rdram, &c, runtime); })) return;
     ckMid();
@@ -5369,11 +5305,11 @@ void GAMEUTIL_reset_interp_value_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Run
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 2)};
     if (!ckLeg([&] { f0 = ty::GAMEUTIL_reset_interp_value_cntrl(rdram, runtime, p4, pf12, xo); })) return;
-    ckEnd(321, ctx, c, 3, v0, f0, 0x4u, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
+    ckEnd(316, ctx, c, 3, v0, f0, 0x4u, 0x0u, Ps2GprU64(&c, 2) != xo[0]);
 }
 void constructor_double_spring_interp_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12, float pf20)
 {
-    if (!ckBegin(322, rdram, runtime)) return;
+    if (!ckBegin(317, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::constructor_double_spring_interp_cntrl(rdram, &c, runtime); })) return;
     ckMid();
@@ -5381,11 +5317,11 @@ void constructor_double_spring_interp_cntrl(uint8_t *rdram, R5900Context *ctx, P
     float f0 = 0.0f;
     uint64_t xo[4] = {(uint64_t)a1ck::ckBits(ctx->f[13]), (uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15]), (uint64_t)a1ck::ckBits(ctx->f[20])};
     if (!ckLeg([&] { ty::constructor_double_spring_interp_cntrl(rdram, runtime, p4, pf12, pf20, xo); })) return;
-    ckEnd(322, ctx, c, 0, v0, f0, 0x2u, 0x10f000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[3]);
+    ckEnd(317, ctx, c, 0, v0, f0, 0x2u, 0x10f000u, a1ck::ckBits(c.f[13]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[14]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[3]);
 }
 void constructor_double_spring_interp_cntrl3D(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf12, float pf13, float pf20, float pf21)
 {
-    if (!ckBegin(323, rdram, runtime)) return;
+    if (!ckBegin(318, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::constructor_double_spring_interp_cntrl3D(rdram, &c, runtime); })) return;
     ckMid();
@@ -5393,22 +5329,22 @@ void constructor_double_spring_interp_cntrl3D(uint8_t *rdram, R5900Context *ctx,
     float f0 = 0.0f;
     uint64_t xo[8] = {(uint64_t)a1ck::ckBits(ctx->f[14]), (uint64_t)a1ck::ckBits(ctx->f[15]), (uint64_t)a1ck::ckBits(ctx->f[20]), (uint64_t)a1ck::ckBits(ctx->f[21]), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::constructor_double_spring_interp_cntrl3D(rdram, runtime, p4, pf12, pf13, pf20, pf21, xo)); })) return;
-    ckEnd(323, ctx, c, 1, v0, f0, 0x3fau, 0x30f000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[21]) != (uint32_t)xo[3] || Ps2GprU64(&c, 6) != xo[4] || Ps2GprU64(&c, 7) != xo[5] || Ps2GprU64(&c, 8) != xo[6] || Ps2GprU64(&c, 9) != xo[7]);
+    ckEnd(318, ctx, c, 1, v0, f0, 0x3fau, 0x30f000u, a1ck::ckBits(c.f[14]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[15]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[2] || a1ck::ckBits(c.f[21]) != (uint32_t)xo[3] || Ps2GprU64(&c, 6) != xo[4] || Ps2GprU64(&c, 7) != xo[5] || Ps2GprU64(&c, 8) != xo[6] || Ps2GprU64(&c, 9) != xo[7]);
 }
 void manager_sub_010DF5D0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(324, rdram, runtime)) return;
+    if (!ckBegin(319, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::manager_sub_010DF5D0(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::manager_sub_010DF5D0(rdram, runtime, p4, p5)); })) return;
-    ckEnd(324, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(319, ctx, c, 2, v0, f0, 0x78u, 0x0u, false);
 }
 void SetScriptLayoutObjLetterProcMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(325, rdram, runtime)) return;
+    if (!ckBegin(320, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SetScriptLayoutObjLetterProcMode(rdram, &c, runtime); })) return;
     ckMid();
@@ -5416,55 +5352,55 @@ void SetScriptLayoutObjLetterProcMode(uint8_t *rdram, R5900Context *ctx, PS2Runt
     float f0 = 0.0f;
     uint64_t xo[1] = {Ps2GprU64(ctx, 6)};
     if (!ckLeg([&] { v0 = (ty::SetScriptLayoutObjLetterProcMode(rdram, runtime, p4, p5, xo)); })) return;
-    ckEnd(325, ctx, c, 2, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
+    ckEnd(320, ctx, c, 2, v0, f0, 0x58u, 0x0u, Ps2GprU64(&c, 6) != xo[0]);
 }
 void gStatGetHorseDemoStageIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4)
 {
-    if (!ckBegin(326, rdram, runtime)) return;
+    if (!ckBegin(321, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gStatGetHorseDemoStageIndex(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::gStatGetHorseDemoStageIndex(rdram, runtime, p4)); })) return;
-    ckEnd(326, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(321, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
 }
 void getPlayerMaxGripRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, float pf0)
 {
-    if (!ckBegin(327, rdram, runtime)) return;
+    if (!ckBegin(322, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::getPlayerMaxGripRatio(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::getPlayerMaxGripRatio(rdram, runtime, p4, pf0); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(327, ctx, c, 4, v0, f0, 0x1au, 0x2u, false);
+    ckEnd(322, ctx, c, 4, v0, f0, 0x1au, 0x2u, false);
 }
 void initGameObject(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p4, uint32_t p5)
 {
-    if (!ckBegin(328, rdram, runtime)) return;
+    if (!ckBegin(323, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initGameObject(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = a1_sx64(ty::initGameObject(rdram, runtime, p4, p5)); })) return;
-    ckEnd(328, ctx, c, 1, v0, f0, 0x78u, 0x0u, false);
+    ckEnd(323, ctx, c, 1, v0, f0, 0x78u, 0x0u, false);
 }
 void gamecore_sub_013AE748(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(329, rdram, runtime)) return;
+    if (!ckBegin(324, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013AE748(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { ty::gamecore_sub_013AE748(rdram, runtime, p4); })) return;
-    ckEnd(329, ctx, c, 0, v0, f0, 0x32u, 0x0u, false);
+    ckEnd(324, ctx, c, 0, v0, f0, 0x32u, 0x0u, false);
 }
 void gamecore_sub_013F3378(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5, float pf12, float pf13, float pf20)
 {
-    if (!ckBegin(330, rdram, runtime)) return;
+    if (!ckBegin(325, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F3378(rdram, &c, runtime); })) return;
     ckMid();
@@ -5472,11 +5408,11 @@ void gamecore_sub_013F3378(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[3] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13]), (uint64_t)a1ck::ckBits(ctx->f[20])};
     if (!ckLeg([&] { const a1::RetVF r = ty::gamecore_sub_013F3378(rdram, runtime, p4, p5, pf12, pf13, pf20, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(330, ctx, c, 4, v0, f0, 0x18u, 0x10300eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[2]);
+    ckEnd(325, ctx, c, 4, v0, f0, 0x18u, 0x10300eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1] || a1ck::ckBits(c.f[20]) != (uint32_t)xo[2]);
 }
 void gamecore_sub_013F3778(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf20)
 {
-    if (!ckBegin(331, rdram, runtime)) return;
+    if (!ckBegin(326, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F3778(rdram, &c, runtime); })) return;
     ckMid();
@@ -5484,11 +5420,11 @@ void gamecore_sub_013F3778(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13])};
     if (!ckLeg([&] { const a1::RetVF r = ty::gamecore_sub_013F3778(rdram, runtime, p4, pf20, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(331, ctx, c, 4, v0, f0, 0x1au, 0x10301eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
+    ckEnd(326, ctx, c, 4, v0, f0, 0x1au, 0x10301eu, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
 }
 void gamecore_sub_013F3868(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, float pf20)
 {
-    if (!ckBegin(332, rdram, runtime)) return;
+    if (!ckBegin(327, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_013F3868(rdram, &c, runtime); })) return;
     ckMid();
@@ -5496,33 +5432,33 @@ void gamecore_sub_013F3868(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[12]), (uint64_t)a1ck::ckBits(ctx->f[13])};
     if (!ckLeg([&] { const a1::RetVF r = ty::gamecore_sub_013F3868(rdram, runtime, p4, pf20, xo); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(332, ctx, c, 4, v0, f0, 0x18u, 0x103002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
+    ckEnd(327, ctx, c, 4, v0, f0, 0x18u, 0x103002u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || a1ck::ckBits(c.f[13]) != (uint32_t)xo[1]);
 }
 void checkChangeWeaponTypeSwordToOther(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint64_t p5)
 {
-    if (!ckBegin(333, rdram, runtime)) return;
+    if (!ckBegin(328, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::checkChangeWeaponTypeSwordToOther(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::checkChangeWeaponTypeSwordToOther(rdram, runtime, p4, p5)); })) return;
-    ckEnd(333, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
+    ckEnd(328, ctx, c, 2, v0, f0, 0x18u, 0x0u, false);
 }
 void initWeapon(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(334, rdram, runtime)) return;
+    if (!ckBegin(329, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::initWeapon(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { const a1::RetVF r = ty::initWeapon(rdram, runtime); v0 = r.v0; f0 = r.f0; })) return;
-    ckEnd(334, ctx, c, 4, v0, f0, 0x1au, 0x6u, false);
+    ckEnd(329, ctx, c, 4, v0, f0, 0x1au, 0x6u, false);
 }
 void gamecore_sub_014140B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4, uint32_t p5, float pf0, float pf20)
 {
-    if (!ckBegin(335, rdram, runtime)) return;
+    if (!ckBegin(330, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::gamecore_sub_014140B8(rdram, &c, runtime); })) return;
     ckMid();
@@ -5530,44 +5466,44 @@ void gamecore_sub_014140B8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
     float f0 = 0.0f;
     uint64_t xo[1] = {(uint64_t)a1ck::ckBits(ctx->f[20])};
     if (!ckLeg([&] { f0 = ty::gamecore_sub_014140B8(rdram, runtime, p4, p5, pf0, pf20, xo); })) return;
-    ckEnd(335, ctx, c, 3, v0, f0, 0x6u, 0x107006u, a1ck::ckBits(c.f[20]) != (uint32_t)xo[0]);
+    ckEnd(330, ctx, c, 3, v0, f0, 0x6u, 0x107006u, a1ck::ckBits(c.f[20]) != (uint32_t)xo[0]);
 }
 void is_view_angle_zoom_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p4)
 {
-    if (!ckBegin(336, rdram, runtime)) return;
+    if (!ckBegin(331, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::is_view_angle_zoom_game_camera(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::is_view_angle_zoom_game_camera(rdram, runtime, p4)); })) return;
-    ckEnd(336, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(331, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
 }
 void SCRConditionInvisibilityCloak(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (!ckBegin(337, rdram, runtime)) return;
+    if (!ckBegin(332, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SCRConditionInvisibilityCloak(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::SCRConditionInvisibilityCloak(rdram, runtime)); })) return;
-    ckEnd(337, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(332, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
 }
 void SCRConditionGetOmakeFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p5)
 {
-    if (!ckBegin(338, rdram, runtime)) return;
+    if (!ckBegin(333, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::SCRConditionGetOmakeFlag(rdram, &c, runtime); })) return;
     ckMid();
     uint64_t v0 = 0u;
     float f0 = 0.0f;
     if (!ckLeg([&] { v0 = (ty::SCRConditionGetOmakeFlag(rdram, runtime, p5)); })) return;
-    ckEnd(338, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
+    ckEnd(333, ctx, c, 2, v0, f0, 0x38u, 0x0u, false);
 }
 void eventBgmAllClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t p5)
 {
-    if (!ckBegin(339, rdram, runtime)) return;
+    if (!ckBegin(334, rdram, runtime)) return;
     R5900Context &c = ckCtx(ctx);
     if (!ckLeg([&] { ref::eventBgmAllClose(rdram, &c, runtime); })) return;
     ckMid();
@@ -5575,11 +5511,10 @@ void eventBgmAllClose(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, ui
     float f0 = 0.0f;
     uint64_t xo[2] = {(uint64_t)a1ck::ckBits(ctx->f[12]), Ps2GprU64(ctx, 5)};
     if (!ckLeg([&] { v0 = a1_sx64(ty::eventBgmAllClose(rdram, runtime, p5, xo)); })) return;
-    ckEnd(339, ctx, c, 1, v0, f0, 0x32u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 5) != xo[1]);
+    ckEnd(334, ctx, c, 1, v0, f0, 0x32u, 0x1000u, a1ck::ckBits(c.f[12]) != (uint32_t)xo[0] || Ps2GprU64(&c, 5) != xo[1]);
 }
-const a1ck::CkEntry kEntries[340] = {
+const a1ck::CkEntry kEntries[335] = {
     {"RelocateElfInfoHeader", 0x1004b8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { RelocateElfInfoHeader(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
-    {"RelocateSelfSymbol", 0x1018b8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { RelocateSelfSymbol(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"LoaderSysEntryExternalIntcHandlerList", 0x102730u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { LoaderSysEntryExternalIntcHandlerList(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"LoaderSysEntryExternalThreadList", 0x102790u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { LoaderSysEntryExternalThreadList(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
     {"LoaderSysEntryExternalSemaList", 0x1027e0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { LoaderSysEntryExternalSemaList(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
@@ -5748,7 +5683,6 @@ const a1ck::CkEntry kEntries[340] = {
     {"manager_sub_010C9888", 0x10c9888u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_010C9888(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"InitScriptControlButtonCallBack", 0x10cc4f0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { InitScriptControlButtonCallBack(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"manager_sub_010CD400", 0x10cd400u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_010CD400(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), ctx->f[12]); }},
-    {"OptimizeMotionOrient", 0x10d2848u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { OptimizeMotionOrient(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"RequestCharacterClassMotionChangeWithParam", 0x10d2b18u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { RequestCharacterClassMotionChangeWithParam(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint32_t)Ps2GprU32(ctx, 6), ctx->f[12]); }},
     {"charrootdyn_getLimitMode", 0x10de398u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { charrootdyn_getLimitMode(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"resetExpressionLocalHeightDiff", 0x10e2170u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { resetExpressionLocalHeightDiff(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
@@ -5763,7 +5697,6 @@ const a1ck::CkEntry kEntries[340] = {
     {"InitBinarySize", 0x1101650u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { InitBinarySize(rdram, ctx, runtime); }},
     {"SetScriptAnimationGlobalBaseInfo", 0x110a670u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { SetScriptAnimationGlobalBaseInfo(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"CopyScriptAnimationWindGeometryPointer", 0x110a7d8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { CopyScriptAnimationWindGeometryPointer(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
-    {"manager_sub_011117C0", 0x11117c0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_011117C0(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"GetSpriteMenuClass", 0x1111998u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { GetSpriteMenuClass(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"SpriteMenuSetPadEventCallback", 0x11119d8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { SpriteMenuSetPadEventCallback(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint32_t)Ps2GprU32(ctx, 6)); }},
     {"SpriteSubMenuSetPadEventCallback", 0x1111a08u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { SpriteSubMenuSetPadEventCallback(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint32_t)Ps2GprU32(ctx, 6)); }},
@@ -5793,7 +5726,6 @@ const a1ck::CkEntry kEntries[340] = {
     {"manager_sub_011418D8", 0x11418d8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_011418D8(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint32_t)Ps2GprU32(ctx, 6)); }},
     {"manager_sub_01141E80", 0x1141e80u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_01141E80(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
     {"get_particle_parameter_blend_disp", 0x1145ba8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { get_particle_parameter_blend_disp(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint64_t)Ps2GprU64(ctx, 6), (uint64_t)Ps2GprU64(ctx, 7), ctx->f[12]); }},
-    {"InitModifiedManager", 0x11479b0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { InitModifiedManager(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint64_t)Ps2GprU64(ctx, 5)); }},
     {"InitTwoWayLink", 0x1147a78u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { InitTwoWayLink(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"AddTwoWayLinkNext", 0x1147a88u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { AddTwoWayLinkNext(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5)); }},
     {"DeleteTwoWayLink", 0x1147ab0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { DeleteTwoWayLink(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
@@ -5801,7 +5733,6 @@ const a1ck::CkEntry kEntries[340] = {
     {"dsysFileInit", 0x115a060u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { dsysFileInit(rdram, ctx, runtime); }},
     {"sheetFileGetDataAdrs", 0x115cf90u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { sheetFileGetDataAdrs(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4)); }},
     {"sheetMgrSheetHeaderSearchSheetDataObj", 0x115ec60u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { sheetMgrSheetHeaderSearchSheetDataObj(rdram, ctx, runtime, (uint32_t)Ps2GprU32(ctx, 4), (uint64_t)Ps2GprU64(ctx, 5)); }},
-    {"sheetMgrCheckSegInitList", 0x115ed70u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { sheetMgrCheckSegInitList(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"manager_sub_011629E8", 0x11629e8u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { manager_sub_011629E8(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"get_hit_region_ofst_camera_region", 0x1163848u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { get_hit_region_ofst_camera_region(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4)); }},
     {"set_scissor_screen_size", 0x11644d0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { set_scissor_screen_size(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 4), (uint32_t)Ps2GprU32(ctx, 5), (uint32_t)Ps2GprU32(ctx, 6), (uint32_t)Ps2GprU32(ctx, 7)); }},
@@ -5919,7 +5850,7 @@ const a1ck::CkEntry kEntries[340] = {
     {"SCRConditionGetOmakeFlag", 0x1459a38u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { SCRConditionGetOmakeFlag(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 5)); }},
     {"eventBgmAllClose", 0x145aeb0u, [](uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { eventBgmAllClose(rdram, ctx, runtime, (uint64_t)Ps2GprU64(ctx, 5)); }},
 };
-const uint32_t kEntryCount = 340u;
+const uint32_t kEntryCount = 335u;
 }
 #if !defined(A3_OFFLINE)
 void a3ckReport(unsigned long long frame) { a3ck::ckReport(frame); }

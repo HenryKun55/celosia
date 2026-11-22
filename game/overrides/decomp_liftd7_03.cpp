@@ -12947,7 +12947,7 @@ L_10f9154:
 void GetImpactWorstWorkLightClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F92B0u, 0)) { GetImpactWorstWorkLightClass_0x10f92b0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(GetImpactWorstWorkLightClass, a2_4); A3_IN(178); const uint32_t a2_r = typed::GetImpactWorstWorkLightClass(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(GetImpactWorstWorkLightClass, a2_4); A3_IN(176); const uint32_t a2_r = typed::GetImpactWorstWorkLightClass(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     uint32_t fcr31 = ctx->fcr31;
@@ -15077,7 +15077,7 @@ L_10fc3b0:
 void manager_sub_010FC618(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10FC618u, 0)) { manager_sub_010FC618_0x10fc618(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(manager_sub_010FC618, a2_4); uint64_t a3_xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A3_IN(180); const uint64_t a2_r = typed::manager_sub_010FC618(rdram, runtime, a2_4, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 7, a3_xo[0]); Ps2SetGpr64(ctx, 8, a3_xo[1]); Ps2SetGpr64(ctx, 9, a3_xo[2]); Ps2SetGpr64(ctx, 10, a3_xo[3]); Ps2SetGpr64(ctx, 11, a3_xo[4]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A3_CHK(manager_sub_010FC618, a2_4); uint64_t a3_xo[5] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A3_IN(178); const uint64_t a2_r = typed::manager_sub_010FC618(rdram, runtime, a2_4, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 7, a3_xo[0]); Ps2SetGpr64(ctx, 8, a3_xo[1]); Ps2SetGpr64(ctx, 9, a3_xo[2]); Ps2SetGpr64(ctx, 10, a3_xo[3]); Ps2SetGpr64(ctx, 11, a3_xo[4]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v1 = Ps2GprU32(ctx, 3), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7);
     uint64_t hi = ctx->hi;
@@ -17598,7 +17598,7 @@ L_11015dc:
 void InitBinarySize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1101650u, 0)) { InitBinarySize_0x1101650(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(InitBinarySize); A3_IN(182); const uint32_t a2_r = typed::InitBinarySize(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { A3_CHK(InitBinarySize); A3_IN(180); const uint32_t a2_r = typed::InitBinarySize(rdram, runtime); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     v0 = 0x1210000u;
     v1 = 0xBu;
@@ -20551,7 +20551,7 @@ void CopyScriptAnimationWindParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 void CopyScriptAnimationWindGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x110A7D8u, 0)) { CopyScriptAnimationWindGeometryPointer_0x110a7d8(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A3_CHK(CopyScriptAnimationWindGeometryPointer, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 8)}; A3_IN(184); const uint64_t a2_r = typed::CopyScriptAnimationWindGeometryPointer(rdram, runtime, a2_4, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 8, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A3_CHK(CopyScriptAnimationWindGeometryPointer, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 8)}; A3_IN(182); const uint64_t a2_r = typed::CopyScriptAnimationWindGeometryPointer(rdram, runtime, a2_4, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 8, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8);
     bool df_a0 = false, df_a1 = false;
@@ -21711,7 +21711,7 @@ void CreateAliasScriptLayoutObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void SetScriptLayoutObjLetterProcMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x110D0A0u, 0)) { SetScriptLayoutObjLetterProcMode_0x110d0a0(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x110A838u, lift_d1::GetScriptAnimationClass), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(SetScriptLayoutObjLetterProcMode, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 6)}; A3_IN(325); const uint64_t a2_r = typed::SetScriptLayoutObjLetterProcMode(rdram, runtime, a2_4, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 6, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x110A838u, lift_d1::GetScriptAnimationClass), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(SetScriptLayoutObjLetterProcMode, a2_4, a2_5); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 6)}; A3_IN(320); const uint64_t a2_r = typed::SetScriptLayoutObjLetterProcMode(rdram, runtime, a2_4, a2_5, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 6, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16);
     bool df_v1 = false, df_a2 = false, df_sp = false;

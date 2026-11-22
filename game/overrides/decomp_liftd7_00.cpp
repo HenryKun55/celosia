@@ -14605,7 +14605,7 @@ L_1ad918:
 void kernel_sub_001AD958(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1AD958u, 0)) { kernel_sub_001AD958_0x1ad958(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x1B06C8u, lift_d1::kernel_sub_001B06C8), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(kernel_sub_001AD958, a2_4, a2_5, a2_6); A3_IN(319); const uint64_t a2_r = typed::kernel_sub_001AD958(rdram, runtime, a2_4, a2_5, a2_6); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x1B06C8u, lift_d1::kernel_sub_001B06C8), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A3_CHK(kernel_sub_001AD958, a2_4, a2_5, a2_6); A3_IN(314); const uint64_t a2_r = typed::kernel_sub_001AD958(rdram, runtime, a2_4, a2_5, a2_6); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), s0 = Ps2GprU32(ctx, 16), s1 = Ps2GprU32(ctx, 17), s2 = Ps2GprU32(ctx, 18), s3 = Ps2GprU32(ctx, 19), s7 = Ps2GprU32(ctx, 23), sp = Ps2GprU32(ctx, 29), fp = Ps2GprU32(ctx, 30), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s6 = Ps2GprU64(ctx, 22);
     bool df_v1 = false, df_s0 = false, df_s1 = false, df_s2 = false, df_s3 = false, df_s7 = false, df_sp = false, df_fp = false;

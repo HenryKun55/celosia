@@ -1,0 +1,10 @@
+# a3_skip.txt: functions round A3's stage of tools/typed_lift2.py leaves lifted (docs/decomp_a3.md section 5).
+# A typed loop defers the back edge's checkpoint to after the call; these five ran long enough, with a checkpoint due
+# inside, that the deferral passed N6's worst observed gate overrun (3 744 EE cycles) on the routes (check build pc2,
+# [a3] "longest deferrals": max EE cycles deferred, max back edges in one call). Everything else stayed under 2 000.
+# name                      # max deferral (cycles) / max back edges in one call / route
+OptimizeMotionOrient        # 173 120 / 5 411 / all three routes
+InitModifiedManager         # 116 577 / 4 155 / all three
+RelocateSelfSymbol          # 19 201 / 828 / boot (all three)
+sheetMgrCheckSegInitList    # 15 585 / 534 / all three
+manager_sub_011117C0        # 11 233 / 420 / ride7, lake6

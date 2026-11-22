@@ -9698,7 +9698,7 @@ L_10e1db0:
 void resetExpressionLocalHeightDiff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10E2170u, 0)) { resetExpressionLocalHeightDiff_0x10e2170(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(resetExpressionLocalHeightDiff, a2_4); A3_IN(173); const uint32_t a2_r = typed::resetExpressionLocalHeightDiff(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(resetExpressionLocalHeightDiff, a2_4); A3_IN(171); const uint32_t a2_r = typed::resetExpressionLocalHeightDiff(rdram, runtime, a2_4); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     v0 = READ32_B(a0, 856);

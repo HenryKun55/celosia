@@ -1,6 +1,5 @@
 // typed_a3_check.inc: round A3's check entries (tools/typed_lift2.py --check-tu). Generated.
 void RelocateElfInfoHeader(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
-void RelocateSelfSymbol(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
 void LoaderSysEntryExternalIntcHandlerList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t);
 void LoaderSysEntryExternalThreadList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
 void LoaderSysEntryExternalSemaList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
@@ -169,7 +168,6 @@ void SetCharacterObjParentPointXZFitGpChangeJudgeFunc(uint8_t *rdram, R5900Conte
 void manager_sub_010C9888(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
 void InitScriptControlButtonCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void manager_sub_010CD400(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, float);
-void OptimizeMotionOrient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void RequestCharacterClassMotionChangeWithParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint32_t, float);
 void charrootdyn_getLimitMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
 void resetExpressionLocalHeightDiff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
@@ -184,7 +182,6 @@ void initAnimationObjResource(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 void InitBinarySize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void SetScriptAnimationGlobalBaseInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void CopyScriptAnimationWindGeometryPointer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
-void manager_sub_011117C0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void GetSpriteMenuClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void SpriteMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint32_t);
 void SpriteSubMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint32_t);
@@ -214,7 +211,6 @@ void manager_sub_01140FD8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void manager_sub_011418D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint32_t);
 void manager_sub_01141E80(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
 void get_particle_parameter_blend_disp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t, uint64_t, uint64_t, float);
-void InitModifiedManager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint64_t);
 void InitTwoWayLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
 void AddTwoWayLinkNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint32_t);
 void DeleteTwoWayLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
@@ -222,7 +218,6 @@ void adpcmSetPan(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_
 void dsysFileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void sheetFileGetDataAdrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t);
 void sheetMgrSheetHeaderSearchSheetDataObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t, uint64_t);
-void sheetMgrCheckSegInitList(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void manager_sub_011629E8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void get_hit_region_ofst_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t);
 void set_scissor_screen_size(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t, uint32_t, uint32_t);

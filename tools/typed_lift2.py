@@ -1457,7 +1457,8 @@ def main():
     ap.add_argument('--out-list', default=os.path.join(REPO, 'docs/a2_typed.txt'))
     ap.add_argument('--out-list3', default=os.path.join(REPO, 'docs/a3_typed.txt'))
     ap.add_argument('--no-a3', action='store_true', help='stage 2 only (A2), no loops stage')
-    ap.add_argument('--skip3', default=None, help='A3: names left out of stage 3 (one a line)')
+    ap.add_argument('--skip3', default=os.path.join(REPO, 'docs/a3_skip.txt'),
+                    help='A3: names left out of stage 3 (first word of a line; # comments): docs/a3_skip.txt, the long deferrals')
     ap.add_argument('--log', default=None)
     ap.add_argument('--log3', default=None)
     args = ap.parse_args()
@@ -1518,7 +1519,12 @@ def main():
             for a in list(depth):
                 if a not in a1sigs and a not in emitted:
                     del depth[a]
-            skip3 = set(x.strip() for x in open(args.skip3)) if args.skip3 else set()
+            skip3 = set()
+            if args.skip3 and os.path.exists(args.skip3):
+                for x in open(args.skip3):
+                    x = x.split('#')[0].split()
+                    if x:
+                        skip3.add(x[0])
             cand3 = sorted(a for a in byaddr if a not in a1sigs and a not in emitted and a in F and byaddr[a] not in skip
                            and byaddr[a] not in skip3 and byaddr[a] not in N3.LIBC)
             emitted3, tried3 = run_stage(cand3, sigs, depth, True, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, args.max_depth)

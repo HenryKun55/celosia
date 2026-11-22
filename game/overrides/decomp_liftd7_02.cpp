@@ -19715,7 +19715,7 @@ void ResetCharacterClassFallDownInfo(uint8_t *rdram, R5900Context *ctx, PS2Runti
 void ResetCharacterClassIKInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10C1158u, 0)) { ResetCharacterClassIKInfo_0x10c1158(rdram, ctx, runtime); return; }
-    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(ResetCharacterClassIKInfo, a2_4); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; A3_IN(162); const uint32_t a2_r = typed::ResetCharacterClassIKInfo(rdram, runtime, a2_4, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A3_CHK(ResetCharacterClassIKInfo, a2_4); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; A3_IN(161); const uint32_t a2_r = typed::ResetCharacterClassIKInfo(rdram, runtime, a2_4, a3_xo); A3_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     bool df_at = false, df_v1 = false, df_a0 = false;

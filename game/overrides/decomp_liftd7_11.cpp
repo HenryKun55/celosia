@@ -3875,7 +3875,7 @@ static inline uint64_t getSScriptWork_n4(uint8_t *rdram, R5900Context *ctx, PS2R
 // SCRConditionGetOmakeFlag (0x1459a38-0x1459a50)
 void SCRConditionGetOmakeFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
-    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x134FA18u, lift_d1::_omakeGetFlagChk), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(SCRConditionGetOmakeFlag, a2_5); A3_IN(338); const uint64_t a2_r = typed::SCRConditionGetOmakeFlag(rdram, runtime, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
+    if (PS2_EXPECT(A3_GO() && A3_HOLDS(0x134FA18u, lift_d1::_omakeGetFlagChk), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A3_CHK(SCRConditionGetOmakeFlag, a2_5); A3_IN(333); const uint64_t a2_r = typed::SCRConditionGetOmakeFlag(rdram, runtime, a2_5); A3_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a3
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     sp = sp - 0x10u;
