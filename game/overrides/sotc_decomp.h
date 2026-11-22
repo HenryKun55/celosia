@@ -226,24 +226,35 @@ namespace sotc_decomp
         uint32_t first = 0; // the oldest move number the run of recorded serials reaches
     };
     inline GuestMoveIndex g_guestMoveIndex;
+    // Round P4 (p4_move.h): the hook worker sees the garbage moves as they were when the job it runs was handed over (the
+    // serial, the count, its own index of the ring), so a move that went on while older jobs were still queued is not seen
+    // by them: exactly what they saw before P4, when every move joined the whole queue first. Defined in sotc_native.cpp;
+    // t_moveView is set only on the hook worker. (Equal to the globals whenever no move went on beside queued jobs.)
+    extern thread_local bool t_moveView;
+    extern thread_local uint32_t t_moveViewSerial, t_moveViewCount;
+    inline GuestMoveIndex g_guestMoveIndexView; // the hook worker's index (only it builds it)
+    inline uint32_t moveSerialSeen() { return t_moveView ? t_moveViewSerial : g_guestMoveSerial; }
+    inline uint32_t moveCountSeen() { return t_moveView ? t_moveViewCount : g_guestMoveCount; }
+    inline GuestMoveIndex &moveIndexSeen() { return t_moveView ? g_guestMoveIndexView : g_guestMoveIndex; }
     inline void buildGuestMoveIndex()
     {
-        GuestMoveIndex &x = g_guestMoveIndex;
-        if (x.builtAt == g_guestMoveCount)
+        GuestMoveIndex &x = moveIndexSeen();
+        const uint32_t count = moveCountSeen();
+        if (x.builtAt == count)
             return;
-        x.builtAt = g_guestMoveCount;
-        const uint32_t n = std::min(g_guestMoveCount, kGuestMoves);
+        x.builtAt = count;
+        const uint32_t n = std::min(count, kGuestMoves);
         // Only the newest moves with serials one after the other (a chunked
         // copy in between was not recorded: what came before it is not used).
-        uint32_t expect = g_guestMoveSerial, used = 0;
+        uint32_t expect = moveSerialSeen(), used = 0;
         for (; used < n; ++used)
         {
-            const GuestMove &m = g_guestMoves[(g_guestMoveCount - 1u - used) & (kGuestMoves - 1u)];
+            const GuestMove &m = g_guestMoves[(count - 1u - used) & (kGuestMoves - 1u)];
             if (m.serial != expect)
                 break;
             --expect;
         }
-        x.first = g_guestMoveCount - used;
+        x.first = count - used;
         x.byDst.resize(used);
         x.maxLen = 0;
         for (uint32_t i = 0; i < used; ++i)
@@ -261,7 +272,7 @@ namespace sotc_decomp
     // holds `addr` (false: none).
     inline bool guestMoveInto(uint32_t addr, uint32_t before, uint32_t &number)
     {
-        const GuestMoveIndex &x = g_guestMoveIndex;
+        const GuestMoveIndex &x = moveIndexSeen();
         // Moves with dst in (addr - maxLen, addr]: the last with dst <= addr, back.
         auto it = std::upper_bound(x.byDst.begin(), x.byDst.end(), addr, [](uint32_t a, uint32_t n) { return a < g_guestMoves[n & (kGuestMoves - 1u)].dst; });
         bool found = false;
@@ -287,10 +298,10 @@ namespace sotc_decomp
     template <typename F>
     inline bool walkGuestMoves(uint32_t addr, F &&f)
     {
-        if (!g_guestMoveCount)
+        if (!moveCountSeen())
             return false;
         buildGuestMoveIndex();
-        uint32_t before = g_guestMoveCount, at = addr, number = 0;
+        uint32_t before = moveCountSeen(), at = addr, number = 0;
         for (int step = 0; step < 8 && guestMoveInto(at, before, number); ++step)
         {
             const GuestMove &m = g_guestMoves[number & (kGuestMoves - 1u)];
@@ -829,11 +840,14 @@ namespace sotc_decomp
         kP3Par,    // round P3 (off unless SOTC_P3PAR=1): the heap's garbage moves stop waiting for the deferred kick pass (the skinned
                    // palettes' pass on the hook worker, which reads no guest memory): it runs on cores 1-2 beside the move and the
                    // game's logic (p3_par.h, sotc_native.cpp; docs/perf_p3.md; SOTC_P3PAR_CHECK)
+        kP4Move,   // round P4 (off unless SOTC_P4MOVE=1): a heap garbage move waits only for the queued hook jobs whose guest reads
+                   // meet the moved span (source or destination), not for the whole queue (p4_move.h, sotc_native.cpp; docs/perf_p4.md;
+                   // SOTC_P4MOVE_CHECK in a PS2X_P4_CHECK build)
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S12DRAW", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S19AMB", "SOTC_S21LIGHT", "SOTC_S22PTCL", "SOTC_S23LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK", "SOTC_N4NATIVE", "SOTC_C2SCENE", "SOTC_C1KEYS", "SOTC_C1RIG", "SOTC_DC1MOT", "SOTC_A1TYPED", "SOTC_A2TYPED", "SOTC_A3TYPED", "SOTC_A4TYPED", "SOTC_P1CHARA", "SOTC_A5TYPED", "SOTC_P2PTCL", "SOTC_A6TYPED", "SOTC_DC2CHARA", "SOTC_P3PAR"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S12DRAW", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S19AMB", "SOTC_S21LIGHT", "SOTC_S22PTCL", "SOTC_S23LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK", "SOTC_N4NATIVE", "SOTC_C2SCENE", "SOTC_C1KEYS", "SOTC_C1RIG", "SOTC_DC1MOT", "SOTC_A1TYPED", "SOTC_A2TYPED", "SOTC_A3TYPED", "SOTC_A4TYPED", "SOTC_P1CHARA", "SOTC_A5TYPED", "SOTC_P2PTCL", "SOTC_A6TYPED", "SOTC_DC2CHARA", "SOTC_P3PAR", "SOTC_P4MOVE"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -904,7 +918,7 @@ namespace sotc_decomp
             // behind at the garbage moves) and Vita3K mostly does not: the console's A/B decides (docs/perf_p3.md).
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par || which == kP4Move)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
@@ -948,6 +962,7 @@ namespace sotc_decomp
     inline bool dc2charaOn() { return switchOn(kDc2Chara); }
     // Round P3 (SOTC_P3PAR, A/B p3par; off by default): the garbage moves do not wait for the deferred kick pass (p3_par.h).
     inline bool p3parOn() { return switchOn(kP3Par); }
+    inline bool p4moveOn() { return switchOn(kP4Move); }
     // Round 42's natives (the small leaves the natives call most, the layer
     // stack and the camera context behind sotc_native's hooks, the 2D sprite,
     // the collision work flush and the IK attribute filter; decomp_leaves.cpp,

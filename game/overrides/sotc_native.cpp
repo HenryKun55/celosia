@@ -46,6 +46,10 @@
 #include "s5_particles.h"
 #include "p2_particles.h"
 #include "p3_par.h"
+#include "p4_move.h" // round P4 (PS2X_P4_CHECK: SOTC_READ_TRACK below)
+#if PS2X_P4_CHECK && !defined(SOTC_READ_TRACK)
+#define SOTC_READ_TRACK 1
+#endif
 #include "s6_coll.h"
 namespace char104 // round 104 (decomp_char104.cpp)
 {
@@ -265,8 +269,14 @@ namespace sotc_native
     uint8_t *g_readBits = nullptr; // 32 MB / 4 bits
     thread_local uint8_t t_readSite = 0;
     uint8_t *g_readTag = nullptr; // a word's last reader (SOTC_READ_SITE)
+    // Round P4's check (p4_move.h, PS2X_P4_CHECK): the hook worker's reads while a move went on past its job.
+    thread_local bool t_p4Track = false;
+    thread_local uint32_t t_p4Job = 0; // the ring index of the job the hook worker runs
+    void p4NoteRead(uint32_t addr, uint32_t bytes);
     inline void noteRead(uint32_t addr, uint32_t bytes)
     {
+        if (t_p4Track && bytes)
+            p4NoteRead(addr, bytes);
         if (!t_readTrack || !bytes || !g_readBits)
             return;
         for (uint32_t a = addr & ~3u, end = addr + bytes; a < end; a += 4u)
@@ -1041,7 +1051,7 @@ namespace sotc_native
                 uint32_t address = 0, format = 0;
                 uint64_t frame = ~0ull, sampled = 0, key = 0, sampledAt = 0;
                 bool rewritten = false; // seen changed in place: sampled at every call
-                uint32_t moveSerial = 0; // sotc_decomp::g_guestMoveSerial at the last sample
+                uint32_t moveSerial = 0; // sotc_decomp::moveSerialSeen() at the last sample
             };
             static WayMemo<ContentMemo, 512> memos;
             bool found = false;
@@ -1051,7 +1061,7 @@ namespace sotc_native
             // every frame. As packetId: a texture drawn the frame before,
             // never seen rewritten in place, is taken as it was; the full
             // sample comes round one frame in 16 (by address).
-            if (found && g_quickTextures && !memo.rewritten && memo.moveSerial == sotc_decomp::g_guestMoveSerial && memo.format == format && memo.frame + 1u >= g_frame && g_frame - memo.sampledAt < 16u &&
+            if (found && g_quickTextures && !memo.rewritten && memo.moveSerial == sotc_decomp::moveSerialSeen() && memo.format == format && memo.frame + 1u >= g_frame && g_frame - memo.sampledAt < 16u &&
                 ((g_frame + (header >> 5)) & 15u) != 0u)
             {
                 key = memo.key;
@@ -1072,14 +1082,14 @@ namespace sotc_native
                 memo.frame = g_frame;
                 memo.sampledAt = g_frame;
                 memo.format = format;
-                memo.moveSerial = sotc_decomp::g_guestMoveSerial;
+                memo.moveSerial = sotc_decomp::moveSerialSeen();
             }
             else
             {
                 // Drawn in the last two frames and changed: rewritten where it is
                 // (animated), decoded at once, not on the worker.
                 // (not after a garbage move: then another texture was moved there)
-                changedInPlace = found && memo.moveSerial == sotc_decomp::g_guestMoveSerial && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
+                changedInPlace = found && memo.moveSerial == sotc_decomp::moveSerialSeen() && memo.frame != ~0ull && memo.frame + 2u >= g_frame;
                 // Moved here by a garbage move (round 13, as packetId): the
                 // memo at the old header, sampled before the move, with the
                 // same samples here (read as if still there), gives its key.
@@ -1118,7 +1128,7 @@ namespace sotc_native
                     if (movedKey)
                     {
                         key = movedKey;
-                        memo = {header, format, g_frame, sampled, key, g_frame, false, sotc_decomp::g_guestMoveSerial};
+                        memo = {header, format, g_frame, sampled, key, g_frame, false, sotc_decomp::moveSerialSeen()};
                         goto haveKey;
                     }
                 }
@@ -1131,7 +1141,7 @@ namespace sotc_native
                 uint64_t h = contentHash(header + word(header + 0x14u), bytes, 0x84222325cbf29ce4ull ^ format);
                 h = contentHash(header + word(header + 0x18u), psm == 0x00u ? 0u : (psm == 0x14u ? 64u : 1024u), h ^ (noteRead(header + 0x1Fu, 1u), g_ram[(header + 0x1Fu) & 0x1FFFFFFu]));
                 key = (h & 0x03FFFFFFFFFFFFFFull) | (1ull << 58);
-                memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace), sotc_decomp::g_guestMoveSerial};
+                memo = {header, format, g_frame, sampled, key, g_frame, found && (memo.rewritten || changedInPlace), sotc_decomp::moveSerialSeen()};
             }
         }
         else
@@ -1350,7 +1360,7 @@ namespace sotc_native
         uint64_t frame = ~0ull, id = 0;
         uint32_t sampledAt = 0;  // the frame of the last full sample (its low 32 bits)
         bool rewritten = false;  // seen changed in place
-        uint16_t moveSerial = 0; // sotc_decomp::g_guestMoveSerial at the last sample (a garbage move since: sampled again)
+        uint16_t moveSerial = 0; // sotc_decomp::moveSerialSeen() at the last sample (a garbage move since: sampled again)
         uint64_t sample = 0, quick = 0; // 32 words; four words
         uint32_t movedFrom = 0; // carried here from that address by the garbage moves (rekeyPacketMemo), not sampled here yet
     };
@@ -1435,7 +1445,7 @@ namespace sotc_native
     {
         SOTC_READ_SITE(5);
         namespace sd = sotc_decomp;
-        const uint32_t count = sd::g_guestMoveCount;
+        const uint32_t count = sd::moveCountSeen();
         if (count == g_rekeyedAt)
             return;
         const uint32_t first = g_rekeyedAt;
@@ -1531,7 +1541,7 @@ namespace sotc_native
         g_packetRewritten = false;
         if (!fast)
             return ((static_cast<uint64_t>(size) << 32) | data) ^ (sample(data, size, 32u) & 0x7FFF000000000000ull);
-        if (g_moveRekey && g_moveMemo && sotc_decomp::g_guestMoveCount != g_rekeyedAt)
+        if (g_moveRekey && g_moveMemo && sotc_decomp::moveCountSeen() != g_rekeyedAt)
         {
             SOTC_PROF_SCOPE(kHookMoves);
             rekeyPacketMemo();
@@ -1541,7 +1551,7 @@ namespace sotc_native
         found = found && memo.size == size;
         HookStats &hs = hookStats();
         g_packetRewritten = found && memo.rewritten;
-        const uint16_t moveSerial = static_cast<uint16_t>(sotc_decomp::g_guestMoveSerial);
+        const uint16_t moveSerial = static_cast<uint16_t>(sotc_decomp::moveSerialSeen());
         const bool moved = found && memo.moveSerial != moveSerial;
         if (found && memo.frame == g_frame && !moved)
         {
@@ -2979,6 +2989,15 @@ namespace sotc_native
         uint32_t vSerial = ~0u, vEpoch = ~0u;
         uint64_t vFrame = 0;
         bool vInited = false;
+        // Round P4 (p4_move.h): the guest spans this plan's draws read, made by the game thread at a garbage move only (the
+        // worker never touches them): of the plan itself (list, packets, surfaces, header; made again after buildPlan) and
+        // of the frame (textures, rows, objects, owner, VU records; made again in each frame a move needs them).
+        bool p4Made = false;
+        uint64_t p4Frame = ~0ull;
+        uint32_t p4Head = 0; // the hook ring's head when the frame spans were made
+        uint64_t p4ListFrame = ~0ull; // in hookjobs::g_p4Made for this frame
+        bool p4Logged = false; // p4Log holds the words the frame spans were made of
+        std::vector<std::pair<uint32_t, uint32_t>> p4Spans, p4Dyn, p4Log;
     };
     std::unordered_map<uint64_t, ModelPlan> g_plans;
     struct PlanCache97
@@ -3116,6 +3135,9 @@ namespace sotc_native
         p.meshEpoch = native_renderer::meshEvictions();
         p.skinEpoch = g_skinnedEpoch;
         s16Vouch(p, header);
+        p.p4Made = false; // round P4: its span lists made again when a move needs them
+        p.p4Frame = ~0ull;
+        p.p4Logged = false;
     }
     // The plan of (header, LOD), checked once a frame; nullptr: none (LOD out of range).
     ModelPlan *modelPlan(uint32_t header, uint32_t lod)
@@ -3643,7 +3665,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -5910,6 +5932,8 @@ namespace sotc_native
         Draw2DJob draw2d;
         uint32_t kick = 0; // round 34: its KickJob (g_kickJobs; not one a ring slot, which would keep every palette's room)
         bool p3 = false;   // round P3: a kick job handed over with p3par on (a garbage move may go on beside it)
+        // Round P4 (p4_move.h): the garbage moves as they were at the hand-over (the worker's view while it runs the job).
+        uint32_t moveSerial = 0, moveCount = 0;
     };
     void runJob(HookJob &job);
     // SOTC_HOOK_ASYNC_VERIFY: a hash of everything a job took at the hook
@@ -6284,6 +6308,553 @@ namespace sotc_native
                          (unsigned long long)g_p3Size[3], (unsigned long long)g_p3Hit[1], (unsigned long long)g_p3Hit[0]);
         }
 
+        // ---- Round P4 (SOTC_P4MOVE, p4_move.h): a garbage move waits only for the queued jobs whose guest reads meet it --
+        p4move::Stats g_p4;
+        bool g_p4Inited = false, g_p4Check = false;
+        uint32_t g_p4Log = 0u;
+        // The worker passing a job the game thread waits for (p4Partial): ring index + 1 while it waits, else 0.
+        std::atomic<uint32_t> g_p4Want{0};
+        using P4Spans = std::vector<std::pair<uint32_t, uint32_t>>;
+        // [lo, lo + bytes) of main RAM as g_ram reads it (masked to 32 MB; a span past the end goes on at 0).
+        inline void p4Add(P4Spans &v, uint32_t lo, uint64_t bytes)
+        {
+            if (!bytes)
+                return;
+            lo &= 0x1FFFFFFu;
+            const uint64_t end = static_cast<uint64_t>(lo) + bytes;
+            if (bytes >= 0x2000000u)
+                v.push_back({0u, 0x2000000u});
+            else if (end <= 0x2000000u)
+                v.push_back({lo, static_cast<uint32_t>(end)});
+            else
+            {
+                v.push_back({lo, 0x2000000u});
+                v.push_back({0u, static_cast<uint32_t>(end - 0x2000000u)});
+            }
+        }
+        // Sorted by start, overlapping / touching spans merged (so the ends rise too).
+        void p4Merge(P4Spans &v)
+        {
+            if (v.size() < 2u)
+                return;
+            std::sort(v.begin(), v.end());
+            size_t o = 0;
+            for (size_t i = 1; i < v.size(); ++i)
+            {
+                if (v[i].first <= v[o].second)
+                    v[o].second = std::max(v[o].second, v[i].second);
+                else
+                    v[++o] = v[i];
+            }
+            v.resize(o + 1u);
+        }
+        // A merged list meets [lo, hi)?
+        inline bool p4HitSorted(const P4Spans &v, uint32_t lo, uint32_t hi)
+        {
+            const auto it = std::upper_bound(v.begin(), v.end(), lo, [](uint32_t a, const std::pair<uint32_t, uint32_t> &s) { return a < s.second; });
+            return it != v.end() && it->first < hi;
+        }
+        inline bool p4HitAny(const P4Spans &v, uint32_t lo, uint32_t hi)
+        {
+            for (const auto &s : v)
+                if (s.first < hi && lo < s.second)
+                    return true;
+            return false;
+        }
+        // m: the move's destination [m0, m1) and source [m2, m3).
+        inline bool p4MeetsSorted(const P4Spans &v, const uint32_t m[4]) { return p4HitSorted(v, m[0], m[1]) || p4HitSorted(v, m[2], m[3]); }
+        inline bool p4MeetsAny(const P4Spans &v, const uint32_t m[4]) { return p4HitAny(v, m[0], m[1]) || p4HitAny(v, m[2], m[3]); }
+        // An NTO2 texture as texture() / decodedTexture / texSource / surfaceLod read it: the header, the pixels of every level
+        // (and what a swizzled level's read reaches past them), the CLUT.
+        template <typename R>
+        void p4TextureR(P4Spans &v, uint32_t t, R &&rd)
+        {
+            if (!t)
+                return;
+            p4Add(v, t, 0x100u);
+            if (rd(t) != 0x324F544Eu) // "NTO2" (decodedTexture reads nothing more)
+                return;
+            const uint32_t format = rd(t + 0x1Cu), psm = format & 0x3Fu;
+            const uint32_t width = 1u << ((format >> 16) & 0xFu), height = 1u << ((format >> 20) & 0xFu);
+            if (width > 1024u || height > 1024u)
+            {
+                p4Add(v, 0u, 0x2000000u); // (not drawn, but sampled: bounded by nothing here)
+                return;
+            }
+            uint64_t bytes = 0;
+            for (uint32_t level = 0, w = width, h = height, levels = std::clamp((format >> 12) & 0xFu, 1u, 7u); level < levels && w >= 1u && h >= 1u; ++level, w /= 2u, h /= 2u)
+                bytes += psm == 0x00u ? w * h * 4u : (psm == 0x13u ? w * h : w * h / 2u);
+            p4Add(v, t + rd(t + 0x14u), bytes + 64u);
+            p4Add(v, t + rd(t + 0x18u), 1024u);
+        }
+        inline void p4Texture(P4Spans &v, uint32_t t) { p4TextureR(v, t, [](uint32_t a) { return word(a); }); }
+        // A plan's own spans (no guest reads: the job takes the packets' addresses and sizes from the plan).
+        void p4MakePlan(ModelPlan &p)
+        {
+            ++g_p4.planMakes;
+            P4Spans &v = p.p4Spans;
+            v.clear();
+            p4Add(v, p.header, 0x70u);
+            p4Add(v, p.packets, 32ull * (static_cast<uint64_t>(p.count) + 1u));
+            for (const PlanPacket &e : p.pk)
+                p4Add(v, e.data & ~3u, static_cast<uint64_t>(e.data & 3u) + e.size + 64u);
+            for (const uint32_t s : p.surfaceRecords)
+                p4Add(v, s, 0x120u);
+            p4Merge(v);
+            p.p4Made = true;
+        }
+        // The plans whose frame spans are made (this frame), and the head they were made at (a job handed over after that
+        // makes them again: its hook may have seen the game change a surface's texture).
+        std::vector<ModelPlan *> g_p4Made;
+        uint64_t g_p4MadeFrame = ~0ull;
+        void p4Stamp(ModelPlan &p);
+        void p4MakeFrame(ModelPlan &p)
+        {
+            const uint64_t t0 = g_timing ? native_renderer::nowUs() : 0u;
+            ++g_p4.frameMakes;
+            P4Spans &v = p.p4Dyn;
+            v.clear();
+            p.p4Log.clear(); // every guest word read here, with its value: the list holds while they read the same (p4FrameHolds)
+            const auto word = [&p](uint32_t a)
+            {
+                const uint32_t x = sotc_native::word(a);
+                p.p4Log.push_back({a, x});
+                return x;
+            };
+            const uint32_t h = p.header;
+            p4Add(v, 0x1186290u, 4u), p4Add(v, 0x1186328u, 4u), p4Add(v, 0x118C180u, 4u); // getNowBossEffect, getFogUnderWater, the mip K scale
+            if (const uint32_t owner = word(h + 8u)) // surfaceLayer's second display
+                p4Add(v, owner + 0x38u, 4u);
+            const uint32_t table = word(h + 0x40u), count = word(h + 0x44u);
+            for (const uint32_t s : p.surfaceRecords)
+            {
+                for (const uint32_t field : {0x2Cu, 0x3Cu})
+                {
+                    const uint32_t index = word(s + field);
+                    if (index >= count)
+                        continue;
+                    const uint32_t entry = table + index * 0x20u;
+                    p4Add(v, entry + 0x10u, 4u);
+                    const uint32_t object = word(entry + 0x10u);
+                    if (!object)
+                        continue;
+                    p4Add(v, object + 0x20u, 4u);
+                    const uint32_t nto2 = word(object + 0x20u);
+                    if (!nto2)
+                        continue;
+                    p4TextureR(v, nto2, word);
+                    if (const uint32_t row = word(nto2 + 0xCu)) // the scroll row (surfaceRow / surfaceScroll)
+                        p4Add(v, row, 8u);
+                }
+                const uint64_t flags = word(s + 0x18u) | (static_cast<uint64_t>(word(s + 0x1Cu)) << 32);
+                if (((flags >> 25) & 1u) || (flags & 0x2200u) == 0x2200u) // reflective: the pass packet's VU constants
+                {
+                    const uint32_t x = word(h + 0x14u);
+                    p4Add(v, x + 4u, 4u);
+                    const uint32_t rec = word(x + 4u) + ((s - p.surfaces) / 0x120u) * 0x40u + 0x20u;
+                    p4Add(v, rec, 8u);
+                    p4Add(v, word(rec + 4u) + 0x3Cu, 4u);
+                }
+            }
+            p4Merge(v);
+            p.p4Logged = true;
+            p4Stamp(p);
+            if (t0)
+                g_p4.frameUs += native_renderer::nowUs() - t0;
+        }
+        // The plan's frame spans taken for this frame (and the jobs handed over up to now).
+        void p4Stamp(ModelPlan &p)
+        {
+            if (g_p4MadeFrame != g_frame) // (the list's plans of other frames are not touched: they may be gone)
+            {
+                g_p4Made.clear();
+                g_p4MadeFrame = g_frame;
+            }
+            if (p.p4ListFrame != g_frame)
+            {
+                g_p4Made.push_back(&p);
+                p.p4ListFrame = g_frame;
+            }
+            p.p4Frame = g_frame;
+            p.p4Head = g_head.load(std::memory_order_relaxed);
+        }
+        // The words the frame spans were made of read the same now: the same spans (they are a function of those words, read
+        // in that order, and of the plan).
+        bool p4FrameHolds(const ModelPlan &p)
+        {
+            for (const auto &e : p.p4Log)
+                if (word(e.first) != e.second)
+                    return false;
+            return true;
+        }
+        // Every move (p4move on): the plans whose spans it meets make their frame spans again at the next ask (what they
+        // were made of, or what they point at, may be moved or relocated by the move's handler).
+        void p4Forget(const uint32_t m[4])
+        {
+            if (g_p4MadeFrame != g_frame)
+                return;
+            for (ModelPlan *p : g_p4Made)
+                if (p->p4Frame != ~0ull && (p4MeetsSorted(p->p4Dyn, m) || p4MeetsSorted(p->p4Spans, m)))
+                    p->p4Frame = ~0ull;
+        }
+        P4Spans g_p4Scratch;
+        // Whether job i (ring index) may read guest memory in the move's spans m; why: the kind of answer.
+        bool p4Touches(const HookJob &j, uint32_t i, const uint32_t m[4], uint8_t &why)
+        {
+            P4Spans &v = g_p4Scratch;
+            ++g_p4.asked[j.kind & 7u];
+            switch (j.kind)
+            {
+            case kJobModel:
+            {
+                ModelPlan *p = j.model.plan;
+                if (!p)
+                {
+                    why = p4move::kWhyPlanless;
+                    return true;
+                }
+                if (!p->p4Made)
+                    p4MakePlan(*p);
+                if (p4MeetsSorted(p->p4Spans, m))
+                {
+                    why = p4move::kWhyModel;
+                    return true;
+                }
+                // Taken for this frame and this job (handed over before the list was made: by rounds 23 / 34's premise it
+                // reads what the list read), else the words the list was made of read again: the same, the same spans.
+                if (p->p4Frame != g_frame || g_p4MadeFrame != g_frame || static_cast<int32_t>(i - p->p4Head) >= 0)
+                {
+                    g_p4.frameMakesLate += p->p4Frame == g_frame && g_p4MadeFrame == g_frame;
+                    if (p->p4Logged && p4FrameHolds(*p))
+                    {
+                        ++g_p4.frameHeld;
+                        p4Stamp(*p);
+                    }
+                    else
+                        p4MakeFrame(*p);
+                }
+                if (p4MeetsSorted(p->p4Dyn, m))
+                {
+                    why = p4move::kWhyModelDyn;
+                    return true;
+                }
+                return false;
+            }
+            case kJob2D:
+                if (!j.draw2d.textured)
+                    return false;
+                v.clear();
+                p4Texture(v, j.draw2d.textureHeader);
+                why = p4move::kWhyTex2D;
+                return p4MeetsAny(v, m);
+            case kJobMesh:
+                v.clear();
+                p4Add(v, j.mesh.object + 0x20u, 0x10u);
+                p4Texture(v, j.mesh.header);
+                why = p4move::kWhyMesh;
+                return p4MeetsAny(v, m);
+            case kJobPtcl:
+                v.clear();
+                p4Texture(v, j.ptcl.header);
+                why = p4move::kWhyPtcl;
+                return p4MeetsAny(v, m);
+            case kJobShadow:
+            {
+                v.clear();
+                const uint32_t chain = j.shadow.chain, model = j.shadow.model;
+                p4Add(v, chain + 4u, 4u);
+                p4Add(v, model + 0x1Cu, 4u);
+                const uint32_t tag = word(model + 0x1Cu);
+                p4Add(v, tag, 8u);
+                const uint32_t batchAddr = word(tag + 4u), batchSize = (word(tag) & 0xFFFFu) * 16u;
+                p4Add(v, batchAddr & ~3u, static_cast<uint64_t>(batchAddr & 3u) + batchSize + 64u);
+                why = p4move::kWhyShadow;
+                return p4MeetsAny(v, m);
+            }
+            case kJobKick:
+                why = p4move::kWhyKick;
+                return true;
+            default:
+                why = p4move::kWhyOther;
+                return true;
+            }
+        }
+        void p4Init()
+        {
+            if (g_p4Inited)
+                return;
+            g_p4Inited = true;
+#if PS2X_P4_CHECK
+            const char *c = ps2_diag::env("SOTC_P4MOVE_CHECK");
+            g_p4Check = c && std::atoi(c) != 0;
+#endif
+            const char *l = ps2_diag::env("SOTC_P4MOVE_LOG");
+            const char *on = std::getenv("SOTC_P4MOVE");
+            g_p4Log = l ? static_cast<uint32_t>(std::max(0, std::atoi(l))) : ((g_p4Check || (on && on[0] >= '1' && on[0] <= '3')) ? 600u : 0u);
+            if (g_p4Check || g_p4Log)
+                std::fprintf(stderr, "[p4move] on %d check %d (build %d) log %u\n", sotc_decomp::p4moveOn() ? 1 : 0, g_p4Check ? 1 : 0, PS2X_P4_CHECK, g_p4Log);
+        }
+#if PS2X_P4_CHECK
+        // ---- The check (p4_move.h): copies of main RAM made at the moves that go on, the worker's reads checked against them --
+        constexpr uint32_t kP4Snaps = 2u, kP4SnapSpans = 4096u;
+        struct P4Snap
+        {
+            uint8_t *ram = nullptr;
+            bool live = false;           // (game thread)
+            uint32_t from = 0, to = 0;   // the jobs it serves: ring indices [from, to)
+            std::atomic<uint32_t> spans{0};
+            uint32_t span[kP4SnapSpans][2] = {};
+        };
+        P4Snap g_p4Snaps[kP4Snaps];
+        std::atomic<uint8_t> g_p4JobSnap[kRing]; // a job's copy (index + 1; 0 none), set by the game thread
+        bool g_p4RamArmed = false;
+        uint32_t g_p4RamSnap = 0;
+        std::atomic<uint64_t> g_p4Jobs{0}, g_p4Reads{0}, g_p4ReadBytes{0}, g_p4InMoved{0}, g_p4Differ{0}, g_p4DifferBytes{0};
+        std::atomic<uint32_t> g_p4Told{0};
+        // The game thread at a move that will go on with jobs [tail, head) queued: false when a copy is needed and there is no
+        // room (the move then joins as before).
+        bool p4CheckMove(uint32_t head, const uint32_t m[4])
+        {
+            const uint32_t tail = g_tail.load(std::memory_order_acquire);
+            uint32_t covered = tail;
+            for (P4Snap &s : g_p4Snaps)
+            {
+                if (s.live && static_cast<int32_t>(tail - s.to) >= 0)
+                    s.live = false; // every job it served is done
+                if (s.live && static_cast<int32_t>(s.to - covered) > 0)
+                    covered = s.to;
+            }
+            P4Snap *fresh = nullptr;
+            if (static_cast<int32_t>(head - covered) > 0)
+            {
+                for (P4Snap &s : g_p4Snaps)
+                    if (!s.live)
+                    {
+                        fresh = &s;
+                        break;
+                    }
+                if (fresh && !fresh->ram)
+                    fresh->ram = static_cast<uint8_t *>(std::malloc(PS2_RAM_SIZE));
+                if (!fresh || !fresh->ram || !g_ram)
+                    return false;
+            }
+            for (const P4Snap &s : g_p4Snaps) // this move goes on past every live copy's jobs still queued: room for its spans
+                if (s.live && s.spans.load(std::memory_order_relaxed) + 2u > kP4SnapSpans)
+                    return false;
+            for (P4Snap &s : g_p4Snaps)
+                if (s.live)
+                {
+                    const uint32_t n = s.spans.load(std::memory_order_relaxed);
+                    s.span[n][0] = m[0], s.span[n][1] = m[1], s.span[n + 1u][0] = m[2], s.span[n + 1u][1] = m[3];
+                    s.spans.store(n + 2u, std::memory_order_release);
+                }
+            if (fresh)
+            {
+                std::memcpy(fresh->ram, g_ram, PS2_RAM_SIZE);
+                fresh->from = covered;
+                fresh->to = head;
+                fresh->span[0][0] = m[0], fresh->span[0][1] = m[1], fresh->span[1][0] = m[2], fresh->span[1][1] = m[3];
+                fresh->spans.store(2u, std::memory_order_release);
+                fresh->live = true;
+                const uint8_t k = static_cast<uint8_t>(fresh - g_p4Snaps) + 1u;
+                for (uint32_t i = covered; i != head; ++i)
+                    g_p4JobSnap[i % kRing].store(k, std::memory_order_release);
+                ++g_p4.snaps;
+                g_p4RamArmed = true;
+                g_p4RamSnap = k - 1u;
+            }
+            return true;
+        }
+        // Right after the move: main RAM against the copy made just before it (the destination span against the copy's source).
+        void p4AfterMove(uint32_t srcOff, uint32_t dstOff, uint32_t total)
+        {
+            if (!g_p4RamArmed)
+                return;
+            g_p4RamArmed = false;
+            const uint8_t *c = g_p4Snaps[g_p4RamSnap].ram;
+            if (!c || !g_ram || !total || srcOff + total > PS2_RAM_SIZE || dstOff + total > PS2_RAM_SIZE || !(dstOff <= srcOff || dstOff >= srcOff + total))
+            {
+                ++g_p4.ramSkipped;
+                return;
+            }
+            uint64_t differ = 0;
+            uint32_t first = ~0u;
+            const auto cmp = [&](uint32_t at, uint32_t from, uint32_t n)
+            {
+                for (uint32_t i = 0; i < n; i += 4u)
+                    if (std::memcmp(g_ram + at + i, c + from + i, std::min(4u, n - i)) != 0)
+                    {
+                        ++differ;
+                        first = std::min(first, at + i);
+                    }
+            };
+            const auto region = [&](uint32_t at, uint32_t from, uint32_t n)
+            {
+                for (uint32_t done = 0; done < n; done += 0x10000u)
+                {
+                    const uint32_t k = std::min(0x10000u, n - done);
+                    if (std::memcmp(g_ram + at + done, c + from + done, k) != 0)
+                        cmp(at + done, from + done, k);
+                }
+            };
+            region(0u, 0u, dstOff);
+            region(dstOff, srcOff, total);
+            region(dstOff + total, dstOff + total, PS2_RAM_SIZE - (dstOff + total));
+            ++g_p4.ramChecks;
+            if (differ)
+            {
+                ++g_p4.ramChecksDiffer;
+                g_p4.ramWordsDiffer += differ;
+                if (g_p4Told.fetch_add(1, std::memory_order_relaxed) < 40u)
+                    std::fprintf(stderr, "[p4chk] frame %llu: RAM after the move (src %07x dst %07x bytes %u) differs from the copy in %llu words, the first at %07x\n",
+                                 (unsigned long long)g_frame, srcOff, dstOff, total, (unsigned long long)differ, first);
+            }
+        }
+        // The hook worker, at each guest read of a job a move went on past (noteRead): (a) not in a moved span, (b) the bytes
+        // the copy made before the first such move holds.
+        void p4NoteReadImpl(uint32_t addr, uint32_t bytes)
+        {
+            const uint8_t k = g_p4JobSnap[t_p4Job % kRing].load(std::memory_order_acquire);
+            if (!k || k > kP4Snaps)
+                return;
+            const P4Snap &s = g_p4Snaps[k - 1u];
+            const uint32_t a = addr & 0x1FFFFFFu;
+            const uint32_t n = std::min<uint32_t>(bytes, 0x2000000u - a);
+            g_p4Reads.fetch_add(1, std::memory_order_relaxed);
+            g_p4ReadBytes.fetch_add(n, std::memory_order_relaxed);
+            const uint32_t spans = s.spans.load(std::memory_order_acquire);
+            for (uint32_t i = 0; i < spans; ++i)
+                if (a < s.span[i][1] && s.span[i][0] < a + n)
+                {
+                    g_p4InMoved.fetch_add(1, std::memory_order_relaxed);
+                    if (g_p4Told.fetch_add(1, std::memory_order_relaxed) < 40u)
+                        std::fprintf(stderr, "[p4chk] frame %llu: job %u (kind %u, site %u) read %07x +%u inside a moved span [%07x, %07x)\n", (unsigned long long)g_frame,
+                                     t_p4Job, static_cast<unsigned>(g_ring[t_p4Job % kRing].kind), static_cast<unsigned>(t_readSite), a, n, s.span[i][0], s.span[i][1]);
+                    break;
+                }
+            if (s.ram && g_ram && std::memcmp(s.ram + a, g_ram + a, n) != 0)
+            {
+                uint32_t d = 0;
+                for (uint32_t i = 0; i < n; ++i)
+                    d += s.ram[a + i] != g_ram[a + i];
+                g_p4Differ.fetch_add(1, std::memory_order_relaxed);
+                g_p4DifferBytes.fetch_add(d, std::memory_order_relaxed);
+                if (g_p4Told.fetch_add(1, std::memory_order_relaxed) < 40u)
+                    std::fprintf(stderr, "[p4chk] frame %llu: job %u (kind %u, site %u) read %07x +%u: %u bytes differ from the copy before the move\n", (unsigned long long)g_frame,
+                                 t_p4Job, static_cast<unsigned>(g_ring[t_p4Job % kRing].kind), static_cast<unsigned>(t_readSite), a, n, d);
+            }
+        }
+#endif
+        // The game thread at a garbage move with jobs queued (p4move on): true when it may go on (every queued job whose reads
+        // may meet the move's spans is done; the rest stay queued), false for the whole join as before.
+        bool p4Partial()
+        {
+            ++g_p4.pending;
+            const uint64_t t0 = g_timing ? native_renderer::nowUs() : 0u;
+            const uint32_t head = g_head.load(std::memory_order_relaxed);
+            uint32_t tail = g_tail.load(std::memory_order_acquire);
+            const uint32_t src = sotc_decomp::g_moveSrc & PS2_RAM_MASK, dst = sotc_decomp::g_moveDst & PS2_RAM_MASK, bytes = sotc_decomp::g_moveBytes;
+            if (!bytes || src + bytes > PS2_RAM_SIZE || dst + bytes > PS2_RAM_SIZE || bytes > PS2_RAM_SIZE)
+            {
+                ++g_p4.full;
+                ++g_p4.hits[p4move::kWhyOther];
+                return false;
+            }
+            const uint32_t m[4] = {dst, dst + bytes, src, src + bytes};
+            // The oldest queued job's view of the moves must stay in the ring (sotc_decomp::g_guestMoves).
+            if (sotc_decomp::g_guestMoveCount - g_ring[tail % kRing].moveCount >= sotc_decomp::kGuestMoves / 2u)
+            {
+                ++g_p4.guard;
+                ++g_p4.full;
+                return false;
+            }
+            uint32_t last = ~0u, walked = 0;
+            uint8_t why = p4move::kWhyOther;
+            for (uint32_t i = head - 1u; static_cast<int32_t>(i - tail) >= 0; --i)
+            {
+                ++walked;
+                if (p4Touches(g_ring[i % kRing], i, m, why))
+                {
+                    last = i;
+                    break;
+                }
+                if ((walked & 7u) == 0u)
+                    tail = g_tail.load(std::memory_order_acquire);
+            }
+            g_p4.jobsWalked += walked;
+            if (t0)
+                g_p4.walkUs += native_renderer::nowUs() - t0;
+            if (last != ~0u && last == head - 1u && g_tail.load(std::memory_order_acquire) != head)
+            {
+                ++g_p4.full; // the newest job meets the move: the whole join
+                ++g_p4.hits[why];
+                return false;
+            }
+            if (last != ~0u)
+            {
+                ++g_p4.hits[why];
+                const uint64_t w0 = g_timing ? native_renderer::nowUs() : 0u;
+                const auto past = [&] { return static_cast<int32_t>(g_tail.load(std::memory_order_seq_cst) - last) > 0; };
+                for (int spin = 0; spin < 512 && !past(); ++spin)
+                    ;
+                if (!past())
+                {
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    g_p4Want.store(last + 1u, std::memory_order_seq_cst);
+                    while (!past())
+                        g_done.wait_for(lock, std::chrono::milliseconds(1));
+                    g_p4Want.store(0u, std::memory_order_relaxed);
+                }
+                if (w0)
+                    g_p4.waitUs += native_renderer::nowUs() - w0;
+            }
+            const uint32_t left = head - g_tail.load(std::memory_order_acquire);
+            if (!left)
+            {
+                ++g_p4.doneMeanwhile;
+                return true;
+            }
+#if PS2X_P4_CHECK
+            if (g_p4Check && !p4CheckMove(head, m))
+            {
+                ++g_p4.noRoom;
+                ++g_p4.full;
+                return false;
+            }
+#endif
+            ++(last == ~0u ? g_p4.free : g_p4.partial);
+            g_p4.jobsLeft += left;
+            return true;
+        }
+        void p4Report(uint64_t frame)
+        {
+            const p4move::Stats &t = g_p4;
+            std::fprintf(stderr,
+                         "[p4move] frame %llu: on %d; moves %llu (jobs queued %llu): went on at once %llu, after a partial wait %llu (%.1f ms), whole join %llu (ring guard %llu), "
+                         "queue ran out %llu; jobs left queued %llu, asked %llu (walk %.1f ms); waited for: model %llu frame %llu planless %llu 2d %llu cloth %llu ptcl %llu shadow %llu "
+                         "kick %llu other %llu; move joins on %.1f ms / %llu frames, off %.1f ms / %llu frames",
+                         (unsigned long long)frame, sotc_decomp::p4moveOn() ? 1 : 0, (unsigned long long)t.moves, (unsigned long long)t.pending, (unsigned long long)t.free,
+                         (unsigned long long)t.partial, t.waitUs / 1000.0, (unsigned long long)t.full, (unsigned long long)t.guard, (unsigned long long)t.doneMeanwhile,
+                         (unsigned long long)t.jobsLeft, (unsigned long long)t.jobsWalked, t.walkUs / 1000.0, (unsigned long long)t.hits[0], (unsigned long long)t.hits[1],
+                         (unsigned long long)t.hits[2], (unsigned long long)t.hits[3], (unsigned long long)t.hits[4], (unsigned long long)t.hits[5], (unsigned long long)t.hits[6],
+                         (unsigned long long)t.hits[7], (unsigned long long)t.hits[8], t.moveUsOn / 1000.0, (unsigned long long)t.framesOn, t.moveUsOff / 1000.0,
+                         (unsigned long long)t.framesOff);
+            std::fprintf(stderr, "; asked model %llu cloth %llu shadow %llu ptcl %llu 2d %llu kick %llu; lists: plan %llu, frame %llu (%.1f ms), held %llu, asked again %llu",
+                         (unsigned long long)t.asked[0], (unsigned long long)t.asked[1], (unsigned long long)t.asked[2], (unsigned long long)t.asked[3],
+                         (unsigned long long)t.asked[4], (unsigned long long)t.asked[5], (unsigned long long)t.planMakes, (unsigned long long)t.frameMakes,
+                         t.frameUs / 1000.0, (unsigned long long)t.frameHeld, (unsigned long long)t.frameMakesLate);
+#if PS2X_P4_CHECK
+            if (g_p4Check)
+                std::fprintf(stderr, "; check: copies %llu (no room %llu), jobs checked %llu, reads %llu (%.1f MB), in a moved span %llu, differ from the copy %llu (%llu bytes); "
+                                     "RAM checks %llu, differ %llu (%llu words), skipped %llu",
+                             (unsigned long long)t.snaps, (unsigned long long)t.noRoom, (unsigned long long)g_p4Jobs.load(), (unsigned long long)g_p4Reads.load(),
+                             g_p4ReadBytes.load() / 1048576.0, (unsigned long long)g_p4InMoved.load(), (unsigned long long)g_p4Differ.load(),
+                             (unsigned long long)g_p4DifferBytes.load(), (unsigned long long)t.ramChecks, (unsigned long long)t.ramChecksDiffer,
+                             (unsigned long long)t.ramWordsDiffer, (unsigned long long)t.ramSkipped);
+#endif
+            std::fprintf(stderr, "\n");
+        }
+
 #if !defined(__vita__)
         // SOTC_KICK_DEFER_CHECK=1 (Mac, round 34): what the deferred kick
         // (SOTC_KICK_DEFER) changes, shown. At each kick the worker is held
@@ -6533,6 +7104,7 @@ namespace sotc_native
             ThreadNaming::SetCurrentThreadName("HookWorker");
             native_renderer::setRaceLabel("hook worker");
             t_hookWorker = true;
+            sotc_decomp::t_moveView = true; // round P4: the moves as each job's hand-over saw them (p4_move.h)
             ::sotc_prof::t_offGameThread = true; // (the subsystem profiler's scopes are the game thread's)
 #if defined(SOTC_READ_TRACK)
             t_readTrack = true; // (the bits cleared at each check's start: only the held jobs' count)
@@ -6632,13 +7204,31 @@ namespace sotc_native
                 const bool p3 = job.kind == kJobKick && job.p3; // round P3: the decision published at the kick pass's start
                 if (p3)
                     p3KickStart(job, tail);
+                // Round P4: the job sees the garbage moves as they were at its hand-over (a move that went on beside it
+                // is not seen: as before P4, when every move joined the queue first).
+                sotc_decomp::t_moveViewSerial = job.moveSerial;
+                sotc_decomp::t_moveViewCount = job.moveCount;
+#if PS2X_P4_CHECK
+                t_p4Job = tail;
+                t_p4Track = g_p4Check;
+#endif
                 runJob(job);
+#if PS2X_P4_CHECK
+                t_p4Track = false;
+                if (g_p4JobSnap[tail % kRing].load(std::memory_order_relaxed))
+                    g_p4Jobs.fetch_add(1, std::memory_order_relaxed);
+#endif
                 if (p3)
                     p3KickEnd(tail);
                 if (start)
                     g_jobUs += native_renderer::nowUs() - start;
                 ++g_jobs;
                 g_tail.store(++tail, std::memory_order_release);
+                if (__builtin_expect(g_p4Want.load(std::memory_order_relaxed) != 0u, 0)) // round P4: a move waits for a job up to here
+                {
+                    std::lock_guard<std::mutex> lock(g_mutex);
+                    g_done.notify_all();
+                }
 #if !defined(__vita__)
                 if (g_deferCheck)
                     g_inJob.store(false, std::memory_order_seq_cst);
@@ -6716,7 +7306,10 @@ namespace sotc_native
                 }
             } siteTime{site, start};
             // Round P3 (p3_par.h): a garbage move waits only for the jobs before a last kick job that reads no guest memory.
-            if (site == k_move && g_p3AtMove && sotc_decomp::p3parOn() && p3Partial())
+            // Round P4 (p4_move.h): a garbage move waits only for the queued jobs whose reads may meet its spans.
+            if (site == k_move && g_p3AtMove && sotc_decomp::p4moveOn() && !g_verify && !g_staleCheck && p4Partial())
+                goto done;
+            if (site == k_move && g_p3AtMove && sotc_decomp::p3parOn() && !sotc_decomp::p4moveOn() && p3Partial())
                 goto done;
             for (int spin = 0; spin < 512; ++spin)
                 if (!pending())
@@ -6759,6 +7352,14 @@ namespace sotc_native
         }
         void push()
         {
+            {
+                HookJob &j = g_ring[g_head.load(std::memory_order_relaxed) % kRing]; // round P4: the moves as they are now
+                j.moveSerial = sotc_decomp::g_guestMoveSerial;
+                j.moveCount = sotc_decomp::g_guestMoveCount;
+#if PS2X_P4_CHECK
+                g_p4JobSnap[g_head.load(std::memory_order_relaxed) % kRing].store(0u, std::memory_order_relaxed);
+#endif
+            }
             if (g_verify)
                 g_copyHash[g_head.load(std::memory_order_relaxed) % kRing] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) % kRing]);
             g_pushUs[g_head.load(std::memory_order_relaxed) % kRing] = g_timingLag ? native_renderer::nowUs() : 0u;
@@ -6788,6 +7389,13 @@ namespace sotc_native
                 g_p3.moveUsOff += g_frameSiteUs[k_move], ++g_p3.framesOff;
             if (g_p3Log && g_frame % g_p3Log == 0u)
                 p3Report(g_frame);
+            p4Init(); // round P4: the same by p4move's state, the [p4move] line
+            if (sotc_decomp::p4moveOn())
+                g_p4.moveUsOn += g_frameSiteUs[k_move], ++g_p4.framesOn;
+            else
+                g_p4.moveUsOff += g_frameSiteUs[k_move], ++g_p4.framesOff;
+            if (g_p4Log && g_frame % g_p4Log == 0u)
+                p4Report(g_frame);
             std::memcpy(g_lastSiteUs, g_frameSiteUs, sizeof(g_lastSiteUs));
             std::fill(g_frameSiteUs, g_frameSiteUs + kSites, 0u);
             static uint64_t frames = 0, changed = 0, jobs = 0;
@@ -12808,6 +13416,9 @@ namespace sotc_native
         }
     }
 
+#if PS2X_P4_CHECK
+    void p4NoteRead(uint32_t addr, uint32_t bytes) { hookjobs::p4NoteReadImpl(addr, bytes); } // round P4's check (noteRead)
+#endif
     void modelDispDraw(const ModelDispJob &job, const bool onWorker)
     {
         SOTC_READ_SITE(1);
@@ -14038,11 +14649,28 @@ void installSotcNative(PS2Runtime &runtime)
         // Round P3 (p3_par.h): with p3par on, this join need not wait for a last kick job that reads no guest memory.
         if (hookjobs::g_on && sotc_decomp::p3parOn())
             ++hookjobs::g_p3.moves;
+        // Round P4 (p4_move.h): with p4move on, this join waits only for the queued jobs whose reads may meet the move.
+        const bool p4 = sotc_decomp::p4moveOn();
+        if (hookjobs::g_on && p4)
+            ++hookjobs::g_p4.moves;
         hookjobs::g_p3AtMove = true;
         sotc_native::hookJoin(hookjobs::k_move);
         hookjobs::g_p3AtMove = false;
+        if (!hookjobs::g_p4Made.empty()) // the plans whose spans the move meets make theirs again (this frame's)
+        {
+            const uint32_t src = sotc_decomp::g_moveSrc & PS2_RAM_MASK, dst = sotc_decomp::g_moveDst & PS2_RAM_MASK;
+            const uint32_t bytes = std::min<uint32_t>(sotc_decomp::g_moveBytes, PS2_RAM_SIZE);
+            const uint32_t m[4] = {dst, std::min<uint32_t>(dst + bytes, PS2_RAM_SIZE), src, std::min<uint32_t>(src + bytes, PS2_RAM_SIZE)};
+            hookjobs::p4Forget(m);
+        }
     };
-    sotc_decomp::g_afterGuestMove = [](uint32_t src, uint32_t dst, uint32_t bytes) { hookjobs::p3AfterMove(src, dst, bytes); }; // round P3's check
+    sotc_decomp::g_afterGuestMove = [](uint32_t src, uint32_t dst, uint32_t bytes)
+    {
+        hookjobs::p3AfterMove(src, dst, bytes); // round P3's check
+#if PS2X_P4_CHECK
+        hookjobs::p4AfterMove(src, dst, bytes); // round P4's
+#endif
+    };
     g_getCameraContext = sotc_decomp::behindHook(runtime, kGetCameraContext); // its native when registered (round 42)
     runtime.registerFunction(kGetCameraContext, getCameraContextHook);
     if (runtime.hasFunction(kGsReg) && runtime.hasFunction(kTexTransRequest) && runtime.hasFunction(kPushLayer) && runtime.hasFunction(kPopLayer))
@@ -14248,3 +14876,10 @@ namespace s12draw
 #endif
 extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[SOTC_VITA_ELF_ROOM] = {1};
 #endif
+
+// Round P4 (p4_move.h; declared in sotc_decomp.h): the hook worker's view of the garbage moves (set per job).
+namespace sotc_decomp
+{
+    thread_local bool t_moveView = false;
+    thread_local uint32_t t_moveViewSerial = 0, t_moveViewCount = 0;
+}
