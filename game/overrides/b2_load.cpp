@@ -12,7 +12,7 @@
 //         else switch (job->type) (13 types, the jump table at 0x1196a10):
 //             segment index load (sheetFileLoadSegmentIndex, with a use count per segment and a loaded bit),
 //             segment unload (manager_sub_0115DF58, manager_sub_0115D968), map load (sheetFileLoadMap), a callback
-//             through the file system's table (0x1b7b60), the stage textures (sheetFileLoadStageTex,
+//             through a table whose address the loader relocated, the stage textures (sheetFileLoadStageTex,
 //             sheetFsSetStageTexSegTexSegDef), manager_sub_0115E268, sheetFsExistTexSegIndexCallBack, the ADPCM
 //             stream (sheetFsLoadAdpcmInt), a direct file (sheetFsLoadDirectFile), the special file system
 //             (sheetFsSetSpecialFs); then *job->status = 0xdeaf
@@ -530,7 +530,7 @@ namespace b2load
                 goto statusDone;
 
             c8d0:
-                // a call through the file system's table: (*(*(0x1b7b60 + 0x1c) + 8))(job->+0x14, job->+0x10)
+                // a call through the file system's table: (*(*(T + 0x1c) + 8))(job->+0x14, job->+0x10), T relocated at load
                 // (0x115e8d0 / 0x115e8d8 carry a relocation: their immediates are read from the code at run time, as the
                 // generated code reads them; the captured image's 0x1b / 0x7b60 are not what the loader wrote)
                 LUI(v1, rd32(rdram, 0x0115E8D0u) & 0xFFFFu);

@@ -242,6 +242,8 @@ unproven (177), relocated calls (63), the 2 973 waiting on an untyped callee.
 
 **Status (2026-11-22, round B1 + B1b, docs/decomp_b1.md)**: the VBlank / sound thread (0x1c80a0, t8) runs as host C++ on a host carrier thread that passes one baton with the EE dispatcher (parks and checkpoints yield in place; tickProcSound / Sg2CtrlTickProc host functions); switch b1sound, off by default. B1b fixed its Vita3K freeze (a lost condition-variable wake in the baton: now a kernel semaphore per side). Exact (82 of 82 windows carrier ticks = VBlanks, audit 0 bad, VBlank count = sound ticks), A/B pooled +0.155 +- 0.037 ms (on faster), audio counters alike muted; still a guest thread record, the VBlank handler's wake and guest callees (B2 / B3). Waits for the user's ears and a console A/B.
 
+**Status (2026-11-22, round B2, docs/decomp_b2.md)**: the carrier is a table; the one loader thread (t11, GAMECORE's sheet manager 0x115e4c0: every load / stream job and disc read) runs as host C++ on a carrier of its own, its CD / stream / delay waits parked in place; switch b2load, off by default. The boot loader t6 (0x1b5a00) is dead after GAMECORE's entry and is not carried (its boot depends on the dispatcher's cycle charges). No box became a host queue: each has an uncarried thread at one end (B3). Exact (audit 0 bad of 888 330, 0 hand-backs, CD reads per sync equal on / off), no hitch added, A/B pooled +0.010 +- 0.038 ms (even). Waits for the console's load times (with b1sound's audio).
+
 **Phase C: the generator over everything (6-8 rounds, by area, by console time first)** — T1 + T2 on BLOCK regions
 and on whatever A4 did not cover, the area's hand naming pass for its main structs:
 

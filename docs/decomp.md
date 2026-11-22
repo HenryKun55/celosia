@@ -23794,3 +23794,33 @@ by default**; check `SOTC_B1SOUND_CHECK=1`; console package `build/agent-scratch
 - **Measured** (Vita3K 222, off - on, 2 SE): ride7 +0.030 +- 0.147 / +0.126 +- 0.130, lake6 +0.310 +- 0.099; pooled
   **+0.155 +- 0.037 ms (1 SE), z 4.2** (on faster), busy +0.179 +- 0.033.
 - **Boot**: 89 MB taken, rode the 600 s (mounted at 3 326), pictures normal. spalign 0.
+
+## Decomp B2: the loader / CD streaming thread on a host thread (b2load, off by default) (2026-11-22)
+
+docs/decomp_b2.md. Scripts, runs and logs: `build/agent-scratch/b2/`. Switch `SOTC_B2LOAD` (A/B `b2load`, `kB2Load`), **off by
+default**; check `SOTC_B2LOAD_CHECK=1`; console package `build/agent-scratch/b2/celosia-b2.vpk` + `env-ab.txt`.
+
+- **Which thread**: a census of the guest threads riding (`[n5t]`) shows one loader, t11 = manager_sub_0115E4C0 (GAMECORE's
+  sheet manager, priority 43): it sleeps until a job is queued and runs every load and stream job (13 types through a
+  jump table: segment index load / unload, the map, the stage textures, the ADPCM stream, direct files ...), all disc
+  reads by sceCdRead + sceCdSync. "t6, 0x1b5a00" is IosCdvdManagerSimulation, the boot loader: it loads the XFF modules,
+  jumps to GAMECORE's entry and returns; dead after the boot. Not carried: before GAMECORE the EE clock is executed cycles
+  and the time slice places the modules, and a carrier skips the dispatcher's re-dispatches after a park.
+- **What**: B1's carrier as a table (`addHostCarry`: entry, take-over pc, body, its own switch flag and counts; B1's t8 is
+  entry 0), t11's job loop as host C++ over the guest registers (b2_load.cpp, instruction for instruction, the generated
+  function's labels as its hand-back points, the relocated immediates read from the code as the generated code does),
+  and the waits that used to leave only by the exception (sceCdSync's read wait, sceCdStRead's VBlank wait, MPEG,
+  DelayThread) park in place on a carrier: the call returns after the dispatcher ran the completion. No message box
+  became a host queue: each of the four live boxes has an uncarried thread at one end (t11 only sends to the idle queue,
+  which t5 receives).
+- **Exact**: ride7 600 s / attract 400 s / lake6 400 s with both carriers and both checks: executor audit 0 bad of 888 330,
+  kept registers 0 bad, 0 hand-backs, 2 048 jobs, 7 826 waits parked in place, B1's ticks = VBlanks and VBlank count =
+  sound ticks as before, watchdog silent, every run to its end. The check caught one bug first (a relocated `lui` /
+  `addiu` pair: the thread died calling address 0). Per-thread work counters on / off: t11's reads per sync 0.99 both
+  ways, lake6's read counts within 1%.
+- **Loads**: no hitch added (longest frames equal within 1 ms; frames over 100 ms: ride7 11 on / 14 off, lake6 9 / 10;
+  the teleport's area load 170.5 / 173.1 ms).
+- **Measured** (Vita3K 222, off - on, 2 SE, b1sound on both halves): ride7 +0.049 +- 0.129 / +0.053 +- 0.129, lake6 -0.073 +-
+  0.141; pooled **+0.010 +- 0.038 ms (1 SE): even**; the A/Bs made 968 take-overs / hand-backs plus 226 hand-backs at an
+  in-place CD wait, no freeze.
+- **Boot**: 89 MB taken, rode the 600 s and the attract demo, pictures normal. spalign 0.
