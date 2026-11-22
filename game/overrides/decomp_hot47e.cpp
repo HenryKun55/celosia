@@ -42,6 +42,7 @@
 #include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 #include "s5_particles.h"
+#include "p2_particles.h" // round P2
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -54,6 +55,11 @@
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
+#include <new>
+#include <chrono>
+#if defined(__vita__)
+#include <psp2/kernel/processmgr.h>
+#endif
 
 #include <cstring>
 #include "a9sweep.h"
@@ -696,6 +702,308 @@ namespace decomp_hot47e
         }
     }
 
+    // ---- Round P2 (p2ptcl, p2_particles.h): the layers pass as one host pass ----------------------------------------
+    // What layers() above does through the guest: five walks (s4 = 4 .. 0) of the geodisp group (isysGroupForFirst /
+    // Next / Exit), each geodisp's emitter list (get_top_emitter_list_from_particle_geodisp, node +0x1B0 next), and for
+    // the emitters whose record's +0x28 is s4, manager_sub_011408E0 (E = node + 0x10, its record's +0x48 the effect set
+    // Mr) into E +0x198, after 0x0118CFF4 (the display budget's count) is cleared. Here: the group walked once (the
+    // entries' filters as forFirst / ptcl83::groupNext have them: link +0xC set or the object's +0xA bit 0 skipped), the
+    // emitters collected with their layer, then 011408E0's rule in the original order (layer 4 .. 0, group order, list
+    // order):
+    //   *0x0118CFF0 == 0 -> 0 (nothing counted); else with R = Mr +0xD4 + 0x1BC x E +0x118 and its shape R +0xC:
+    //   shape 2, 3, or 1 with R +0x18C == 0 -> 1 (not counted); else the count += E +0x124 (the live particles), stored,
+    //   and 0 when *0x0118CFF8 == 1 and the count (signed) is 128 or more, else 1.
+    // Every address is checked (main RAM) before anything is written; any doubt: false, and the caller runs layers().
+    // Not as the original: the iteration counts (object +9) and the isys lock that First / Next / Exit take and give back
+    // (net zero), the scratch registers 011408E0 / forExit leave (v0, v1, a1-a3, t0, t1: the particle task's next call,
+    // disp_particle_manager, writes its own before it reads any), the calls' frames below sp (dead stack).
+    namespace p2layers
+    {
+        constexpr uint32_t kSwitch = 0x0118CFF0u, kCap = 0x0118CFF8u;
+        struct Item
+        {
+            uint32_t E, Mr;
+            int32_t layer;
+            uint32_t value;
+        };
+        std::vector<uint32_t> g_gds;
+        std::vector<Item> g_items;
+        inline bool okA(uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a; }
+        inline uint32_t r32(const uint8_t *rdram, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, rdram + a, 4);
+            return v;
+        }
+        inline uint16_t r16(const uint8_t *rdram, uint32_t a)
+        {
+            uint16_t v;
+            std::memcpy(&v, rdram + a, 2);
+            return v;
+        }
+        inline uint64_t nowUs()
+        {
+#if defined(__vita__)
+            return sceKernelGetProcessTimeWide();
+#else
+            return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+        }
+        // The geodisps isysGroupForFirst / Next hand out for the group (READ32 of each entry, as layers() takes s3).
+        bool groupList(const uint8_t *rdram, std::vector<uint32_t> &out)
+        {
+            out.clear();
+            if (!okA(kGroups, 2u))
+                return false;
+            uint32_t index = r16(rdram, kGroups);
+            for (uint32_t steps = 0;; ++steps)
+            {
+                if (index == 0u)
+                    return true;
+                const uint32_t e = ptcl83::kEntries + index * 24u;
+                if (steps > 0x10000u || !okA(e, 0x18u))
+                    return false;
+                const uint32_t next = r16(rdram, e + 0xEu);
+                if (rdram[e + 0xCu] != 0u)
+                {
+                    index = next;
+                    continue;
+                }
+                const uint32_t object = r32(rdram, e);
+                if (!okA(object, 0x10u))
+                    return false;
+                if ((rdram[object + 0xAu] & 1u) != 0u)
+                {
+                    index = next;
+                    continue;
+                }
+                out.push_back(object);
+                index = next;
+            }
+        }
+        // The whole pass computed (nothing written); false: an address outside main RAM somewhere (layers() runs).
+        bool compute(const uint8_t *rdram, uint32_t &count)
+        {
+            g_items.clear();
+            if (!groupList(rdram, g_gds))
+                return false;
+            for (const uint32_t gd : g_gds)
+            {
+                uint32_t head;
+                if (gd == 0u)
+                    head = 0u;
+                else
+                {
+                    if (!okA(gd, 0x10u))
+                        return false;
+                    head = (rdram[gd + 8u] == 0x24u ? gd + 0x20u : 0u) + 0xE8u;
+                }
+                if (!okA(head, 4u))
+                    return false;
+                uint32_t node = r32(rdram, head);
+                for (uint32_t k = 0; node != 0u; ++k)
+                {
+                    if (k > 4096u || !okA(node, 0x1B4u))
+                        return false;
+                    const uint32_t rec = r32(rdram, node);
+                    if (!okA(rec, 0x4Cu))
+                        return false;
+                    const int32_t layer = static_cast<int32_t>(r32(rdram, rec + 0x28u));
+                    if (layer >= 0 && layer <= 4)
+                        g_items.push_back(Item{node + 0x10u, r32(rdram, rec + 0x48u), layer, 0u});
+                    node = r32(rdram, node + 0x1B0u);
+                }
+            }
+            if (!okA(kSwitch, 12u))
+                return false;
+            const uint32_t sw = r32(rdram, kSwitch), cap = r32(rdram, kCap);
+            count = 0u;
+            for (int32_t s4 = 4; s4 >= 0; --s4)
+                for (Item &it : g_items)
+                {
+                    if (it.layer != s4)
+                        continue;
+                    if (!okA(it.E, 0x19Cu))
+                        return false;
+                    if (sw == 0u)
+                    {
+                        it.value = 0u;
+                        continue;
+                    }
+                    if (!okA(it.Mr, 0xD8u))
+                        return false;
+                    const uint32_t R = r32(rdram, it.Mr + 0xD4u) + r32(rdram, it.E + 0x118u) * 0x1BCu;
+                    if (!okA(R, 0x190u))
+                        return false;
+                    const uint32_t shape = r32(rdram, R + 0xCu);
+                    const bool counted = shape == 2u ? false : shape < 3u ? (shape == 1u ? r32(rdram, R + 0x18Cu) != 0u : true) : shape != 3u;
+                    if (!counted)
+                    {
+                        it.value = 1u;
+                        continue;
+                    }
+                    count += r32(rdram, it.E + 0x124u);
+                    it.value = (cap == 1u && !(static_cast<int32_t>(count) < 128)) ? 0u : 1u;
+                }
+            return true;
+        }
+        void apply(uint8_t *rdram, uint32_t count)
+        {
+            std::memcpy(rdram + kCleared, &count, 4);
+            for (int32_t s4 = 4; s4 >= 0; --s4)
+                for (const Item &it : g_items)
+                    if (it.layer == s4)
+                        std::memcpy(rdram + it.E + 0x198u, &it.value, 4);
+        }
+        // The host pass in place of layers(): true when done.
+        bool run(uint8_t *rdram)
+        {
+            p2ptcl::Stats &st = p2ptcl::stats();
+            const bool timed = p2ptcl::logEvery() > 0;
+            const uint64_t t0 = timed ? nowUs() : 0u;
+            uint32_t count = 0;
+            if (!compute(rdram, count))
+            {
+                ++st.fallbacks;
+                return false;
+            }
+            apply(rdram, count);
+            ++st.passes;
+            st.items += g_items.size();
+            st.gds += g_gds.size();
+            if (timed)
+                st.us += nowUs() - t0;
+            if (p2ptcl::prefetchOn())
+                p2ptcl::noteGeodisps(g_gds);
+            return true;
+        }
+
+        // SOTC_P2PTCL_CHECK: the original first (its writes and registers kept), the state put back, the host pass, both
+        // compared; the run goes on with the original's state. Every SOTC_P2PTCL_RAMCHECK passes all of main RAM too.
+        uint8_t *g_ram0 = nullptr, *g_ram1 = nullptr;
+        bool g_ramTried = false;
+        uint64_t g_checkNo = 0;
+        void checked(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t sp, bool pp, bool p83)
+        {
+            p2ptcl::Stats &st = p2ptcl::stats();
+            uint32_t count = 0;
+            if (!compute(rdram, count))
+            {
+                ++st.checkFallback;
+                layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
+                return;
+            }
+            static const int ramEvery = p2ptcl::envI("SOTC_P2PTCL_RAMCHECK", 120);
+            bool ram = ramEvery > 0 && (g_checkNo++ % static_cast<uint64_t>(ramEvery)) == 0u;
+            if (ram && !g_ram0 && !g_ramTried)
+            {
+                g_ramTried = true;
+                g_ram0 = new (std::nothrow) uint8_t[PS2_RAM_SIZE];
+                g_ram1 = new (std::nothrow) uint8_t[PS2_RAM_SIZE];
+                if (!g_ram0 || !g_ram1)
+                {
+                    delete[] g_ram0;
+                    delete[] g_ram1;
+                    g_ram0 = g_ram1 = nullptr;
+                    std::fprintf(stderr, "[p2ptcl] RAM check: no room for two copies of main RAM; node checks only\n");
+                }
+            }
+            if (ram && !g_ram0)
+                ram = false, ++st.ramSkipped;
+            // The values before (the nodes' E +0x198 and the count), and the context.
+            std::vector<uint32_t> pre(g_items.size());
+            for (size_t i = 0; i < g_items.size(); ++i)
+                pre[i] = r32(rdram, g_items[i].E + 0x198u);
+            const uint32_t preCount = r32(rdram, kCleared);
+            static R5900Context ctx0, ctxO; // (static: no aligned context copy on the stack)
+            ctx0 = *ctx;
+            if (ram)
+                std::memcpy(g_ram0, rdram, PS2_RAM_SIZE);
+            layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
+            ctxO = *ctx;
+            std::vector<uint32_t> post(g_items.size());
+            for (size_t i = 0; i < g_items.size(); ++i)
+                post[i] = r32(rdram, g_items[i].E + 0x198u);
+            const uint32_t postCount = r32(rdram, kCleared);
+            if (ram)
+            {
+                std::memcpy(g_ram1, rdram, PS2_RAM_SIZE);
+                std::memcpy(rdram, g_ram0, PS2_RAM_SIZE);
+            }
+            else
+            {
+                for (size_t i = 0; i < g_items.size(); ++i)
+                    std::memcpy(rdram + g_items[i].E + 0x198u, &pre[i], 4);
+                std::memcpy(rdram + kCleared, &preCount, 4);
+            }
+            // The host pass from the same state.
+            uint32_t count2 = 0;
+            const bool ok = compute(rdram, count2);
+            if (ok)
+                apply(rdram, count2);
+            ++st.checks;
+            if (!ok)
+                ++st.checkFallback;
+            for (size_t i = 0; ok && i < g_items.size(); ++i)
+            {
+                ++st.checkNodes;
+                const uint32_t mine = r32(rdram, g_items[i].E + 0x198u);
+                if (mine != post[i] && st.checkDiffer++ < 20u)
+                    std::fprintf(stderr, "[p2ptcl] check: emitter %08x layer %d: host %u, original %u\n", g_items[i].E, g_items[i].layer, mine, post[i]);
+            }
+            if (ok && r32(rdram, kCleared) != postCount && st.counterDiffer++ < 20u)
+                std::fprintf(stderr, "[p2ptcl] check: budget count host %u, original %u\n", r32(rdram, kCleared), postCount);
+            if (ram)
+            {
+                // All of main RAM: the host pass's against the original's; the dead stack below sp counted apart.
+                const uint32_t deadLo = sp > 0x4000u ? sp - 0x4000u : 0u;
+                uint32_t shown = 0;
+                ++st.ramChecks;
+                for (uint32_t a = 0; a < PS2_RAM_SIZE; a += 4u)
+                {
+                    uint32_t x, y;
+                    std::memcpy(&x, rdram + a, 4);
+                    std::memcpy(&y, g_ram1 + a, 4);
+                    if (x == y)
+                        continue;
+                    if (a >= deadLo && a < sp)
+                    {
+                        ++st.ramDead;
+                        continue;
+                    }
+                    ++st.ramDiffer;
+                    if (shown++ < 8u)
+                        std::fprintf(stderr, "[p2ptcl] RAM check: %08x host %08x original %08x\n", a, x, y);
+                }
+                std::memcpy(rdram, g_ram1, PS2_RAM_SIZE);
+            }
+            else
+            {
+                for (size_t i = 0; i < g_items.size(); ++i)
+                    std::memcpy(rdram + g_items[i].E + 0x198u, &post[i], 4);
+                std::memcpy(rdram + kCleared, &postCount, 4);
+            }
+            // The registers the original leaves that the host pass (which leaves the context as it found it) does not.
+            for (int r = 0; r < 32; ++r)
+                if (std::memcmp(&ctx0.r[r], &ctxO.r[r], sizeof(ctx0.r[r])) != 0)
+                    ++st.regDiffer[r];
+            if (std::memcmp(&ctx0.f[0], &ctxO.f[0], sizeof(float)) != 0)
+                ++st.regDiffer[32];
+            if (ctx0.fcr31 != ctxO.fcr31)
+                ++st.regDiffer[33];
+            if (std::memcmp(ctx0.vu0_vf, ctxO.vu0_vf, sizeof(ctx0.vu0_vf)) != 0)
+                ++st.regDiffer[34];
+            if (std::memcmp(&ctx0.vu0_acc, &ctxO.vu0_acc, sizeof(ctx0.vu0_acc)) != 0)
+                ++st.regDiffer[35];
+            if (std::memcmp(&ctx0.vu0_q, &ctxO.vu0_q, sizeof(ctx0.vu0_q)) != 0)
+                ++st.regDiffer[36];
+            if (std::memcmp(&ctx0.f[1], &ctxO.f[1], sizeof(float) * 31) != 0)
+                ++st.regDiffer[37];
+            if (p2ptcl::prefetchOn())
+                p2ptcl::noteGeodisps(g_gds);
+        }
+    }
+
     // ---- Round 91 (SOTC_PTCL91; A/B ptcl91, r91all): the step loop and the
     // layers on the guest worker (sotc_worker.cpp) ------------------------------
     // The manager (game thread) does the clocks and the view, then walks the
@@ -1057,7 +1365,16 @@ namespace decomp_hot47e
         else
         {
             afterSteps();
-            layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
+            // Round P2 (p2ptcl): the layers pass as one host pass (exact; the original when it cannot vouch for an address).
+            if (p2ptcl::on() && p2ptcl::layersOn())
+            {
+                if (p2ptcl::checkOn())
+                    p2layers::checked(rdram, ctx, runtime, sp, pp, p83);
+                else if (!p2layers::run(rdram))
+                    layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
+            }
+            else
+                layers(rdram, ctx, runtime, sp, pp, p83, nullptr, nullptr);
         }
         s5ptcl::managerEnd(); // round S5: the batch handed to the worker
         SET_GPR_S32(ctx, 20, 0xFFFFFFFFu);
@@ -1095,6 +1412,9 @@ namespace decomp_hot47e
     bool g_early95Kicked = false; // an early hand-over since the display walk last asked (sotc_decomp::early95Kicked)
     void cameraEarly95(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round P2 (p2ptcl): the prefetch helper walks last frame's particle geodisps while the camera runs.
+        if (p2ptcl::on() && p2ptcl::prefetchOn())
+            p2ptcl::prefetchKick(rdram, 0);
         const auto camera = sotc_decomp::recompiled(kCameraManager95);
         if (sotc_worker::skipPending())
         {
