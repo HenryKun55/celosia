@@ -1242,7 +1242,7 @@
   {
     "round": "A3",
     "date": "2026-11-21",
-    "commit": "",
+    "commit": "2c5c51d",
     "focus": "Decomp 100%: typed lifter, loops",
     "summary": "Round A3 let the typed lifter (tools/typed_lift2.py, stage 3) take loops: a typed back edge charges the EE clock the lifted checkpoint's 32 cycles and leaves the test to the first checkpoint after the call (N6's argument for calls, applied to back edges), only while n5sched and NOCHK are in effect; loops whose exit could wait on memory another thread writes are refused. Scratch registers a lifted caller still reads become extra outputs the adapter writes back, which brings in most of what A1 / A2's caller check refused. 335 more functions are real C++ (151 with loops); five whose long loops deferred a due checkpoint too far stay lifted.",
     "result": "Exact: 17.6 M in-run checks on ride7, the attract demo and lake6 (166-184 of 335 functions reached), 0 differences; offline harness 1.0 M random states per mode, 0 differences with finite floats and with the default-NaN mode (5 NaN-sign cases from compiler operand order with Inf / NaN inputs in the host mode). A due checkpoint is deferred in 0.6-1.0% of the calls, by 239-551 EE cycles on average and at most 1 825 (five long-loop functions that deferred up to 173 120 are left lifted). Vita3K A/B (222 MHz, off - on): pooled +0.039 +- 0.070 ms: even. Boot with 89 MB taken mounted and rode, pictures normal; no sp-based NEON accesses. On by default. The count: 1 526 functions (16.9%) in class (d), 3.5% of the MIPS bytes, 5.0% of the console game thread."
