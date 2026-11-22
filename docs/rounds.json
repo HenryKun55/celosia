@@ -1251,7 +1251,7 @@
   {
     "round": "A4",
     "date": "2026-11-22",
-    "commit": "",
+    "commit": "67cced0",
     "focus": "Decomp 100%: typed lifter, VU0 / 128-bit",
     "summary": "Round A4 let the typed lifter (tools/typed_lift2.py, stage 4) take the VU0 / 128-bit functions: an interprocedural VU0 ABI finds which VU0 registers, ACC, Q, status flags and GPR upper halves each function reads on entry and may leave changed, its callees included, and those become reference parameters of the typed function (vec4 / 128-bit locals copied in and back out, so nothing is dropped). The VU0 macro operations are named helpers over the runtime's own PS2 float rules, MMI is plain C, quadword loads and stores are typed. 188 more functions are real C++ (174 of A3's 218 VU0 refusals, and callers to depth 2). It also fixed N3: the 29 targets GAMECORE's hooks hold left the direct-call set, so N3's direct calls are on in game for the first time.",
     "result": "Exact: 7.05 M in-run checks on ride7, the attract demo and lake6 (93-113 of 188 functions reached) with the whole VU0 state compared, 0 differences (A3 rechecked in the same build: 11.6 M, 0); offline harness 564 000 random states per mode, 0 differences in the finite, default-NaN and host modes. Vita3K A/B (222 MHz, off - on): a4typed pooled +0.039 +- 0.073 ms, even; N3's direct calls (now on all game long) pooled -0.049 +- 0.076 ms, even. Boot with 89 MB taken mounted and rode, pictures normal; no sp-based NEON accesses. On by default. The count: 1 709 functions (18.9%) in class (d), 4.1% of the MIPS bytes, 5.75% of the console game thread."
