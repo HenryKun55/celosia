@@ -74,14 +74,24 @@ inline bool a6Holds(bool held)
 }
 #endif
 
+// A slot holds a native the typed callee was proven against. Round DC2 registers its own GetCharacterClass entry
+// (dc2::entryCharacterClass): with dc2chara off it calls decomp_characlass::getCharacterClass, with it on it returns the same
+// value (SOTC_DC2_CHECK, 23 M calls 0 differ), so a slot holding it counts as holding the native.
+namespace dc2 { void entryCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+namespace decomp_characlass { void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+inline bool a6Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
+{
+    return got == known || (known == &::decomp_characlass::getCharacterClass && got == &::dc2::entryCharacterClass);
+}
+
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A6_CHECK
 #define A6_GO() a6GoCount(runtime, PS2_N4_SP())
-#define A6_HOLDS(addr, known) a6Holds(PS2_GUEST_FN(addr) == &known)
+#define A6_HOLDS(addr, known) a6Holds(a6Is(PS2_GUEST_FN(addr), &known))
 #define A6_IN(id) a3InOn(g_a6s, runtime, (id))
 #define A6_OUT() a3Out(runtime)
 #elif defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
 #define A6_GO() (g_a6Typed && PS2_N4_SP() >= runtime->m_noCheckFloor)
-#define A6_HOLDS(addr, known) (PS2_GUEST_FN(addr) == &known)
+#define A6_HOLDS(addr, known) a6Is(PS2_GUEST_FN(addr), &known)
 #define A6_IN(id) ((void)0)
 #define A6_OUT() ((void)0)
 #else
