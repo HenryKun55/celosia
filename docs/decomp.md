@@ -23707,3 +23707,31 @@ default**; console package `build/agent-scratch/p3/celosia-p3.vpk` + `env-ab.txt
 - **Honest size**: ~0 in Vita3K; on the console only if its moves come after the kick (the `[p3par]` / `[p3q]` lines of the
   A/B package say). The ~1 ms console wait needs the hook jobs' guest reads made visible to the moves (one accessor with a
   copy-on-move of the span, or per-job read sets): the next round's size.
+
+## Perf P4: a garbage move waits only for the jobs that read what it moves (p4move, off by default) (2026-11-22)
+
+docs/perf_p4.md. Scripts, runs and logs: `build/agent-scratch/p4/`. Switch `SOTC_P4MOVE` (A/B `p4move`, `kP4Move`), **off by
+default**; check `SOTC_P4MOVE_CHECK=1` in a `-DPS2X_P4_CHECK=1` build; console package `build/agent-scratch/p4/celosia-p4.vpk`
++ `env-ab.txt`.
+
+- **Aim**: remove P3's measured wait (every heap garbage move joining the whole hook-worker queue; console `joins move`
+  0.86 / 1.03 ms a frame riding), exactly.
+- **What p4move does** (P3's design 1, read sets): at a move with jobs queued the game thread walks the queue from the
+  newest job back and asks each whether its guest reads may meet the move's destination or source span; the first that
+  may is the last the move waits for, the newer ones stay queued. Read spans by kind: a model's plan (header, packet list,
+  packets' data, surface records: what the draw itself takes from the plan) and its per-frame pointers (textures, scroll
+  rows, objects, owner, reflective VU records, globals; made with a read log, taken again while those words read the
+  same); textured 2D / cloth / particle textures; the shadow's batch; a model without a plan and the kick pass read
+  everything. Every job now sees the garbage moves (serial, count, its own index of the move ring) as at its hand-over,
+  exactly what it saw before P4.
+- **Moves that still wait**: ride7 / lake6 A/Bs (on windows): 95-97% of the moves that used to join the whole queue go on
+  at once, 1.5-4% wait for part of it, **0** whole joins.
+- **Exact**: SOTC_P4MOVE_CHECK (RAM copied at each move that goes on; every tracked guest read of the jobs it went on past
+  checked against the moved spans and against the copy; RAM after the move compared word for word) on ride7 900 s /
+  attract 400 s / lake6 400 s: 271 moves, 20 254 jobs, 2.26 M reads: **0** in a moved span, **0** bytes different, 271
+  RAM compares **0** different (p1's check build: 335 more moves, 4.7 M reads, 0).
+- **Measured** (Vita3K 222, off - on, 2 SE): ride7 +0.074 +- 0.141 / +0.100 +- 0.159, lake6 +0.067 +- 0.108; pooled
+  **+0.080 +- 0.040 ms (1 SE), z 2.0**; busy +0.108 +- 0.039 (z 2.8); move joins 0.189 -> 0.064 ms a frame.
+- **Boot**: 89 MB taken, rode the 600 s (mounted at 5 279), pictures normal. spalign 0.
+- **Honest size**: small in Vita3K (its worker keeps up); on the console up to most of the ~1 ms wait, minus the walk
+  (0.045 ms a frame riding in Vita3K). Next: a per-walk memo of each texture's answer (half the jobs asked are particles).
