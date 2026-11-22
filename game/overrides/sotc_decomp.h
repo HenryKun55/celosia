@@ -819,7 +819,7 @@ namespace sotc_decomp
                    // (p2_particles.cpp; docs/perf_p2.md; SOTC_P2PTCL_CHECK)
         kA6Typed,  // round A6 (SOTC_A6TYPED=0 off): stage 6's typed functions (typed_a6.h, tools/typed_lift2.py stage 6): never-lifted
                    // functions and MIPS-step hand natives typed from their MIPS, the typed libc / thread-id stubs, break (docs/decomp_a6.md)
-        kDc2Chara, // round DC2 (SOTC_DC2CHARA=0 off): the hottest character-chain functions by console time as real C++ on typed views
+        kDc2Chara, // round DC2 (off unless SOTC_DC2CHARA=1): the hottest character-chain functions by console time as real C++ on typed views
                    // (the cloth step / constraint / velocity / tension and getClothDynamics, the character / animation class getters,
                    // findRecord, GetMotionIntFrame): no R5900 context, no callGuest between them (dc2_chara.cpp; docs/decomp_dc2.md; SOTC_DC2_CHECK)
         kSwitchCount
@@ -891,9 +891,11 @@ namespace sotc_decomp
             // Round P1: p1chara off unless SOTC_P1CHARA=1: exact (SOTC_P1CHARA_CHECK), a memory-traffic change Vita3K does not
             // model: the console's A/B decides (docs/perf_p1.md).
             // Round P2: p2ptcl off unless SOTC_P2PTCL=1 (docs/perf_p2.md): the console's A/B decides.
+            // Round DC2: dc2chara off unless SOTC_DC2CHARA=1: exact (SOTC_DC2_CHECK: 0 differences in 26 M calls compared) but
+            // ~0.1 ms slower in Vita3K's A/B (pooled -0.093 +- 0.030 ms, z -3; docs/decomp_dc2.md): the console's A/B decides.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;

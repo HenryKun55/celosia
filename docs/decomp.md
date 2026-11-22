@@ -23664,3 +23664,18 @@ docs/decomp_a6.md. Scripts, runs and logs: `build/agent-scratch/a6/`. Switch `SO
 - **Next**: the next natives by unlock (GetScriptCharacterClass, the isys group walkers, kernel_sub_001ADBC0 / ADDC0, the
   quaternion natives), the printf-family stubs (iosJumpRecoverPoint, vsprintf, printf, sceWrite: a core over the argument
   registers and sp), GetLayoutClass's lifted callers that read a1 after it; WaitSema / SignalSema with phase B.
+
+## Decomp DC2: the hottest character-chain functions by console time as real C++ (dc2chara, off by default) (2026-11-22)
+
+The full write-up is docs/decomp_dc2.md. The console's prof129 rides rank the chain: of the functions not yet real, DC2
+converts the ones it can do exactly in one round (dc2_chara.cpp, typed views Cloth / ClothRow / ClothGrid /
+ClothRowParams / PinList / PinEntry / Wind / HandleTable, the VU0 / FPU rounding by named helpers, VU0's R as a
+parameter): the cloth step (0.31 console ms), velocity (type 0), constraint (type 0), doubleTensionMove (0.08),
+GetCharacterClass (0.13), GetAnimationClass, findRecord (0.11), GetMotionIntFrame (0.15): ~0.8 ms of console time runs
+as this C++, below the 2 ms aimed at (ExecCharaGeometry, rootBlend, the gaze, charaLinks need their callee trees first).
+getClothDynamics' C++ driver (direct step / constraint / velocity calls) is written, but every call in the routes has a
+guest callback and that path's whole-RAM checks found 2-3 differing compares in ~100-140 (near frame 450, not traced):
+off unless SOTC_DC2_CALLBACK=1. Checks (SOTC_DC2_CHECK, every call against the old native): ride7 / attract / lake6
+12.7 M / 6.4 M / 7.2 M calls, 0 differences. Vita3K A/B: -0.093 +- 0.030 ms pooled (z -3, slower; with the callback
+path on -0.030 +- 0.042, even). Chain: real 10 -> 17 of 407. Off by default; console package celosia-dc2.vpk +
+env-ab.txt.
