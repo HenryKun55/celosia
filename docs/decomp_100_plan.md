@@ -206,6 +206,14 @@ read become extra outputs. 335 more functions, (d) = 1 526 (16.9%), 3.5% of the 
 exact (17.6 M in-run checks, 0 differ), A/B even. The wall now: VU0 / 128-bit (needs a VU0 register analysis across
 calls), n4_abi's unproven, the 3 011 waiting on an untyped callee.
 
+**Status (2026-11-22, round A4, docs/decomp_a4.md)**: VU0 / 128-bit: an interprocedural VU0 ABI (the VU0 registers,
+ACC, Q, status and GPR upper halves each function reads / may write, callees included) becomes reference parameters
+(vec4 / q128 locals, nothing dropped), the VU0 ops named helpers, MMI plain C, quadword accesses typed. 188 more
+functions (174 of A3's 218 VU0 refusals), (d) = 1 709 (18.9%), 4.1% of the bytes, 5.75% of the console game thread;
+exact (7.05 M in-run checks with the whole VU0 state compared, 0 differ; harness 0 in all modes), A/B even. N3's direct
+calls now on in game (29 held targets out of the set), even. The wall now: frame addresses escaping (38), n4_abi's
+unproven (177), relocated calls (63), the 2 973 waiting on an untyped callee.
+
 **Phase A: the tools (4 rounds)**
 
 | round | what | functions | done when |

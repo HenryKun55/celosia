@@ -23545,3 +23545,29 @@ docs/decomp_a3.md. Scripts, runs and logs: `build/agent-scratch/a3/`. Switch `SO
 - **Measured** (p3, off - on): ride7 -0.005 +- 0.137 / +0.085 +- 0.121, lake6 +0.036 +- 0.105; pooled +0.039 +- 0.070: even. 89 MB boot (p3) booted, mounted at frame 5 942 and rode the 600 s, pictures normal; 0 sp-based NEON accesses. **On by default** (`SOTC_A3TYPED=0` off).
 - **Next**: VU0 / 128-bit (needs a VU0 register analysis across calls first: 159 of the 218 pass vf values between
   functions), n4_abi's 169 unproven, direct typed calls from lifted callers.
+
+## Decomp A4: the VU0 / 128-bit functions typed (the VU0 ABI), N3's direct calls on in game, 188 more functions (a4typed) (2026-11-22)
+
+docs/decomp_a4.md. Scripts, runs and logs: `build/agent-scratch/a4/`. Switch `SOTC_A4TYPED` (A/B `a4typed`, `kA4Typed`).
+
+- **The VU0 ABI** (`tools/typed_lift2.py` stage 4, `Emit.vu_scan`): per function, over its CFG with its typed callees'
+  summaries, the VU0 registers, ACC, Q, status and GPR upper halves it reads on entry (vin), may write (vout) and writes
+  on every path (vmust). Every slot in vin | vout is a reference parameter (`a4::vec4 &`, `float &`, `uint16_t &`,
+  `uint64_t &`), copied into a local at entry and back at every exit: nothing dropped, exact by construction.
+- **Typed forms** (typed_a4_rt.h): vec4 / q128 locals; the VU0 macro ops as named helpers over the runtime's own
+  functions (a4v::mul = ps2VuMul, a4v::rsqrt = ps2VuRsqrt with the flags, a4v::dest / bcast lane selects), MMI in plain
+  C (a4m::), quadword loads / stores A4_R128 / A4_W128, 16-byte frame slots (the adapter tests sp's alignment). No
+  ctx, no VU0 emulation state in the typed functions.
+- **188 more functions**: 174 of A3's 218 VU0 / 128-bit refusals plus callers (depth 1-2); 107 take VU0 state as
+  input, 120 carry GPR upper halves. Class (d): **1 709 (18.94%), 4.12% of the bytes, 5.75% of the console game thread**.
+- **Exact**: in-run check (pc, A3 + A4) ride7 / attract / lake6 7.05 M A4 checks, 107 / 93 / 113 of 188 reached, 0
+  differences, with every VU0 register, ACC, Q, status and upper half compared (A3 again: 11.6 M, 0); offline harness
+  564 000 checks per mode, 0 differences in all three modes (finite, default-NaN, host). Deferral at most 1 344 EE cycles.
+- **N3 fixed**: the 29 targets GAMECORE's hooks hold leave the direct set (tools/n3_direct_exclude.txt); the flag
+  stays 1 for the whole game (frames off 0). A/B n3direct: pooled -0.049 +- 0.076 ms: even. n3_direct.py no longer
+  reads addresses from the typed lifters' generated files.
+- **Measured** (p1, a4typed, off - on): ride7 +0.113 +- 0.144 / -0.110 +- 0.137, lake6 +0.113 +- 0.089; pooled
+  +0.039 +- 0.073: even. 89 MB boot (p1) mounted at frame 2 498 and rode the 600 s, pictures normal; 0 sp-based NEON
+  accesses. **On by default** (`SOTC_A4TYPED=0` off).
+- **Next**: the frame's address escaping (38, a vector on the guest stack passed by pointer), n4_abi's 177 unproven,
+  the 63 relocated calls, direct typed calls from lifted callers.
