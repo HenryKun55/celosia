@@ -25,6 +25,9 @@
 #include <execinfo.h>
 #endif
 #include "ThreadNaming.h"
+#if defined(__vita__)
+#include <psp2/kernel/threadmgr.h>
+#endif
 #if defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM)
 #include "runtime/native_renderer.h"
 #endif
@@ -48,6 +51,8 @@ uint32_t g_ps2xN5Spin = 0u;
 // ---- Round B1: host-carried guest threads (ee_scheduler.h, g_ps2xB1Carry; docs/decomp_b1.md) ------------------------
 uint32_t g_ps2xB1Carry = 0u;
 uint32_t g_ps2xB1Check = 0u;
+uint32_t g_ps2xB1BatonUs = 1000u;
+uint32_t g_ps2xB1BatonSema = 1u;
 EeB1Stats g_eeB1;
 
 // One host thread that runs a guest thread's own code (the body the game registered) while it holds the baton. The
@@ -74,19 +79,72 @@ struct EeHostCarrier
     uint8_t *rdram = nullptr;
     R5900Context *ctx = nullptr;
     PS2Runtime *runtime = nullptr;
+    // Round B1b (the watchdog): where the carrier is (0 not started, 1 the body runs, 2 yielded at a checkpoint,
+    // 3 yielded at a park / switch, 4 waiting for a body to start, 5 the body ended) and its hand-overs.
+    std::atomic<int> site{0};
+    std::atomic<uint64_t> passes{0};
+    std::atomic<int> execWaiting{0}, carrierWaiting{0}; // inside the condition variable's wait
+    // Round B1b: the Vita's baton (g_ps2xB1BatonSema): one kernel semaphore per side, signalled by the side that hands
+    // the baton over (a count, not a notify: a hand-over can never be missed). Fixed for the carrier's life.
+    bool sema = false;
+#if defined(__vita__)
+    SceUID semCarrier = -1, semExec = -1;
+#endif
 };
 
 namespace
 {
+    // Round B1b (the watchdog): where the executor's host thread is (0 elsewhere, 1 waiting for the carrier in
+    // resumeCarrier, 2 waiting for it to unwind (hand-back), 3 waitForEvent's idle wait, 4 a generated function).
+    std::atomic<int> g_b1ExecSite{0};
+    std::atomic<uint64_t> g_b1ExecPasses{0};
     constexpr unsigned kCarrierStack = 512u * 1024u;     // the carrier's host stack
     constexpr unsigned kCarrierStackSlack = 96u * 1024u; // left below its host stack floor
     // Hand the baton to the other side (toCarrier: to the carrier) and wait until it comes back.
+    // Round B1b: the wait re-checks the baton every g_ps2xB1BatonUs microseconds (0: an untimed wait, B1's form). A wake
+    // that never arrives (the hand-over's notify lost by the platform's condition variable: Vita3K froze with the
+    // baton already handed back and the other side still asleep in its wait, docs/decomp_b1.md section 7) then costs
+    // one period instead of the game; each such rescue is counted (g_eeB1.rescues).
     void passBaton(EeHostCarrier &c, bool toCarrier)
     {
+        std::atomic<int> &waiting = toCarrier ? c.execWaiting : c.carrierWaiting;
+#if defined(__vita__)
+        if (c.sema)
+        {
+            c.carrierTurn = toCarrier;
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            sceKernelSignalSema(toCarrier ? c.semCarrier : c.semExec, 1);
+            waiting.store(1, std::memory_order_relaxed);
+            sceKernelWaitSema(toCarrier ? c.semExec : c.semCarrier, 1, nullptr);
+            waiting.store(0, std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            return;
+        }
+#endif
         std::unique_lock<std::mutex> lock(c.m);
         c.carrierTurn = toCarrier;
         c.cv.notify_all();
-        c.cv.wait(lock, [&] { return c.carrierTurn != toCarrier; });
+        if (g_ps2xB1BatonUs == 0u)
+        {
+            waiting.store(1, std::memory_order_relaxed);
+            c.cv.wait(lock, [&] { return c.carrierTurn != toCarrier; });
+            waiting.store(0, std::memory_order_relaxed);
+            return;
+        }
+        const auto period = std::chrono::microseconds(g_ps2xB1BatonUs);
+        while (c.carrierTurn == toCarrier)
+        {
+            waiting.store(1, std::memory_order_relaxed);
+            const bool timedOut = c.cv.wait_for(lock, period) == std::cv_status::timeout;
+            waiting.store(0, std::memory_order_relaxed);
+            if (timedOut)
+            {
+                if (c.carrierTurn != toCarrier)
+                    ++(toCarrier ? g_eeB1.rescuesExec : g_eeB1.rescuesCarrier); // handed back, and no wake came
+                else
+                    ++g_eeB1.batonTimeouts; // (the other side simply still runs)
+            }
+        }
     }
     void carrierMain(EeHostCarrier *c)
     {
@@ -106,11 +164,25 @@ namespace
         }
         for (;;)
         {
+            c->site.store(4, std::memory_order_relaxed);
+#if defined(__vita__)
+            if (c->sema)
+            {
+                // (the dispatcher's first hand-over to a new body: haveJob was set before its signal)
+                c->carrierWaiting.store(1, std::memory_order_relaxed);
+                sceKernelWaitSema(c->semCarrier, 1, nullptr);
+                c->carrierWaiting.store(0, std::memory_order_relaxed);
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+                c->haveJob = false;
+            }
+            else
+#endif
             {
                 std::unique_lock<std::mutex> lock(c->m);
                 c->cv.wait(lock, [c] { return c->carrierTurn && c->haveJob; });
                 c->haveJob = false;
             }
+            c->site.store(1, std::memory_order_relaxed);
             bool threw = false;
             try
             {
@@ -120,6 +192,18 @@ namespace
             {
                 threw = true; // a thread switch by the exception (blockCurrent, exitCurrent, invokeCurrent ...): unwound
             }
+            c->site.store(5, std::memory_order_relaxed);
+#if defined(__vita__)
+            if (c->sema)
+            {
+                c->ended = true;
+                c->threw = threw;
+                c->carrierTurn = false;
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+                sceKernelSignalSema(c->semExec, 1);
+                continue;
+            }
+#endif
             std::lock_guard<std::mutex> lock(c->m);
             c->ended = true;
             c->threw = threw;
@@ -148,6 +232,14 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
     if (!c)
     {
         c = new EeHostCarrier;
+#if defined(__vita__)
+        if (g_ps2xB1BatonSema != 0u)
+        {
+            c->semCarrier = sceKernelCreateSema("B1BatonCarrier", 0, 0, 1, nullptr);
+            c->semExec = sceKernelCreateSema("B1BatonExec", 0, 0, 1, nullptr);
+            c->sema = c->semCarrier >= 0 && c->semExec >= 0;
+        }
+#endif
 #if defined(PLATFORM_VITA)
         extern unsigned int _pthread_stack_default_user;
         const unsigned int stackDefault = _pthread_stack_default_user;
@@ -193,13 +285,17 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
         m_runtime.m_noCheckFloor = c.floor;
     m_activeCarrier = &c;
     ++g_eeB1.resumes;
+    g_b1ExecSite.store(1, std::memory_order_relaxed);
+    g_b1ExecPasses.fetch_add(1, std::memory_order_relaxed);
     passBaton(c, true);
     if (!c.ended && (g_ps2xB1Carry == 0u || m_stopRequested.load(std::memory_order_relaxed)))
     {
         c.unwind = true;
         ++(m_stopRequested.load(std::memory_order_relaxed) ? g_eeB1.handBackStop : g_eeB1.handBackSwitch);
+        g_b1ExecSite.store(2, std::memory_order_relaxed);
         passBaton(c, true);
     }
+    g_b1ExecSite.store(0, std::memory_order_relaxed);
     m_activeCarrier = nullptr;
     c.throwDepth = m_xferThrowDepth;
     c.jumpSerial = m_runtime.m_guestJumpSerial;
@@ -228,8 +324,99 @@ bool EeScheduler::carrierYield(int why)
 {
     EeHostCarrier &c = *m_activeCarrier;
     ++(why == 0 ? g_eeB1.yieldCheckpoint : g_eeB1.yieldLeave);
+    c.site.store(why == 0 ? 2 : 3, std::memory_order_relaxed);
+    c.passes.fetch_add(1, std::memory_order_relaxed);
     passBaton(c, false);
+    c.site.store(1, std::memory_order_relaxed);
     return c.unwind;
+}
+
+// Round B1b: the watchdog (debug; SOTC_B1_WATCHDOG=<seconds>, b1_sound.cpp). Its reads of the scheduler's state are
+// racy by design: it looks only once nothing has moved for seconds.
+void EeScheduler::startB1Watchdog(unsigned seconds)
+{
+    if (seconds == 0u)
+        return;
+    std::thread([this, seconds] {
+        ThreadNaming::SetCurrentThreadName("B1Watchdog");
+        uint64_t lastFrame = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+        auto lastMove = std::chrono::steady_clock::now();
+        int dumps = 0;
+        for (;;)
+        {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (m_stopRequested.load(std::memory_order_relaxed))
+                return;
+            const uint64_t f = ps2_stats::vif1Chains.load(std::memory_order_relaxed);
+            const auto now = std::chrono::steady_clock::now();
+            if (f != lastFrame)
+            {
+                lastFrame = f;
+                lastMove = now;
+                dumps = 0;
+                continue;
+            }
+            if (dumps < 6 && now - lastMove >= std::chrono::seconds(seconds) * (dumps + 1))
+                b1WatchdogDump(dumps++);
+        }
+    }).detach();
+}
+
+void EeScheduler::b1WatchdogDump(int n)
+{
+    static const char *const execSites[] = {"elsewhere", "waits for the carrier", "waits for the carrier's unwind", "idle wait", "generated code"};
+    static const char *const carrierSites[] = {"not started", "runs the body", "yielded (checkpoint)", "yielded (park / switch)", "waits for a body", "ended"};
+    const int es = g_b1ExecSite.load(std::memory_order_relaxed);
+    std::fprintf(stderr, "[b1dog] %d: no frame for a while (frame %llu, ee cycle %llu, next deadline %llu) | executor: %s, passes %llu, "
+                 "guest executing %d, current thread %d, reschedule %d, checkpoint pending %d, s17 depth %d, inside interrupt %d | b1 carry %u, "
+                 "claims %llu resumes %llu yields cp %llu park %llu, active carrier %p spare %p\n",
+                 n, (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)eeNow(),
+                 (unsigned long long)m_nextDeadlineCycle.load(std::memory_order_relaxed), es >= 0 && es < 5 ? execSites[es] : "?",
+                 (unsigned long long)g_b1ExecPasses.load(std::memory_order_relaxed), m_guestExecuting.load(std::memory_order_relaxed) ? 1 : 0,
+                 m_currentThreadId, m_rescheduleRequested ? 1 : 0, m_checkpointPending.load(std::memory_order_relaxed) ? 1 : 0, m_s17Depth,
+                 m_insideInterrupt ? 1 : 0, g_ps2xB1Carry, (unsigned long long)g_eeB1.claims, (unsigned long long)g_eeB1.resumes,
+                 (unsigned long long)g_eeB1.yieldCheckpoint, (unsigned long long)g_eeB1.yieldLeave, (void *)m_activeCarrier, (void *)m_spareCarrier);
+    for (const auto &[id, t] : m_threads)
+    {
+        if (id < 0 && t.status == EeThreadStatus::Dormant && t.invocations.empty())
+            continue;
+        const R5900Context &own = t.context;
+        const R5900Context *act = t.invocations.empty() ? &own : &t.invocations.back().context;
+        std::fprintf(stderr, "[b1dog] %d:   t%d entry %x prio %d status %d wait %d wakeups %u suspend %u invocations %u pc %x ra %x (own pc %x ra %x sp %x) carrier %p",
+                     n, id, t.entry, t.currentPriority, static_cast<int>(t.status), static_cast<int>(t.wait.reason), static_cast<unsigned>(t.wakeupCount),
+                     static_cast<unsigned>(t.suspendCount), static_cast<unsigned>(t.invocations.size()), act->pc, getRegU32(act, 31), own.pc,
+                     getRegU32(&own, 31), getRegU32(&own, 29), (void *)t.carrier);
+        if (const EeHostCarrier *c = t.carrier)
+        {
+            const int cs = c->site.load(std::memory_order_relaxed);
+            std::fprintf(stderr, " [carrier: %s, turn %s, ended %d unwind %d have job %d, passes %llu, ctx pc %x ra %x, in the cv wait: executor %d carrier %d; "
+                         "rescues executor %llu carrier %llu, timeouts %llu, baton period %u us, sema %d]", cs >= 0 && cs < 6 ? carrierSites[cs] : "?",
+                         c->carrierTurn ? "carrier" : "dispatcher", c->ended ? 1 : 0, c->unwind ? 1 : 0, c->haveJob ? 1 : 0,
+                         (unsigned long long)c->passes.load(std::memory_order_relaxed), c->ctx ? c->ctx->pc : 0u, c->ctx ? getRegU32(c->ctx, 31) : 0u,
+                         c->execWaiting.load(std::memory_order_relaxed), c->carrierWaiting.load(std::memory_order_relaxed),
+                         (unsigned long long)g_eeB1.rescuesExec, (unsigned long long)g_eeB1.rescuesCarrier, (unsigned long long)g_eeB1.batonTimeouts,
+                         g_ps2xB1BatonUs, c->sema ? 1 : 0);
+        }
+        std::fprintf(stderr, "\n");
+    }
+    {
+        std::lock_guard lock(m_eventMutex);
+        std::fprintf(stderr, "[b1dog] %d: events %u:", n, static_cast<unsigned>(m_events.size()));
+        for (size_t i = 0; i < m_events.size() && i < 8; ++i)
+            std::fprintf(stderr, " (type %d id %x)", static_cast<int>(m_events[i].type), m_events[i].id);
+        std::fprintf(stderr, " | deadlines %u:", static_cast<unsigned>(m_deadlines.size()));
+        for (size_t i = 0; i < m_deadlines.size() && i < 8; ++i)
+            std::fprintf(stderr, " (type %d id %x at %lld cycles)", static_cast<int>(m_deadlines[i].event.type), m_deadlines[i].event.id,
+                         (long long)(m_deadlines[i].deadlineCycle - eeNow()));
+        std::fprintf(stderr, " | pending invocations %u", static_cast<unsigned>(m_pendingInvocations.size()));
+        if (!m_pendingInvocations.empty())
+            std::fprintf(stderr, " (first pc %x)", m_pendingInvocations.front().context.pc);
+        std::fprintf(stderr, " | ready:");
+        for (int p = 0; p < kPriorityCount; ++p)
+            for (int id : m_readyQueues[p])
+                std::fprintf(stderr, " t%d@%d", id, p);
+        std::fprintf(stderr, "\n");
+    }
 }
 namespace n5stat
 {
@@ -436,10 +623,14 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
 #define B1_INVOKE()                                  \
     do                                               \
     {                                                \
-        if (carried)                                 \
-            resumeCarrier(*running);                 \
-        else                                         \
-            function(m_rdram, &context, &m_runtime); \
+        if (carried)                                          \
+            resumeCarrier(*running);                          \
+        else                                                  \
+        {                                                     \
+            g_b1ExecSite.store(4, std::memory_order_relaxed); \
+            function(m_rdram, &context, &m_runtime);          \
+            g_b1ExecSite.store(0, std::memory_order_relaxed); \
+        }                                                     \
     } while (0)
 
 void EeScheduler::run()
@@ -3000,6 +3191,7 @@ void EeScheduler::writeGuestU32(uint32_t address, uint32_t value)
 void EeScheduler::waitForEvent()
 {
     m_profileContext.store(nullptr, std::memory_order_relaxed);
+    g_b1ExecSite.store(3, std::memory_order_relaxed); // round B1b's watchdog (left at 3 until the next dispatch)
     std::unique_lock lock(m_eventMutex);
     if (!m_events.empty() || m_stopRequested.load(std::memory_order_acquire))
     {

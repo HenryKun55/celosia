@@ -331,6 +331,23 @@ namespace b1sound
         runtime.registerFunction(kCtrlTick, ctrlTickHost);
         runtime.eeScheduler().setHostCarry(kThreadEntry, kWakePc, body);
         g_rt = &runtime;
+        // Round B1b: the baton (docs/decomp_b1.md section 7). SOTC_B1_BATON=sema (default; the Vita: a kernel semaphore per
+        // side) or cv (B1's mutex + condition variable, its wait re-checked every SOTC_B1_BATON_US us, default 1000; 0:
+        // untimed, B1's exact form, which froze in Vita3K).
+        {
+            const char *b = std::getenv("SOTC_B1_BATON");
+            g_ps2xB1BatonSema = (b && std::strcmp(b, "cv") == 0) ? 0u : 1u;
+            const char *us = std::getenv("SOTC_B1_BATON_US");
+            g_ps2xB1BatonUs = us ? static_cast<uint32_t>(std::max(0, std::atoi(us))) : 1000u;
+        }
+        // Round B1b: SOTC_B1_WATCHDOG=<seconds> (default 10 with SOTC_B1SOUND_CHECK): [b1dog] lines once no frame has
+        // advanced for that long (the baton, both sides' sites, every guest thread's record, the pending events).
+        {
+            const char *w = ps2_diag::env("SOTC_B1_WATCHDOG");
+            const int seconds = w ? std::atoi(w) : (g_check ? 10 : 0);
+            if (seconds > 0)
+                runtime.eeScheduler().startB1Watchdog(static_cast<unsigned>(seconds));
+        }
         if (g_check || g_log)
             std::fprintf(stderr, "[b1sound] installed: check %d hostfn %d log %u\n", g_check ? 1 : 0, g_hostFn ? 1 : 0, g_log);
     }
@@ -354,14 +371,15 @@ namespace b1sound
         std::fprintf(stderr,
                      "[b1sound] frame %llu: on %u | a frame: carrier ticks %.2f all ticks %.2f vblanks %.2f | claims %llu resumes %.2f yields cp %.2f "
                      "park %.2f | hand-backs switch %llu unwind %llu throw %llu stop %llu | host tick %llu ctrl %llu orig tick %llu ctrl %llu | "
-                     "check %d: audit %llu bad of %llu, regs bad %llu, carrier %.1f us a frame | game: vblank count %u sound ticks %u ctrl ticks %u\n",
+                     "check %d: audit %llu bad of %llu, regs bad %llu, carrier %.1f us a frame | baton %s: rescues %llu / %llu timeouts %llu | game: vblank count %u sound ticks %u ctrl ticks %u\n",
                      (unsigned long long)frame, g_ps2xB1Carry, (s.ticks - q.ticks) / f, ticksAll / f, (vsync - g_lastVsync) / f,
                      (unsigned long long)b.claims, (b.resumes - p.resumes) / f, (b.yieldCheckpoint - p.yieldCheckpoint) / f,
                      (b.yieldLeave - p.yieldLeave) / f, (unsigned long long)b.handBackSwitch, (unsigned long long)b.handBackUnwind,
                      (unsigned long long)b.handBackThrow, (unsigned long long)b.handBackStop, (unsigned long long)s.tickHost,
                      (unsigned long long)s.ctrlHost, (unsigned long long)s.tickOrig, (unsigned long long)s.ctrlOrig, g_check ? 1 : 0,
                      (unsigned long long)b.auditBad, (unsigned long long)b.auditChecks, (unsigned long long)s.regsBad, (b.carrierUs - p.carrierUs) / f,
-                     vbCount, sndTicks, ctrlTicks);
+                     g_ps2xB1BatonSema ? "sema" : "cv", (unsigned long long)b.rescuesExec, (unsigned long long)b.rescuesCarrier,
+                     (unsigned long long)b.batonTimeouts, vbCount, sndTicks, ctrlTicks);
         g_lastB1 = b;
         g_last = s;
         g_lastVsync = vsync;

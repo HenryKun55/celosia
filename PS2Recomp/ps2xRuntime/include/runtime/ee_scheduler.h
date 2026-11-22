@@ -301,10 +301,15 @@ extern uint32_t g_ps2xS17Parts, g_ps2xS17Check, g_ps2xS17Log;
 // the generated code would have, so that is exact).
 extern uint32_t g_ps2xB1Carry;  // 0: no new take-overs; a carried thread is handed back at its next yield
 extern uint32_t g_ps2xB1Check;  // check mode: the executor audit (guest code on the wrong host thread) and the counts
+extern uint32_t g_ps2xB1BatonUs; // round B1b: the baton wait's re-check period (us; 0: untimed, B1's form; SOTC_B1_BATON_US)
+extern uint32_t g_ps2xB1BatonSema; // round B1b: the Vita's baton is a kernel semaphore per side (default; SOTC_B1_BATON=cv: the cv)
 struct EeB1Stats
 {
     uint64_t claims = 0, resumes = 0, yieldCheckpoint = 0, yieldLeave = 0, handBackSwitch = 0, handBackUnwind = 0,
              handBackThrow = 0, handBackStop = 0, auditBad = 0, auditChecks = 0, handoffUs = 0, carrierUs = 0;
+    // Round B1b: baton waits that ended by the re-check with the baton already back (a lost wake), by side; re-checks that
+    // found the other side still running.
+    uint64_t rescuesExec = 0, rescuesCarrier = 0, batonTimeouts = 0;
 };
 extern EeB1Stats g_eeB1;
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
@@ -550,6 +555,10 @@ public:
     // On the carrier thread while it holds the baton (B1 code asks: a guest call that came back false there has
     // unwound, and the thread goes on as generated code).
     [[nodiscard]] bool onCarrier() const noexcept { return m_activeCarrier != nullptr; }
+    // Round B1b (debug): a host thread that, once no game frame (ps2_stats::vif1Chains) has advanced for `seconds`,
+    // prints the baton's state, each side's site, every guest thread's kernel record and the pending interrupts /
+    // events / deadlines ([b1dog] lines; again every `seconds` while frozen, at most 6 times a freeze).
+    void startB1Watchdog(unsigned seconds);
 
     // Direct syscall tests use the same main-thread record without starting a
     // second executor. Production execution calls reset() before run().
@@ -586,6 +595,7 @@ private:
     bool carrierYield(int why);
     bool checkpointSlowInner() noexcept;
     void b1Audit(int site) const noexcept;
+    void b1WatchdogDump(int n);
     EeHostCarrier *m_activeCarrier = nullptr;
     EeHostCarrier *m_spareCarrier = nullptr; // the host thread of a carrier that ended, kept for the next take-over
     uint32_t m_carryEntry = 0, m_carryPc = 0;

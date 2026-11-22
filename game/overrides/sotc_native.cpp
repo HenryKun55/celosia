@@ -14938,7 +14938,7 @@ namespace s12draw
 #if SOTC_RELEASE // round 130: the release build's smaller text needs more ("segment 1 overlaps" at 64 KB)
 #define SOTC_VITA_ELF_ROOM 98304
 #else
-#define SOTC_VITA_ELF_ROOM 98304
+#define SOTC_VITA_ELF_ROOM 106496 // round B1b: 104 KB ("segment 1 overlaps" at 96 KB with the baton's semaphores)
 #endif
 #endif
 extern "C" __attribute__((used)) const unsigned char sotc_vita_elf_room[SOTC_VITA_ELF_ROOM] = {1};
