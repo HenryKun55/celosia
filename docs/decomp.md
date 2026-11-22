@@ -23824,3 +23824,30 @@ default**; check `SOTC_B2LOAD_CHECK=1`; console package `build/agent-scratch/b2/
   0.141; pooled **+0.010 +- 0.038 ms (1 SE): even**; the A/Bs made 968 take-overs / hand-backs plus 226 hand-backs at an
   in-place CD wait, no freeze.
 - **Boot**: 89 MB taken, rode the 600 s and the attract demo, pictures normal. spalign 0.
+
+## Decomp A8: A7's harness class explained, the varargs spills, six more natives, a flow-sensitive spin rule (a8typed) (2026-11-22)
+
+docs/decomp_a8.md. Scripts, runs and logs: `build/agent-scratch/a8/`. Switch `SOTC_A8TYPED` (A/B `a8typed`, `kA8Typed`);
+`SOTC_A8AD=0` leaves stage 8's never-lifted adapters out of the table.
+
+- **GetMotionNS_RootShiftInfo** (A7's 3 HI0 harness differences): stale stack, not a float rule. Its second call of
+  manager_sub_010B53F8 reads that callee's local key vector, which the callee leaves unwritten when the channel has no key data;
+  the reference finds the `sd ra` of the 010B5738 frame before it there, the typed function (no register saves in guest frames)
+  the first call's local. Only a null key pointer reaches it (the PS2 would interpolate its own stale ra into the root shift);
+  left lifted (docs/a3_skip.txt) so the build is bit-exact against the lifted text. A7's constructor_game_camera_param_manager
+  check: a drawn object over its callee's relocated jal word (the reference re-reads code words), impossible in the game.
+- **Stage 8** (tools/typed_lift2.py, `Emit(a8=True)`, Stage7 again with variants `_x8`): S1 the varargs functions' spills store
+  the argument registers' entry values (LoaderSysPrintf, iosSPrintf, ps2___make_dp, kernel_sub_001AF8E0); S2 six more MIPS-step
+  natives (docs/a8_natives.txt: skinfinder corners, GetGeoDispClass, get_cur_camera_context, get_top_emitter_list,
+  CopyMultiMatrix, UpdateLayoutClassPastSimpleGeometry; A8_NCHK); S3 spin_filter's taint flow-sensitive (manager_sub_01114C70's
+  loops exit on `++s5 < 3`, the old rule saw a wait). Harness-found fixes: a typed callee's float parameters are its typed
+  callers' inputs (f20 of the natives' kept FPR saves); gamecore_sub_013828A8 (A6's upper-half class inside a VU0 interface) and
+  gamecore_sub_013B7AE8 (one ulp at huge magnitudes, not explained) left lifted.
+- **77 more functions** (43 lifted, 26 never lifted, 9 natives; 11 variants not counted). Per step 12 / 40 / 77; waiting 4 077 ->
+  4 004. isysGroupForExit (WaitSema / SignalSema), the quat122 / geo126 natives (cores possible) and the semaphores still hold
+  most. (d) = **3 818 (42.3%)**, 14.4% of the bytes, 9.3% of the console game thread.
+- **Exact**: in-run 0.99 M A8 checks + 0.72 M A8 native checks + 4.89 M A7 + 7.87 M A6 + 2.26 M A5 + 2.15 M A4 + 4.36 M A3 (ride7 /
+  attract / lake6), 0 differences. Offline harness 1.32 M A8 checks: HI0 0; random upper halves one CopyMultiMatrix check (a drawn
+  destination over its own jal word); a new counter gives up checks whose typed leg read a stack byte only the reference stored
+  (the reference's own saves through a computed frame address: about 1% of random states, 0 in the game runs that differed).
+- **Measured**: A/B pooled -0.001 +- 0.080 ms (alone; +0.040 +- 0.069 under load): neutral; 89 MB boot rode, pictures normal (the Mac slept during it); spalign 0. **On by default**.
