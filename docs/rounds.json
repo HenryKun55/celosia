@@ -1304,7 +1304,7 @@
   {
    "round": "P3",
    "date": "2026-11-22",
-   "commit": "",
+   "commit": "fc66845",
    "focus": "Work beside the game thread within the frame (console 30 fps)",
    "summary": "Round P3 (switch p3par, off by default): looked for game-thread work that can run exactly on cores 1-2 within the frame. None fits: what is left on the game thread is guest-context code whose results the next guest call reads; the host-only pieces are already on workers. The one parallelism loss left is a wait: the game thread joining the hook worker at the heap's garbage moves (0.9-1.0 ms a frame on the console riding). p3par lets a move go on beside round 34's deferred kick pass (which reads no guest memory) instead of waiting for it; the census then showed that the moves that wait come before the kick, with the frame's whole display queued, so the switch never acts in Vita3K.",
    "result": "Exact: SOTC_P3PAR_CHECK on ride7 / attract / lake6 ran 17 339 / 14 985 / 10 855 kick passes again alone on their inputs: 0 differences, 0 guest reads. Census: 1 013 / 451 / 86 moves waited, a kick pass last in none; 4-11% of them move a span holding a queued model job's roots. Vita3K A/B (222 MHz, off - on, 2 SE): ride7 -0.032 +- 0.148, +0.043 +- 0.151, lake6 +0.031 +- 0.135; pooled +0.014 +- 0.042 ms (A/A). 89 MB boot rode, pictures normal; 0 sp-based NEON accesses. Under 0.5 ms; console A/B package celosia-p3.vpk + env-ab.txt (its [p3par] / [p3q] lines tell whether the console's moves differ). The ~1 ms needs the hook jobs' reads visible to the moves."
