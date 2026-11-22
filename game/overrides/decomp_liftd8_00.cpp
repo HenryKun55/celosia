@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -20881,6 +20882,7 @@ void set_npe_blend_ratio_particle_emitter(uint8_t *rdram, R5900Context *ctx, PS2
 void get_particle_effect_id_by_name(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x113F8F8u, 0)) { get_particle_effect_id_by_name_0x113f8f8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x128E6Cu, ::decomp_leaves::strCmp) && A5_JAL(0x113F990u, 0x128E6Cu), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(get_particle_effect_id_by_name, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; A6_IN(851); const uint64_t a2_r = typed::get_particle_effect_id_by_name(rdram, runtime, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t v1 = Ps2GprU32(ctx, 3), s0 = Ps2GprU32(ctx, 16), s4 = Ps2GprU32(ctx, 20), s6 = Ps2GprU32(ctx, 22), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s5 = Ps2GprU64(ctx, 21);
     bool df_v1 = false, df_s0 = false, df_s4 = false, df_s6 = false, df_sp = false;
@@ -27609,6 +27611,7 @@ L_1146380:
 void get_wind_effect_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11463B0u, 0)) { get_wind_effect_data_0x11463b0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x128E6Cu, ::decomp_leaves::strCmp) && A5_JAL(0x1146480u, 0x128E6Cu), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(get_wind_effect_data, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; A6_IN(853); const uint64_t a2_r = typed::get_wind_effect_data(rdram, runtime, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), s0 = Ps2GprU32(ctx, 16), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20);
     bool df_v1 = false, df_a2 = false, df_s0 = false, df_sp = false;

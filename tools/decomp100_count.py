@@ -110,7 +110,7 @@ def typed_functions():
     out, bad = {}, 0
     for lst, inc, tool in (('docs/a1_typed.txt', 'typed_a1.inc', 'typed_lift.py'), ('docs/a2_typed.txt', 'typed_a2.inc', 'typed_lift2.py'),
                            ('docs/a3_typed.txt', 'typed_a3.inc', 'typed_lift2.py'), ('docs/a4_typed.txt', 'typed_a4.inc', 'typed_lift2.py'),
-                           ('docs/a5_typed.txt', 'typed_a5.inc', 'typed_lift2.py')):
+                           ('docs/a5_typed.txt', 'typed_a5.inc', 'typed_lift2.py'), ('docs/a6_typed.txt', 'typed_a6.inc', 'typed_lift2.py')):
         lst = os.path.join(ROOT, lst)
         inc = os.path.join(OVR, inc)
         if not (os.path.exists(lst) and os.path.exists(inc)):
@@ -131,6 +131,15 @@ def typed_functions():
                 continue
             out[a] = name
     return out, bad
+
+
+def a6_adapted():
+    """Round A6: the never-lifted functions stage 6 typed whose slot its adapter takes (docs/a6_typed.txt's slot holder ::a6ad::):
+    the table runs the typed function (the recompiled one only as the adapter's fallback), as a lifted function's adapter does."""
+    p = os.path.join(ROOT, 'docs/a6_typed.txt')
+    if not os.path.exists(p):
+        return set()
+    return {int(l.split()[0], 16) for l in open(p) if not l.startswith('#') and '::a6ad::' in l}
 
 
 def lifted_addresses():
@@ -279,6 +288,7 @@ def main():
     stubs = stub_functions()
     lifted = lifted_addresses()
     typed, typed_bad = typed_functions()
+    adapted6 = a6_adapted()
     nreg = native_registrations()
     if args.replaced:
         replaced = {int(l.split()[0], 16) for l in open(args.replaced) if l.strip()}
@@ -307,6 +317,8 @@ def main():
             # held by a table-driven wrapper (join gate, census / heap hook) in front of the generated body
             cls[a] = 'recomp'
             wrapped.append(a)
+        elif a in adapted6 and a in typed:
+            cls[a] = 'typed'  # round A6: a never-lifted function whose slot holds its adapter over the typed function
         else:
             cls[a] = 'recomp'
     unresolved = [a for a in why if not why[a]['found']]
@@ -314,7 +326,7 @@ def main():
     order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
              'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
-             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5)'}
+             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -323,7 +335,7 @@ def main():
     print('native registrars whose body could not be read statically (counted c1): %d %s' % (
         len(unresolved), ' '.join('%s:%s' % (why[a]['file'], why[a]['fn']) for a in unresolved[:12])))
     print('slots held by a wrapper in front of the generated body (counted recomp, or lifted when lift tables hold it): %d' % len(wrapped))
-    print('typed functions (docs/a1_typed.txt ... docs/a5_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
+    print('typed functions (docs/a1_typed.txt ... docs/a6_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
         len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
     print()
     print('%-46s %6s %7s %10s %7s' % ('class', 'funcs', '%', 'bytes', '%'))

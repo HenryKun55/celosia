@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5287,6 +5288,7 @@ void SetCharacterClassRootQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runti
 void ChangeCharacterObjControlledTarget(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10CBBE0u, 0)) { ChangeCharacterObjControlledTarget_0x10cbbe0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A6_HOLDS(0x11327B0u, lift_d1::CopyGeometryPointer), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(ChangeCharacterObjControlledTarget, a2_2, a2_4, a2_5, a2_6, a2_7, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; A6_IN(832); const uint64_t a2_r = typed::ChangeCharacterObjControlledTarget(rdram, runtime, a2_2, a2_4, a2_5, a2_6, a2_7, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h5, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20);
     sp = sp - 0x30u;
@@ -9516,6 +9518,7 @@ void GetBossPartsDamagePerParts(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void SCRSetCharaRootTurnScaleRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x137CB08u, 0)) { SCRSetCharaRootTurnScaleRatio_0x137cb08(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x137CB14u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; const float a2_f20 = ctx->f[20]; A6_CHK(SCRSetCharaRootTurnScaleRatio, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[20])}; A6_IN(917); const uint64_t a2_r = typed::SCRSetCharaRootTurnScaleRatio(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a4_h2, a4_h5, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[20] = a1_flt((uint32_t)a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f12 = ctx->f[12], f20 = ctx->f[20];
@@ -18942,6 +18945,7 @@ void SCRConditionPlayerRidingHorse(uint8_t *rdram, R5900Context *ctx, PS2Runtime
 void SCRConditionMyselfAddMotionCheck(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1457368u, 0)) { SCRConditionMyselfAddMotionCheck_0x1457368(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x14573A4u, 0x10C0A70u) && A5_JAL(0x1457420u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(SCRConditionMyselfAddMotionCheck, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); A6_IN(1015); const uint64_t a2_r = typed::SCRConditionMyselfAddMotionCheck(rdram, runtime, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h5); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), s0 = Ps2GprU32(ctx, 16), s3 = Ps2GprU32(ctx, 19), s5 = Ps2GprU32(ctx, 21), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s4 = Ps2GprU64(ctx, 20), s6 = Ps2GprU64(ctx, 22);
     uint64_t hi = ctx->hi;

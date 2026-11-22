@@ -1799,8 +1799,9 @@ def native_addresses(funcs):
             if '/pgo' in dp:
                 continue
             for f in fn:
-                # A1's generated typed functions / check name their addresses in comments and tables: not slots
-                if f in skip or f.startswith(('decomp_liftd', 'typed_a1', 'a1_typed')) or not f.endswith(('.cpp', '.h', '.inc', '.toml', '.txt', '.hpp', '.c')):
+                # A1's generated typed functions / check name their addresses in comments and tables: not slots; A6's adapters
+                # (typed_a6_adapters.cpp) hold never-lifted functions' slots with the generated function as their fallback
+                if f in skip or f.startswith(('decomp_liftd', 'typed_a1', 'a1_typed', 'typed_a6_adapters')) or not f.endswith(('.cpp', '.h', '.inc', '.toml', '.txt', '.hpp', '.c')):
                     continue
                 try:
                     s = open(os.path.join(dp, f), errors='replace').read()

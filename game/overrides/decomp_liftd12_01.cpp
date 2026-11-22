@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -12484,6 +12485,7 @@ void getPassageNum(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void setAttainmentPosAndLock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14321D8u, 0)) { setAttainmentPosAndLock_0x14321d8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x128188u, ::memcmp_0x128188) && A6_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink) && A5_JAL(0x14321FCu, 0x128188u) && A5_JAL(0x1432234u, 0x1147AB0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(setAttainmentPosAndLock, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; A6_IN(999); const uint64_t a2_r = typed::setAttainmentPosAndLock(rdram, runtime, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t at = Ps2GprU32(ctx, 1), a2 = Ps2GprU32(ctx, 6), s1 = Ps2GprU32(ctx, 17), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s2 = Ps2GprU64(ctx, 18);
     float f0 = ctx->f[0];
@@ -12555,6 +12557,7 @@ void setAttainmentPosAndLock(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 void setAttainmentPosAndDirPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1432268u, 0)) { setAttainmentPosAndDirPos_0x1432268(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x128188u, ::memcmp_0x128188) && A6_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink) && A5_JAL(0x1432294u, 0x128188u) && A5_JAL(0x14322CCu, 0x1147AB0u) && A5_SP16(), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(setAttainmentPosAndDirPos, a2_2, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 6)}; A6_IN(1000); const a1::RetVF a2_r = typed::setAttainmentPosAndDirPos(rdram, runtime, a2_2, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t at = Ps2GprU32(ctx, 1), v1 = Ps2GprU32(ctx, 3), s2 = Ps2GprU32(ctx, 18), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s3 = Ps2GprU64(ctx, 19);
     float f0 = ctx->f[0];
@@ -19339,6 +19342,7 @@ void SCRConditionHintEqualPlayCount(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 void nico_BeardTop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145E030u, 0)) { nico_BeardTop_0x145e030(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x145E040u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(nico_BeardTop, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); A6_IN(1022); const uint64_t a2_r = typed::nico_BeardTop(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_vf5, a4_vf6, a4_h2, a4_h5); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0];

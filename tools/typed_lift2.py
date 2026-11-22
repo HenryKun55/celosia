@@ -57,6 +57,8 @@ INC_LINE4 = '#include "typed_a4.h" // a4\n'
 ADAPT_MARK4 = ' // a4'
 INC_LINE5 = '#include "typed_a5.h" // a5\n'
 ADAPT_MARK5 = ' // a5'
+INC_LINE6 = '#include "typed_a6.h" // a6\n'
+ADAPT_MARK6 = ' // a6'
 SAVED = {16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31}
 LOADS = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4, 0x27: 4, 0x31: 4, 0x37: 8}
 STORES = {0x28: 1, 0x29: 2, 0x2B: 4, 0x39: 4, 0x3F: 8}
@@ -83,9 +85,20 @@ class Sig:
         # A4: the VU0 interface (tools/typed_lift2.py stage 4, the VU0 ABI): the VU0 / 128-bit state slots it reads on
         # entry (vin), may write (vout), writes on every path (vmust); vio: the reference parameters, in order
         self.vin, self.vout, self.vmust, self.vio = frozenset(), frozenset(), frozenset(), ()
+        self.brk = False  # A6: reaches a `break` (the adapter applies its cop0 effects after the call: A6_BRKS)
 
     def inputs(self):
         return {('g', p[1]) for p in self.params if p[0] == 'g'} | {('f', p[1]) for p in self.params if p[0] == 'f'}
+
+
+# A6: the symbol a slot must hold for a typed caller to call the typed callee (A6_HOLDS): the lifted function unless listed
+# here (a never-lifted function's recompiled function, a hand native typed from its MIPS, a runtime stub's native)
+GUARD_SYM = {}
+NO_BRK6 = [False]  # --no-brk6 (measuring)
+
+
+def guard_sym(addr, name):
+    return GUARD_SYM.get(addr, f'lift_d1::{name}')
 
 
 def load_a1_sigs(path, inc):
@@ -282,8 +295,13 @@ def vu_text(text):
 class Emit:
     """One function written as typed C++ from lift_d1's IR."""
 
-    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False, a5=False):
+    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False, a5=False, a6=False):
         self.addr, self.name = addr, name
+        # A6: calls to typed callees that are not lifted functions (a recompiled-only function, a hand native typed from
+        # its MIPS, a typed runtime stub: their slot tested against what holds it), `break` (A6_BREAK: its cop0 effects
+        # applied by the adapter after the call, A6_BRKS)
+        self.a6 = a6
+        self.brks = set()
         self.ok, self.why = False, ''
         # A5: the typed ABI proof (callees' own typed interfaces), relocated calls with a slot test, the guest frame
         # (a frame whose address escapes lives in guest RAM below the guest sp), 64-bit input pass-through, jump tables
@@ -318,6 +336,19 @@ class Emit:
         nodes = lf.node_effects()
         lf.nodes = nodes
         self.lf = lf
+        if self.a6 and not NO_BRK6[0]:
+            # A6: `break` (dynamic_cast's failed type check ...): the runtime's handleBreak changes only the cop0 state (EPC,
+            # Cause, Status.EXL) and pc, never a GPR / FPR; the typed function records the site (A6_BREAK) and the adapter
+            # runs handleBreak on the context after the call (A6_BRKS: the first and the last site, which leave the same
+            # state as every one in order). No typed code reads cop0 (mfc0 refuses), so the context ends the same.
+            W0 = lf.g.words
+            for x in lf.order:
+                n = nodes[x]
+                if lf.kind[x][0] == 'op' and n['opaque'] and (W0[x] & 0xFC00003F) == 0x0000000D:
+                    n['opaque'] = False
+                    n['code'] = f'A6_BREAK(0x{x:X}u);'
+                    n['uses'], n['defs'] = set(), set()
+                    self.brks.add(x)
         if self.a5:
             abi = self.typed_abi(lf, nodes, sigs)
             self.abi5 = abi
@@ -1317,7 +1348,7 @@ class Emit:
         if 'LIFT_SET_FACC' in text:
             text = text.replace('LIFT_SET_FACC(', 'A2_SET_FACC(')
         self.fpu_ps2 = sorted({h for h in T1.FPU_PS2.values() if h + '(' in text})
-        ok = T1.OK_CALLS | {s.name for s in sigs.values()} | {'A2_CHARGE', 'a2::frLd', 'a2::frSt', 'A2_SET_FACC', 'A3_BACK', 'A3_CHARGE', 'A5_BADJUMP'}
+        ok = T1.OK_CALLS | {s.name for s in sigs.values()} | {'A2_CHARGE', 'a2::frLd', 'a2::frSt', 'A2_SET_FACC', 'A3_BACK', 'A3_CHARGE', 'A5_BADJUMP'} | ({'A6_BREAK'} if self.a6 else set())
         if self.vu:
             ok = ok | A4_KNOWN
         bad = set()
@@ -1379,7 +1410,8 @@ class Emit:
         sig = ', '.join(['uint8_t *ram', '[[maybe_unused]] PS2Runtime *rt'] + params)
         self.decl = f'{self.rtype} {self.name}({sig})'
         self.sig = Sig(self.name, self.addr, self.rtype, [('g', r, ty) for r, ty, _ in self.gparams] + [('f', r) for r, _ in self.fparams],
-                       self.dropped, self.v0w, 'a5' if self.a5 else 'a4' if self.vu else 'a2')
+                       self.dropped, self.v0w, 'a6' if self.a6 else 'a5' if self.a5 else 'a4' if self.vu else 'a2')
+        self.sig.brk = bool(self.brks) or any(getattr(sigs[c], 'brk', False) for c in self.callees)
         # A5: the relocated sites this function reaches (its own and its typed callees'): the adapter tests each word
         rel = set(self.relocs)
         for c in self.callees:
@@ -1402,7 +1434,9 @@ class Emit:
             xo += ''.join([', jump tables %d' % len(self.jtabs) if self.jtabs else '', ', relocated calls %d' % len(self.relocs) if self.relocs else '',
                            ', 64-bit inputs ' + ' '.join(L.GPR[r] for r in sorted(self.wide_in)) if self.wide_in else '',
                            ', guest sp' if self.needs_sp and not self.gf else ''])
-        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A5" if self.a5 else "A4" if self.vu else "A3" if self.loops else "A2"}; {self.kind}{xo}'
+        if self.a6:
+            xo += ', break' if self.brks else ''
+        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A6" if self.a6 else "A5" if self.a5 else "A4" if self.vu else "A3" if self.loops else "A2"}; {self.kind}{xo}'
                f'{", frame %d bytes, %d slot accesses" % (self.frame, nfr) if self.acc else ""})\n'
                f'inline {self.decl}\n{{\n' + ''.join(f'    {x}\n' for x in locs) + text + '\n    __builtin_unreachable();\n}\n')
         return out
@@ -1441,6 +1475,39 @@ class Emit:
                 f'{"" if leaf else f"A5_IN({self.idx}); "}{r}{call}; {"" if leaf else "A5_OUT(); "}{st}{xw}{" ".join(vw)}{" " if vw else ""}'
                 f'ctx->pc = Ps2GprU32(ctx, 31); return; }}{ADAPT_MARK5}')
 
+    def adapter6(self, ld, args, st, r):
+        """A6: A5's adapter with the switch a6typed (A6_GO for every function, leaves too: the typed path only on the game
+        thread's runtime above the NOCHK floor, never on a worker shell), each reached slot tested against what holds it
+        (A6_HOLDS: the lifted function, the recompiled function of a never-lifted one, the hand native, the runtime stub's
+        native), and a break's cop0 effects applied after the call (A6_BRKS)."""
+        go = 'A6_GO()' + ''.join(f' && A6_HOLDS(0x{c:X}u, {guard_sym(c, nm)})' for c, nm in sorted(self.holds)) + \
+            ''.join(f' && A2_SLOT(0x{c:X}u, lift_d1::{nm})' for c, nm in getattr(self, 'guards', []))
+        go += ''.join(f' && A5_JAL(0x{site:X}u, 0x{t:X}u)' for site, t in sorted(self.relocs_all))
+        if self.has128:
+            go += ' && A5_SP16()'
+        vl, vw, va = [], [], ''
+        for q, isout in self.vio:
+            nm, ty, cx = vu_local(q)
+            if q[0] == 'h':
+                vl.append(f'uint64_t a4_{nm} = a4::hi64(ctx->r[{q[1]}]);')
+                if isout:
+                    vw.append(f'ctx->r[{q[1]}] = a4::mk128(a4_{nm}, Ps2GprU64(ctx, {q[1]}));')
+            else:
+                vl.append(f'{ty} a4_{nm} = {cx};')
+                if isout:
+                    vw.append(f'{cx} = a4_{nm};')
+            va += f', a4_{nm}'
+        call = f'typed::{self.name}(rdram, runtime{args}{va}{", a3_xo" if self.xout else ""})'
+        xd, xw = '', ''
+        if self.xout:
+            xd = f'uint64_t a3_xo[{len(self.xout)}] = {{{", ".join(f"Ps2GprU64(ctx, {q})" if k == "g" else f"(uint64_t)a1_bits(ctx->f[{q}])" for k, q in self.xout)}}}; '
+            for i, (k, q) in enumerate(self.xout):
+                xw += f'Ps2SetGpr64(ctx, {q}, a3_xo[{i}]); ' if k == 'g' else f'ctx->f[{q}] = a1_flt((uint32_t)a3_xo[{i}]); '
+        brk = 'A6_BRKS(); ' if self.sig.brk else ''
+        return (f'    if (PS2_EXPECT({go}, 1)) {{ {" ".join(ld)}{" " if ld else ""}A6_CHK({self.name}{args}); {" ".join(vl)}{" " if vl else ""}{xd}'
+                f'A6_IN({self.idx}); {r}{call}; A6_OUT(); {st}{xw}{" ".join(vw)}{" " if vw else ""}{brk}'
+                f'ctx->pc = Ps2GprU32(ctx, 31); return; }}{ADAPT_MARK6}')
+
     # the guest-signature adapter, one line at the top of the lifted function's body
     def adapter(self):
         ld, av = [], []
@@ -1463,6 +1530,8 @@ class Emit:
         elif rt == 'uint64_t':
             st = 'Ps2SetGpr64(ctx, 2, a2_r); '
         r = '' if rt == 'void' else f'const {rt} a2_r = '
+        if self.vu and self.a6:
+            return self.adapter6(ld, args, st, r)
         if self.vu and self.a5:
             return self.adapter5(ld, args, st, r)
         if self.vu:
@@ -1593,11 +1662,12 @@ def direct_targets(texts):
 
 # ----------------------------------------------------------------------------------------------- text / undo
 def undo_text(t):
-    t = t.replace(INC_LINE5, '').replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
+    t = t.replace(INC_LINE6, '').replace(INC_LINE5, '').replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
     return '\n'.join(line for line in t.split('\n') if not ((line.endswith(ADAPT_MARK) and 'A2_GO' in line) or
                                                            (line.endswith(ADAPT_MARK3) and 'A3_GO' in line) or
                                                            (line.endswith(ADAPT_MARK4) and 'A4_GO' in line) or
-                                                           (line.endswith(ADAPT_MARK5) and 'A5_GO' in line)))
+                                                           (line.endswith(ADAPT_MARK5) and 'A5_GO' in line) or
+                                                           (line.endswith(ADAPT_MARK6) and 'A6_GO' in line)))
 
 
 HDR = '''// typed_a2.h: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). Generated: do not edit.
@@ -1664,7 +1734,7 @@ def ref_body(name, addr, body, a5=False):
             f'void {name}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)\n{{\n' + text + '\n}\n')
 
 
-def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), prev_incs=()):
+def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), prev_incs=(), natives6=None):
     """The check TU (tag a2: round A2's; a3: round A3's, whose references may call A2's: prev holds A2's emits and
     prev_incs the extra ref / typed includes)."""
     ns = tag + 'ck'
@@ -1689,7 +1759,7 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
                   '{',
                   'bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);',
                   '}',
-                  REF_MACROS.replace('a2ck::', ns + '::') + (REF_JUMP.replace('a5ck::', ns + '::') if tag == 'a5' else ''),
+                  REF_MACROS.replace('a2ck::', ns + '::') + (REF_JUMP.replace('a5ck::', ns + '::') if tag in ('a5', 'a6') else ''),
                   f'namespace {ns}',
                   '{',
                   'namespace ref',
@@ -1713,6 +1783,9 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         out.append(f'    case 0x{a:x}u: ref::{s.name}(rdram, ctx, runtime); break;')
     for E in list(prev) + list(emits):
         out.append(f'    case 0x{E.addr:x}u: ref::{E.name}(rdram, ctx, runtime); break;')
+    if tag == 'a6':
+        for x in A6_EXT:  # the typed runtime stubs: the reference's call runs the stub's core on the leg's memory (refExt)
+            out.append(f'    case 0x{x[0]:x}u: refExt(0x{x[0]:x}u, rdram, ctx, runtime); break;')
     out.append('    default: ckUnknownCall(t); return true;')
     out.append('    }')
     out.append('    (void)ret;')
@@ -1733,10 +1806,12 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             out.append('    a1ck::ckMid();')
         else:  # A3: a leg that runs past the iteration cap (offline, random states) or the log is given up (ckLeg false)
             out.append('    R5900Context &c = ckCtx(ctx);')
-            sv = sorted((off, size) for (r, off, size) in getattr(E, 'save_at', {}).values()) if getattr(E, 'gf', False) else []
+            sv = sorted((off, size) for (r, off, size) in getattr(E, 'save_at', {}).values()) if (getattr(E, 'gf', False) or tag == 'a6') else []
             if sv:  # A5: a guest frame's save slots (a reference store into one other than its save gives the check up)
                 out.append('    static const int32_t kSv[][2] = {' + ', '.join(f'{{{o}, {z}}}' for o, z in sv) + '};')
                 out.append(f'    ckSaves(kSv, {len(sv)}u);')
+            if tag == 'a6':
+                out.append('    brkReset();')
             out.append(f'    if (!ckLeg([&] {{ ref::{E.name}(rdram, &c, runtime); }})) return;')
             if sv:
                 out.append('    if (ckSavesClobbered()) return;')
@@ -1775,11 +1850,11 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             else:
                 body = f'v0 = {"a1_sx64" if E.rtype == "uint32_t" else ""}(ty::{E.name}(rdram, runtime{av}{xa}));'
             out.append(f'    if (!ckLeg([&] {{ {body} }})) return;')
-            xc = []
+            xc = ['brkDiffer()'] if tag == 'a6' else []
             for j, (k, q) in enumerate(E.xout):
                 xc.append(f'Ps2GprU64(&c, {q}) != xo[{j}]' if k == 'g' else f'a1ck::ckBits(c.f[{q}]) != (uint32_t)xo[{j}]')
             vb = ''
-            if tag in ('a4', 'a5'):
+            if tag in ('a4', 'a5', 'a6'):
                 # the typed leg's VU0 state: the input context with the VU0 outputs written in, against the reference's
                 out.append('    R5900Context &t = ckTyCtx(ctx);')
                 for q, isout in vio:
@@ -1799,9 +1874,43 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         out.append('    {"none", 0u, nullptr},')
     out.append('};')
     out.append(f'const uint32_t kEntryCount = {len(emits)}u;')
-    if tag == 'a5':
+    if tag == 'a6':
+        # A6_NCHK: a hand native typed from its MIPS, its typed function run on the native's entry state (leg 1 of the overlay)
+        out.append('bool nativeLeg(uint32_t addr, uint8_t *rdram, const R5900Context *ctx, PS2Runtime *runtime, uint64_t &v0, float &f0, int &kind)')
+        out.append('{')
+        out.append('    switch (addr)')
+        out.append('    {')
+        for E in emits:
+            if not natives6 or E.addr not in natives6:
+                continue
+            kind = {'void': 0, 'uint32_t': 1, 'uint64_t': 2, 'float': 3, 'a1::RetVF': 4}[E.rtype]
+            av = ''.join(f', ({ty})Ps2GprU{"64" if ty == "uint64_t" else "32"}(ctx, {r})' for r, ty, _ in E.gparams) + \
+                ''.join(f', ctx->f[{r}]' for r, _ in E.fparams)
+            pre = []
+            for q, _ in getattr(E, 'vio', ()):
+                nm, ty, cx = vu_local(q)
+                pre.append(f'uint64_t v_{nm} = a4::hi64(ctx->r[{q[1]}]);' if q[0] == 'h' else f'{ty} v_{nm} = {cx};')
+            av += ''.join(f', v_{vu_local(q)[0]}' for q, _ in getattr(E, 'vio', ()))
+            if E.rtype == 'void':
+                body = f'ty::{E.name}(rdram, runtime{av});'
+            elif E.rtype == 'a1::RetVF':
+                body = f'const a1::RetVF r = ty::{E.name}(rdram, runtime{av}); v0 = r.v0; f0 = r.f0;'
+            elif E.rtype == 'float':
+                body = f'f0 = ty::{E.name}(rdram, runtime{av});'
+            else:
+                body = f'v0 = {"a1_sx64" if E.rtype == "uint32_t" else ""}(ty::{E.name}(rdram, runtime{av}));'
+            out.append(f'    case 0x{E.addr:x}u: {{ {" ".join(pre)} kind = {kind}; return ckLeg([&] {{ {body} }}); }}')
+        out.append('    default: return false;')
+        out.append('    }')
+        out.append('}')
+    if tag in ('a5', 'a6'):
         # the relocated sites' words (the static target each A5_JAL tests): the offline harness writes them into its RAM
         rw = sorted({(site, w) for E in emits for site, w in getattr(E, 'reloc_words', {}).items()})
+        if tag == 'a6':  # A6: every relocated site a function reaches through its typed callees too (A5_JAL tests them all)
+            allw = {}
+            for E in list(prev) + list(emits):
+                allw.update(getattr(E, 'reloc_words', {}))
+            rw = sorted(set(rw) | {(site, allw[site]) for E in emits for site, _ in getattr(E, 'relocs_all', set()) if site in allw})
         out.append(f'const uint32_t kRelocs[{max(1, len(rw))}][2] = {{' + ', '.join(f'{{0x{a:X}u, 0x{w:08X}u}}' for a, w in rw) + ('{0u, 0u}' if not rw else '') + '};')
         out.append(f'const uint32_t kRelocCount = {len(rw)}u;')
     out.append('}')
@@ -1861,6 +1970,43 @@ namespace typed
 {
 #include "typed_a5.inc"
 }
+'''
+
+
+HDR6 = '''// typed_a6.h: round A6's typed functions (tools/typed_lift2.py, stage 6; docs/decomp_a6.md). Generated: do not edit.
+// What A1-A5 left behind a callee they could not type and A6 types: never-lifted functions and hand natives typed from
+// their MIPS (no adapter: a typed caller calls them while the slot holds the recompiled function / the native, A6_HOLDS),
+// calls to the runtime's libc / thread-id stubs as typed calls to the stubs' own cores (typed_a6_ext.h), `break` (the
+// cop0 effects applied by the adapter after the call), and every caller that then had all its callees typed.
+#pragma once
+#include "typed_a5.h"
+#include "typed_a6_rt.h"
+#include "typed_a6_ext.h"
+
+namespace typed
+{
+#include "typed_a6.inc"
+}
+'''
+
+
+ADAPT6_HEAD = '''// typed_a6_adapters.cpp: round A6's adapters for the never-lifted functions stage 6 typed (tools/typed_lift2.py;
+// docs/decomp_a6.md). Generated: do not edit. Each takes the recompiled function's slot at install (a6InstallAdapters, from
+// sotc_decomp::install, only while the slot still holds the recompiled function): the typed function while the switch a6typed
+// is on and every slot it reaches holds what its typed callee stands for (A6_GO / A6_HOLDS, as the lifted functions'
+// adapters), else the recompiled function as before.
+#include "sotc_decomp.h"
+#include "typed_a6.h"
+
+#include "ps2_runtime_macros.h"
+#include "ps2_runtime.h"
+#include <ps2_recompiled_functions.h>
+
+namespace a6ad
+{
+inline uint64_t sx64(uint32_t v) { return a1_sx64(v); } // the adapters' v0 (as lift_d1::sx64 in the lifted batches)
+}
+
 '''
 
 
@@ -1950,7 +2096,97 @@ def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1
     return emitted, tried_fail
 
 
-def caller_check(emitted, sigs, F, abi_path, abi, cfin, reemit=None):
+# ----------------------------------------------------------------------------------------------- stage 6 (round A6)
+# The typed runtime stubs (game/overrides/typed_a6_ext.h, namespace a6x): the calls outside the IR that have an exact typed
+# form. Each calls the stub's own core (the same code, no context); the slot must hold the stub (or the native that holds
+# it) for a typed caller to call it (A6_HOLDS). Fields: address, the table's name, the typed name, its parameters
+# (('g', register, C type)), return type, v0 width, scratch slots, VU0 interface (GPR upper halves: memset / memcpy / strcpy
+# copy the whole 128-bit $a0 into $v0, setReturnS32 / U32 clear $v0's upper half), the symbol the slot holds.
+A6_EXT = [
+    (0x1283D0, 'memset', 'a6x::memset', [('g', 4, 'uint64_t'), ('g', 5, 'uint32_t'), ('g', 6, 'uint32_t')], 'uint64_t', 64,
+     {('h', 4)}, {('h', 2)}, {('h', 2)}, '::memset_0x1283d0'),
+    (0x12821C, 'memcpy', 'a6x::memcpy', [('g', 4, 'uint64_t'), ('g', 5, 'uint32_t'), ('g', 6, 'uint32_t')], 'uint64_t', 64,
+     {('h', 4)}, {('h', 2)}, {('h', 2)}, '::memcpy_0x12821c'),
+    (0x128FB0, 'strcpy', 'a6x::strcpy', [('g', 4, 'uint64_t'), ('g', 5, 'uint32_t')], 'uint64_t', 64,
+     {('h', 4)}, {('h', 2)}, {('h', 2)}, '::strcpy_0x128fb0'),
+    # strcmp's slot holds decomp_leaves::strCmp (a byte loop while the switch leaves is on, $v0's upper half kept; else the stub)
+    (0x128E6C, 'strcmp', 'a6x::strcmp', [('g', 4, 'uint32_t'), ('g', 5, 'uint32_t')], 'uint32_t', 32, {('h', 2)}, {('h', 2)}, set(),
+     '::decomp_leaves::strCmp'),
+    (0x128188, 'memcmp', 'a6x::memcmp', [('g', 4, 'uint32_t'), ('g', 5, 'uint32_t'), ('g', 6, 'uint32_t')], 'uint32_t', 32,
+     set(), {('h', 2)}, {('h', 2)}, '::memcmp_0x128188'),
+    (0x1290C4, 'strlen', 'a6x::strlen', [('g', 4, 'uint32_t')], 'uint32_t', 32, set(), {('h', 2)}, {('h', 2)}, '::strlen_0x1290c4'),
+    # GetThreadId's slot holds round 139's native (decomp_sema.cpp: the scheduler's fast path, else the stub)
+    (0x106ED0, 'GetThreadId', 'a6x::getThreadId', [], 'uint32_t', 32, set(), {('h', 2)}, {('h', 2)}, '::decomp_sema::getThreadIdNative'),
+]
+
+
+def a6_ext_sigs():
+    out = {}
+    for a, tname, nm, params, rt, v0w, vin, vout, vmust, sym in A6_EXT:
+        s = Sig(nm, a, rt, params, set(), v0w, 'a6x')
+        s.vin, s.vout, s.vmust = frozenset(vin), frozenset(vout), frozenset(vmust)
+        s.vio = tuple((q, q in vout) for q in sorted(set(vin) | set(vout), key=vu_sortkey))
+        s.ext = tname
+        out[a] = s
+        GUARD_SYM[a] = sym
+    return out
+
+
+def run_stage6(cand, sigs, depth, F, names, abi, cfin, refdefs, max_depth, nolift):
+    """Stage 6: stage 5's form (loops, VU0, the typed ABI proof, relocations, guest frames, jump tables) plus `break`, over the
+    lifted functions stage 5 left and the never-lifted / native-held functions in `nolift` (typed from their MIPS, no adapter:
+    their typed callers call them while the slot holds what GUARD_SYM names). Depth by depth to a fixpoint."""
+    emitted, tried_fail = {}, {}
+    level = 0
+    while level < max_depth:
+        level += 1
+        added = 0
+        for a in cand:
+            if a in emitted:
+                continue
+            f = F[a]
+            calls = [n[1] for n in f['nodes'].values() if n[0] in ('jal', 'tail')]
+            if any(c not in sigs for c in calls):
+                continue
+            if a in tried_fail and tried_fail[a] != 'untyped callee':
+                continue
+            if any(c in sigs and sigs[c].guards for c in calls):
+                tried_fail[a] = 'callee needs a slot test'
+                continue
+            name = names[a]
+            E = Emit(a, name, abi.get(a), sigs, cfin, f, loops=True, vu=True, a5=True, a6=True)
+            if E.ok:
+                E.guards = E.sig.guards = []
+                holds = set()
+                for c in set(calls):
+                    holds.add((c, sigs[c].name))
+                    holds |= sigs[c].holds
+                if any(nm in N3.LIBC for c, nm in holds if c not in GUARD_SYM):
+                    E.ok, E.why = False, 'callee named like a libc function'
+                E.holds = E.sig.holds = holds
+            if E.ok:
+                body = refdefs.get(name)
+                if body is not None:
+                    body = body.replace('runtime->handleBreak(rdram, ctx);', 'A6_REF_BREAK();')
+                E.ref = None if body is None else ref_body(name, a, body, a5=True)
+                if E.ref is None:
+                    E.ok, E.why = False, 'reference text form'
+            if not E.ok:
+                tried_fail[a] = E.why
+                continue
+            E.lifted = a not in nolift
+            E.depth = 1 + max([depth.get(c, 0) for c in calls] + [-1])
+            depth[a] = E.depth
+            emitted[a] = E
+            sigs[a] = E.sig
+            abi[a] = (True, set(E.abi5[1]) | ({29} if E.needs_sp else set()), set(E.abi5[2]))
+            added += 1
+        if not added:
+            break
+    return emitted, tried_fail
+
+
+def caller_check(emitted, sigs, F, abi_path, abi, cfin, reemit=None, noadapter=frozenset()):
     """The caller check, to a fixpoint: a refused function takes its typed callers with it. A callee's inputs at the
     sites: n4_abi's input set (sound with or without the full proof: a union fixpoint where an unknown callee, a jalr or
     a runtime call reads everything) unless its slot may hold a native (then the ABI's argument registers, as A1).
@@ -1973,6 +2209,10 @@ def caller_check(emitted, sigs, F, abi_path, abi, cfin, reemit=None):
             if g in emitted:
                 res = live_typed_caller(F[g], emitted[g].sig, sigs, tg)
             else:
+                # A6: a function without an adapter (never lifted, a native) is called typed only by typed callers
+                tg = tg - noadapter
+                if not tg:
+                    continue
                 res = T1.live_after_sites(F[g], callee_inputs, tg, cfin)
             for x, (t, after) in res.items():
                 if g in emitted:
@@ -2053,10 +2293,10 @@ def unlock_table(path, F, byaddr, sigs, why_of, skipped):
             continue
         if a in why_of:
             reason[a] = norm_why(why_of[a])
-        elif a not in byaddr:
-            reason[a] = 'not lifted once (recompiled only / native / lifted twice)'
         elif a in skipped:
             reason[a] = skipped[a]
+        elif a not in byaddr:
+            reason[a] = 'not lifted once (recompiled only / native / lifted twice)'
         elif all(c in sigs for c in calls[a]):
             reason[a] = 'not tried (?)'
     waiting = [a for a in F if a not in sigs and a not in reason]
@@ -2170,6 +2410,14 @@ def main():
     ap.add_argument('--out-list5', default=os.path.join(REPO, 'docs/a5_typed.txt'))
     ap.add_argument('--no-a5', action='store_true', help='no A5 stage (typed ABI proof, relocated calls, guest frames, jump tables)')
     ap.add_argument('--log5', default=None)
+    ap.add_argument('--no-a6', action='store_true', help='no A6 stage (never-lifted / native-held functions, typed runtime stubs, break)')
+    ap.add_argument('--out-list6', default=os.path.join(REPO, 'docs/a6_typed.txt'))
+    ap.add_argument('--log6', default=None)
+    ap.add_argument('--no-ext6', action='store_true', help='A6 (measuring): without the typed runtime stubs')
+    ap.add_argument('--no-brk6', action='store_true', help='A6 (measuring): without break')
+    ap.add_argument('--no-nolift6', action='store_true', help='A6 (measuring): without the never-lifted functions (natives6 still)')
+    ap.add_argument('--natives6', default=os.path.join(REPO, 'docs/a6_natives.txt'),
+                    help='A6: hand natives typed from their MIPS (address, the native symbol the slot holds)')
     ap.add_argument('--ov', default=None, help='write the generated typed files here instead of game/overrides (development)')
     ap.add_argument('--n3-exclude', default=os.path.join(REPO, 'tools/n3_direct_exclude.txt'),
                     help="A4: N3's excluded targets count as direct targets here (their adapters test every typed callee's slot)")
@@ -2362,9 +2610,128 @@ def main():
                 tiers5[tier5(E)] += 1
             stats += (f'\ntyped_lift2 stage 5 (A5): {len(cand5)} candidates, {len(emits5)} converted {dict(sorted(tiers5.items()))} '
                       f'(refused: {dict(why5.most_common())}); {nadapt5} adapters')
+        # ---- stage 6 (round A6): never-lifted functions and hand natives typed from their MIPS (no adapter: their typed callers
+        # call them while the slot holds what GUARD_SYM names), the typed runtime stubs (A6_EXT), break (A6_BREAK)
+        emits6, why6, tiers6, cand6 = [], collections.Counter(), collections.Counter(), []
+        emitted6, tried6, live6 = {}, {}, {}
+        nolift, natives6 = set(), {}
+        do6 = do5 and not args.no_a6
+        if do6:
+            tab = L.table()
+            stubs = set()
+            sp = os.path.join(L.RUNNER, 'ps2_recompiled_stubs.h')
+            if os.path.exists(sp):
+                stubs = {int(x, 16) for x in re.findall(r'void \w+_0x([0-9a-f]+)\(', open(sp).read())}
+            reg_lifted = set()
+            for t in base.values():
+                for m in N4.REG.finditer(t):
+                    reg_lifted.add(int(m.group(1), 16))
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import decomp100_count as DC
+            natreg = DC.native_registrations()
+            if args.natives6 and os.path.exists(args.natives6):
+                for line in open(args.natives6):
+                    line = line.split('#')[0].split()
+                    if len(line) >= 2:
+                        natives6[int(line[0], 16)] = line[1]
+            names6 = dict(byaddr)
+            used = {sg.name for sg in sigs.values()} | set(byaddr.values()) | set(defs)
+            for a in sorted(F):
+                if a in sigs or a in byaddr or a in reg_lifted or a in stubs:
+                    continue
+                if a in natreg and a not in natives6:
+                    continue
+                sym = tab.get(a, '')
+                m = re.match(r'^(\w+)_0x([0-9a-f]+)$', sym)
+                if not m or int(m.group(2), 16) != a:
+                    continue
+                nm = L.cxx(m.group(1))
+                if nm in N3.LIBC:
+                    continue
+                if nm in used:
+                    nm = f'{nm}_{a:x}'
+                used.add(nm)
+                names6[a] = nm
+                GUARD_SYM[a] = ('::' + natives6[a]) if a in natives6 else ('::' + sym)
+                nolift.add(a)
+
+            class Refs(dict):
+                """the reference texts: the lifted functions' (undone), the never-lifted ones' from lift_d1's Lifter on demand"""
+                def get(self, name, default=None):
+                    if name in refdefs:
+                        return refdefs[name]
+                    a = by_name6.get(name)
+                    if a is None:
+                        return default
+                    try:
+                        txt = L.Lifter(a, {}).text('kLiftD1') + '\n'
+                    except Exception:
+                        return default
+                    m = N4.FUNC.search(txt)
+                    return m.group(5) if m else default
+            by_name6 = {names6[a]: a for a in nolift}
+            if args.no_ext6:
+                a6_ext_sigs()  # GUARD_SYM only
+            else:
+                sigs.update(a6_ext_sigs())
+            if args.no_nolift6:
+                nolift = {a for a in nolift if a in natives6}
+                by_name6 = {names6[a]: a for a in nolift}
+            NO_BRK6[0] = args.no_brk6
+            cand6 = [a for a in cand5 if a not in emitted5] + sorted(nolift)
+            emitted6, tried6 = run_stage6(cand6, sigs, depth, F, names6, abi, cfin, Refs(), args.max_depth, nolift)
+            changed6 = True
+            while changed6:
+                changed6 = False
+                for a in sorted(emitted6):
+                    E = emitted6[a]
+                    if any(c not in sigs for c in E.callees):
+                        why = 'a typed callee refused'
+                    else:
+                        res = live_typed_caller(F[a], E.sig, sigs, set(E.callees))
+                        bad = [(x, t, sorted(sigs[t].dropped & after)) for x, (t, after) in res.items() if sigs[t].dropped & after]
+                        why = ('a callee scratch / extra output read after the call: ' + '; '.join(f'{x:x} {t:x} {b}' for x, t, b in bad[:2])) if bad else None
+                    if why:
+                        tried6[a] = why
+                        del emitted6[a]
+                        del sigs[a]
+                        changed6 = True
+
+            def reemit6(E, want):
+                if E.addr in natives6:
+                    return None
+                E2 = Emit(E.addr, E.name, abi.get(E.addr), sigs, cfin, F[E.addr], loops=True, xout=want, vu=True, a5=True, a6=True)
+                if not E2.ok:
+                    REEMIT_WHY[E.addr] = E2.why
+                    return None
+                E2.guards, E2.sig.guards = E.guards, E.guards
+                E2.holds = E2.sig.holds = E.holds
+                E2.ref, E2.depth, E2.lifted = E.ref, E.depth, E.lifted
+                return E2
+            # a never-lifted function's adapter takes its slot: every caller in the IR reaches it (checked as the lifted functions'
+            # callers are); a native keeps its slot, so only typed callers call its typed function
+            live6 = caller_check(emitted6, sigs, F, args.abi, abi, cfin, reemit=reemit6, noadapter=frozenset(a for a in nolift if a in natives6))
+            why6 = why_counts(tried6, live6)
+            emits6 = [emitted6[a] for a in sorted(emitted6, key=lambda a: (emitted6[a].depth, a))]
+            for i, E in enumerate(emits6):
+                E.idx = i
+            # a never-lifted function's slot holds its A6 adapter (typed_a6_adapters.cpp, installed over the recompiled function at
+            # install), so the table's callers run the typed function too; its typed callers test the slot against the adapter
+            rec6 = {}
+            for E in emits6:
+                if not E.lifted and E.addr not in natives6:
+                    rec6[E.addr] = GUARD_SYM[E.addr]
+                    GUARD_SYM[E.addr] = f'::a6ad::{E.name}'
+            new, nadapt6 = insert_adapters(new, {E.name: E for E in emits6 if E.lifted}, INC_LINE6,
+                                           (INC_LINE5, INC_LINE4, INC_LINE3, INC_LINE, T1.INC_LINE, T1.INC_AFTER))
+            for E in emits6:
+                tiers6[('native ' if E.addr in natives6 else 'nolift ' if not E.lifted else '') + tier5(E) + (' break' if E.brks else '')] += 1
+            stats += (f'\ntyped_lift2 stage 6 (A6): {len(cand6)} candidates ({len(nolift)} never lifted / native-held), {len(emits6)} converted '
+                      f'({sum(1 for E in emits6 if not E.lifted)} without an adapter) {dict(sorted(tiers6.items()))} '
+                      f'(refused: {dict(why6.most_common(30))}); {nadapt6} adapters')
         if args.unlock and not args.no_a3:
             why_of = {}
-            for d in (tried_fail, live_refused, tried3, live3, tried4, live4, tried5, live5):
+            for d in (tried_fail, live_refused, tried3, live3, tried4, live4, tried5, live5, tried6, live6):
                 for a, w in d.items():
                     if a not in sigs:
                         why_of[a] = w
@@ -2374,7 +2741,11 @@ def main():
                     skipped[a] = 'named like a libc function'
                 elif n in skip3:
                     skipped[a] = 'docs/a3_skip.txt'
-            unlock_table(args.unlock, F, byaddr, sigs, why_of, skipped)
+            if do6:
+                for a in F:
+                    if a not in sigs and a not in why_of and a not in byaddr and a not in nolift:
+                        skipped[a] = 'a hand native holds the slot' if a in natreg else 'not lifted once (lifted twice / a stub / unnamed)'
+            unlock_table(args.unlock, F, ({**byaddr, **{a: names6[a] for a in nolift}} if do6 else byaddr), sigs, why_of, skipped)
         if not args.check:
             with open(os.path.join(OV, 'typed_a2.inc'), 'w') as fo:
                 fo.write("// typed_a2.inc: round A2's typed functions (tools/typed_lift2.py). Generated: do not edit. "
@@ -2476,10 +2847,76 @@ def main():
                     write_check(emits5, a1sigs, None, os.path.join(OV, 'a5_typed_check.cpp'), os.path.join(OV, 'typed_a5_ref.inc'),
                                 tag='a5', prev=emits + emits3 + emits4, prev_incs=('a2', 'a3', 'a4'))
 
+            if do6:
+                with open(os.path.join(OV, 'typed_a6.inc'), 'w') as fo:
+                    fo.write("// typed_a6.inc: round A6's typed functions (tools/typed_lift2.py, stage 6: never-lifted functions and hand natives "
+                             "typed from their MIPS, the typed runtime stubs, break). Generated: do not edit. Included inside a namespace "
+                             "(typed_a6.h: namespace typed), after typed_a5.inc.\n")
+                    fo.write('\n'.join(E.text for E in emits6))
+                with open(os.path.join(OV, 'typed_a6.h'), 'w') as fo:
+                    fo.write(HDR6)
+                    held = sorted({(c, nm) for E in emits6 for c, nm in E.holds})
+                    lnames = sorted({nm for c, nm in held if c not in GUARD_SYM})
+                    fo.write('\n// what the adapters test the slots against (A6_HOLDS): lifted functions, never-lifted functions\' recompiled '
+                             'functions, hand natives, the runtime stubs\' holders\nnamespace lift_d1\n{\n')
+                    fo.write(''.join(f'void {nm}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for nm in lnames))
+                    fo.write('}\n')
+                    for sym in sorted({GUARD_SYM[c] for c, nm in held if c in GUARD_SYM}):
+                        parts = sym.lstrip(':').split('::')
+                        fo.write(''.join(f'namespace {x} {{ ' for x in parts[:-1]) + f'void {parts[-1]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);'
+                                 + ' }' * (len(parts) - 1) + '\n')
+                rk = collections.Counter(E.rtype for E in emits6)
+
+                def vn6(ss):
+                    return ','.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey))
+                with open(args.out_list6, 'w') as fo:
+                    fo.write(f"# a6_typed.txt: round A6's typed functions (tools/typed_lift2.py stage 6; docs/decomp_a6.md). {len(emits6)} converted "
+                             f"({sum(1 for E in emits6 if not E.lifted and E.addr not in natives6)} never lifted: their adapter over the recompiled function's slot; "
+                             f"{sum(1 for E in emits6 if E.addr in natives6)} MIPS-step natives: no adapter); tiers {dict(sorted(tiers6.items()))}; "
+                             f"returns {dict(rk)}\n")
+                    fo.write('# address name | C signature | dropped scratch slots | tier | PS2 float helpers | VU0 in | VU0 out | forms | slot holder\n')
+                    for E in emits6:
+                        forms = ' '.join(x for x in ('nolift' if not E.lifted else '', 'native' if E.addr in natives6 else '',
+                                                     'break' if E.brks else '', 'gframe' if E.gf else '',
+                                                     'gsp' if E.needs_sp and not E.gf else '', 'jtab%d' % len(E.jtabs) if E.jtabs else '',
+                                                     'reloc%d' % len(E.relocs) if E.relocs else '', 'w64' if E.wide_in else '',
+                                                     'ext:' + ','.join(sorted(sigs[c].ext for c in set(E.callees) if getattr(sigs[c], 'ext', None)))
+                                                     if any(getattr(sigs[c], 'ext', None) for c in E.callees) else '') if x)
+                        fo.write(f'{E.addr:08x} {E.name} | {E.decl} | {",".join(k + str(r) for k, r in sorted(E.dropped, key=str))} | '
+                                 f'{"loop%d " % len(E.backs) if E.backs else ""}{("frame%d " % E.frame) if E.acc else ""}'
+                                 f'depth{E.depth if E.callees else 0} | {",".join(E.fpu_ps2)} | {vn6(E.vin)} | {vn6(E.vout)} | {forms} | '
+                                 f'{guard_sym(E.addr, E.name)}\n')
+                with open(os.path.join(OV, 'typed_a6_adapters.cpp'), 'w') as fo:
+                    fo.write(ADAPT6_HEAD)
+                    ad = [E for E in emits6 if E.addr in rec6]
+                    fo.write('namespace a6ad\n{\n')
+                    for E in ad:
+                        fo.write(f'// {E.name} (0x{E.addr:x}): the slot of a never-lifted function; the typed function while the adapter\'s '
+                                 f'test holds, else the recompiled function\n')
+                        fo.write(f'void {E.name}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)\n{{\n')
+                        fo.write(f'    if (PS2_EXPECT(ctx->pc == 0x{E.addr:X}u, 1))\n    {{\n    {E.adapter()}\n    }}\n')
+                        fo.write(f'    {rec6[E.addr]}(rdram, ctx, runtime);\n}}\n')
+                    fo.write('}\n\n')
+                    fo.write('namespace\n{\n    struct A6Ad\n    {\n        uint32_t addr;\n        PS2Runtime::RecompiledFunction rec, ad;\n    };\n')
+                    fo.write(f'    const A6Ad kA6Ad[{max(1, len(ad))}] = {{\n')
+                    for E in ad:
+                        fo.write(f'        {{0x{E.addr:X}u, &{rec6[E.addr]}, &a6ad::{E.name}}},\n')
+                    if not ad:
+                        fo.write('        {0u, nullptr, nullptr},\n')
+                    fo.write('    };\n}\n\n')
+                    fo.write('// sotc_decomp::install: each adapter over its slot while the slot still holds the recompiled function\n')
+                    fo.write('uint32_t a6InstallAdapters(PS2Runtime &runtime)\n{\n    uint32_t n = 0;\n')
+                    fo.write(f'    for (uint32_t i = 0; i < {len(ad)}u; ++i)\n')
+                    fo.write('        if (runtime.lookupFunction(kA6Ad[i].addr) == kA6Ad[i].rec)\n')
+                    fo.write('        {\n            runtime.registerFunction(kA6Ad[i].addr, kA6Ad[i].ad);\n            ++n;\n        }\n    return n;\n}\n')
+                if args.check_tu:
+                    write_check(emits6, a1sigs, None, os.path.join(OV, 'a6_typed_check.cpp'), os.path.join(OV, 'typed_a6_ref.inc'),
+                                tag='a6', prev=emits + emits3 + emits4 + emits5, prev_incs=('a2', 'a3', 'a4', 'a5'), natives6=natives6)
+
         def wlog(path, tf, lr, em):
             with open(path, 'w') as fo:
                 for a in sorted(set(tf) | set(lr) | set(em)):
-                    nm = byaddr.get(a, '?')
+                    nm = byaddr.get(a) or (names6.get(a, '?') if do6 else '?')
                     if a in em:
                         E = em[a]
                         fo.write(f'{a:08x} {nm} OK depth={E.depth} frame={E.frame} loops={len(E.backs)} {E.rtype}\n')
@@ -2493,6 +2930,8 @@ def main():
             wlog(args.log4, tried4, live4, emitted4)
         if args.log5 and do5:
             wlog(args.log5, tried5, live5, emitted5)
+        if args.log6 and do6:
+            wlog(args.log6, tried6, live6, emitted6)
     changed = 0
     for f in files:
         if new[f] != texts[f]:

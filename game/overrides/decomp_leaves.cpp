@@ -32,6 +32,7 @@
 // - iosFTOI4Vector (0x1be700): vftoi4 of the quadword at a1 to a0 (vf5 /
 //   vf6 as the code leaves them).
 #include "sotc_decomp.h"
+#include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "a9cmp.h"
 #include "s9rt.h"
 
@@ -86,6 +87,7 @@ namespace decomp_leaves
 
     void gluCameraContext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x0108F518u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::leavesOn())
             return sotc_decomp::recompiled(kGluCameraContext)(rdram, ctx, runtime);
         WRITE64(GPR_U32(ctx, 29) - 0x10u, GPR_U64(ctx, 31)); // its frame's ra

@@ -32,6 +32,8 @@
 #include "a9sweep.h"
 #endif
 
+uint32_t a6InstallAdapters(PS2Runtime &runtime); // typed_a6_adapters.cpp (round A6)
+
 namespace sotc_decomp
 {
     std::vector<Function> &registry()
@@ -2098,6 +2100,15 @@ namespace sotc_decomp
         // registry native: a difftest leg would signal twice).
         if (!listed(skip, "SignalSema"))
             installSemaFast(runtime);
+        // Round A6: the never-lifted functions stage 6 typed take their slots (typed_a6_adapters.cpp; each only while the slot
+        // still holds its recompiled function; the recompiled function stays the adapter's fallback). SOTC_A6AD=0: left out.
+        {
+            const char *e = std::getenv("SOTC_A6AD");
+            if (!(e && e[0] == '0'))
+            {
+                std::cerr << "[a6] adapters installed over " << ::a6InstallAdapters(runtime) << " never-lifted functions" << std::endl;
+            }
+        }
         g_checkedUsed = checked;
         if (unchecked)
             std::cerr << "[difftest] " << unchecked << " functions past the " << kMaxChecked << " slots left unchecked" << std::endl;

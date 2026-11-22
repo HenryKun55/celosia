@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -11220,6 +11221,7 @@ void setHoverAttackBirdCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void gamecore_sub_0143D5F0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x143D5F0u, 0)) { gamecore_sub_0143D5F0_0x143d5f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A6_HOLDS(0x1437A88u, lift_d1::_resetBaseMoveWork) && A6_HOLDS(0x1438448u, lift_d1::gamecore_sub_01438448) && A6_HOLDS(0x143D660u, lift_d1::gamecore_sub_0143D660) && A6_HOLDS(0x143D718u, lift_d1::gamecore_sub_0143D718) && A5_JAL(0x143D604u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(gamecore_sub_0143D5F0, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; A6_IN(1048); const a1::RetVF a2_r = typed::gamecore_sub_0143D5F0(rdram, runtime, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_h2, a4_h5, a3_xo); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     sp = sp - 0x20u;
@@ -12581,6 +12583,7 @@ void SCRConditionCheckAngleToNextPoint(uint8_t *rdram, R5900Context *ctx, PS2Run
 void SCRConditionMyselfMotionCheck(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1457170u, 0)) { SCRConditionMyselfMotionCheck_0x1457170(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x1457180u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(SCRConditionMyselfMotionCheck, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); A6_IN(1012); const uint64_t a2_r = typed::SCRConditionMyselfMotionCheck(rdram, runtime, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h5); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), s0 = Ps2GprU32(ctx, 16), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6);
     uint64_t hi = ctx->hi;
@@ -13021,6 +13024,7 @@ void SCRConditionLWSCameraPlay(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // SCRConditionExistSoundBow (0x14597b8-0x14597d0)
 void SCRConditionExistSoundBow(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x1CA1B0u, ::decomp_scriptvm3::getThisSubThread) && A6_HOLDS(0x136E1B0u, lift_d1::existSoundBow) && A5_JAL(0x136E1B8u, 0x1CA1B0u), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(SCRConditionExistSoundBow, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A6_IN(1051); const uint64_t a2_r = typed::SCRConditionExistSoundBow(rdram, runtime, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));

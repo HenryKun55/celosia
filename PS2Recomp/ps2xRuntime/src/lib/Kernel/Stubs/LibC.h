@@ -4,6 +4,13 @@
 
 namespace ps2_stubs
 {
+    // Round A6: the cores of memcpy / memset / memcmp / strcpy / strlen / strcmp (the stubs call them; typed callers too)
+    void memcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr, uint32_t size);
+    void memsetCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, int value, uint32_t size);
+    int32_t memcmpCore(uint8_t *rdram, uint32_t ptr1Addr, uint32_t ptr2Addr, uint32_t size);
+    void strcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr);
+    uint32_t strlenCore(uint8_t *rdram, uint32_t strAddr);
+    int32_t strcmpCore(uint8_t *rdram, uint32_t str1Addr, uint32_t str2Addr);
     void malloc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void memalign(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void free(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

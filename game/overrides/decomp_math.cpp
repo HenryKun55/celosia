@@ -6,6 +6,7 @@
 // context (FPU registers and fcr31, VU0 vf15-vf19, Q and status, v0 / at /
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
+#include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -305,6 +306,7 @@ namespace decomp_copymatrix
 {
     void copyMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x001B9148u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         const uint32_t to = GPR_U32(ctx, 4) & ~0xFu, from = GPR_U32(ctx, 5) & ~0xFu;
         if (to >= PS2_RAM_SIZE - 0x40u || from >= PS2_RAM_SIZE - 0x40u)
             return sotc_decomp::recompiled(0x001B9148u)(rdram, ctx, runtime);

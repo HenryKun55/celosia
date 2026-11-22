@@ -106,6 +106,24 @@ namespace decomp_sema
         }
         g_pollStub(rdram, ctx, runtime);
     }
+
+    // Round A6 (typed_a6_ext.h, a6x::getThreadId): getThreadIdNative's v0 without a guest context, for a typed caller that
+    // calls it while the slot holds getThreadIdNative. The fast path as the native takes it; else the table's stub
+    // (ctx->pc = ra, ps2_syscalls::GetThreadId): the syscall reads no register and writes only v0; the context it binds is
+    // used only by the scheduler's first-call reset (bindMainContextForSyscall before the executor exists: the boot), which
+    // a typed call never meets (A6_GO: after GAMECORE's entry, NOCHK on). A scratch context stands in for it.
+    int32_t getThreadIdTyped(uint8_t *rdram, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(stat139::sem139(), 1))
+        {
+            const int tid = runtime->eeScheduler().currentThreadIdFast(rdram);
+            if (__builtin_expect(tid >= 0, 1))
+                return tid;
+        }
+        static R5900Context scratch;
+        g_tidStub(rdram, &scratch, runtime);
+        return GPR_S32(&scratch, 2);
+    }
 }
 
 namespace sotc_decomp

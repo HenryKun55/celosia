@@ -61,6 +61,7 @@ namespace A3CK_NS
         // A5: a guest frame's prologue save slots (entry-sp-relative), and the reference leg's stores into each (its save is one)
         uint32_t svLo[16] = {}, svHi[16] = {}, svHits[16] = {}, svN = 0;
         bool ovf = false, io = false, active = false;
+        uint32_t ix[2][kSlots / 2u] = {}; // A6: each leg's used overlay slots in order (A6_NCHK reads the typed leg's stores back)
         uint8_t *ram = nullptr;
         PS2Runtime *rt = nullptr;
     };
@@ -101,6 +102,7 @@ namespace A3CK_NS
                     s.ovf = true;
                     return;
                 }
+                s.ix[c][s.used[c]] = i;
                 ++s.used[c];
                 o.gen[i] = s.gen;
                 o.a[i] = a;

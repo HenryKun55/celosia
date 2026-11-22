@@ -8,6 +8,7 @@
 // and "this character" are boot-ELF data the module is linked to at run
 // time (relocated lui / lw pairs, read from the code).
 #include "sotc_decomp.h"
+#include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -390,6 +391,7 @@ namespace decomp_characlass
 {
     void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x010C0A70u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         const uint32_t object = GPR_U32(ctx, 4);
         if (object + 8u >= PS2_RAM_SIZE)
             return sotc_decomp::recompiled(0x010C0A70u)(rdram, ctx, runtime);

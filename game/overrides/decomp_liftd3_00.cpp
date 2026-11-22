@@ -10,6 +10,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -15815,6 +15816,7 @@ L_108b91c:
 // glSetLightVector (0x108f458-0x108f478)
 void glSetLightVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x1B9148u, ::decomp_copymatrix::copyMatrix) && A5_JAL(0x108F470u, 0x1B9148u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(glSetLightVector, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a4_h8 = a4::hi64(ctx->r[8]); uint64_t a4_h9 = a4::hi64(ctx->r[9]); A6_IN(816); typed::glSetLightVector(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h6, a4_h7, a4_h8, a4_h9); A6_OUT(); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->r[9] = a4::mk128(a4_h9, Ps2GprU64(ctx, 9)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     sp = sp - 0x10u;

@@ -1,0 +1,13 @@
+# a6_natives.txt: hand natives tools/typed_lift2.py stage 6 types from their MIPS (round A6; docs/decomp_a6.md).
+# Each was read: its body does what its MIPS does, reads only (no guest store, no host state), calls no guest code
+# other than its own recompiled fallback. address | the native symbol its registrar puts in the slot
+0110d058 decomp_scriptvm3::getScriptLayoutClass        # GetScriptLayoutClass: the MIPS step by step (scriptvm), tail j GetScriptAnimationClass
+010c0a70 decomp_characlass::getCharacterClass          # GetCharacterClass: v0 = obj + 0x90 for types 9 / 0x16 (out of RAM: the recompiled code)
+013cfae8 decomp_scriptvm2::getSCRCharaAIWorkPtr        # GetSCRCharaAIWorkPtr: the MIPS (V2_ macros), its relocated jal through callGuest
+01455f80 decomp_scriptvm2::getSCRDataCtrlWork          # getSCRDataCtrlWork: the MIPS (V2_ macros)
+0137c348 decomp_scriptvm2::scrGetFirstObj              # SCRGetFirstObj: the MIPS, a tail jump
+01102438 decomp_scriptvm3::getScriptClass              # GetScriptClass: the MIPS's jump table (an unknown entry: the recompiled code)
+001ca1b0 decomp_scriptvm3::getThisSubThread            # isysGetThisSubThread: v1 = 0x1e0000, v0 = the word at 0x1e1550
+010cc178 decomp_scriptvm3::setScriptCtrlStatus         # CharaCtrlSetScriptCtrlStatus: the MIPS (scriptCtrlStatus)
+001b9148 decomp_copymatrix::copyMatrix                 # iosCopyMatrix: four lq / sq, the rows left in a2 a3 t0 t1 (out of RAM: the recompiled code)
+0108f518 decomp_leaves::gluCameraContext               # iosgluGetCameraContext: the ra save, the context word pair (switch leaves off: the recompiled code)

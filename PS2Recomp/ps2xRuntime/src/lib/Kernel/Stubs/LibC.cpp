@@ -166,11 +166,10 @@ namespace ps2_stubs
         setReturnU32(ctx, newGuestAddr);
     }
 
-    void memcpy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    // Round A6: the stubs' bodies as cores with their arguments (no context but the trace's), so a typed caller
+    // (game/overrides/typed_a6_ext.h) runs the same code; each stub reads its registers, calls its core, sets v0.
+    void memcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr, uint32_t size)
     {
-        uint32_t destAddr = getRegU32(ctx, 4); // $a0
-        uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
-        uint32_t size = getRegU32(ctx, 6);     // $a2
         size = sanitizeMemTransferSize(size, "memcpy");
 
         if (size <= kInlineBytes && size != 0u)
@@ -181,7 +180,6 @@ namespace ps2_stubs
             {
                 smallCopy(hostDest, hostSrc, size);
                 ps2TraceGuestRangeWrite(rdram, destAddr, size, "memcpy", ctx);
-                ctx->r[2] = ctx->r[4];
                 return;
             }
         }
@@ -216,16 +214,17 @@ namespace ps2_stubs
         {
             ps2TraceGuestRangeWrite(rdram, destAddr, copied, "memcpy", ctx);
         }
+    }
 
+    void memcpy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        memcpyCore(rdram, ctx, getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6));
         // returns dest pointer ($v0 = $a0)
         ctx->r[2] = ctx->r[4];
     }
 
-    void memset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void memsetCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, int value, uint32_t size)
     {
-        uint32_t destAddr = getRegU32(ctx, 4);       // $a0
-        int value = (int)(getRegU32(ctx, 5) & 0xFF); // $a1 (char value)
-        uint32_t size = getRegU32(ctx, 6);           // $a2
         size = sanitizeMemTransferSize(size, "memset");
 
         if (size <= kInlineBytes && size != 0u)
@@ -235,7 +234,6 @@ namespace ps2_stubs
             {
                 smallFill(hostDest, static_cast<uint8_t>(value), size);
                 ps2TraceGuestRangeWrite(rdram, destAddr, size, "memset", ctx);
-                ctx->r[2] = ctx->r[4];
                 return;
             }
         }
@@ -266,7 +264,11 @@ namespace ps2_stubs
         {
             ps2TraceGuestRangeWrite(rdram, destAddr, written, "memset", ctx);
         }
+    }
 
+    void memset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        memsetCore(rdram, ctx, getRegU32(ctx, 4), (int)(getRegU32(ctx, 5) & 0xFF), getRegU32(ctx, 6));
         // returns dest pointer ($v0 = $a0)
         ctx->r[2] = ctx->r[4];
     }
@@ -347,11 +349,8 @@ namespace ps2_stubs
         ctx->r[2] = ctx->r[4];
     }
 
-    void memcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    int32_t memcmpCore(uint8_t *rdram, uint32_t ptr1Addr, uint32_t ptr2Addr, uint32_t size)
     {
-        uint32_t ptr1Addr = getRegU32(ctx, 4); // $a0
-        uint32_t ptr2Addr = getRegU32(ctx, 5); // $a1
-        uint32_t size = getRegU32(ctx, 6);     // $a2
         size = sanitizeMemTransferSize(size, "memcmp");
         int result = 0;
 
@@ -370,13 +369,16 @@ namespace ps2_stubs
                 break;
             }
         }
-        setReturnS32(ctx, result);
+        return result;
     }
 
-    void strcpy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void memcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        uint32_t destAddr = getRegU32(ctx, 4); // $a0
-        uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
+        setReturnS32(ctx, memcmpCore(rdram, getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6)));
+    }
+
+    void strcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr)
+    {
 
         char *hostDest = reinterpret_cast<char *>(getMemPtr(rdram, destAddr));
         const char *hostSrc = reinterpret_cast<const char *>(getConstMemPtr(rdram, srcAddr));
@@ -393,7 +395,11 @@ namespace ps2_stubs
                       << ", Src: 0x" << srcAddr << " (host ptr valid: " << (hostSrc != nullptr) << ")" << std::dec
                       << std::endl;
         }
+    }
 
+    void strcpy(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        strcpyCore(rdram, ctx, getRegU32(ctx, 4), getRegU32(ctx, 5));
         // returns dest pointer ($v0 = $a0)
         ctx->r[2] = ctx->r[4];
     }
@@ -423,9 +429,8 @@ namespace ps2_stubs
         ctx->r[2] = ctx->r[4];
     }
 
-    void strlen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    uint32_t strlenCore(uint8_t *rdram, uint32_t strAddr)
     {
-        uint32_t strAddr = getRegU32(ctx, 4); // $a0
         const char *hostStr = reinterpret_cast<const char *>(getConstMemPtr(rdram, strAddr));
         size_t len = 0;
 
@@ -437,13 +442,16 @@ namespace ps2_stubs
         {
             std::cerr << "strlen error: Invalid address provided: 0x" << std::hex << strAddr << std::dec << std::endl;
         }
-        setReturnU32(ctx, (uint32_t)len);
+        return (uint32_t)len;
     }
 
-    void strcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void strlen(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        uint32_t str1Addr = getRegU32(ctx, 4); // $a0
-        uint32_t str2Addr = getRegU32(ctx, 5); // $a1
+        setReturnU32(ctx, strlenCore(rdram, getRegU32(ctx, 4)));
+    }
+
+    int32_t strcmpCore(uint8_t *rdram, uint32_t str1Addr, uint32_t str2Addr)
+    {
 
         const char *hostStr1 = reinterpret_cast<const char *>(getConstMemPtr(rdram, str1Addr));
         const char *hostStr2 = reinterpret_cast<const char *>(getConstMemPtr(rdram, str2Addr));
@@ -464,7 +472,12 @@ namespace ps2_stubs
             if (result == 0 && hostStr1 == nullptr)
                 result = 1; // Both null -> treat as different? Or 0? Let's say different.
         }
-        setReturnS32(ctx, result);
+        return result;
+    }
+
+    void strcmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        setReturnS32(ctx, strcmpCore(rdram, getRegU32(ctx, 4), getRegU32(ctx, 5)));
     }
 
     void strncmp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

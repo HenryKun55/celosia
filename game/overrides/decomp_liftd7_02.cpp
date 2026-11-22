@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a6.h" // a6
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -20280,6 +20281,7 @@ void SetCharacterObjControlBypassFunc(uint8_t *rdram, R5900Context *ctx, PS2Runt
 void ChangeCharacterObjCollisionEnableFlag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10C1D68u, 0)) { ChangeCharacterObjCollisionEnableFlag_0x10c1d68(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A6_GO() && A6_HOLDS(0x10F3080u, lift_d1::SetLayoutObjCollisionEnableFlag) && A6_HOLDS(0x10F93F0u, ::a6ad::GetLightClass) && A6_HOLDS(0x110A838u, lift_d1::GetScriptAnimationClass) && A6_HOLDS(0x110D058u, ::decomp_scriptvm3::getScriptLayoutClass) && A6_HOLDS(0x1162E08u, lift_d1::dynamic_cast_to_camera_obj) && A6_HOLDS(0x1162F08u, lift_d1::get_camera_obj_layout_class), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A6_CHK(ChangeCharacterObjCollisionEnableFlag, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); A6_IN(1053); const uint64_t a2_r = typed::ChangeCharacterObjCollisionEnableFlag(rdram, runtime, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h3); A6_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a6
     uint32_t s0 = Ps2GprU32(ctx, 16), s1 = Ps2GprU32(ctx, 17), s4 = Ps2GprU32(ctx, 20), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19);
     bool df_s0 = false, df_s1 = false, df_s4 = false, df_sp = false;

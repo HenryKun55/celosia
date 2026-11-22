@@ -40,6 +40,30 @@ namespace a5
         std::abort();
     }
 }
+bool g_a6Typed = true; // round A6 (typed_a6_rt.h): the switch a6typed, likewise
+#include "typed_a6_rt.h"
+#if PS2X_A6_CHECK
+A3Stats g_a6s; // round A6's check build: its adapters' test and deferred checkpoints (A3's counters)
+#endif
+A6Brk g_a6Brk = {0u, 0u, 0u};
+namespace a6
+{
+    // the breaks a typed call took, on the adapter's context after the call: handleBreak at the first site and, when more
+    // were taken, at the last (each sets EPC to its site, Cause's code, Status.EXL and clears the delay-slot flag, so the
+    // first and the last leave the context as every break in order would); ctx->pc is set to the return after this
+    void applyBrks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const A6Brk b = g_a6Brk;
+        g_a6Brk = {0u, 0u, 0u};
+        ctx->pc = b.first;
+        runtime->handleBreak(rdram, ctx);
+        if (b.n > 1u)
+        {
+            ctx->pc = b.last;
+            runtime->handleBreak(rdram, ctx);
+        }
+    }
+}
 
 namespace a1m
 {

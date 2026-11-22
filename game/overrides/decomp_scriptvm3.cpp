@@ -72,6 +72,7 @@
 // CheckLetter's loop checkpoint is left out; GetScriptClass takes the
 // recompiled code (before any store) for a jump table entry it does not know.
 #include "sotc_decomp.h"
+#include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
@@ -486,6 +487,7 @@ namespace decomp_scriptvm3
 
     void getScriptLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x0110D058u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x0110D058u, rdram, ctx, runtime);
         const uint32_t entrySp = GPR_U32(ctx, 29);
@@ -520,6 +522,7 @@ namespace decomp_scriptvm3
 
     void getScriptClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x01102438u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x01102438u, rdram, ctx, runtime);
         // The type's jump table entry, read before any store (an entry not
@@ -733,6 +736,7 @@ namespace decomp_scriptvm3
 
     void setScriptCtrlStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x010CC178u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x010CC178u, rdram, ctx, runtime);
         scriptCtrlStatus(rdram, ctx, runtime, true, 0x010CC178u);
@@ -783,6 +787,7 @@ namespace decomp_scriptvm3
     // ---- isysGetThisSubThread -------------------------------------------------
     void getThisSubThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A6_NCHK(0x001CA1B0u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(kGetThisSubThread, rdram, ctx, runtime);
         li(ctx, 3, 0x001E0000u);
