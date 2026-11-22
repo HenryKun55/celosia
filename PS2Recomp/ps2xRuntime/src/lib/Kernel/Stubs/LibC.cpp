@@ -640,13 +640,21 @@ namespace ps2_stubs
 
     void printf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        uint32_t format_addr = getRegU32(ctx, 4); // $a0
+        // Round A7: the registers read, the body in printfCore (typed callers call the core with their values)
+        const uint32_t args8[8] = {getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6), getRegU32(ctx, 7),
+                                   getRegU32(ctx, 8), getRegU32(ctx, 9), getRegU32(ctx, 10), getRegU32(ctx, 11)};
+        setReturnS32(ctx, printfCore(rdram, runtime, args8, getRegU32(ctx, 29)));
+    }
+
+    int32_t printfCore(uint8_t *rdram, PS2Runtime *runtime, const uint32_t *args8, uint32_t sp)
+    {
+        uint32_t format_addr = args8[0]; // $a0
         const std::string formatOwned = readPs2CStringBounded(rdram, runtime, format_addr, 1024);
         int ret = -1;
 
         if (format_addr != 0)
         {
-            std::string rendered = formatPs2StringWithArgs(rdram, ctx, runtime, formatOwned.c_str(), 1);
+            std::string rendered = formatPs2StringWithArgValues(rdram, runtime, formatOwned.c_str(), args8, sp, 1);
             if (rendered.size() > 2048)
             {
                 rendered.resize(2048);
@@ -676,7 +684,7 @@ namespace ps2_stubs
         }
 
         // returns the number of characters written, or negative on error.
-        setReturnS32(ctx, ret);
+        return ret;
     }
 
     void sprintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -1484,9 +1492,12 @@ namespace ps2_stubs
 
     void vsprintf(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        uint32_t str_addr = getRegU32(ctx, 4);      // $a0
-        uint32_t format_addr = getRegU32(ctx, 5);   // $a1
-        uint32_t va_list_addr = getRegU32(ctx, 6);  // $a2
+        // Round A7: the registers read, the body in vsprintfCore (typed callers call the core with their values)
+        setReturnS32(ctx, vsprintfCore(rdram, runtime, getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6)));
+    }
+
+    int32_t vsprintfCore(uint8_t *rdram, PS2Runtime *runtime, uint32_t str_addr, uint32_t format_addr, uint32_t va_list_addr)
+    {
         constexpr size_t kSafeVsprintfBytes = 256u; // Keep guest stack temporaries from being overwritten.
         if (format_addr != 0 && ps2_fast_paths::fmt102On())
         {
@@ -1518,8 +1529,7 @@ namespace ps2_stubs
                     ret = static_cast<int>(n);
                 else
                     std::cerr << "vsprintf error: Failed to write destination buffer at 0x" << std::hex << str_addr << std::dec << std::endl;
-                setReturnS32(ctx, ret);
-                return;
+                return ret;
             }
             ++fmt102::g_general;
         }
@@ -1551,7 +1561,7 @@ namespace ps2_stubs
                       << std::endl;
         }
 
-        setReturnS32(ctx, ret);
+        return ret;
     }
 
     void __divdi3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

@@ -160,38 +160,38 @@ namespace ps2_syscalls
 
     void fioWrite(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        int ps2Fd = (int)getRegU32(ctx, 4);   // $a0
-        uint32_t bufAddr = getRegU32(ctx, 5); // $a1
-        size_t size = getRegU32(ctx, 6);      // $a2
+        // Round A7: the registers read, the body in fioWriteCore
+        setReturnS32(ctx, fioWriteCore(rdram, runtime, (int)getRegU32(ctx, 4), getRegU32(ctx, 5), getRegU32(ctx, 6)));
+    }
+
+    int32_t fioWriteCore(uint8_t *rdram, PS2Runtime *runtime, int ps2Fd, uint32_t bufAddr, uint32_t sizeArg)
+    {
+        size_t size = sizeArg; // $a2
 
         const uint8_t *hostBuf = getConstMemPtr(rdram, bufAddr);
         if (!hostBuf)
         {
-            setReturnS32(ctx, -1);
-            return;
+            return -1;
         }
 
         if (!runtime)
         {
-            setReturnS32(ctx, -1); // -EFAULT
-            return;
+            return -1; // -EFAULT
         }
 
         if (size == 0)
         {
-            setReturnS32(ctx, 0); // Wrote 0 bytes
-            return;
+            return 0; // Wrote 0 bytes
         }
 
         const int64_t writeResult = runtime->vfs().write(ps2Fd, hostBuf, size);
         if (writeResult < 0)
         {
-            setReturnS32(ctx, -1);
-            return;
+            return -1;
         }
 
         // returns number of bytes written
-        setReturnS32(ctx, static_cast<int32_t>(writeResult));
+        return static_cast<int32_t>(writeResult);
     }
 
     void fioLseek(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

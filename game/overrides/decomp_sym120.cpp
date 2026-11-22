@@ -34,6 +34,7 @@
 // SOTC_SYM120_LOG=1: "[sym120]" every 600 frames: calls, sheets, entries,
 // lookups (found), imports looked at / retried / resolved.
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -268,6 +269,7 @@ namespace decomp_sym120
     constexpr uint32_t kMakeHash = 0x001CBDB8u, kHashSkip = 0x001E4608u;
     void makeHash(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x001CBDB8u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         if (!sotc_decomp::switchOn(sotc_decomp::kSym120))
         {
             ctx->pc = kMakeHash;

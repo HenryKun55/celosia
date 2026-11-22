@@ -66,6 +66,7 @@
 // read from the live code words as the generated code does.
 // Not as the original: the record loop's EE checkpoint (as every native loop).
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 
 #include "ps2_runtime_macros.h"
@@ -310,6 +311,7 @@ namespace decomp_scriptvm2
     // ---- GetSCRCharaAIWorkPtr: GetScriptCharacterClass(a0) +0x1200 ---------------
     void getSCRCharaAIWorkPtr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x013CFAE8u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         A6_NCHK(0x013CFAE8u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(kAiWork, rdram, ctx, runtime);
@@ -345,6 +347,7 @@ namespace decomp_scriptvm2
     // ---- getSCRDataCtrlWork: the AI work rounded up to 16 bytes ------------------
     void getSCRDataCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x01455F80u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         A6_NCHK(0x01455F80u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(kCtrlWork, rdram, ctx, runtime);

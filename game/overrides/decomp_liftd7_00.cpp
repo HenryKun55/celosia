@@ -7,6 +7,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a5.h" // a5
 #include "typed_a6.h" // a6
+#include "typed_a7.h" // a7
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6156,6 +6157,7 @@ void LoaderSysFRead(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // LoaderSysFWrite (0x103080-0x103098)
 void LoaderSysFWrite(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x10B678u, ::sceWrite_0x10b678), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(LoaderSysFWrite, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(6); const uint32_t a2_r = typed::LoaderSysFWrite(rdram, runtime, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -16542,6 +16544,7 @@ L_1b0ef8:
 void iosCreateMsgQueue(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1B12B8u, 0)) { iosCreateMsgQueue_0x1b12b8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x1283D0u, ::memset_0x1283d0), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(iosCreateMsgQueue, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h4 = a4::hi64(ctx->r[4]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; A7_IN(16); const uint64_t a2_r = typed::iosCreateMsgQueue(rdram, runtime, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h4, a3_xo); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18);
     sp = sp - 0x20u;
@@ -16810,6 +16813,7 @@ L_1b191c:
 void iosPadInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1B28C8u, 0)) { iosPadInit_0x1b28c8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x1B3C50u, lift_d1::Init_Shock) && A7_HOLDS(0x1B3D10u, lift_d1::Shock_SetShockVoiceSet) && A7_HOLDS(0x1B3D48u, lift_d1::Init_Player) && A7_HOLDS(0x1B3D88u, lift_d1::Init_Controler), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A7_CHK(iosPadInit, a2_4, a2_8); uint64_t a3_xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; A7_IN(17); const uint64_t a2_r = typed::iosPadInit(rdram, runtime, a2_4, a2_8, a3_xo); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 6, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t v0 = Ps2GprU32(ctx, 2), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;

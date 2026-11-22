@@ -9,6 +9,7 @@
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
 #include "typed_a6.h" // a6
+#include "typed_a7.h" // a7
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6324,6 +6325,7 @@ L_1379518:
 void SCRFuncBuddhaMissileInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1379598u, 0)) { SCRFuncBuddhaMissileInit_0x1379598(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(SCRFuncBuddhaMissileInit, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(246); const a1::RetVF a2_r = typed::SCRFuncBuddhaMissileInit(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     sp = sp - 0x10u;
@@ -7563,6 +7565,7 @@ L_13a55c4:
 void gamecore_sub_013A5A88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13A5A88u, 0)) { gamecore_sub_013A5A88_0x13a5a88(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x10F1A20u, lift_d1::GetLayoutClass) && A7_HOLDS(0x10F93F0u, ::a6ad::GetLightClass) && A7_HOLDS(0x110A838u, lift_d1::GetScriptAnimationClass) && A7_HOLDS(0x110D058u, ::decomp_scriptvm3::getScriptLayoutClass) && A7_HOLDS(0x1125B30u, lift_d1::GetCollisionDBAttributeAdr) && A7_HOLDS(0x1162E08u, lift_d1::dynamic_cast_to_camera_obj) && A7_HOLDS(0x1162F08u, lift_d1::get_camera_obj_layout_class) && A5_JAL(0x13A5A94u, 0x1125B30u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(gamecore_sub_013A5A88, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(736); const uint64_t a2_r = typed::gamecore_sub_013A5A88(rdram, runtime, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;
@@ -7598,6 +7601,7 @@ void gamecore_sub_013A5A88(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 void SCRConditionMinoCAddFlagChack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13A5BC0u, 0)) { SCRConditionMinoCAddFlagChack_0x13a5bc0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(SCRConditionMinoCAddFlagChack, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(285); const uint64_t a2_r = typed::SCRConditionMinoCAddFlagChack(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -7886,6 +7890,7 @@ void SCRPoseidonShoot(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void SCRFuncSnakeCDeflateEnd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13F5D70u, 0)) { SCRFuncSnakeCDeflateEnd_0x13f5d70(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(SCRFuncSnakeCDeflateEnd, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(346); const uint64_t a2_r = typed::SCRFuncSnakeCDeflateEnd(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 31));
@@ -8100,6 +8105,7 @@ L_1406968:
 void SCRFuncUnageSetAttackPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1406988u, 0)) { SCRFuncUnageSetAttackPos_0x1406988(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x128188u, ::memcmp_0x128188) && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x1147AB0u, lift_d1::DeleteTwoWayLink) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A7_HOLDS(0x14320B8u, lift_d1::setAttainmentPos) && A7_HOLDS(0x1432358u, lift_d1::setAttainmentPosAndDirPosAndLock) && A7_HOLDS(0x1432448u, lift_d1::setAttainmentPosAndDir) && A7_HOLDS(0x1455F80u, ::decomp_scriptvm2::getSCRDataCtrlWork) && A5_JAL(0x13CFAF0u, 0x110CB28u) && A5_JAL(0x14320DCu, 0x128188u) && A5_JAL(0x1432114u, 0x1147AB0u) && A5_JAL(0x1432384u, 0x128188u) && A5_JAL(0x14323BCu, 0x1147AB0u) && A5_JAL(0x1432474u, 0x128188u) && A5_JAL(0x14324ACu, 0x1147AB0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(SCRFuncUnageSetAttackPos, a2_2, a2_4, a2_5, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); A7_IN(578); const uint64_t a2_r = typed::SCRFuncUnageSetAttackPos(rdram, runtime, a2_2, a2_4, a2_5, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2, a4_h3); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t at = Ps2GprU32(ctx, 1), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), sp = Ps2GprU64(ctx, 29);
     float f0 = ctx->f[0];
@@ -8405,6 +8411,7 @@ L_14526cc:
 void SCRConditionInstantaneousPlayerInSight(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1457BA0u, 0)) { SCRConditionInstantaneousPlayerInSight_0x1457ba0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A7_HOLDS(0x1455F80u, ::decomp_scriptvm2::getSCRDataCtrlWork) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(SCRConditionInstantaneousPlayerInSight, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(662); const uint64_t a2_r = typed::SCRConditionInstantaneousPlayerInSight(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     sp = sp - 0x10u;
@@ -8432,6 +8439,7 @@ void SCRConditionInstantaneousPlayerInSight(uint8_t *rdram, R5900Context *ctx, P
 void SCRConditionLessMyselfPartsLife(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1458D88u, 0)) { SCRConditionLessMyselfPartsLife_0x1458d88(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A7_HOLDS(0x13784B8u, lift_d1::getBossPartsLifeRatio) && A7_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const float a2_f0 = ctx->f[0]; const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; const float a2_f20 = ctx->f[20]; A7_CHK(SCRConditionLessMyselfPartsLife, a2_2, a2_4, a2_9, a2_f0, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A7_IN(675); const a1::RetVF a2_r = typed::SCRConditionLessMyselfPartsLife(rdram, runtime, a2_2, a2_4, a2_9, a2_f0, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a4_h2); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5), t1 = Ps2GprU64(ctx, 9);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f20 = ctx->f[20];
@@ -9403,6 +9411,7 @@ L_145d600:
 void updateAimIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x145D638u, 0)) { updateAimIKWork_0x145d638(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A7_GO() && A7_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x145D644u, 0x10C0A70u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A7_CHK(updateAimIKWork, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5)}; A7_IN(165); const uint64_t a2_r = typed::updateAimIKWork(rdram, runtime, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h5, a3_xo); A7_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a7
     uint32_t v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;

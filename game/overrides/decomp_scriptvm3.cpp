@@ -72,6 +72,7 @@
 // CheckLetter's loop checkpoint is left out; GetScriptClass takes the
 // recompiled code (before any store) for a jump table entry it does not know.
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "sotc_pf141.h"
 
@@ -473,6 +474,7 @@ namespace decomp_scriptvm3
     // ---- the script class accessors -----------------------------------------
     void getScriptCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x0110CB28u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x0110CB28u, rdram, ctx, runtime);
         move(ctx, 2, 4);
@@ -522,6 +524,7 @@ namespace decomp_scriptvm3
 
     void getScriptClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x01102438u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         A6_NCHK(0x01102438u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x01102438u, rdram, ctx, runtime);
@@ -736,6 +739,7 @@ namespace decomp_scriptvm3
 
     void setScriptCtrlStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x010CC178u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         A6_NCHK(0x010CC178u); // round A6: a check build compares the typed function made from its MIPS (typed_a6_nchk.h)
         if (!sotc_decomp::scriptVmOn())
             return fallback(0x010CC178u, rdram, ctx, runtime);

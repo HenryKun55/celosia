@@ -23,6 +23,7 @@
 // native's frame (dead stack below the caller's sp; no guest code runs in
 // between). v0 as the original returns it.
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -206,6 +207,7 @@ namespace decomp_heap120
 
     void insertFn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x001ADBC0u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         if (!sotc_decomp::switchOn(sotc_decomp::kHeap120))
         {
             ctx->pc = kInsert;
@@ -218,6 +220,7 @@ namespace decomp_heap120
 
     void allocFn(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x001ADDC0u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         if (!sotc_decomp::switchOn(sotc_decomp::kHeap120))
         {
             ctx->pc = kAlloc;

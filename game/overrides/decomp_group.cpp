@@ -22,6 +22,7 @@
 // anything is written for the iterators; for the walk, the rest of it from
 // its loop head with the registers it has there).
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "decomp_group.h"
 #include "c2scene.h"
 
@@ -105,6 +106,7 @@ namespace decomp_group
 
     void groupForNext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x001C76D0u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         const Ram m{rdram};
         NextRegs r;
         if (!next(m, GPR_U32(ctx, 4), r))

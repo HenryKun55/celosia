@@ -963,6 +963,60 @@ namespace
         uint32_t m_slotIndex = 0;
     };
 
+    // Round A7: Ps2VarArgCursor over the eight argument registers' low words given as values (and the guest sp): the
+    // same slots, the same stack base (sp + 0x10), the same reads, for printfCore (the stub and typed callers share it)
+    class Ps2VarArgValuesCursor
+    {
+    public:
+        Ps2VarArgValuesCursor(uint8_t *rdram, PS2Runtime *runtime, const uint32_t *args8, uint32_t sp, int fixedArgs)
+            : m_rdram(rdram), m_runtime(runtime), m_args(args8), m_stackBase(sp + 0x10)
+        {
+            if (fixedArgs < 0)
+            {
+                fixedArgs = 0;
+            }
+            m_slotIndex = static_cast<uint32_t>(fixedArgs);
+        }
+
+        uint32_t nextU32()
+        {
+            const uint32_t value = readWordAtSlot(m_slotIndex);
+            ++m_slotIndex;
+            return value;
+        }
+
+        uint64_t nextU64()
+        {
+            if ((m_slotIndex & 1u) != 0u)
+            {
+                ++m_slotIndex;
+            }
+            const uint64_t low = readWordAtSlot(m_slotIndex);
+            const uint64_t high = readWordAtSlot(m_slotIndex + 1u);
+            m_slotIndex += 2u;
+            return low | (high << 32);
+        }
+
+    private:
+        uint32_t readWordAtSlot(uint32_t slotIndex) const
+        {
+            if (slotIndex < 8u)
+            {
+                return m_args[slotIndex];
+            }
+            const uint32_t stackAddr = m_stackBase + (slotIndex - 8u) * 4u;
+            uint32_t value = 0;
+            (void)tryReadWordFromGuest(m_rdram, m_runtime, stackAddr, value);
+            return value;
+        }
+
+        uint8_t *m_rdram;
+        PS2Runtime *m_runtime;
+        const uint32_t *m_args;
+        uint32_t m_stackBase;
+        uint32_t m_slotIndex = 0;
+    };
+
     class Ps2VaListCursor
     {
     public:
@@ -1337,6 +1391,21 @@ namespace
     std::string formatPs2StringWithArgs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, const char *format, int fixedArgs)
     {
         Ps2VarArgCursor cursor(rdram, ctx, runtime, fixedArgs);
+        return formatPs2StringCore(
+            rdram,
+            format,
+            [&cursor]()
+            { return cursor.nextU32(); },
+            [&cursor]()
+            { return cursor.nextU64(); },
+            [rdram, runtime](uint32_t addr)
+            { return readPs2CStringBounded(rdram, runtime, addr); });
+    }
+
+    // Round A7: formatPs2StringWithArgs over argument values (printfCore)
+    std::string formatPs2StringWithArgValues(uint8_t *rdram, PS2Runtime *runtime, const char *format, const uint32_t *args8, uint32_t sp, int fixedArgs)
+    {
+        Ps2VarArgValuesCursor cursor(rdram, runtime, args8, sp, fixedArgs);
         return formatPs2StringCore(
             rdram,
             format,

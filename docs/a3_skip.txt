@@ -9,3 +9,4 @@ RelocateSelfSymbol          # 19 201 / 828 / boot (all three)
 sheetMgrCheckSegInitList    # 15 585 / 534 / all three
 manager_sub_011117C0        # 11 233 / 420 / ride7, lake6
 manager_sub_010FC428        # 32 201 / 1 149 / ride7, attract (round A6: a string search, strcmp in a loop; the check builds' [a6] longest deferral)
+sheetMgrSearchSheetDataObj  # 10 241 / 1 337 / ride7, attract, lake6 (round A7: a sheet search loop, 347 back edges in one call; the check builds' [a7] longest deferral)

@@ -1,0 +1,16 @@
+# a7_natives.txt: more hand natives tools/typed_lift2.py stage 7 types from their MIPS (round A7; docs/decomp_a7.md), A6's rule
+# (docs/a6_natives.txt): each was read; its body gives what its MIPS gives (the stores in the same words, v0), no host state,
+# no non-exact float path; its fallback is the recompiled MIPS. A check build compares each with its typed function at its own
+# entry (A7_NCHK). address | the native symbol its registrar puts in the slot
+0110cb28 decomp_scriptvm3::getScriptCharacterClass   # GetScriptCharacterClass: the MIPS step by step (move, li, lbu, addiu, xor, movn)
+001c76d0 decomp_group::groupForNext                  # isysGroupForNext: the group walk (round 106), no lock in its MIPS
+001adbc0 decomp_heap120::insertFn                    # kernel_sub_001ADBC0: a free block into its class list (round 120: the same words in the same order)
+001addc0 decomp_heap120::allocFn                     # kernel_sub_001ADDC0: the heap's block allocator (round 120), the split's insert inline
+011478b8 decomp_collision::entryModifiedEntry        # EntryModifiedManager: the modified-entry mark (round 39)
+01114c70 decomp_collision::verticesIndepEntry        # manager_sub_01114C70: the vertex cache fill (round 39), EntryModifiedManager per vertex
+001cbdb8 decomp_sym120::makeHash                     # MakeStrHashValue: hash * 77 + (c - 0x2d), lo / hi as the last mult leaves them
+001be898 decomp_quat::absVector                      # iosAbsVector: vabs (no clamp), vf5 / vf6 as it leaves them
+# Not listed: the quaternion natives (SetQuaternionByAxisRotateVWithNoRegularize, GetQuaternionByAxisDirZY,
+# GetDifferencialQuaternionWithNoRegularize: their quat122 path is plain host float, not bit-exact, and on by default), iosGetSinCosf
+# (host sin / cos), isysGroupForExit / isysRequestDeleteObj (WaitSema / SignalSema in their MIPS: phase B), manager_sub_01116108
+# (skinfinder's corners: a host-side memo of the last vertex), GetMatrixFromQuatPos (cam126's frameOf path, not read as bit-exact).

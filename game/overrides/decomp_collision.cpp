@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "a9cmp.h"
 #include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
@@ -726,6 +727,7 @@ namespace decomp_collision
 
     void entryModifiedEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x011478B8u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         const uint32_t m = GPR_U32(ctx, 4), idx = GPR_U32(ctx, 5);
         if (!sotc_decomp::camCollOn() || !G::plain(m, 0x14u))
             return sotc_decomp::recompiled(kEntryModified)(rdram, ctx, runtime);

@@ -11,6 +11,11 @@ namespace ps2_stubs
     void strcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr);
     uint32_t strlenCore(uint8_t *rdram, uint32_t strAddr);
     int32_t strcmpCore(uint8_t *rdram, uint32_t str1Addr, uint32_t str2Addr);
+    // Round A7: printf's and vsprintf's cores (the stubs read their registers and call them; typed callers too): printf over
+    // the eight argument registers' low words and the guest sp (its varargs past the registers from the stack, as the stub
+    // reads them), its return value; vsprintf over (str, format, va_list), its return value
+    int32_t printfCore(uint8_t *rdram, PS2Runtime *runtime, const uint32_t *args8, uint32_t sp);
+    int32_t vsprintfCore(uint8_t *rdram, PS2Runtime *runtime, uint32_t str_addr, uint32_t format_addr, uint32_t va_list_addr);
     void malloc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void memalign(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void free(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

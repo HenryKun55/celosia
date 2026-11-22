@@ -22,6 +22,7 @@
 // below sp are dead after the return and are not written. v0, f0, fcr31
 // and the VU0 registers each function writes as the original leaves them.
 #include "sotc_decomp.h"
+#include "typed_a7_nchk.h" // a7: A7_NCHK
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1158,6 +1159,7 @@ namespace decomp_quat
     // iosAbsVector(out, v): vabs (no clamp), vf5 / vf6 as it leaves them.
     void absVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A7_NCHK(0x001BE898u); // round A7: a check build compares the typed function made from its MIPS (typed_a7_nchk.h)
         const uint32_t out = GPR_U32(ctx, 4), v = GPR_U32(ctx, 5);
         if (!sotc_decomp::camCollOn() || !inRam(out, 16u) || !inRam(v, 16u))
             return sotc_decomp::recompiled(kAbsVector)(rdram, ctx, runtime);
