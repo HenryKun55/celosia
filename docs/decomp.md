@@ -23596,3 +23596,21 @@ docs/perf_p1.md. Scripts, runs and logs: `build/agent-scratch/p1/`. Switch `SOTC
 - **Boot**: 89 MB taken, mounted at 3 025, rode the 600 s; pictures normal (Wander, Agro, reins, shadows). spalign 0.
 - **Honest size**: Vita3K sees ~0.1 ms; the console estimate is 0.2-0.5 ms, far from the 3 ms aimed at: the rest of the
   chain's cost is its PS2 shape (ctx-native / lifted code on the R5900 context), which needs the DC rewrite, not layouts.
+
+## Decomp A5: the typed lifter's fifth stage: ABI, relocations, guest frames, jump tables (a5typed) (2026-11-22)
+
+docs/decomp_a5.md. Scripts, runs and logs: `build/agent-scratch/a5/`. Switch `SOTC_A5TYPED` (A/B `a5typed`, `kA5Typed`).
+
+- **Unlock table first**: of A4's 2 973 waiting functions, the lifter's own refusal kinds block at most ~130; the wall is
+  the hand natives in slots (2 404 blocked) and calls outside the IR (syscalls, memset / memcpy ...: 1 369).
+- **Widenings** (tools/typed_lift2.py stage 5): W1 the ABI proof redone over typed callee interfaces (slots tested,
+  A5_HOLDS); W2 relocated calls to their static target with the instruction word tested (A5_JAL); W3 frames that escape
+  stay in guest RAM below sp at the lifted addresses (sp a typed guest address); W4 untouched 32-bit inputs passed whole;
+  W5 jump tables as switch statements.
+- **235 more functions**: (d) = **1 936 (21.5%)**, 6.7% of the console game thread.
+- **Exact**: in-run checks 4.04 M (A5) + 4.45 M (A4) + 9.29 M (A3) on ride7 / attract / lake6, 0 differences; offline
+  harness ~1.0 M per mode, 0 in finite / host, default-NaN only NaN-sign cases on Inf / NaN inputs (as A3).
+- **Measured**: A/B pooled +0.091 +- 0.108 ms (even); 89 MB boot normal; spalign 0. **On by default**.
+- **Next**: typed interfaces for the hand natives and the syscall / libc calls (GetScriptLayoutClass, GetLightClass,
+  dynamic_cast_to_camera_obj each hold ~1 000 waiting functions).
+

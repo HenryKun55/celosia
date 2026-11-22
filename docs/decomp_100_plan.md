@@ -199,6 +199,11 @@ typed callees (depth 1-2): 225 more functions, (d) = 1 204 (13.3%), 1.8% of the 
 exact (9.83 M in-run checks, 0 differ), A/B even. The wall now: loops (the back edge's checkpoint test), VU0 / 128-bit,
 the natives' real inputs. Found: N3's direct-call flag is 0 in game (29 held targets).
 
+**Status (2026-11-22, rounds A3-A5)**: A3 loops (checkpoint deferred to the call's end), A4 the VU0 ABI (vec4 reference
+parameters), A5 the ABI over typed interfaces, relocations, guest frames, jump tables: (d) = 1 936 (21.5%), 6.7% of the
+console game thread, all exact. The lifter's own refusals now unlock at most ~92 more; the wall is the hand natives in
+slots (2 404 waiting behind them) and calls outside the IR (syscalls, libc): next, typed interfaces for those.
+
 **Status (2026-11-21, round A3, docs/decomp_a3.md)**: typed loops: a back edge charges the clock and defers the
 checkpoint to the first one after the call (only with n5sched + NOCHK; loops that may wait on memory refused; five
 long-loop functions left lifted so a due event is taken at most 1 825 EE cycles late); scratch registers lifted callers
