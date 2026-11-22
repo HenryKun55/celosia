@@ -1312,7 +1312,7 @@
   {
    "round": "P4",
    "date": "2026-11-22",
-   "commit": "",
+   "commit": "425aafe",
    "focus": "The heap's garbage moves without the whole hook-queue join (console 30 fps)",
    "summary": "Round P4 (switch p4move, off by default): every heap garbage move used to join the whole hook-worker queue (P3's measured wait, console 0.86 / 1.03 ms a frame riding). Now the game thread walks the queued jobs from the newest back and waits only up to the newest one whose guest reads may meet the move's destination or source span (read spans per job kind: a model's plan spans and its per-frame texture / row / object pointers with a read log, textured 2D / cloth / particle textures, the shadow batch; a planless model and the kick pass read everything); every job sees the garbage moves as at its hand-over.",
    "result": "Exact: SOTC_P4MOVE_CHECK on ride7 900 s / attract 400 s / lake6 400 s: 271 moves went on past 20 254 queued jobs, 2.26 M guest reads checked, 0 inside a moved span, 0 bytes different from the full join's memory, 271 whole-RAM compares 0 different. 95-97% of the moves that joined the whole queue go on at once, 1.5-4% wait for part of it, 0 whole joins. Vita3K A/B (222 MHz, off - on, 2 SE): ride7 +0.074 +- 0.141, +0.100 +- 0.159, lake6 +0.067 +- 0.108; pooled +0.080 +- 0.040 ms (z 2.0), busy +0.108 +- 0.039; move joins 0.189 -> 0.064 ms a frame. 89 MB boot rode, pictures normal; 0 sp-based NEON accesses. Console A/B package celosia-p4.vpk + env-ab.txt."
