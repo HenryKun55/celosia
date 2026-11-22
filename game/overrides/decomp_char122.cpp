@@ -29,6 +29,7 @@
 // line (calls, host us a frame by part).
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
+#include "p1_chara.h"
 
 namespace s3chara
 {
@@ -1082,7 +1083,7 @@ namespace char122
             }
             int checkN()
             {
-                static const int v = envInt("SOTC_C1KEYS_CHECK", 0);
+                static const int v = envInt("SOTC_C1KEYS_CHECK", p1chara::checkOn()); // round P1: SOTC_P1CHARA_CHECK turns it on too
                 return v;
             }
             int logN()
@@ -1091,7 +1092,7 @@ namespace char122
                 return v;
             }
 
-            inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kC1Keys) && sotc_decomp::lane(runtime) == 0; }
+            inline bool on(const PS2Runtime *runtime) { return (sotc_decomp::switchOn(sotc_decomp::kC1Keys) || sotc_decomp::p1charaOn()) && sotc_decomp::lane(runtime) == 0; } // round P1: p1chara turns the rows on too
 
             Cache *cache()
             {

@@ -17,6 +17,7 @@
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
 #include "s14hook.h"
+#include "p1_chara.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -127,8 +128,20 @@ namespace decomp_skinpal
             const vu::Rows rows = vu::clampRows(raw);
             __m128 r[4], acc = ctx->vu0_acc;
             uint32_t at = bonesAt;
+            // Round P1 (p1chara): the bone matrices' and the palette's lines two bones on asked ahead (prefetch only).
+            const bool p1 = sotc_decomp::p1charaOn() && sotc_decomp::lane(runtime) == 0;
+            if (p1)
+                ++p1chara::g_st.palettes, p1chara::g_st.paletteBones += static_cast<uint64_t>(bones);
             for (; i < static_cast<uint32_t>(bones); ++i, at += 0x40u)
             {
+                if (p1 && i + 2u < static_cast<uint32_t>(bones))
+                {
+                    const uint32_t nx = at + 0x80u, po = palette + (((i + 2u) * 4u + ((i + 3u) >> 6)) << 4);
+                    __builtin_prefetch(rdram + (nx & PS2_RAM_MASK));
+                    __builtin_prefetch(rdram + ((nx + 0x20u) & PS2_RAM_MASK));
+                    __builtin_prefetch(rdram + (po & PS2_RAM_MASK), 1);
+                    __builtin_prefetch(rdram + ((po + 0x20u) & PS2_RAM_MASK), 1);
+                }
                 for (int k = 0; k < 4; ++k)
                     r[k] = vu::apply(rows, ram.q(at + k * 0x10u), &acc);
                 const uint32_t out = palette + ((i * 4u + ((i + 1u) >> 6)) << 4);
