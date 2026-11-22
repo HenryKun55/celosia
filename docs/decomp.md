@@ -23521,3 +23521,27 @@ docs/decomp_a2.md. Scripts, runs and logs: `build/agent-scratch/a2/`. Switch `SO
   even. 89 MB boot normal; 0 sp-based NEON accesses. **On by default** (`SOTC_A2TYPED=0` off).
 - **Next**: loops (the back edge's checkpoint test), VU0 / 128-bit as vec4, natives' real inputs, direct typed calls
   from lifted callers into A2's functions; and N3's 29 held targets.
+
+## Decomp A3: typed loops (the back edge's checkpoint deferred), extra outputs, 335 more functions (a3typed) (2026-11-21)
+
+docs/decomp_a3.md. Scripts, runs and logs: `build/agent-scratch/a3/`. Switch `SOTC_A3TYPED` (A/B `a3typed`, `kA3Typed`).
+
+- **Loops**: a typed back edge charges the EE clock the lifted back edge's 32 cycles and does not test (A3_BACK); the
+  crossed gate is taken at the first checkpoint after the call (N6's argument, applied to back edges). Only while
+  n5sched and NOCHK are in effect (A3_GO). Loops whose exit may wait on memory something else writes are refused (spin
+  filter, 26). Measured (check builds): five functions with long loops deferred a due checkpoint by up to 173 120 EE
+  cycles and are left lifted (docs/a3_skip.txt); with them out 0.64-1.01% of the calls defer one, mean 239-551 cycles,
+  max 1 825 (under N6's 3 744).
+- **Extra outputs**: a scratch register a lifted caller reads after the call is passed back through `xo` and written
+  into the context by the adapter (lift_d1's dirty-flag rule); typed callers pass none. Most of A1 / A2's caller-check
+  refusals come in this way.
+- **Tool** `tools/typed_lift2.py` stage 3 (A2's output unchanged): back edges allowed, analyses to a fixpoint, callees
+  through A3_HOLDS (no N3 direct-target restriction), depth by depth, the re-emit for extra outputs.
+- **335 more functions**: 151 with loops (205 back edges), 168 loop-free leaves A1 / A2 refused, 16 with frames / calls.
+  Class (d): **1 526 (16.91%), 3.46% of the bytes, 5.01% of the console game thread** (A2: 2.24%).
+- **Exact**: in-run check (pc3) ride7 / attract / lake6 17.6 M checks, 178 / 166 / 184 of 335 functions reached, 0
+  differences (the first set, 340: 16.7 M and 17.2 M, 0); offline harness 1.0 M random states per mode, 0 differences
+  with finite floats and with the default-NaN mode on (5 NaN-sign cases in the host's mode, compiler operand order).
+- **Measured** (p3, off - on): ride7 -0.005 +- 0.137 / +0.085 +- 0.121, lake6 +0.036 +- 0.105; pooled +0.039 +- 0.070: even. 89 MB boot (p3) booted, mounted at frame 5 942 and rode the 600 s, pictures normal; 0 sp-based NEON accesses. **On by default** (`SOTC_A3TYPED=0` off).
+- **Next**: VU0 / 128-bit (needs a VU0 register analysis across calls first: 159 of the 218 pass vf values between
+  functions), n4_abi's 169 unproven, direct typed calls from lifted callers.

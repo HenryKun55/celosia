@@ -199,6 +199,13 @@ typed callees (depth 1-2): 225 more functions, (d) = 1 204 (13.3%), 1.8% of the 
 exact (9.83 M in-run checks, 0 differ), A/B even. The wall now: loops (the back edge's checkpoint test), VU0 / 128-bit,
 the natives' real inputs. Found: N3's direct-call flag is 0 in game (29 held targets).
 
+**Status (2026-11-21, round A3, docs/decomp_a3.md)**: typed loops: a back edge charges the clock and defers the
+checkpoint to the first one after the call (only with n5sched + NOCHK; loops that may wait on memory refused; five
+long-loop functions left lifted so a due event is taken at most 1 825 EE cycles late); scratch registers lifted callers
+read become extra outputs. 335 more functions, (d) = 1 526 (16.9%), 3.5% of the bytes, 5.0% of the console game thread;
+exact (17.6 M in-run checks, 0 differ), A/B even. The wall now: VU0 / 128-bit (needs a VU0 register analysis across
+calls), n4_abi's unproven, the 3 011 waiting on an untyped callee.
+
 **Phase A: the tools (4 rounds)**
 
 | round | what | functions | done when |
