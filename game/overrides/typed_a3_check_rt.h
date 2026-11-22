@@ -11,21 +11,29 @@
 //   - the reference's back edges run without the checkpoint (A3_REF_BACK), as the typed function's do; both legs count
 //     their back edges, and the offline harness gives a check up past a cap (random states can loop for ever);
 //   - the extra outputs (xo) are compared with the reference's registers.
+//
+// Round A4 (typed_a4_check_rt.h) includes this header with A3CK_NS = a4ck and A3CK_LABEL = "[a4]": its own counts and
+// overlay, plus the VU0 interface's comparison (vuDiffer: every VU0 register, ACC, Q, status and every GPR's upper half
+// of the reference's context against the typed leg's) and the quadword accesses (rd128 / wr128: two 8-byte halves).
 #pragma once
 
+#ifndef A3CK_NS
+#define A3CK_NS a3ck
+#define A3CK_LABEL "[a3]"
+#endif
 #define A2_CHECK_TU 1
 #define A3_CHECK_TU 1
 #include "typed_a1_check_rt.h"
 #include "typed_a2_rt.h"
 #include "typed_a3_rt.h"
 
-namespace a3ck
+namespace A3CK_NS
 {
     extern const a1ck::CkEntry kEntries[];
     extern const uint32_t kEntryCount;
     inline a1ck::CkStats g_stats;
     inline bool g_trace = false;
-    inline uint64_t g_unknownCalls = 0, g_frameStores = 0, g_unverified = 0, g_capped = 0, g_xo = 0, g_backs[2] = {0, 0};
+    inline uint64_t g_unknownCalls = 0, g_frameStores = 0, g_unverified = 0, g_capped = 0, g_xo = 0, g_backs[2] = {0, 0}, g_vu = 0;
     constexpr uint32_t kDeadStack = 0x40000u; // a store in [sp - this, sp) is to the dead stack
     constexpr uint32_t kSlotsLog2 = 17;
     constexpr uint32_t kSlots = 1u << kSlotsLog2; // overlay bytes a leg may hold
@@ -45,6 +53,7 @@ namespace a3ck
     struct State
     {
         R5900Context ctx; // the reference's context (first: the block is 16-aligned)
+        R5900Context tctx; // A4: the typed leg's VU0 state over a copy of the input context (vuDiffer)
         Overlay ov[2];
         uint32_t gen = 0, used[2] = {0, 0}, sp = 0;
         uint64_t h[2] = {0, 0}, n[2] = {0, 0}, legBacks = 0;
@@ -158,6 +167,40 @@ namespace a3ck
 #endif
     }
 
+    // A4: a quadword access (the address's low 4 bits already cleared): two 8-byte halves, the same in both legs
+    inline __m128i rd128(uint32_t a)
+    {
+        const uint64_t lo = rd<uint64_t>(a), hi = rd<uint64_t>(a + 8u);
+        __m128i v;
+        std::memcpy(reinterpret_cast<uint8_t *>(&v), &lo, 8);
+        std::memcpy(reinterpret_cast<uint8_t *>(&v) + 8, &hi, 8);
+        return v;
+    }
+    inline void wr128(uint32_t a, __m128i v)
+    {
+        uint64_t lo, hi;
+        std::memcpy(&lo, reinterpret_cast<const uint8_t *>(&v), 8);
+        std::memcpy(&hi, reinterpret_cast<const uint8_t *>(&v) + 8, 8);
+        wr<uint64_t>(a, lo);
+        wr<uint64_t>(a + 8u, hi);
+    }
+    // A4: the typed leg's VU0 state: a copy of the input context the generated check writes the VU0 outputs into
+    inline R5900Context &ckTyCtx(const R5900Context *in)
+    {
+        State &s = st();
+        std::memcpy(static_cast<void *>(&s.tctx), in, sizeof(R5900Context));
+        return s.tctx;
+    }
+    // every VU0 register, ACC, Q, status and every GPR's upper half: the reference's against the typed leg's
+    inline bool vuDiffer(const R5900Context &t, const R5900Context &ref)
+    {
+        bool d = std::memcmp(&t.vu0_vf[0], &ref.vu0_vf[0], sizeof(t.vu0_vf)) != 0 || std::memcmp(&t.vu0_acc, &ref.vu0_acc, 16) != 0 ||
+                 a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status;
+        for (int r = 1; r < 32 && !d; ++r)
+            d = std::memcmp(reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8) != 0;
+        return d;
+    }
+
     inline void ckUnknownCall(uint32_t) { ++g_unknownCalls; }
     inline void legBack()
     {
@@ -248,13 +291,16 @@ namespace a3ck
 
     // kind: 0 void, 1 uint32_t (v0 sign-extended), 2 uint64_t, 3 float, 4 both; dg / df: the scratch GPRs / FPRs;
     // xbad: an extra output differs from the reference's register
-    inline void ckEnd(int id, const R5900Context *in, const R5900Context &ref, int kind, uint64_t v0, float f0, uint32_t dg, uint32_t df, bool xbad)
+    inline void ckEnd(int id, const R5900Context *in, const R5900Context &ref, int kind, uint64_t v0, float f0, uint32_t dg, uint32_t df, bool xbad,
+                      bool vbad = false)
     {
         State &s = st();
         a1ck::CkStats &g = g_stats;
-        bool ret = xbad, mem = false, pc = false, sp = false, other = false, dropped = false;
+        bool ret = xbad || vbad, mem = false, pc = false, sp = false, other = false, dropped = false;
         if (xbad)
             ++g_xo;
+        if (vbad)
+            ++g_vu;
         if ((kind == 1 || kind == 2 || kind == 4) && Ps2GprU64(&ref, 2) != v0)
             ret = true;
         if ((kind == 3 || kind == 4) && a1ck::ckBits(ref.f[0]) != a1ck::ckBits(f0))
@@ -308,9 +354,9 @@ namespace a3ck
             if (g.firstId < 0)
             {
                 g.firstId = id;
-                std::snprintf(g.first, sizeof(g.first), "%s ret %d mem %d (stores %llu / %llu) pc %d sp %d other %d xo %d v0 %llx/%llx",
+                std::snprintf(g.first, sizeof(g.first), "%s ret %d mem %d (stores %llu / %llu) pc %d sp %d other %d xo %d vu %d v0 %llx/%llx",
                               (id >= 0 && static_cast<uint32_t>(id) < kEntryCount) ? kEntries[id].name : "?", ret, mem,
-                              (unsigned long long)s.n[0], (unsigned long long)s.n[1], pc, sp, other, xbad ? 1 : 0,
+                              (unsigned long long)s.n[0], (unsigned long long)s.n[1], pc, sp, other, xbad ? 1 : 0, vbad ? 1 : 0,
                               (unsigned long long)Ps2GprU64(&ref, 2), (unsigned long long)v0);
             }
         }
@@ -323,20 +369,20 @@ namespace a3ck
         uint32_t fns = 0;
         for (uint32_t i = 0; i < kEntryCount && i < a1ck::kMaxFunctions; ++i)
             fns += g.perCalls[i] ? 1u : 0u;
-        std::fprintf(stderr, "[a3] frame %llu: checks %llu (functions reached %u of %u) differ %llu (ret %llu mem %llu pc %llu sp %llu other %llu; extra outputs %llu); "
+        std::fprintf(stderr, A3CK_LABEL " frame %llu: checks %llu (functions reached %u of %u) differ %llu (ret %llu mem %llu pc %llu sp %llu other %llu; extra outputs %llu, VU0 state %llu); "
                              "unverified (overlay full) %llu, slow-path loads %llu, nested %llu, unknown calls %llu, dead-stack stores %llu, back edges ref %llu typed %llu; "
                              "scratch slots changed by the reference %llu%s%s\n",
                      frame, (unsigned long long)g.calls, fns, kEntryCount, (unsigned long long)g.differ, (unsigned long long)g.ret,
                      (unsigned long long)g.mem, (unsigned long long)g.pc, (unsigned long long)g.sp, (unsigned long long)g.other,
-                     (unsigned long long)g_xo, (unsigned long long)g_unverified, (unsigned long long)g.io, (unsigned long long)g.nested,
+                     (unsigned long long)g_xo, (unsigned long long)g_vu, (unsigned long long)g_unverified, (unsigned long long)g.io, (unsigned long long)g.nested,
                      (unsigned long long)g_unknownCalls, (unsigned long long)g_frameStores, (unsigned long long)g_backs[0],
                      (unsigned long long)g_backs[1], (unsigned long long)g.droppedChanged, g.firstId >= 0 ? "; first: " : "", g.first);
     }
 }
 
-#define A3_REF_BACK() a3ck::legBack()
+#define A3_REF_BACK() A3CK_NS::legBack()
 
-// log-mode memory for both legs (a3ck's overlay instead of A1's list)
+// log-mode memory for both legs (A3CK_NS's overlay instead of A1's list)
 #undef READ8_B
 #undef READ16_B
 #undef READ32_B
@@ -353,19 +399,24 @@ namespace a3ck
 #undef WRITE16
 #undef WRITE32
 #undef WRITE64
-#define READ8_B(b, o) a3ck::rd<uint8_t>(A1CK_EA(b, o))
-#define READ16_B(b, o) a3ck::rd<uint16_t>(A1CK_EA(b, o))
-#define READ32_B(b, o) a3ck::rd<uint32_t>(A1CK_EA(b, o))
-#define READ64_B(b, o) a3ck::rd<uint64_t>(A1CK_EA(b, o))
-#define WRITE8_B(b, o, v) a3ck::wr<uint8_t>(A1CK_EA(b, o), (uint8_t)(v))
-#define WRITE16_B(b, o, v) a3ck::wr<uint16_t>(A1CK_EA(b, o), (uint16_t)(v))
-#define WRITE32_B(b, o, v) a3ck::wr<uint32_t>(A1CK_EA(b, o), (uint32_t)(v))
-#define WRITE64_B(b, o, v) a3ck::wr<uint64_t>(A1CK_EA(b, o), (uint64_t)(v))
-#define READ8(a) a3ck::rd<uint8_t>((uint32_t)(a))
-#define READ16(a) a3ck::rd<uint16_t>((uint32_t)(a))
-#define READ32(a) a3ck::rd<uint32_t>((uint32_t)(a))
-#define READ64(a) a3ck::rd<uint64_t>((uint32_t)(a))
-#define WRITE8(a, v) a3ck::wr<uint8_t>((uint32_t)(a), (uint8_t)(v))
-#define WRITE16(a, v) a3ck::wr<uint16_t>((uint32_t)(a), (uint16_t)(v))
-#define WRITE32(a, v) a3ck::wr<uint32_t>((uint32_t)(a), (uint32_t)(v))
-#define WRITE64(a, v) a3ck::wr<uint64_t>((uint32_t)(a), (uint64_t)(v))
+#define READ8_B(b, o) A3CK_NS::rd<uint8_t>(A1CK_EA(b, o))
+#define READ16_B(b, o) A3CK_NS::rd<uint16_t>(A1CK_EA(b, o))
+#define READ32_B(b, o) A3CK_NS::rd<uint32_t>(A1CK_EA(b, o))
+#define READ64_B(b, o) A3CK_NS::rd<uint64_t>(A1CK_EA(b, o))
+#define WRITE8_B(b, o, v) A3CK_NS::wr<uint8_t>(A1CK_EA(b, o), (uint8_t)(v))
+#define WRITE16_B(b, o, v) A3CK_NS::wr<uint16_t>(A1CK_EA(b, o), (uint16_t)(v))
+#define WRITE32_B(b, o, v) A3CK_NS::wr<uint32_t>(A1CK_EA(b, o), (uint32_t)(v))
+#define WRITE64_B(b, o, v) A3CK_NS::wr<uint64_t>(A1CK_EA(b, o), (uint64_t)(v))
+#define READ8(a) A3CK_NS::rd<uint8_t>((uint32_t)(a))
+#define READ16(a) A3CK_NS::rd<uint16_t>((uint32_t)(a))
+#define READ32(a) A3CK_NS::rd<uint32_t>((uint32_t)(a))
+#define READ64(a) A3CK_NS::rd<uint64_t>((uint32_t)(a))
+#define WRITE8(a, v) A3CK_NS::wr<uint8_t>((uint32_t)(a), (uint8_t)(v))
+#define WRITE16(a, v) A3CK_NS::wr<uint16_t>((uint32_t)(a), (uint16_t)(v))
+#define WRITE32(a, v) A3CK_NS::wr<uint32_t>((uint32_t)(a), (uint32_t)(v))
+#define WRITE64(a, v) A3CK_NS::wr<uint64_t>((uint32_t)(a), (uint64_t)(v))
+// A4: quadword accesses (the reference's READ128 / WRITE128 clear the low 4 bits as lift_d1's macros do)
+#undef READ128
+#undef WRITE128
+#define READ128(a) A3CK_NS::rd128((uint32_t)(a) & ~0xFu)
+#define WRITE128(a, v) A3CK_NS::wr128((uint32_t)(a) & ~0xFu, (__m128i)(v))

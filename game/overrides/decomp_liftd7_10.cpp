@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -12037,6 +12038,7 @@ void setPassageRangeData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // setAttainRangeData (0x1432030-0x1432050)
 void setAttainRangeData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; A4_CHK(setAttainRangeData, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::setAttainRangeData(rdram, runtime, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14], f15 = ctx->f[15];
@@ -12522,6 +12524,7 @@ void pathDetectCollision2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // gamecore_sub_01433F98 (0x1433f98-0x1434000)
 void gamecore_sub_01433F98(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_7 = Ps2GprU32(ctx, 7); const uint32_t a2_8 = Ps2GprU32(ctx, 8); A4_CHK(gamecore_sub_01433F98, a2_4, a2_5, a2_6, a2_7, a2_8); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)}; const uint64_t a2_r = typed::gamecore_sub_01433F98(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a4_h3, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 9, a3_xo[0]); Ps2SetGpr64(ctx, 10, a3_xo[1]); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10);
     (t2 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
@@ -12657,6 +12660,7 @@ void gamecore_sub_01434000(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_014340F0 (0x14340f0-0x1434108)
 void gamecore_sub_014340F0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(gamecore_sub_014340F0, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::gamecore_sub_014340F0(rdram, runtime, a2_4, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     do { const __m128i _v = (READ128(ADD32(a0, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
@@ -18400,6 +18404,7 @@ void setAllowMaxSpeedHorseCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime
 void gamecore_sub_01444518(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1444518u, 0)) { gamecore_sub_01444518_0x1444518(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO() && A4_HOLDS(0x1437A88u, lift_d1::_resetBaseMoveWork) && A4_HOLDS(0x1438448u, lift_d1::gamecore_sub_01438448) && A4_HOLDS(0x1444568u, lift_d1::gamecore_sub_01444568), 1)) { const uint64_t a2_5 = Ps2GprU64(ctx, 5); A4_CHK(gamecore_sub_01444518, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A4_IN(186); const a1::RetVF a2_r = typed::gamecore_sub_01444518(rdram, runtime, a2_5, a4_h2); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0];

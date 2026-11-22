@@ -5,6 +5,7 @@
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -52,7 +53,6 @@ namespace lift_d1
     void GetDebugDispType(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void GetInitWallFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void bootTexAlphaAnim(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void boot_wind_emitter_by_judge_volume(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void chkBossTrigTexExist(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void gamecore_sub_0138D480(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void gluSetWrapMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -13405,6 +13405,7 @@ void manager_sub_01142230(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void manager_sub_011422D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11422D8u, 0)) { manager_sub_011422D8_0x11422d8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(manager_sub_011422D8, a2_4, a2_5, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf9 = ctx->vu0_vf[9]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a3_xo[3] = {Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8)}; A4_IN(113); const uint32_t a2_r = typed::manager_sub_011422D8(rdram, runtime, a2_4, a2_5, a2_6, a4_vf0, a4_vf8, a4_vf9, a4_vf10, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc, a4_vq, a4_vstat, a3_xo); A4_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 6, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[9] = a4_vf9; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t a3 = Ps2GprU64(ctx, 7);
     __m128 vf0 = ctx->vu0_vf[0], vf8 = ctx->vu0_vf[8], vf9 = ctx->vu0_vf[9], vf10 = ctx->vu0_vf[10], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
@@ -14712,7 +14713,7 @@ void SequenceKickWindVolumeShape(uint8_t *rdram, R5900Context *ctx, PS2Runtime *
         (a3 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
         ctx->pc = 0x1146818u;
-        if (!PS2_CALL_GUEST_DIRECT(0x1146818u, lift_d1::boot_wind_emitter_by_judge_volume, 0x1169AB4u, 0x1169AACu, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_KNOWN(0x1146818u, boot_wind_emitter_by_judge_volume_0x1146818, 0x1169AB4u, 0x1169AACu, DirectCall, "JAL")) { return; }
     }
     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)279 << 16))));
@@ -25424,6 +25425,7 @@ void AI_CheckHorseParent(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void gamecore_sub_013D8DC8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13D8DC8u, 0)) { gamecore_sub_013D8DC8_0x13d8dc8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A4_CHK(gamecore_sub_013D8DC8, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; A4_IN(144); const a1::RetVF a2_r = typed::gamecore_sub_013D8DC8(rdram, runtime, a2_4, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_vq, a4_vstat); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4];
@@ -31634,7 +31636,6 @@ namespace
             } kTargets[] = {
                 {0x0108F498u, &lift_d1::gluSetWrapMode},
                 {0x010C68F8u, &lift_d1::manager_sub_010C68F8},
-                {0x01146818u, &lift_d1::boot_wind_emitter_by_judge_volume},
                 {0x011669B0u, &lift_d1::SendVolumeShapeDamageLetter},
                 {0x01169898u, &lift_d1::seSetKeyOnOff},
                 {0x01378990u, &lift_d1::chkBossTrigTexExist},

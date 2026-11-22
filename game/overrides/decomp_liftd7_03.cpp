@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -69,7 +70,6 @@ namespace lift_d1
     void manager_sub_010F8088(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void manager_sub_010F9560(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void manager_sub_0110D618(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void set_generate_particle_flag(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void shadowModelReInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void sheetWait(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void updateCamVibGeo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -7602,6 +7602,7 @@ L_10ebb30:
 void SetDemoMotionOrientInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10EBC80u, 0)) { SetDemoMotionOrientInfo_0x10ebc80(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(SetDemoMotionOrientInfo, a2_4, a2_5, a2_6); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[4] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; const uint64_t a2_r = typed::SetDemoMotionOrientInfo(rdram, runtime, a2_4, a2_5, a2_6, a4_h2, a4_h3, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); Ps2SetGpr64(ctx, 9, a3_xo[3]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a2 = Ps2GprU32(ctx, 6), t1 = Ps2GprU32(ctx, 9), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8);
     uint64_t hi = ctx->hi;
@@ -12514,6 +12515,7 @@ void ForceGlobalLightFlagEnvelope(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 // UpdateGlobalLightInRange (0x10f8d30-0x10f8d60)
 void UpdateGlobalLightInRange(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(UpdateGlobalLightInRange, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::UpdateGlobalLightInRange(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -20882,7 +20884,7 @@ void particleOnOff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
                 sp = sp + 0x20u;
                 Ps2SetGpr64(ctx, 29, sx64(sp)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
                 ctx->pc = 0x113F838u;
-                PS2_TAIL_GUEST_DIRECT(0x113F838u, lift_d1::set_generate_particle_flag); return;
+                PS2_TAIL_GUEST_KNOWN(0x113F838u, set_generate_particle_flag_0x113f838); return;
             }
         }
     }
@@ -21253,7 +21255,7 @@ void manager_sub_0110C420(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
                 (a2 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
                 Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2);
                 ctx->pc = 0x113F838u;
-                if (!PS2_CALL_GUEST_DIRECT_NOCHK(0x113F838u, lift_d1::set_generate_particle_flag, 0x110C504u, 0x110C4FCu, DirectCall, "JAL")) { return; }
+                if (!PS2_CALL_GUEST_NOCHK(0x113F838u, set_generate_particle_flag_0x113f838, 0x110C504u, 0x110C4FCu, DirectCall, "JAL")) { return; }
             }
             s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU32(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU64(ctx, 20); s5 = Ps2GprU64(ctx, 21); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7); t0 = Ps2GprU64(ctx, 8); vf11 = ctx->vu0_vf[11]; vf12 = ctx->vu0_vf[12]; vf13 = ctx->vu0_vf[13]; vf14 = ctx->vu0_vf[14]; vf15 = ctx->vu0_vf[15]; vf16 = ctx->vu0_vf[16]; vacc = ctx->vu0_acc;
         }
@@ -22312,7 +22314,6 @@ namespace
                 {0x01136A00u, &lift_d1::CheckEllipticalCylinderVolumeShape},
                 {0x011394C0u, &lift_d1::SetClothAccessSwitch},
                 {0x011398F0u, &lift_d1::CheckClothChainExist},
-                {0x0113F838u, &lift_d1::set_generate_particle_flag},
                 {0x01147AE8u, &lift_d1::DeleteAllTwoWayLink},
                 {0x0115EC08u, &lift_d1::sheetWait},
             };

@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6658,6 +6659,7 @@ void SpriteMenuSetPadEventCallback(uint8_t *rdram, R5900Context *ctx, PS2Runtime
 // SetCollisionEdgeLinkDBFinderVWallDirectionStatus (0x1129ea8-0x1129eb8)
 void SetCollisionEdgeLinkDBFinderVWallDirectionStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(SetCollisionEdgeLinkDBFinderVWallDirectionStatus, a2_4, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::SetCollisionEdgeLinkDBFinderVWallDirectionStatus(rdram, runtime, a2_4, a2_5, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
@@ -10592,6 +10594,7 @@ void bossCloudStart(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void AI_GetMotionBasicVelocity(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13D3FA0u, 0)) { AI_GetMotionBasicVelocity_0x13d3fa0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f12 = ctx->f[12]; A4_CHK(AI_GetMotionBasicVelocity, a2_4, a2_5, a2_f12); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::AI_GetMotionBasicVelocity(rdram, runtime, a2_4, a2_5, a2_f12, a4_vf5, a4_vf6, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -13625,6 +13628,7 @@ void getLastPassageAreaIdx(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // setPosGazeCtrlWork (0x14418f0-0x1441900)
 void setPosGazeCtrlWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(setPosGazeCtrlWork, a2_4, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::setPosGazeCtrlWork(rdram, runtime, a2_4, a2_5, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);

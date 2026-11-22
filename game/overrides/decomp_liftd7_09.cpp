@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5412,6 +5413,7 @@ void setSelectWeapon(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // sprWeaponGetMarkerPos (0x14075a0-0x14075b8)
 void sprWeaponGetMarkerPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(sprWeaponGetMarkerPos, a2_4); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const uint32_t a2_r = typed::sprWeaponGetMarkerPos(rdram, runtime, a2_4, a4_h3); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3);
     v0 = 0x1460000u;
@@ -12308,6 +12310,7 @@ void constructor_camera_etc_condition(uint8_t *rdram, R5900Context *ctx, PS2Runt
 // gamecore_sub_01411AD0 (0x1411ad0-0x1411af8)
 void gamecore_sub_01411AD0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO() && A4_HOLDS(0x1411AF8u, lift_d1::gamecore_sub_01411AF8), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A4_CHK(gamecore_sub_01411AD0, a2_4); uint64_t a4_h3 = a4::hi64(ctx->r[3]); A4_IN(183); const uint64_t a2_r = typed::gamecore_sub_01411AD0(rdram, runtime, a2_4, a4_h3); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;
@@ -12979,6 +12982,7 @@ L_1412658:
 // constructor_camera_pause_rise (0x1412970-0x14129c0)
 void constructor_camera_pause_rise(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(constructor_camera_pause_rise, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; const a1::RetVF a2_r = typed::constructor_camera_pause_rise(rdram, runtime, a2_4, a4_h2, a4_h3, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f0 = ctx->f[0], f1 = ctx->f[1];
@@ -13566,6 +13570,7 @@ L_1414b58:
 // constructor_camera_target_lost_angle (0x1414db0-0x1414de8)
 void constructor_camera_target_lost_angle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(constructor_camera_target_lost_angle, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); const a1::RetVF a2_r = typed::constructor_camera_target_lost_angle(rdram, runtime, a2_4, a4_h2, a4_h5); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[5] = a4::mk128(a4_h5, Ps2GprU64(ctx, 5)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5);
     float f0 = ctx->f[0];
@@ -16890,6 +16895,7 @@ void CAM_get_interp_ratio_by_time(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 // CAM_add_plane_offset_in_position (0x1419f68-0x1419f98)
 void CAM_add_plane_offset_in_position(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const float a2_f12 = ctx->f[12]; A4_CHK(CAM_add_plane_offset_in_position, a2_4, a2_5, a2_6, a2_f12); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint32_t a2_r = typed::CAM_add_plane_offset_in_position(rdram, runtime, a2_4, a2_5, a2_6, a2_f12, a4_vf5, a4_vf6, a4_h2); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -16941,6 +16947,7 @@ void CAM_copy_camera_base_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // CAM_set_all_camera_base_data (0x141a140-0x141a160)
 void CAM_set_all_camera_base_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; A4_CHK(CAM_set_all_camera_base_data, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const uint64_t a2_r = typed::CAM_set_all_camera_base_data(rdram, runtime, a2_4, a2_5, a2_6, a2_f12, a2_f13, a2_f14, a4_h2, a4_h3); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14];
@@ -17466,6 +17473,7 @@ void CAM_reset_obstacle_avoid_cntrl(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 // CAM_constructor_base_look_at (0x141b110-0x141b150)
 void CAM_constructor_base_look_at(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(CAM_constructor_base_look_at, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 6)}; const a1::RetVF a2_r = typed::CAM_constructor_base_look_at(rdram, runtime, a2_4, a4_h2, a4_h3, a3_xo); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 6, a3_xo[0]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3);
     float f0 = ctx->f[0];
@@ -23074,6 +23082,7 @@ void compel_end_lws_movie_mode_game_camera(uint8_t *rdram, R5900Context *ctx, PS
 void get_boss_interest_position_game_camera(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1425378u, 0)) { get_boss_interest_position_game_camera_0x1425378(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(get_boss_interest_position_game_camera, a2_4, a2_5); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const uint32_t a2_r = typed::get_boss_interest_position_game_camera(rdram, runtime, a2_4, a2_5, a4_h3); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3);
     v0 = READ32_B(a1, 4960);

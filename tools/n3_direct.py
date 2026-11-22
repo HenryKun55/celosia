@@ -74,6 +74,10 @@ def main():
             continue
         if re.match(r'decomp_lift(d\d+|alt)_\d+\.cpp$', name) or name.startswith('lean_'):
             continue
+        # round A4: the typed lifters' generated files (typed_a<N>*.inc / .h, a<N>_typed_check.cpp) name the lifted
+        # functions' addresses in comments and adapters; they hold no slot
+        if re.match(r'typed_a\d+(_\w+)?\.(inc|h)$', name) or re.match(r'a\d+_typed_check\.cpp$', name):
+            continue
         for m in hexre.finditer(open(p, errors='replace').read()):
             a = int(m.group(1), 16)
             if a in lifted:

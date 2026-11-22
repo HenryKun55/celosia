@@ -8,6 +8,7 @@
 // that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -17171,6 +17172,7 @@ L_13e7bcc:
 // Kite_SetSpecialPathLayout (0x13e7ce0-0x13e7cf8)
 void Kite_SetSpecialPathLayout(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO() && A4_HOLDS(0x13D39A0u, lift_d1::AI_SetAnimalLayout), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; A4_CHK(Kite_SetSpecialPathLayout, a2_4, a2_5, a2_f12, a2_f13); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A4_IN(182); const uint64_t a2_r = typed::Kite_SetSpecialPathLayout(rdram, runtime, a2_4, a2_5, a2_f12, a2_f13, a4_h2); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     a0 = a0 + 0x1F0u;

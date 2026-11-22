@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -19682,6 +19683,7 @@ void getSizeAttackIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // initAttackWaistIKWork (0x145dfd0-0x145dff8)
 void initAttackWaistIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(initAttackWaistIKWork, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; const a1::RetVF a2_r = typed::initAttackWaistIKWork(rdram, runtime, a2_6, a4_vf0); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     __m128 vf0 = ctx->vu0_vf[0];

@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -671,6 +672,7 @@ namespace lift_d1
 // iosCubicBezierVectorXYZ (0x1b7c88-0x1b7d18)
 void iosCubicBezierVectorXYZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f12 = ctx->f[12]; A4_CHK(iosCubicBezierVectorXYZ, a2_4, a2_5, a2_f12); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const a1::RetVF a2_r = typed::iosCubicBezierVectorXYZ(rdram, runtime, a2_4, a2_5, a2_f12, a4_vf5, a4_vf6, a4_h2, a4_h3); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -742,6 +744,7 @@ void CompareString16(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosUnitCurrentMatrix (0x1b8620-0x1b8638)
 void iosUnitCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(iosUnitCurrentMatrix); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosUnitCurrentMatrix(rdram, runtime, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4];
     { __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf4 = _mm_blendv_ps(vf4, vf0, _mm_castsi128_ps(mask)); }
@@ -759,6 +762,7 @@ void iosUnitCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // iosPushVu0RegistersToWork (0x1b8668-0x1b8770)
 void iosPushVu0RegistersToWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosPushVu0RegistersToWork, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf9 = ctx->vu0_vf[9]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vf18 = ctx->vu0_vf[18]; a4::vec4 a4_vf19 = ctx->vu0_vf[19]; a4::vec4 a4_vf20 = ctx->vu0_vf[20]; a4::vec4 a4_vf21 = ctx->vu0_vf[21]; a4::vec4 a4_vf22 = ctx->vu0_vf[22]; a4::vec4 a4_vf23 = ctx->vu0_vf[23]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; a4::vec4 a4_vf29 = ctx->vu0_vf[29]; a4::vec4 a4_vf30 = ctx->vu0_vf[30]; a4::vec4 a4_vf31 = ctx->vu0_vf[31]; const uint32_t a2_r = typed::iosPushVu0RegistersToWork(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf5, a4_vf6, a4_vf7, a4_vf8, a4_vf9, a4_vf10, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vf18, a4_vf19, a4_vf20, a4_vf21, a4_vf22, a4_vf23, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vf28, a4_vf29, a4_vf30, a4_vf31); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7], vf8 = ctx->vu0_vf[8], vf9 = ctx->vu0_vf[9], vf10 = ctx->vu0_vf[10], vf11 = ctx->vu0_vf[11], vf12 = ctx->vu0_vf[12], vf13 = ctx->vu0_vf[13], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17], vf18 = ctx->vu0_vf[18], vf19 = ctx->vu0_vf[19], vf20 = ctx->vu0_vf[20], vf21 = ctx->vu0_vf[21], vf22 = ctx->vu0_vf[22], vf23 = ctx->vu0_vf[23], vf24 = ctx->vu0_vf[24], vf25 = ctx->vu0_vf[25], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27], vf28 = ctx->vu0_vf[28], vf29 = ctx->vu0_vf[29], vf30 = ctx->vu0_vf[30], vf31 = ctx->vu0_vf[31];
     v0 = a0 + 0x200u;
@@ -835,6 +839,7 @@ void iosPushVu0RegistersToWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // iosPopVu0RegistersFromWork (0x1b8770-0x1b8878)
 void iosPopVu0RegistersFromWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosPopVu0RegistersFromWork, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf9 = ctx->vu0_vf[9]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vf18 = ctx->vu0_vf[18]; a4::vec4 a4_vf19 = ctx->vu0_vf[19]; a4::vec4 a4_vf20 = ctx->vu0_vf[20]; a4::vec4 a4_vf21 = ctx->vu0_vf[21]; a4::vec4 a4_vf22 = ctx->vu0_vf[22]; a4::vec4 a4_vf23 = ctx->vu0_vf[23]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; a4::vec4 a4_vf29 = ctx->vu0_vf[29]; a4::vec4 a4_vf30 = ctx->vu0_vf[30]; a4::vec4 a4_vf31 = ctx->vu0_vf[31]; const uint32_t a2_r = typed::iosPopVu0RegistersFromWork(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf5, a4_vf6, a4_vf7, a4_vf8, a4_vf9, a4_vf10, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vf18, a4_vf19, a4_vf20, a4_vf21, a4_vf22, a4_vf23, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vf28, a4_vf29, a4_vf30, a4_vf31); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[9] = a4_vf9; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_vf[18] = a4_vf18; ctx->vu0_vf[19] = a4_vf19; ctx->vu0_vf[20] = a4_vf20; ctx->vu0_vf[21] = a4_vf21; ctx->vu0_vf[22] = a4_vf22; ctx->vu0_vf[23] = a4_vf23; ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_vf[28] = a4_vf28; ctx->vu0_vf[29] = a4_vf29; ctx->vu0_vf[30] = a4_vf30; ctx->vu0_vf[31] = a4_vf31; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7], vf8 = ctx->vu0_vf[8], vf9 = ctx->vu0_vf[9], vf10 = ctx->vu0_vf[10], vf11 = ctx->vu0_vf[11], vf12 = ctx->vu0_vf[12], vf13 = ctx->vu0_vf[13], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17], vf18 = ctx->vu0_vf[18], vf19 = ctx->vu0_vf[19], vf20 = ctx->vu0_vf[20], vf21 = ctx->vu0_vf[21], vf22 = ctx->vu0_vf[22], vf23 = ctx->vu0_vf[23], vf24 = ctx->vu0_vf[24], vf25 = ctx->vu0_vf[25], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27], vf28 = ctx->vu0_vf[28], vf29 = ctx->vu0_vf[29], vf30 = ctx->vu0_vf[30], vf31 = ctx->vu0_vf[31];
     v0 = a0 + 0x200u;
@@ -911,6 +916,7 @@ void iosPopVu0RegistersFromWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // iosTransCurrentMatrix (0x1b8878-0x1b8898)
 void iosTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosTransCurrentMatrix, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosTransCurrentMatrix(rdram, runtime, a2_4, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf8, a4_vacc); ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[8] = a4_vf8; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf8 = ctx->vu0_vf[8];
     __m128 vacc = ctx->vu0_acc;
@@ -930,6 +936,7 @@ void iosTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // iosSetTransCurrentMatrix (0x1b8898-0x1b88a8)
 void iosSetTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosSetTransCurrentMatrix, a2_4); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; typed::iosSetTransCurrentMatrix(rdram, runtime, a2_4, a4_vf4, a4_vf8); ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[8] = a4_vf8; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4], vf8 = ctx->vu0_vf[8];
     vf8 = _mm_castsi128_ps(READ128(ADD32(a0, 0)));
@@ -945,6 +952,7 @@ void iosSetTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosClearTransCurrentMatrix (0x1b88a8-0x1b88b8)
 void iosClearTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(iosClearTransCurrentMatrix); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosClearTransCurrentMatrix(rdram, runtime, a4_vf0, a4_vf4); ctx->vu0_vf[4] = a4_vf4; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf4 = ctx->vu0_vf[4];
     { __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf4 = _mm_blendv_ps(vf4, vf0, _mm_castsi128_ps(mask)); }
@@ -959,6 +967,7 @@ void iosClearTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // iosScaleCurrentMatrix (0x1b8c00-0x1b8c90)
 void iosScaleCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; A4_CHK(iosScaleCurrentMatrix, a2_f12, a2_f13, a2_f14); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a4_h8 = a4::hi64(ctx->r[8]); typed::iosScaleCurrentMatrix(rdram, runtime, a2_f12, a2_f13, a2_f14, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf5, a4_vf6, a4_vf7, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc, a4_h6, a4_h7, a4_h8); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14];
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
@@ -1007,6 +1016,7 @@ void iosScaleCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // iosGetCurrentMatrix (0x1b8c90-0x1b8ca8)
 void iosGetCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosGetCurrentMatrix, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosGetCurrentMatrix(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4];
     WRITE128(ADD32(a0, 0), _mm_castps_si128(vf1));
@@ -1024,6 +1034,7 @@ void iosGetCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetCurrentMatrixTrans (0x1b8ca8-0x1b8cb8)
 void iosGetCurrentMatrixTrans(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosGetCurrentMatrixTrans, a2_4); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosGetCurrentMatrixTrans(rdram, runtime, a2_4, a4_vf4); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4];
     WRITE128(ADD32(a0, 0), _mm_castps_si128(vf4));
@@ -1038,6 +1049,7 @@ void iosGetCurrentMatrixTrans(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosSetCurrentMatrix (0x1b8cb8-0x1b8cd0)
 void iosSetCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosSetCurrentMatrix, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosSetCurrentMatrix(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4];
     vf1 = _mm_castsi128_ps(READ128(ADD32(a0, 0)));
@@ -1055,6 +1067,7 @@ void iosSetCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosMulCurrentMatrixR (0x1b8cd0-0x1b8d38)
 void iosMulCurrentMatrixR(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosMulCurrentMatrixR, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosMulCurrentMatrixR(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     __m128 vacc = ctx->vu0_acc;
@@ -1093,6 +1106,7 @@ void iosMulCurrentMatrixR(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // iosMulCurrentMatrixL (0x1b8d38-0x1b8d90)
 void iosMulCurrentMatrixL(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosMulCurrentMatrixL, a2_4); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosMulCurrentMatrixL(rdram, runtime, a2_4, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     __m128 vacc = ctx->vu0_acc;
@@ -1127,6 +1141,7 @@ void iosMulCurrentMatrixL(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // iosApplyCurrentMatrix (0x1b8d90-0x1b8db0)
 void iosApplyCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosApplyCurrentMatrix, a2_4, a2_5); a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosApplyCurrentMatrix(rdram, runtime, a2_4, a2_5, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf8, a4_vf10, a4_vacc); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10];
     __m128 vacc = ctx->vu0_acc;
@@ -1147,6 +1162,7 @@ void iosApplyCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // iosApplyRotCurrentMatrix (0x1b8db0-0x1b8dd0)
 void iosApplyRotCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosApplyRotCurrentMatrix, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosApplyRotCurrentMatrix(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf8, a4_vf10, a4_vacc); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10];
     __m128 vacc = ctx->vu0_acc;
@@ -1167,6 +1183,7 @@ void iosApplyRotCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosRotTransPersCurrentMatrix (0x1b8dd0-0x1b8e00)
 void iosRotTransPersCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosRotTransPersCurrentMatrix, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; typed::iosRotTransPersCurrentMatrix(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf8, a4_vf10, a4_vacc, a4_vq, a4_vstat); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10];
     __m128 vacc = ctx->vu0_acc;
@@ -1191,6 +1208,7 @@ void iosRotTransPersCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 // iosTransposeCurrentMatrix (0x1b8e00-0x1b8e50)
 void iosTransposeCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(iosTransposeCurrentMatrix); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; typed::iosTransposeCurrentMatrix(rdram, runtime, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf5, a4_vf14, a4_vf15, a4_vf16, a4_vf17); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     { __m128 res = PS2_VSUB_K(1, 1, vf0, vf0); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf5 = PS2_VBLEND(vf5, res, _mm_castsi128_ps(mask)); }
@@ -1221,6 +1239,7 @@ void iosTransposeCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // iosTransposeRotationCurrentMatrix (0x1b8e50-0x1b8e80)
 void iosTransposeRotationCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(iosTransposeRotationCurrentMatrix); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; typed::iosTransposeRotationCurrentMatrix(rdram, runtime, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf5, a4_vf14, a4_vf15, a4_vf16); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf5 = ctx->vu0_vf[5], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16];
     { __m128 res = PS2_VSUB_K(1, 1, vf0, vf0); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf5 = PS2_VBLEND(vf5, res, _mm_castsi128_ps(mask)); }
@@ -1244,6 +1263,7 @@ void iosTransposeRotationCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Run
 // iosInverseCurrentMatrix (0x1b8e80-0x1b8ed0)
 void iosInverseCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(iosInverseCurrentMatrix); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosInverseCurrentMatrix(rdram, runtime, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf5, a4_vf6, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc); ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[3] = a4_vf3; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf1 = ctx->vu0_vf[1], vf2 = ctx->vu0_vf[2], vf3 = ctx->vu0_vf[3], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     __m128 vacc = ctx->vu0_acc;
@@ -1275,6 +1295,7 @@ void iosInverseCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // iosApplyRotMatrix (0x1b9170-0x1b91a0)
 void iosApplyRotMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(iosApplyRotMatrix, a2_4, a2_5, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::iosApplyRotMatrix(rdram, runtime, a2_4, a2_5, a2_6, a4_vf0, a4_vf8, a4_vf10, a4_vf14, a4_vf15, a4_vf16, a4_vacc); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16];
     __m128 vacc = ctx->vu0_acc;
@@ -1298,6 +1319,7 @@ void iosApplyRotMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosUnitMatrix (0x1b91a0-0x1b91c8)
 void iosUnitMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosUnitMatrix, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; typed::iosUnitMatrix(rdram, runtime, a2_4, a4_vf0, a4_vf14, a4_vf15, a4_vf16, a4_vf17); ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     { __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf17 = _mm_blendv_ps(vf17, vf0, _mm_castsi128_ps(mask)); }
@@ -1319,6 +1341,7 @@ void iosUnitMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosUnitRotation (0x1b91c8-0x1b91f0)
 void iosUnitRotation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosUnitRotation, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; typed::iosUnitRotation(rdram, runtime, a2_4, a4_vf0, a4_vf14, a4_vf15, a4_vf16, a4_vf17); ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     { __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf17 = _mm_blendv_ps(vf17, vf0, _mm_castsi128_ps(mask)); }
@@ -1407,6 +1430,7 @@ void iosInverseMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosScaleMatrixV (0x1b92d0-0x1b9308)
 void iosScaleMatrixV(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(iosScaleMatrixV, a2_4, a2_5, a2_6); a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; typed::iosScaleMatrixV(rdram, runtime, a2_4, a2_5, a2_6, a4_vf8, a4_vf14, a4_vf15, a4_vf16, a4_vf17); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     __m128 vf8 = ctx->vu0_vf[8], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
     vf14 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -1544,6 +1568,7 @@ void iosSetCameraMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosMakeNormalLightMatrix (0x1b9468-0x1b9560)
 void iosMakeNormalLightMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A4_CHK(iosMakeNormalLightMatrix, a2_4, a2_5, a2_6, a2_7, a2_8); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; const uint64_t a2_r = typed::iosMakeNormalLightMatrix(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a4_vf0, a4_vf5, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vq, a4_vstat); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t2 = Ps2GprU64(ctx, 10);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17], vf24 = ctx->vu0_vf[24], vf25 = ctx->vu0_vf[25], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27];
@@ -1613,6 +1638,7 @@ void iosMakeNormalLightMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosScaleNormalLightMatrix (0x1b9560-0x1b9598)
 void iosScaleNormalLightMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(iosScaleNormalLightMatrix, a2_4, a2_5, a2_6); a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; typed::iosScaleNormalLightMatrix(rdram, runtime, a2_4, a2_5, a2_6, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vf28); ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_vf[28] = a4_vf28; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     __m128 vf24 = ctx->vu0_vf[24], vf25 = ctx->vu0_vf[25], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27], vf28 = ctx->vu0_vf[28];
     vf24 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -1638,6 +1664,7 @@ void iosScaleNormalLightMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // iosMakeLightColorMatrix (0x1b9598-0x1b95d0)
 void iosMakeLightColorMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); A4_CHK(iosMakeLightColorMatrix, a2_4, a2_5, a2_6, a2_7, a2_8); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a4_h8 = a4::hi64(ctx->r[8]); uint64_t a4_h9 = a4::hi64(ctx->r[9]); const uint64_t a2_r = typed::iosMakeLightColorMatrix(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a4_h6, a4_h7, a4_h8, a4_h9); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->r[9] = a4::mk128(a4_h9, Ps2GprU64(ctx, 9)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10);
     (t2 = (uint64_t)((uint64_t)a2 + (uint64_t)0ULL));
@@ -1662,6 +1689,7 @@ void iosMakeLightColorMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // iosTransMatrix (0x1b95d0-0x1b9628)
 void iosTransMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); A4_CHK(iosTransMatrix, a2_4, a2_5, a2_6); a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vacc = ctx->vu0_acc; uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a4_h8 = a4::hi64(ctx->r[8]); uint64_t a4_h9 = a4::hi64(ctx->r[9]); const uint64_t a2_r = typed::iosTransMatrix(rdram, runtime, a2_4, a2_5, a2_6, a4_vf8, a4_vf10, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vacc, a4_h6, a4_h7, a4_h8, a4_h9); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_acc = a4_vacc; ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->r[9] = a4::mk128(a4_h9, Ps2GprU64(ctx, 9)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9);
     __m128 vf8 = ctx->vu0_vf[8], vf10 = ctx->vu0_vf[10], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
@@ -1741,6 +1769,7 @@ void iosTransMatrixF(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosScaleMatrix (0x1b96a0-0x1b96d0)
 void iosScaleMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; A4_CHK(iosScaleMatrix, a2_4, a2_f12, a2_f13, a2_f14); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; typed::iosScaleMatrix(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a4_vf0, a4_vf14, a4_vf15, a4_vf16, a4_vf17); ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     float f12 = ctx->f[12], f13 = ctx->f[13], f14 = ctx->f[14];
     __m128 vf0 = ctx->vu0_vf[0], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17];
@@ -1766,6 +1795,7 @@ void iosScaleMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetYDirXYZFromMatrix (0x1b9cd0-0x1b9ce8)
 void iosGetYDirXYZFromMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetYDirXYZFromMatrix, a2_4, a2_5); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosGetYDirXYZFromMatrix(rdram, runtime, a2_4, a2_5, a4_vf4); ctx->vu0_vf[4] = a4_vf4; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4];
     vf4 = _mm_castsi128_ps(READ128(ADD32(a1, 16)));
@@ -1782,6 +1812,7 @@ void iosGetYDirXYZFromMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // iosGetXDirXYZFromMatrix (0x1b9ce8-0x1b9d00)
 void iosGetXDirXYZFromMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetXDirXYZFromMatrix, a2_4, a2_5); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; typed::iosGetXDirXYZFromMatrix(rdram, runtime, a2_4, a2_5, a4_vf4); ctx->vu0_vf[4] = a4_vf4; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4];
     vf4 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -1798,6 +1829,7 @@ void iosGetXDirXYZFromMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // iosRotTransCurrentMatrix (0x1b9d18-0x1b9d78)
 void iosRotTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosRotTransCurrentMatrix, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf3 = ctx->vu0_vf[3]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf8 = ctx->vu0_vf[8]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h7 = a4::hi64(ctx->r[7]); const float a2_r = typed::iosRotTransCurrentMatrix(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf1, a4_vf2, a4_vf3, a4_vf4, a4_vf8, a4_vf10, a4_vf11, a4_vf12, a4_vf14, a4_vf15, a4_vf16, a4_vacc, a4_vq, a4_vstat, a4_h7); ctx->f[0] = a2_r; ctx->vu0_vf[8] = a4_vf8; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t a3 = Ps2GprU64(ctx, 7);
     float f0 = ctx->f[0];
@@ -1837,6 +1869,7 @@ void iosRotTransCurrentMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosMvecZero (0x1b9d78-0x1b9d88)
 void iosMvecZero(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosMvecZero, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::iosMvecZero(rdram, runtime, a2_4, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     (v0 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL));
@@ -2472,6 +2505,7 @@ void GetLastQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // MultiCurrentQuaternion (0x1bb8a8-0x1bb900)
 void MultiCurrentQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(MultiCurrentQuaternion, a2_4); a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; const uint32_t a2_r = typed::MultiCurrentQuaternion(rdram, runtime, a2_4, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vacc); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf11 = ctx->vu0_vf[11], vf12 = ctx->vu0_vf[12], vf13 = ctx->vu0_vf[13], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16];
     __m128 vacc = ctx->vu0_acc;
@@ -2505,6 +2539,7 @@ void MultiCurrentQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 // MultiCurrentQuaternionL (0x1bb900-0x1bb958)
 void MultiCurrentQuaternionL(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(MultiCurrentQuaternionL, a2_4); a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; const uint32_t a2_r = typed::MultiCurrentQuaternionL(rdram, runtime, a2_4, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vacc); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf11 = ctx->vu0_vf[11], vf12 = ctx->vu0_vf[12], vf13 = ctx->vu0_vf[13], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16];
     __m128 vacc = ctx->vu0_acc;
@@ -2538,6 +2573,7 @@ void MultiCurrentQuaternionL(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // InvertCurrentQuaternion (0x1bb958-0x1bb988)
 void InvertCurrentQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(InvertCurrentQuaternion); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; const uint32_t a2_r = typed::InvertCurrentQuaternion(rdram, runtime, a4_vf0, a4_vf5, a4_vf11); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[11] = a4_vf11; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf11 = ctx->vu0_vf[11];
     v1 = 0x1E0000u;
@@ -2561,6 +2597,7 @@ void InvertCurrentQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // SetCurrentQuaternion (0x1bb988-0x1bb9b0)
 void SetCurrentQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(SetCurrentQuaternion, a2_4); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; const uint32_t a2_r = typed::SetCurrentQuaternion(rdram, runtime, a2_4, a4_h5, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->r[5] = a4::mk128(a4_h5, Ps2GprU64(ctx, 5)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t a1 = Ps2GprU64(ctx, 5);
     v0 = 0x1E0000u;
@@ -2603,6 +2640,7 @@ void PopQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // InitQuaternionDrive (0x1bbc28-0x1bbc48)
 void InitQuaternionDrive(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { A4_CHK(InitQuaternionDrive); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; const uint32_t a2_r = typed::InitQuaternionDrive(rdram, runtime, a4_vf0); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0];
     v1 = 0x1E0000u;
@@ -2621,6 +2659,7 @@ void InitQuaternionDrive(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // DivQuaternion (0x1bbe10-0x1bbe60)
 void DivQuaternion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(DivQuaternion, a2_4, a2_5, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; typed::DivQuaternion(rdram, runtime, a2_4, a2_5, a2_6, a4_vf0, a4_vf5, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vacc); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf11 = ctx->vu0_vf[11], vf12 = ctx->vu0_vf[12], vf13 = ctx->vu0_vf[13], vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16];
     __m128 vacc = ctx->vu0_acc;
@@ -2768,6 +2807,7 @@ L_1bc048:
 // SetQuaternionByCosineAxisRotateVWithNoRegularize (0x1bc850-0x1bc898)
 void SetQuaternionByCosineAxisRotateVWithNoRegularize(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const float a2_f12 = ctx->f[12]; A4_CHK(SetQuaternionByCosineAxisRotateVWithNoRegularize, a2_4, a2_5, a2_f12); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::SetQuaternionByCosineAxisRotateVWithNoRegularize(rdram, runtime, a2_4, a2_5, a2_f12, a4_vf5, a4_vf6, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f12 = ctx->f[12];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -2800,6 +2840,7 @@ void SetQuaternionByCosineAxisRotateVWithNoRegularize(uint8_t *rdram, R5900Conte
 void GetYRotQuaternionFromDir(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1BC8F8u, 0)) { GetYRotQuaternionFromDir_0x1bc8f8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(GetYRotQuaternionFromDir, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h3 = a4::hi64(ctx->r[3]); const a1::RetVF a2_r = typed::GetYRotQuaternionFromDir(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6, a4_h3); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -3174,6 +3215,7 @@ void iosGetTableCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosFTOI15Vector (0x1be6d0-0x1be6e8)
 void iosFTOI15Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosFTOI15Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosFTOI15Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3190,6 +3232,7 @@ void iosFTOI15Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosFTOI12Vector (0x1be6e8-0x1be700)
 void iosFTOI12Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosFTOI12Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosFTOI12Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3206,6 +3249,7 @@ void iosFTOI12Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosFTOI0Vector (0x1be718-0x1be730)
 void iosFTOI0Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosFTOI0Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosFTOI0Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3222,6 +3266,7 @@ void iosFTOI0Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosITOF15Vector (0x1be730-0x1be748)
 void iosITOF15Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosITOF15Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosITOF15Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3238,6 +3283,7 @@ void iosITOF15Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosITOF12Vector (0x1be748-0x1be760)
 void iosITOF12Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosITOF12Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosITOF12Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3254,6 +3300,7 @@ void iosITOF12Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosITOF4Vector (0x1be760-0x1be778)
 void iosITOF4Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosITOF4Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosITOF4Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3270,6 +3317,7 @@ void iosITOF4Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosITOF0Vector (0x1be778-0x1be790)
 void iosITOF0Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosITOF0Vector, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosITOF0Vector(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3286,6 +3334,7 @@ void iosITOF0Vector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetStabXZVector (0x1be790-0x1be7c8)
 void iosGetStabXZVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetStabXZVector, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::iosGetStabXZVector(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf5, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf7 = ctx->vu0_vf[7];
@@ -3314,6 +3363,7 @@ void iosGetStabXZVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetReflectVector (0x1be8b0-0x1be8e0)
 void iosGetReflectVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(iosGetReflectVector, a2_4, a2_5, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; typed::iosGetReflectVector(rdram, runtime, a2_4, a2_5, a2_6, a4_vf0, a4_vf4, a4_vf5, a4_vf6, a4_vf7); ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7];
     vf4 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3392,6 +3442,7 @@ void iosGetScaleInverseVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *run
 // iosGetStabXYVector (0x1be9e0-0x1bea18)
 void iosGetStabXYVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetStabXYVector, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::iosGetStabXYVector(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf5, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf7 = ctx->vu0_vf[7];
@@ -3420,6 +3471,7 @@ void iosGetStabXYVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetStabYZVector (0x1bea18-0x1bea50)
 void iosGetStabYZVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetStabYZVector, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::iosGetStabYZVector(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf5, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5], vf7 = ctx->vu0_vf[7];
@@ -3448,6 +3500,7 @@ void iosGetStabYZVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosGetLengthPointToLine (0x1bea50-0x1beb08)
 void iosGetLengthPointToLine(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_7 = Ps2GprU32(ctx, 7); A4_CHK(iosGetLengthPointToLine, a2_4, a2_5, a2_6, a2_7); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; float a4_vq = ctx->vu0_q; uint16_t a4_vstat = ctx->vu0_status; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::iosGetLengthPointToLine(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_vq, a4_vstat, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->vu0_q = a4_vq; ctx->vu0_status = a4_vstat; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
@@ -3508,6 +3561,7 @@ void iosGetLengthPointToLine(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runt
 // iosGetInverseVectorXYZ (0x1beb08-0x1beb30)
 void iosGetInverseVectorXYZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosGetInverseVectorXYZ, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::iosGetInverseVectorXYZ(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -3529,6 +3583,7 @@ void iosGetInverseVectorXYZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 // iosGetExceptAxisVector (0x1beb30-0x1beb88)
 void iosGetExceptAxisVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(iosGetExceptAxisVector, a2_4, a2_5, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vacc = ctx->vu0_acc; uint64_t a4_h2 = a4::hi64(ctx->r[2]); const a1::RetVF a2_r = typed::iosGetExceptAxisVector(rdram, runtime, a2_4, a2_5, a2_6, a4_vf0, a4_vf5, a4_vf6, a4_vf7, a4_vacc, a4_h2); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_acc = a4_vacc; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f0 = ctx->f[0];
@@ -3565,6 +3620,7 @@ void iosGetExceptAxisVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 // iosCalcFColorToBrightness (0x1beb88-0x1bebc0)
 void iosCalcFColorToBrightness(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(iosCalcFColorToBrightness, a2_4); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; const a1::RetVF a2_r = typed::iosCalcFColorToBrightness(rdram, runtime, a2_4, a4_vf5, a4_vf6); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
@@ -3592,6 +3648,7 @@ void iosCalcFColorToBrightness(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // iosITOF15VectorXYZ (0x1bebc0-0x1bebd8)
 void iosITOF15VectorXYZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosITOF15VectorXYZ, a2_4, a2_5); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; typed::iosITOF15VectorXYZ(rdram, runtime, a2_4, a2_5, a4_vf5, a4_vf6); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     vf5 = _mm_castsi128_ps(READ128(ADD32(a1, 0)));
@@ -3608,6 +3665,7 @@ void iosITOF15VectorXYZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosScaleColorTo255 (0x1bebd8-0x1bebf8)
 void iosScaleColorTo255(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosScaleColorTo255, a2_4, a2_5); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; const uint32_t a2_r = typed::iosScaleColorTo255(rdram, runtime, a2_4, a2_5, a4_vf4, a4_vf5, a4_vf6); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     v0 = 0x1E0000u;
@@ -3627,6 +3685,7 @@ void iosScaleColorTo255(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosScaleColorToONE (0x1bebf8-0x1bec18)
 void iosScaleColorToONE(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(iosScaleColorToONE, a2_4, a2_5); a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; const uint32_t a2_r = typed::iosScaleColorToONE(rdram, runtime, a2_4, a2_5, a4_vf4, a4_vf5, a4_vf6); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf4 = ctx->vu0_vf[4], vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
     v0 = 0x1E0000u;

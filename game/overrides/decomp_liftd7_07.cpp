@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -25200,6 +25201,7 @@ void bootMemoryCardLoadScriptNoBlock(uint8_t *rdram, R5900Context *ctx, PS2Runti
 void MVHIST_Init(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13A74B0u, 0)) { MVHIST_Init_0x13a74b0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A4_CHK(MVHIST_Init, a2_4); uint64_t a3_xo[2] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6)}; A4_IN(131); const uint64_t a2_r = typed::MVHIST_Init(rdram, runtime, a2_4, a3_xo); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     a2 = 0x59u;

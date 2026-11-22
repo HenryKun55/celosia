@@ -53,6 +53,8 @@ INC_LINE = '#include "typed_a2.h" // a2\n'
 ADAPT_MARK = ' // a2'
 INC_LINE3 = '#include "typed_a3.h" // a3\n'
 ADAPT_MARK3 = ' // a3'
+INC_LINE4 = '#include "typed_a4.h" // a4\n'
+ADAPT_MARK4 = ' // a4'
 SAVED = {16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31}
 LOADS = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4, 0x27: 4, 0x31: 4, 0x37: 8}
 STORES = {0x28: 1, 0x29: 2, 0x2B: 4, 0x39: 4, 0x3F: 8}
@@ -72,6 +74,9 @@ class Sig:
         self.guards = []  # A2: (address, lifted name) of callees whose slot the adapter tests (not N3 direct targets)
         self.holds = set()  # A2: (address, lifted name) of every typed function it reaches through calls (transitively):
         #                     the adapter tests that each slot holds its lifted function (what the lifted calls would run)
+        # A4: the VU0 interface (tools/typed_lift2.py stage 4, the VU0 ABI): the VU0 / 128-bit state slots it reads on
+        # entry (vin), may write (vout), writes on every path (vmust); vio: the reference parameters, in order
+        self.vin, self.vout, self.vmust, self.vio = frozenset(), frozenset(), frozenset(), ()
 
     def inputs(self):
         return {('g', p[1]) for p in self.params if p[0] == 'g'} | {('f', p[1]) for p in self.params if p[0] == 'f'}
@@ -117,12 +122,16 @@ def load_a1_sigs(path, inc):
     return out
 
 
-def word_mem(w):
+def word_mem(w, vu=False):
     op = w >> 26
     if op in LOADS:
         return ('ld', LOADS[op])
     if op in STORES:
         return ('st', STORES[op])
+    if vu and op in (0x1E, 0x36):  # A4: lq / lqc2 (a 16-byte frame slot)
+        return ('ld', 16)
+    if vu and op in (0x1F, 0x3E):  # sq / sqc2
+        return ('st', 16)
     if op in BADMEM:
         return ('bad', 0)
     return None
@@ -150,14 +159,130 @@ def vec_low(e):
 
 SP_STEP = re.compile(r'^sp = sp [+-] (?:0x[0-9A-Fa-f]+u|\d+u);$')
 
+# ----------------------------------------------------------------------------------------------- A4: VU0 / 128-bit
+# The VU0 state a function may carry across calls (the macro-mode registers are global: the game keeps the current
+# matrix in vf1-vf4, iosPushVu0RegistersToWork saves all 32 ...) and the GPRs' upper 64 bits: slot -> (local, C type,
+# context lvalue). ('h', r): the upper half of GPR r (lq / qmfc2 / pcpyld ... write it; sq reads it).
+VU_FIELDS = {'vu0_acc': ('vacc', 'a4::vec4'), 'vu0_q': ('vq', 'float'), 'vu0_status': ('vstat', 'uint16_t')}
+
+
+def vu_local(s):
+    k, r = s
+    if k == 'v':
+        return f'vf{r}', 'a4::vec4', f'ctx->vu0_vf[{r}]'
+    if k == 'h':
+        return f'h{r}', 'uint64_t', None
+    loc, ty = VU_FIELDS[r]
+    return loc, ty, f'ctx->{r}'
+
+
+def vu_sortkey(s):
+    k, r = s
+    return ({'v': 0, 'x': 1, 'h': 2}[k], r if isinstance(r, int) else 0, str(r))
+
+
+# the helpers typed_a4_rt.h defines (anything else a VU0 text names refuses the function: an unknown call)
+A4_KNOWN = {'A4_R128', 'A4_W128', 'a4::mk128', 'a4::hi64', 'a4::lo64'} | {'a4v::' + n for n in (
+    'castsi128_ps', 'castps_si128', 'mul', 'add', 'sub', 'blend', 'blendv_ps', 'rsqrt', 'sqrt', 'div', 'set_epi32', 'set1_ps',
+    'cvtss_f32', 'setzero_si128', 'mul_ps', 'max_ps', 'min_ps', 'cvtepi32_ps', 'cvttps_epi32', 'xor_si128', 'andnot_si128',
+    'cmpnlt_ps', 'unpackhi_epi64', 'cvtsi128_si32', 'cvtsi128_si64', 'set1_epi32')} | {'a4m::' + n for n in (
+    'pextlw', 'pextuw', 'pcpyld', 'pceqw', 'por', 'pxor', 'pand', 'paddw', 'psubw', 'pextlh', 'pextlb')}
+VU_NAME = re.compile(r'\b(vf(\d+)|vacc|vq|vstat|h(\d+))\b')
+
+
+def vu_slot_of(m):
+    if m.group(2) is not None:
+        return ('v', int(m.group(2)))
+    if m.group(3) is not None:
+        return ('h', int(m.group(3)))
+    return ('x', {'vacc': 'vu0_acc', 'vq': 'vu0_q', 'vstat': 'vu0_status'}[m.group(1)])
+
+
+def vu_rw(c):
+    """VU0 / upper-half slots a statement reads and writes (from its text; a partial write such as a dest-field blend
+    names the register on the right too, so it counts as read)."""
+    names = {m.group(1): vu_slot_of(m) for m in VU_NAME.finditer(c)}
+    r, w = set(), set()
+    for nm, s in names.items():
+        # written: an assignment, a memcpy into it, or the status passed by reference to Q's divide / square root
+        if re.search(r'\b' + nm + r'\s*(=(?!=)|\|=|&=)', c) or re.search(r'memcpy\(&' + nm + r'\b', c) or \
+                (nm == 'vstat' and re.search(r'\bps2Vu(?:Divide|Sqrt|Rsqrt)\(\s*vstat\s*,', c)):
+            w.add(s)
+        elif nm == 'vstat' and re.search(r'\(\s*vstat\s*,', c):
+            raise Refuse('vu0 status form')
+        # its address only as a memcpy destination (a write) or source (a read: `memcpy(&bits, &vq, 4)`)
+        if re.search(r'&' + nm + r'\b', re.sub(r'memcpy\(&\w+\s*,\s*&\w+', 'memcpy(', re.sub(r'memcpy\(&' + nm + r'\b', 'memcpy(', c))):
+            raise Refuse('vu0 address taken')
+        rest = re.sub(r'\b' + nm + r'\s*=(?!=)', '', c)
+        if re.search(r'\b' + nm + r'\b', rest):
+            r.add(s)
+    return r, w
+
+
+VEC_SET = re.compile(r'do \{ const __m128i _v = \((.*?)\); ctx->r\[(\d+)\] = _v; (?:std::memcpy\(&(\w+), &_v, 8\);|(\w+) = \(uint32_t\)_mm_cvtsi128_si32\(_v\);) \} while \(0\)')
+FR128_RD = re.compile(r'\bREAD128\(ADD32\((?:\(uint32_t\))?sp, (-?\d+)\)\)')
+FR128_WR = re.compile(r'\bWRITE128\(ADD32\((?:\(uint32_t\))?sp, (-?\d+)\), ')
+
+
+def mm_shuffle(a):
+    m = re.fullmatch(r'_MM_SHUFFLE\((\d),\s*(\d),\s*(\d),\s*(\d)\)', a.strip())
+    if not m:
+        raise Refuse('vu0 shuffle form')
+    return (int(m.group(1)) << 6) | (int(m.group(2)) << 4) | (int(m.group(3)) << 2) | int(m.group(4))
+
+
+def vu_text(text):
+    """A4: lift_d1's VU0 / 128-bit forms over typed locals as named helpers (typed_a4_rt.h): a4v:: the VU0 macro
+    operations with the PS2's own float rules (the runtime's functions lift_d1's macros call), the lane / field helpers;
+    a4m:: the MMI operations in plain C; A4_R128 / A4_W128 the quadword loads / stores (N1's base test, the slow path)."""
+    def sub(t, name, fn):
+        while True:  # nested calls of the same name: the outer one first, then again for the inner ones
+            t2 = T1.msub(t, name, fn)
+            if t2 == t:
+                return t
+            t = t2
+    # the dest-field write: _mm_blendv_ps(old, new, _mm_castsi128_ps(_mm_set_epi32(w, z, y, x))), constant lanes
+    def dest(a):
+        m = re.fullmatch(r'_mm_castsi128_ps\(_mm_set_epi32\((-1|0), (-1|0), (-1|0), (-1|0)\)\)', a[2].strip())
+        if not m:
+            return f'a4v::blendv_ps({a[0]}, {a[1]}, {a[2]})'
+        w, z, y, x = (1 if v == '-1' else 0 for v in m.groups())
+        return f'a4v::dest<{x}, {y}, {z}, {w}>({a[0]}, {a[1]})'
+    text = sub(text, '_mm_blendv_ps', dest)
+    # the broadcast of one field: _mm_shuffle_ps(v, v, _MM_SHUFFLE(i, i, i, i))
+    def shuf(a):
+        imm = mm_shuffle(a[2])
+        if a[0].strip() == a[1].strip() and imm in (0x00, 0x55, 0xAA, 0xFF):
+            return f'a4v::bcast<{imm & 3}>({a[0]})'
+        return f'a4v::shuffle_ps<0x{imm:02X}>({a[0]}, {a[1]})'
+    text = sub(text, '_mm_shuffle_ps', shuf)
+    for nm in ('_mm_srai_epi32', '_mm_srli_epi32', '_mm_slli_epi32', '_mm_srli_si128', '_mm_slli_si128'):
+        text = sub(text, nm, lambda a, nm=nm: f'a4v::{nm[4:]}<{a[1].strip()}>({a[0]})')
+    for k, h in (('PS2_VMUL_K', 'mulK'), ('PS2_VADD_K', 'addK'), ('PS2_VSUB_K', 'subK')):
+        text = sub(text, k, lambda a, h=h: f'a4v::{h}<{a[0].strip()}, {a[1].strip()}>({a[2]}, {a[3]})')
+    for k, h in (('PS2_VMUL', 'mul'), ('PS2_VADD', 'add'), ('PS2_VSUB', 'sub'), ('PS2_VBLEND', 'blend'),
+                 ('ps2VuRsqrt', 'rsqrt'), ('ps2VuSqrt', 'sqrt'), ('ps2VuDivide', 'div')):
+        text = re.sub(r'(?<![\w:])' + k + r'\(', f'a4v::{h}(', text)
+    for k in ('PEXTLW', 'PEXTUW', 'PCPYLD', 'PCEQW', 'POR', 'PXOR', 'PAND', 'PADDW', 'PSUBW', 'PEXTLH', 'PEXTLB'):
+        text = re.sub(r'(?<![\w:])PS2_' + k + r'\(', f'a4m::{k.lower()}(', text)
+    text = re.sub(r'(?<![\w:])_mm_(\w+)\(', r'a4v::\1(', text)
+    text = re.sub(r'(?<![\w:])READ128\(', 'A4_R128(', text)
+    text = re.sub(r'(?<![\w:])WRITE128\(', 'A4_W128(', text)
+    text = re.sub(r'\b__m128i\b', 'a4::q128', text)
+    text = re.sub(r'\b__m128\b', 'a4::vec4', text)
+    return text
+
 
 class Emit:
     """One function written as typed C++ from lift_d1's IR."""
 
-    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=()):
+    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False):
         self.addr, self.name = addr, name
         self.ok, self.why = False, ''
         self.loops = loops  # A3: back edges allowed (A3_BACK: the clock charged, the checkpoint deferred)
+        self.vu = vu  # A4: VU0 registers, ACC, Q, status, GPR upper halves and quadword accesses allowed (the VU0 ABI)
+        self.vio, self.vin, self.vout, self.vmust = (), frozenset(), frozenset(), frozenset()
+        self.has128 = False
         self.backs = set()
         # A3: extra outputs, scratch registers a lifted caller reads after the call (the caller check): the adapter
         # writes them back from `xo` (a typed caller passes no xo and never reads them)
@@ -208,8 +333,10 @@ class Emit:
                     if not self.loops:
                         raise Refuse('loop')
                     self.backs.add((x, y))
-        if any(s[0] == 'v' for s in lf.allslots):
+        if any(s[0] == 'v' for s in lf.allslots) and not self.vu:
             raise Refuse('vu0 / 128-bit')
+        if self.vu and any(s[0] == 'x' and s[1] not in VU_FIELDS and s[1] not in ('fcr31', 'f_acc', 'hi', 'lo') for s in lf.allslots):
+            raise Refuse('vu0 field ' + ','.join(sorted(str(s[1]) for s in lf.allslots if s[0] == 'x' and s[1] not in VU_FIELDS)))
         if self.backs:
             self.spin_filter(order)
         self.callees = callees
@@ -254,14 +381,20 @@ class Emit:
                 op, rs, rt = w >> 26, (w >> 21) & 31, (w >> 16) & 31
                 if op == 9 and rs == 29 and rt == 29:
                     continue
-                mk = word_mem(w)
-                if mk is None or rs != 29 or (mk[0] == 'st' and rt == 29):
+                mk = word_mem(w, self.vu)
+                if mk is None or rs != 29 or (mk[0] == 'st' and rt == 29 and op not in (0x3E,)):
                     raise Refuse('frame address escapes')
                 if mk[0] == 'bad':
                     raise Refuse('frame access form')
                 off = spoff[x] + L.sx16(w & 0xFFFF)
                 if off + mk[1] > 0:
                     raise Refuse("caller's frame")
+                if mk[1] == 16:
+                    # A4: a quadword frame slot; lq / sq clear the address's low 4 bits, so with sp 16-aligned (the EE ABI; the
+                    # adapter tests it) the slot is at this offset only when the offset is a multiple of 16
+                    if off % 16:
+                        raise Refuse('frame quadword alignment')
+                    self.has128 = True
                 acc[y] = (mk[0], off, mk[1])
         saves = lf.find_saves() if acc else {}
         save_at = {sx: (r, off, size) for r, (off, size, sx) in saves.items()}
@@ -324,9 +457,13 @@ class Emit:
         self.code = code
         # restored registers must be dead after their restores (the typed function never had their caller's values)
         self.check_restored_dead(ffacts, sigs)
+        if self.vu:
+            self.vu_scan(sigs)
         # ---------------------------------------------------------------- parameters, locals
         gin = set(abi[1]) - {0, 29, 31}
         fx = T1.fpr_x_inputs(ffacts, fin)
+        if self.vu:  # A4: the VU0 state is the VU0 interface's (vu_scan), not a plain input
+            fx = {s for s in fx if s[0] != 'v' and not (s[0] == 'x' and s[1] in VU_FIELDS)}
         if any(k == 'x' for k, r in fx):
             raise Refuse('field input ' + ','.join(sorted(r for k, r in fx if k == 'x')))
         if any(k == 'v' for k, r in fx):
@@ -390,6 +527,8 @@ class Emit:
                 s = sigs[k[1]]
                 wrote |= s.dropped | RET_SLOTS[s.rtype]
         wrote = {s for s in wrote if s[0] != 'v' and not (s[0] == 'g' and (s[1] == 0 or s[1] in SAVED))}
+        if self.vu:  # A4: the VU0 state is never dropped (every slot written is an output of the VU0 interface)
+            wrote = {s for s in wrote if not (s[0] == 'x' and s[1] in VU_FIELDS)}
         self.dropped = wrote - ret
         if self.xout:
             self.check_xout(sigs)
@@ -425,6 +564,8 @@ class Emit:
             if not SP_STEP.match(c.strip()):
                 raise Refuse('sp step form')
             return ''
+        if self.vu:
+            c = self.stmt_vu(y, c)
         c = VEC_W.sub(lambda m: f'{m.group(3)} = {vec_low(m.group(1))};', c)
         c = VEC_N.sub(lambda m: f'{m.group(3)} = (uint32_t)({vec_low(m.group(1))});', c)
         c = n1_basemem.rewrite(c)
@@ -443,11 +584,106 @@ class Emit:
         c = FR_WR0.sub(lambda m: f'a2::frSt<uint{m.group(1)}_t>(a2fr, {off_of(0)}, ', c)
         c = FR_RDM.sub(lambda m: f'a2::frLd<uint{m.group(1)}_t>(a2fr, {off_of(-int(m.group(2).rstrip("u"), 0))})', c)
         c = FR_WRM.sub(lambda m: f'a2::frSt<uint{m.group(1)}_t>(a2fr, {off_of(-int(m.group(2).rstrip("u"), 0))}, ', c)
+        if self.vu:  # A4: quadword frame slots
+            c = FR128_RD.sub(lambda m: f'a2::frLd<a4::q128>(a2fr, {off_of(int(m.group(1)))})', c)
+            c = FR128_WR.sub(lambda m: f'a2::frSt<a4::q128>(a2fr, {off_of(int(m.group(1)))}, ', c)
         if (y in self.acc) != (nfr[0] == 1) or nfr[0] > 1:
             raise Refuse('frame form')
         if re.search(r'\bsp\b', c):
             raise Refuse('sp use')
         return c
+
+    def vu_out(self):
+        """A4: the VU0 outputs' locals back into their reference parameters (at an exit)."""
+        return ''.join(f'io_{vu_local(q)[0]} = {vu_local(q)[0]}; ' for q, isout in self.vio if isout)
+
+    def stmt_vu(self, y, c):
+        """A4: a GPR's 128-bit value is its local (the low 64 bits) and h<r> (the upper 64 bits, a slot of the VU0
+        interface): lift_d1's context forms for the upper half become those locals."""
+        lf = self.lf
+
+        def setv(m):
+            r = int(m.group(2))
+            if m.group(3):
+                lo = f'std::memcpy(&{m.group(3)}, &_v, 8);'
+            else:
+                lo = f'{m.group(4)} = (uint32_t)a4::lo64(_v);'
+            return f'do {{ const __m128i _v = ({m.group(1)}); h{r} = a4::hi64(_v); {lo} }} while (0)'
+        c = VEC_SET.sub(setv, c)
+        c = re.sub(r'Ps2GprVecWithLow\(ctx->r\[(\d+)\], ', lambda m: f'a4::mk128(h{m.group(1)}, ', c)
+
+        def raw(m):
+            r = int(m.group(1))
+            if r == 0:
+                return '_mm_setzero_si128()'
+            if not lf.is_wide(r):
+                raise Refuse('128-bit read of a narrow register')
+            return f'a4::mk128(h{r}, {L.GPR[r]})'
+        c = re.sub(r'ctx->r\[(\d+)\]', raw, c)
+        return c
+
+    def vu_scan(self, sigs):
+        """A4: the VU0 ABI of this function (an n4_abi for VU0): the VU0 registers, ACC, Q, status and GPR upper halves it
+        reads before writing them on some path (vin, its own reads and its typed callees' vin), may write (vout: its own
+        writes and its callees' vout) and writes on every path to every exit (vmust); a forward must-written analysis to
+        a fixpoint over the CFG (loops). Every slot in vin | vout is a reference parameter; the body copies each into a
+        local at entry and the outputs back at every exit, so a slot written on some paths only passes the caller's value
+        through, as the lifted write-back did (exact by construction: nothing is dropped)."""
+        lf = self.lf
+        order = self.order
+        rw = {}
+        for y, c in self.code.items():
+            rw[y] = vu_rw(c)
+        mw = {order[0]: frozenset()}
+        vin, vout = set(), set()
+        exits = []
+        changed = True
+        while changed:
+            changed = False
+            for x in order:
+                if x not in mw:
+                    continue
+                cur = set(mw[x])
+                k = lf.kind[x]
+                if k[0] == 'op':
+                    r, w = rw.get(x, (set(), set()))
+                    vin |= r - cur
+                    cur |= w
+                    vout |= w
+                    mid = after = frozenset(cur)
+                else:
+                    if k[0] == 'br':
+                        r, _ = vu_rw(lf.cond(k))
+                        vin |= r - cur
+                    mid = frozenset(cur)
+                    r, w = rw.get(x + 4, (set(), set()))
+                    vin |= r - cur
+                    cur |= w
+                    vout |= w
+                    if k[0] in ('jal', 'tail'):
+                        s = sigs[k[1]]
+                        vin |= set(s.vin) - cur
+                        vout |= set(s.vout)
+                        cur |= set(s.vmust)
+                    after = frozenset(cur)
+                for s_ in lf.succ[x]:
+                    e = mid if (k[0] == 'br' and k[5] and s_ != k[4]) else after
+                    ne = e if s_ not in mw else (mw[s_] & e)
+                    if mw.get(s_) != ne:
+                        mw[s_] = ne
+                        changed = True
+                if k[0] in ('ret', 'tail'):
+                    exits.append((x, after))
+        vmust = None
+        for x, a in exits:
+            vmust = set(a) if vmust is None else (vmust & a)
+        self.vin, self.vout, self.vmust = frozenset(vin), frozenset(vout), frozenset(vmust or ())
+        bad = [r for k, r in self.vout if k == 'h' and r in SAVED]
+        if bad:
+            raise Refuse('upper half of a callee-saved register written')
+        if any(k == 'h' and r == 0 for k, r in self.vin | self.vout):
+            raise Refuse('upper half of zero')
+        self.vio = tuple((s, s in self.vout) for s in sorted(self.vin | self.vout, key=vu_sortkey))
 
     def check_xout(self, sigs):
         """A3: every extra output holds the lifted text's value at every exit: written on every path (a forward
@@ -739,6 +975,8 @@ class Emit:
                 args.append(f'a1_sx64({n})')
             else:
                 raise Refuse('64-bit pass-through argument')
+        for q, _ in s.vio:  # A4: the callee's VU0 interface, the caller's locals by reference
+            args.append(vu_local(q)[0])
         return f'{s.name}(ram, rt{"".join(", " + a for a in args)})'
 
     def body(self, sigs):
@@ -840,13 +1078,23 @@ class Emit:
                     L_.append(I + d)
                 L_.append(f'{I}{{ A3_BACK(); goto L_{k[1]:x}; }}' if k[1] <= x else f'{I}goto L_{k[1]:x};')
             elif k[0] == 'ret':
-                L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{ret_expr()} }}')
+                L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{self.vu_out()}{ret_expr()} }}')
             elif k[0] == 'jal':
                 s = sigs[k[1]]
                 L_.append(f'{I}{{ {d}{" " if d else ""}{"A3_CHARGE" if self.loops else "A2_CHARGE"}(); {assign(s, self.call_expr(x, s))}{self.xo_flagset(RET_SLOTS[s.rtype])} }}')
             elif k[0] == 'tail':
                 s = sigs[k[1]]
-                L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{tail_expr(s, self.call_expr(x, s))} }}')
+                if self.vu_out():
+                    # A4: the VU0 outputs go back after the tail callee wrote them
+                    call = self.call_expr(x, s)
+                    if self.rtype == 'void':
+                        tb = f'{call}; {self.vu_out()}return;'
+                    else:
+                        te = tail_expr(s, 'a4_t')
+                        tb = f'const {s.rtype} a4_t = {call}; {self.vu_out()}{te}'
+                    L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{tb} }}')
+                else:
+                    L_.append(f'{I}{{ {d}{" " if d else ""}{self.xo_stores(x)}{tail_expr(s, self.call_expr(x, s))} }}')
             else:
                 raise Refuse(f'kind {k[0]}')
         text = '\n'.join(L_)
@@ -861,6 +1109,11 @@ class Emit:
                 text = T1.msub(text, kk, lambda a, h=h: f'{h}({", ".join(a)})')
         except L.Refuse:
             raise Refuse('parse')
+        if self.vu:
+            try:
+                text = vu_text(text)
+            except L.Refuse:
+                raise Refuse('parse')
         if re.search(r'\bctx\b', text):
             raise Refuse('ctx use')
         if re.search(r'\b(rdram|runtime|target)\b', text):
@@ -871,6 +1124,8 @@ class Emit:
             text = text.replace('LIFT_SET_FACC(', 'A2_SET_FACC(')
         self.fpu_ps2 = sorted({h for h in T1.FPU_PS2.values() if h + '(' in text})
         ok = T1.OK_CALLS | {s.name for s in sigs.values()} | {'A2_CHARGE', 'a2::frLd', 'a2::frSt', 'A2_SET_FACC', 'A3_BACK', 'A3_CHARGE'}
+        if self.vu:
+            ok = ok | A4_KNOWN
         bad = set()
         for m in re.finditer(r'([A-Za-z_][\w:]*)\s*\(', text):
             g = m.group(1)
@@ -898,8 +1153,20 @@ class Emit:
                 else:
                     locs.append(f'float f{r} = 0.0f;')
             elif k == 'x':
+                if self.vu and r in VU_FIELDS:
+                    continue
                 loc, ty = L.FIELDS[r]
                 locs.append(f'{ty} {loc} = 0;')
+        vparams = []
+        for q, isout in self.vio:  # A4: the VU0 interface: a local copy of each reference parameter
+            nm, ty, _ = vu_local(q)
+            locs.append(f'{ty} {nm} = io_{nm};')
+            if isout:
+                vparams.append(f'{ty} &io_{nm}')
+            elif ty == 'a4::vec4':
+                vparams.append(f'const {ty} &io_{nm}')
+            else:
+                vparams.append(f'{ty} io_{nm}')
         if self.frame and any(1 for y in self.acc if y not in self.save_at and y not in self.restores):
             locs.append(f'uint8_t a2fr[{self.frame}];')
         for i, q in enumerate(self.xout):
@@ -907,13 +1174,14 @@ class Emit:
                 locs.append(f'bool a3xw{i} = false;')
         else:
             text = text  # no frame slots left
-        params = [f'{ty} {n}' for r, ty, n in self.gparams] + [f'float {n}' for r, n in self.fparams]
+        params = [f'{ty} {n}' for r, ty, n in self.gparams] + [f'float {n}' for r, n in self.fparams] + vparams
         if self.xout:
             params = params + ['uint64_t *xo = nullptr']
         sig = ', '.join(['uint8_t *ram', '[[maybe_unused]] PS2Runtime *rt'] + params)
         self.decl = f'{self.rtype} {self.name}({sig})'
         self.sig = Sig(self.name, self.addr, self.rtype, [('g', r, ty) for r, ty, _ in self.gparams] + [('f', r) for r, _ in self.fparams],
-                       self.dropped, self.v0w, 'a2')
+                       self.dropped, self.v0w, 'a4' if self.vu else 'a2')
+        self.sig.vin, self.sig.vout, self.sig.vmust, self.sig.vio = self.vin, self.vout, self.vmust, self.vio
         nfr = sum(1 for y in self.acc if y not in self.save_at and y not in self.restores)
         self.kind = ('frame ' if self.acc else '') + ('calls' if self.callees else 'leaf')
         if self.loops:
@@ -921,7 +1189,11 @@ class Emit:
         xo = ''
         if self.xout:
             xo = ', extra outputs ' + ' '.join(f'xo[{i}]={L.GPR[r] if k == "g" else "f%d" % r}' for i, (k, r) in enumerate(self.xout))
-        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A3" if self.loops else "A2"}; {self.kind}{xo}'
+        if self.vu:
+            def vn(ss):
+                return ' '.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey)) or '-'
+            xo += f'; VU0 in {vn(self.vin)}, out {vn(self.vout)}'
+        out = (f'// {self.name} (0x{self.addr:x}): typed by tools/typed_lift2.py (round {"A4" if self.vu else "A3" if self.loops else "A2"}; {self.kind}{xo}'
                f'{", frame %d bytes, %d slot accesses" % (self.frame, nfr) if self.acc else ""})\n'
                f'inline {self.decl}\n{{\n' + ''.join(f'    {x}\n' for x in locs) + text + '\n    __builtin_unreachable();\n}\n')
         return out
@@ -948,6 +1220,38 @@ class Emit:
         elif rt == 'uint64_t':
             st = 'Ps2SetGpr64(ctx, 2, a2_r); '
         r = '' if rt == 'void' else f'const {rt} a2_r = '
+        if self.vu:
+            # A4: as A3's adapter, with the VU0 interface: each slot loaded from the context into a local the typed function
+            # gets by reference, the outputs stored back (a GPR's upper half beside the low half the context keeps)
+            if not self.callees and not self.backs:
+                go = 'A4_GO_LEAF()'
+            else:
+                go = 'A4_GO()' + ''.join(f' && A4_HOLDS(0x{c:X}u, lift_d1::{nm})' for c, nm in sorted(self.holds)) + \
+                    ''.join(f' && A2_SLOT(0x{c:X}u, lift_d1::{nm})' for c, nm in getattr(self, 'guards', []))
+            if self.has128:
+                go += ' && A4_SP16()'
+            vl, vw, va = [], [], ''
+            for q, isout in self.vio:
+                nm, ty, cx = vu_local(q)
+                if q[0] == 'h':
+                    vl.append(f'uint64_t a4_{nm} = a4::hi64(ctx->r[{q[1]}]);')
+                    if isout:
+                        vw.append(f'ctx->r[{q[1]}] = a4::mk128(a4_{nm}, Ps2GprU64(ctx, {q[1]}));')
+                else:
+                    vl.append(f'{ty} a4_{nm} = {cx};')
+                    if isout:
+                        vw.append(f'{cx} = a4_{nm};')
+                va += f', a4_{nm}'
+            call = f'typed::{self.name}(rdram, runtime{args}{va}{", a3_xo" if self.xout else ""})'
+            xd, xw = '', ''
+            if self.xout:
+                xd = f'uint64_t a3_xo[{len(self.xout)}] = {{{", ".join(f"Ps2GprU64(ctx, {q})" if k == "g" else f"(uint64_t)a1_bits(ctx->f[{q}])" for k, q in self.xout)}}}; '
+                for i, (k, q) in enumerate(self.xout):
+                    xw += f'Ps2SetGpr64(ctx, {q}, a3_xo[{i}]); ' if k == 'g' else f'ctx->f[{q}] = a1_flt((uint32_t)a3_xo[{i}]); '
+            leaf = go.startswith('A4_GO_LEAF()')
+            return (f'    if (PS2_EXPECT({go}, 1)) {{ {" ".join(ld)}{" " if ld else ""}A4_CHK({self.name}{args}); {" ".join(vl)}{" " if vl else ""}{xd}'
+                    f'{"" if leaf else f"A4_IN({self.idx}); "}{r}{call}; {"" if leaf else "A4_OUT(); "}{st}{xw}{" ".join(vw)}{" " if vw else ""}'
+                    f'ctx->pc = Ps2GprU32(ctx, 31); return; }}{ADAPT_MARK4}')
         if self.loops:
             # A3: a function with a loop (or calls) needs n5sched in effect and the NOCHK fast path (A3_GO: the host
             # stack above m_noCheckFloor, which is UINTPTR_MAX unless NOCHK is on): the deferred checkpoints are then
@@ -1044,9 +1348,10 @@ def direct_targets(texts):
 
 # ----------------------------------------------------------------------------------------------- text / undo
 def undo_text(t):
-    t = t.replace(INC_LINE3, '').replace(INC_LINE, '')
+    t = t.replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
     return '\n'.join(line for line in t.split('\n') if not ((line.endswith(ADAPT_MARK) and 'A2_GO' in line) or
-                                                           (line.endswith(ADAPT_MARK3) and 'A3_GO' in line)))
+                                                           (line.endswith(ADAPT_MARK3) and 'A3_GO' in line) or
+                                                           (line.endswith(ADAPT_MARK4) and 'A4_GO' in line)))
 
 
 HDR = '''// typed_a2.h: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). Generated: do not edit.
@@ -1194,6 +1499,11 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             out.append('    uint64_t v0 = 0u;')
             out.append('    float f0 = 0.0f;')
             xa = ''
+            vio = getattr(E, 'vio', ())
+            for q, _ in vio:  # A4: the VU0 interface from the input context
+                nm, ty, cx = vu_local(q)
+                out.append(f'    uint64_t v_{nm} = a4::hi64(ctx->r[{q[1]}]);' if q[0] == 'h' else f'    {ty} v_{nm} = {cx};')
+            av = av + ''.join(f', v_{vu_local(q)[0]}' for q, _ in vio)
             if E.xout:
                 out.append(f'    uint64_t xo[{len(E.xout)}] = {{{", ".join(f"Ps2GprU64(ctx, {q})" if k == "g" else f"(uint64_t)a1ck::ckBits(ctx->f[{q}])" for k, q in E.xout)}}};')
                 xa = ', xo'
@@ -1209,7 +1519,17 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             xc = []
             for j, (k, q) in enumerate(E.xout):
                 xc.append(f'Ps2GprU64(&c, {q}) != xo[{j}]' if k == 'g' else f'a1ck::ckBits(c.f[{q}]) != (uint32_t)xo[{j}]')
-            out.append(f'    ckEnd({i}, ctx, c, {kind}, v0, f0, 0x{dg:x}u, 0x{df:x}u, {" || ".join(xc) if xc else "false"});')
+            vb = ''
+            if tag == 'a4':
+                # the typed leg's VU0 state: the input context with the VU0 outputs written in, against the reference's
+                out.append('    R5900Context &t = ckTyCtx(ctx);')
+                for q, isout in vio:
+                    if not isout:
+                        continue
+                    nm, ty, cx = vu_local(q)
+                    out.append(f'    t.r[{q[1]}] = a4::mk128(v_{nm}, Ps2GprU64(&t, {q[1]}));' if q[0] == 'h' else f'    {cx.replace("ctx->", "t.")} = v_{nm};')
+                vb = ', vuDiffer(t, c)'
+            out.append(f'    ckEnd({i}, ctx, c, {kind}, v0, f0, 0x{dg:x}u, 0x{df:x}u, {" || ".join(xc) if xc else "false"}{vb});')
         out.append('}')
     out.append(f'const a1ck::CkEntry kEntries[{max(1, len(emits))}] = {{')
     for E in emits:
@@ -1249,7 +1569,22 @@ namespace typed
 '''
 
 
-def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, max_depth):
+HDR4 = '''// typed_a4.h: round A4's typed functions (tools/typed_lift2.py, stage 4; docs/decomp_a4.md). Generated: do not edit.
+// Real C++ functions that use VU0 / 128-bit values: the VU0 registers, ACC, Q, status and the GPRs' upper halves a
+// function reads or writes are reference parameters (its VU0 interface, the VU0 ABI), vec4 / q128 locals, the VU0
+// macro operations and MMI as named helpers (typed_a4_rt.h); no R5900 context, no VU0 emulation state.
+#pragma once
+#include "typed_a3.h"
+#include "typed_a4_rt.h"
+
+namespace typed
+{
+#include "typed_a4.inc"
+}
+'''
+
+
+def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, max_depth, vu=False):
     """One stage of the typed lifter: depth by depth while functions convert (a function is tried once all its callees
     are typed). sigs / depth are extended in place. Returns emitted {addr: Emit}, tried_fail {addr: why}."""
     emitted = {}
@@ -1297,7 +1632,7 @@ def run_stage(cand, sigs, depth, loops, F, defs, byaddr, abi, cfin, dtargets, a1
             if gbad:
                 tried_fail[a] = gbad
                 continue
-            E = Emit(a, byaddr[a], abi.get(a), sigs, cfin, f, loops=loops)
+            E = Emit(a, byaddr[a], abi.get(a), sigs, cfin, f, loops=loops, vu=vu)
             if E.ok:
                 E.guards = guards
                 E.sig.guards = guards
@@ -1459,9 +1794,18 @@ def main():
     ap.add_argument('--no-a3', action='store_true', help='stage 2 only (A2), no loops stage')
     ap.add_argument('--skip3', default=os.path.join(REPO, 'docs/a3_skip.txt'),
                     help='A3: names left out of stage 3 (first word of a line; # comments): docs/a3_skip.txt, the long deferrals')
+    ap.add_argument('--out-list4', default=os.path.join(REPO, 'docs/a4_typed.txt'))
+    ap.add_argument('--no-a4', action='store_true', help='no VU0 stage (A4)')
+    ap.add_argument('--ov', default=None, help='write the generated typed files here instead of game/overrides (development)')
+    ap.add_argument('--n3-exclude', default=os.path.join(REPO, 'tools/n3_direct_exclude.txt'),
+                    help="A4: N3's excluded targets count as direct targets here (their adapters test every typed callee's slot)")
     ap.add_argument('--log', default=None)
     ap.add_argument('--log3', default=None)
+    ap.add_argument('--log4', default=None)
     args = ap.parse_args()
+    global OV
+    if args.ov:
+        OV = args.ov
     files = sorted(set(args.files))
     texts = {f: open(f, errors='surrogateescape').read() for f in files}
     base = {f: undo_text(t) for f, t in texts.items()}
@@ -1490,6 +1834,13 @@ def main():
         natives = L.native_addresses(set(facts['funcs']))
         cfin = T1.fpr_inputs_all(F, natives)
         dtargets = direct_targets(base)
+        # A4: N3's targets taken out of the direct set (tools/n3_direct_exclude.txt: GAMECORE's hooks hold their slots in game)
+        # keep the A2 / A3 sets as they were: A2_HOLDS / A3_HOLDS test every typed callee's slot anyway
+        if args.n3_exclude and os.path.exists(args.n3_exclude):
+            for line in open(args.n3_exclude):
+                line = line.split('#')[0].strip()
+                if line:
+                    dtargets.add(int(line, 16))
         # the reference texts (NOCHK forms) of the lifted functions
         undone = {f: N4.undo_text(T1.undo_text(t)) for f, t in base.items()}
         refdefs = {}
@@ -1547,6 +1898,50 @@ def main():
                 tiers3[('loop ' if E.backs else '') + ('frame ' if E.acc else '') + ('depth %d' % E.depth if E.callees else 'leaf')] += 1
             stats += (f'\ntyped_lift2 stage 3 (A3): {len(cand3)} candidates, {len(emits3)} converted {dict(sorted(tiers3.items()))} '
                       f'(refused: {dict(why3.most_common())}); {nadapt3} adapters')
+        # ---- stage 4 (round A4): the VU0 / 128-bit functions (the VU0 ABI: vu_scan) and, depth by depth, their callers
+        emits4, why4, tiers4, cand4 = [], collections.Counter(), collections.Counter(), []
+        emitted4, tried4, live4 = {}, {}, {}
+        if not args.no_a3 and not args.no_a4:
+            cand4 = [a for a in cand3 if a not in emitted3]
+            emitted4, tried4 = run_stage(cand4, sigs, depth, True, F, defs, byaddr, abi, cfin, dtargets, a1sigs, refdefs, args.max_depth, vu=True)
+            # a typed A4 caller passes no extra outputs (A3's xo) and drops its callees' scratch slots: none may be read after
+            # the call (A3's caller check proved it for the lifted text of these callers, which read xo through the adapter)
+            changed4 = True
+            while changed4:
+                changed4 = False
+                for a in sorted(emitted4):
+                    E = emitted4[a]
+                    if any(c not in sigs for c in E.callees):
+                        why = 'a typed callee refused'
+                    else:
+                        res = live_typed_caller(F[a], E.sig, sigs, set(E.callees))
+                        bad = [(x, t, sorted(sigs[t].dropped & after)) for x, (t, after) in res.items() if sigs[t].dropped & after]
+                        why = ('a callee scratch / extra output read after the call: ' + '; '.join(f'{x:x} {t:x} {b}' for x, t, b in bad[:2])) if bad else None
+                    if why:
+                        tried4[a] = why
+                        del emitted4[a]
+                        del sigs[a]
+                        changed4 = True
+            def reemit4(E, want):
+                E2 = Emit(E.addr, E.name, abi.get(E.addr), sigs, cfin, F[E.addr], loops=True, xout=want, vu=True)
+                if not E2.ok:
+                    REEMIT_WHY[E.addr] = E2.why
+                    return None
+                E2.guards, E2.sig.guards = E.guards, E.guards
+                E2.holds = E2.sig.holds = E.holds
+                E2.ref, E2.depth = E.ref, E.depth
+                return E2
+            live4 = caller_check(emitted4, sigs, F, args.abi, abi, cfin, reemit=reemit4)
+            why4 = why_counts(tried4, live4)
+            emits4 = [emitted4[a] for a in sorted(emitted4, key=lambda a: (emitted4[a].depth, a))]
+            for i, E in enumerate(emits4):
+                E.idx = i
+            new, nadapt4 = insert_adapters(new, {E.name: E for E in emits4}, INC_LINE4, (INC_LINE3, INC_LINE, T1.INC_LINE, T1.INC_AFTER))
+            for E in emits4:
+                tiers4[('loop ' if E.backs else '') + ('frame ' if E.acc else '') + ('vu0 ' if any(q[0] != 'h' for q, _ in E.vio) else '128 ' if (E.vio or E.has128) else '')
+                       + ('depth %d' % E.depth if E.callees else 'leaf')] += 1
+            stats += (f'\ntyped_lift2 stage 4 (A4): {len(cand4)} candidates, {len(emits4)} converted {dict(sorted(tiers4.items()))} '
+                      f'(refused: {dict(why4.most_common())}); {nadapt4} adapters')
         if not args.check:
             with open(os.path.join(OV, 'typed_a2.inc'), 'w') as fo:
                 fo.write("// typed_a2.inc: round A2's typed functions (tools/typed_lift2.py). Generated: do not edit. "
@@ -1591,6 +1986,32 @@ def main():
                 if args.check_tu:
                     write_check(emits3, a1sigs, None, os.path.join(OV, 'a3_typed_check.cpp'), os.path.join(OV, 'typed_a3_ref.inc'),
                                 tag='a3', prev=emits, prev_incs=('a2',))
+            if not args.no_a3 and not args.no_a4:
+                with open(os.path.join(OV, 'typed_a4.inc'), 'w') as fo:
+                    fo.write("// typed_a4.inc: round A4's typed functions (tools/typed_lift2.py, stage 4: VU0 / 128-bit). Generated: do not edit. "
+                             "Included inside a namespace (typed_a4.h: namespace typed), after typed_a3.inc.\n")
+                    fo.write('\n'.join(E.text for E in emits4))
+                with open(os.path.join(OV, 'typed_a4.h'), 'w') as fo:
+                    fo.write(HDR4)
+                    names = sorted({nm for E in emits4 for _, nm in (set(E.holds) | set(E.guards))})
+                    fo.write('\n// the lifted functions whose slots the adapters test (A4_HOLDS / A2_SLOT)\nnamespace lift_d1\n{\n')
+                    fo.write(''.join(f'void {nm}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for nm in names))
+                    fo.write('}\n')
+                rk = collections.Counter(E.rtype for E in emits4)
+
+                def vn(ss):
+                    return ','.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey))
+                with open(args.out_list4, 'w') as fo:
+                    fo.write(f"# a4_typed.txt: round A4's typed functions (tools/typed_lift2.py stage 4; docs/decomp_a4.md). {len(emits4)} converted; "
+                             f"tiers {dict(sorted(tiers4.items()))}; returns {dict(rk)}\n")
+                    fo.write('# address name | C signature | dropped scratch slots | tier | PS2 float helpers | VU0 in | VU0 out\n')
+                    for E in emits4:
+                        fo.write(f'{E.addr:08x} {E.name} | {E.decl} | {",".join(k + str(r) for k, r in sorted(E.dropped, key=str))} | '
+                                 f'{"loop%d " % len(E.backs) if E.backs else ""}{("frame%d " % E.frame) if E.acc else ""}'
+                                 f'depth{E.depth if E.callees else 0} | {",".join(E.fpu_ps2)} | {vn(E.vin)} | {vn(E.vout)}\n')
+                if args.check_tu:
+                    write_check(emits4, a1sigs, None, os.path.join(OV, 'a4_typed_check.cpp'), os.path.join(OV, 'typed_a4_ref.inc'),
+                                tag='a4', prev=emits + emits3, prev_incs=('a2', 'a3'))
 
         def wlog(path, tf, lr, em):
             with open(path, 'w') as fo:
@@ -1605,6 +2026,8 @@ def main():
             wlog(args.log, tried_fail, live_refused, emitted)
         if args.log3 and not args.no_a3:
             wlog(args.log3, tried3, live3, emitted3)
+        if args.log4 and not args.no_a3 and not args.no_a4:
+            wlog(args.log4, tried4, live4, emitted4)
     changed = 0
     for f in files:
         if new[f] != texts[f]:

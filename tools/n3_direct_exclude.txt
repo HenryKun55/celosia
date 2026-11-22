@@ -1,1 +1,32 @@
 0x0108d060  # its slot holds another function at run time (N3 boot log)
+# Round A4: held by GAMECORE hooks / natives from frame 2 on (the [n3] recheck in every A3 run: ride7, attract, lake6, the
+# 89 MB boot); in the direct set they kept N3 off in game (docs/decomp_a4.md)
+0x010a1518  # A4: held in game
+0x011333b8  # A4: held in game
+0x01139f10  # A4: held in game
+0x0113a1e8  # A4: held in game
+0x0113d280  # A4: held in game
+0x0113f700  # A4: held in game
+0x0113f760  # A4: held in game
+0x0113f838  # A4: held in game
+0x0113f878  # A4: held in game
+0x0113f8f8  # A4: held in game
+0x0113fa70  # A4: held in game
+0x0113fa88  # A4: held in game
+0x01140898  # A4: held in game
+0x011409a8  # A4: held in game
+0x01141080  # A4: held in game
+0x01141840  # A4: held in game
+0x01141918  # A4: held in game
+0x011425f0  # A4: held in game
+0x01145d28  # A4: held in game
+0x01146230  # A4: held in game
+0x011463b0  # A4: held in game
+0x011464c0  # A4: held in game
+0x011464e0  # A4: held in game
+0x01146668  # A4: held in game
+0x01146818  # A4: held in game
+0x01146980  # A4: held in game
+0x011469d0  # A4: held in game
+0x01146a10  # A4: held in game
+0x01146d10  # A4: held in game

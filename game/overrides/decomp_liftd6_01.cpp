@@ -88,7 +88,6 @@ namespace lift_d1
     void bgmStageInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void bgmStandby(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void bgmStop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void boot_wind_emitter_by_box(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void charrootdyn_checkUnderWater(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void check_free_camera_region(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void createEventScriptObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -13826,7 +13825,7 @@ void SequenceKickWindBox(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         (a3 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
         Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 31, ra); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1); Ps2SetGpr64(ctx, 6, a2); Ps2SetGpr64(ctx, 7, a3);
         ctx->pc = 0x1146668u;
-        if (!PS2_CALL_GUEST_DIRECT(0x1146668u, lift_d1::boot_wind_emitter_by_box, 0x11699FCu, 0x11699F4u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_KNOWN(0x1146668u, boot_wind_emitter_by_box_0x1146668, 0x11699FCu, 0x11699F4u, DirectCall, "JAL")) { return; }
     }
     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); v0 = Ps2GprU64(ctx, 2); sp = Ps2GprU64(ctx, 29); ra = Ps2GprU64(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU64(ctx, 7);
     (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)279 << 16))));
@@ -27296,7 +27295,6 @@ namespace
                 {0x0110E508u, &lift_d1::manager_sub_0110E508},
                 {0x0110F688u, &lift_d1::manager_sub_0110F688},
                 {0x01127690u, &lift_d1::GetWaterSurfacePositionYExtend},
-                {0x01146668u, &lift_d1::boot_wind_emitter_by_box},
                 {0x0114B400u, &lift_d1::shockRequestCalcVol},
                 {0x0115BB98u, &lift_d1::sheetFsSetStageTexSegTexSegDef},
                 {0x0115C1A8u, &lift_d1::sheetFsLoadAdpcmInt},

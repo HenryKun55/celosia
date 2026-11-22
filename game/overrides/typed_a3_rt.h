@@ -30,7 +30,7 @@ extern bool g_a3Typed; // the switch a3typed (sotc_decomp::kA3Typed, SOTC_A3TYPE
 // a check build: why an adapter did not take the typed call, and what the deferral did (the [a3] line)
 struct A3Stats
 {
-    uint64_t entered = 0, off = 0, floor = 0, slot = 0, leaves = 0;
+    uint64_t entered = 0, off = 0, floor = 0, slot = 0, leaves = 0, sp16 = 0;
     uint64_t calls = 0, backs = 0, dues = 0, callDues = 0, deferred = 0, defSum = 0, defMax = 0, maxBacks = 0;
     uint64_t dueAt = 0, curBacks = 0;
     bool inCall = false;
@@ -40,6 +40,8 @@ struct A3Stats
     uint64_t fnMaxDef[kFns] = {};
 };
 extern A3Stats g_a3;
+// the counters the current adapter call charges (round A4's adapters charge their own, g_a4s: A4_IN)
+extern A3Stats *g_a3cur;
 inline bool a3GoCount(PS2Runtime *runtime, uintptr_t sp)
 {
     ++g_a3.entered;
@@ -65,12 +67,14 @@ inline bool a3Holds(bool held)
 }
 inline void a3Due(PS2Runtime *rt)
 {
+    A3Stats &g_a3 = *g_a3cur;
     ++g_a3.dues;
     if (g_a3.inCall && g_a3.dueAt == 0u)
         g_a3.dueAt = rt->m_eeClock.now() | 1u;
 }
 inline void a3Back(PS2Runtime *rt)
 {
+    A3Stats &g_a3 = *g_a3cur;
     ++g_a3.backs;
     ++g_a3.curBacks;
     if (!rt->m_eeClock.charge(32u))
@@ -80,20 +84,23 @@ inline void a3Charge(PS2Runtime *rt)
 {
     if (!rt->m_eeClock.charge(PS2Runtime::kEeDispatchCycles))
     {
-        ++g_a3.callDues;
+        ++g_a3cur->callDues;
         a3Due(rt);
     }
 }
-inline void a3In(PS2Runtime *, uint32_t id)
+inline void a3InOn(A3Stats &g_a3, PS2Runtime *, uint32_t id)
 {
+    g_a3cur = &g_a3;
     g_a3.cur = id < A3Stats::kFns ? id : 0u;
     ++g_a3.calls;
     g_a3.dueAt = 0u;
     g_a3.curBacks = 0u;
     g_a3.inCall = true;
 }
+inline void a3In(PS2Runtime *rt, uint32_t id) { a3InOn(g_a3, rt, id); }
 inline void a3Out(PS2Runtime *rt)
 {
+    A3Stats &g_a3 = *g_a3cur;
     g_a3.inCall = false;
     if (g_a3.curBacks > g_a3.maxBacks)
         g_a3.maxBacks = g_a3.curBacks;
@@ -115,12 +122,15 @@ inline void a3Out(PS2Runtime *rt)
 #endif
 
 #if defined(A3_OFFLINE) || defined(A3_CHECK_TU)
-// the check's typed leg: counted (the offline harness caps a leg's iterations), no clock
-namespace a3ck
+// the check's typed leg: counted (the offline harness caps a leg's iterations), no clock (A3CK_NS: a4ck in A4's check)
+#ifndef A3CK_NS
+#define A3CK_NS a3ck
+#endif
+namespace A3CK_NS
 {
     void tyBack();
 }
-#define A3_BACK() a3ck::tyBack()
+#define A3_BACK() A3CK_NS::tyBack()
 #define A3_CHARGE() ((void)0)
 #elif PS2X_A3_CHECK
 #define A3_BACK() a3Back(rt)

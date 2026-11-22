@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -11317,6 +11318,7 @@ void gamecore_sub_0143D6F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtim
 // gamecore_sub_0143D718 (0x143d718-0x143d748)
 void gamecore_sub_0143D718(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(gamecore_sub_0143D718, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; const uint32_t a2_r = typed::gamecore_sub_0143D718(rdram, runtime, a2_4, a4_vf0); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0];
     WRITE32_B(a0, 548, 0u);

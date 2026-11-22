@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -16908,6 +16909,7 @@ void manager_sub_010B84B0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void get_temp_parameter_motion_ik_base(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10B9070u, 0)) { get_temp_parameter_motion_ik_base_0x10b9070(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO() && A4_HOLDS(0x10802F0u, lift_d1::GAMEUTIL_convert_from_lw_to_game_coord) && A4_SP16(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(get_temp_parameter_motion_ik_base, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vacc = ctx->vu0_acc; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[3])}; A4_IN(177); const a1::RetVF a2_r = typed::get_temp_parameter_motion_ik_base(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf5, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vacc, a4_h2, a3_xo); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[3] = a1_flt((uint32_t)a3_xo[0]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_acc = a4_vacc; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3];
@@ -18543,6 +18545,7 @@ void manager_sub_010BA140(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void manager_sub_010BA150(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10BA150u, 0)) { manager_sub_010BA150_0x10ba150(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A4_GO() && A4_SP16(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const uint32_t a2_7 = Ps2GprU32(ctx, 7); A4_CHK(manager_sub_010BA150, a2_4, a2_5, a2_6, a2_7); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[5] = {(uint64_t)a1_bits(ctx->f[1]), (uint64_t)a1_bits(ctx->f[2]), (uint64_t)a1_bits(ctx->f[3]), (uint64_t)a1_bits(ctx->f[4]), Ps2GprU64(ctx, 7)}; A4_IN(72); const uint64_t a2_r = typed::manager_sub_010BA150(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a4_h2, a3_xo); A4_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[1] = a1_flt((uint32_t)a3_xo[0]); ctx->f[2] = a1_flt((uint32_t)a3_xo[1]); ctx->f[3] = a1_flt((uint32_t)a3_xo[2]); ctx->f[4] = a1_flt((uint32_t)a3_xo[3]); Ps2SetGpr64(ctx, 7, a3_xo[4]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4];
@@ -18619,6 +18622,7 @@ L_10ba1e8:
 // initGazeIKWork (0x10ba718-0x10ba7a0)
 void initGazeIKWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(initGazeIKWork, a2_6); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; const a1::RetVF a2_r = typed::initGazeIKWork(rdram, runtime, a2_6, a4_vf0); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1];
     __m128 vf0 = ctx->vu0_vf[0];
@@ -19694,6 +19698,7 @@ void ResetCharacterClassCtrlRelationInfos(uint8_t *rdram, R5900Context *ctx, PS2
 // ResetCharacterClassFallDownInfo (0x10c1138-0x10c1158)
 void ResetCharacterClassFallDownInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(ResetCharacterClassFallDownInfo, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::ResetCharacterClassFallDownInfo(rdram, runtime, a2_4, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     WRITE8_B(a0, 861, (uint8_t)0u);
@@ -20099,6 +20104,7 @@ void ResetCharacterClassMotInterpInfo(uint8_t *rdram, R5900Context *ctx, PS2Runt
 // ResetCharacterClassSlideStatus (0x10c17e0-0x10c17f8)
 void ResetCharacterClassSlideStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(ResetCharacterClassSlideStatus, a2_4); uint64_t a4_h3 = a4::hi64(ctx->r[3]); const uint32_t a2_r = typed::ResetCharacterClassSlideStatus(rdram, runtime, a2_4, a4_h3); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     uint64_t v1 = Ps2GprU64(ctx, 3);
     { const uint32_t _dynInsn = READ32(0x10C17E0u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint32_t)((int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
@@ -20116,6 +20122,7 @@ void ResetCharacterClassSlideStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtim
 // ResetCharacterClassMotionInterpRootOfs (0x10c17f8-0x10c1820)
 void ResetCharacterClassMotionInterpRootOfs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A4_CHK(ResetCharacterClassMotionInterpRootOfs, a2_4); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a3_xo[2] = {(uint64_t)a1_bits(ctx->f[0]), Ps2GprU64(ctx, 5)}; const uint64_t a2_r = typed::ResetCharacterClassMotionInterpRootOfs(rdram, runtime, a2_4, a4_h2, a3_xo); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     float f0 = ctx->f[0];
@@ -24666,6 +24673,7 @@ void RequestCharacterClassSlip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 // RequestCharacterClassMotionDirection (0x10d2b48-0x10d2b60)
 void RequestCharacterClassMotionDirection(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(RequestCharacterClassMotionDirection, a2_4, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::RequestCharacterClassMotionDirection(rdram, runtime, a2_4, a2_5, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     v1 = 1u;
@@ -24683,6 +24691,7 @@ void RequestCharacterClassMotionDirection(uint8_t *rdram, R5900Context *ctx, PS2
 // RequestCharacterClassRootOffset (0x10d2ba0-0x10d2bb0)
 void RequestCharacterClassRootOffset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A4_CHK(RequestCharacterClassRootOffset, a2_4, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); const uint64_t a2_r = typed::RequestCharacterClassRootOffset(rdram, runtime, a2_4, a2_5, a4_h2); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2);
     do { const __m128i _v = (READ128(ADD32(a1, 0))); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);

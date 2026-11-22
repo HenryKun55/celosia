@@ -6,6 +6,7 @@
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
+#include "typed_a4.h" // a4
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -59,8 +60,6 @@ namespace lift_d1
     void Sg2SlotSetOutputMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void Sg2StPcmInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void changeFogParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void init_particle_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void init_wind_manager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void iosAllocIopHeap(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void iosStartThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void isysInitGroup(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -14506,14 +14505,14 @@ void initmanager(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         ra = 0x1082D88u;
         Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x1146230u;
-        if (!PS2_CALL_GUEST_DIRECT(0x1146230u, lift_d1::init_wind_manager, 0x1082D88u, 0x1082D80u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_KNOWN(0x1146230u, init_wind_manager_0x1146230, 0x1082D88u, 0x1082D80u, DirectCall, "JAL")) { return; }
     }
     v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5);
     {
         ra = 0x1082D90u;
         Ps2SetGpr64(ctx, 31, sx64(ra));
         ctx->pc = 0x113A1E8u;
-        if (!PS2_CALL_GUEST_DIRECT(0x113A1E8u, lift_d1::init_particle_manager, 0x1082D90u, 0x1082D88u, DirectCall, "JAL")) { return; }
+        if (!PS2_CALL_GUEST_KNOWN(0x113A1E8u, init_particle_manager_0x113a1e8, 0x1082D90u, 0x1082D88u, DirectCall, "JAL")) { return; }
     }
     v0 = Ps2GprU32(ctx, 2); sp = Ps2GprU32(ctx, 29); v1 = Ps2GprU32(ctx, 3); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU32(ctx, 4); a1 = Ps2GprU32(ctx, 5);
     { const uint64_t v = READ64_B(sp, 0); Ps2SetGpr64(ctx, 31, v); ra = (uint32_t)v; } // restore ra
@@ -16008,6 +16007,7 @@ void glSetFogFactorDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // manager_sub_0108F858 (0x108f858-0x108f8a8)
 void manager_sub_0108F858(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A4_GO_LEAF(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); const uint32_t a2_6 = Ps2GprU32(ctx, 6); A4_CHK(manager_sub_0108F858, a2_4, a2_5, a2_6); uint64_t a4_h8 = a4::hi64(ctx->r[8]); uint64_t a3_xo[5] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; const uint32_t a2_r = typed::manager_sub_0108F858(rdram, runtime, a2_4, a2_5, a2_6, a4_h8, a3_xo); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); Ps2SetGpr64(ctx, 8, a3_xo[3]); Ps2SetGpr64(ctx, 9, a3_xo[4]); ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a4
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t1 = Ps2GprU32(ctx, 9), ra = Ps2GprU32(ctx, 31);
     uint64_t t0 = Ps2GprU64(ctx, 8);
     t1 = READ32_B(a0, 1920);
@@ -18111,8 +18111,6 @@ namespace
                 {0x010919A0u, &lift_d1::manager_sub_010919A0},
                 {0x010C2760u, &lift_d1::SetCharacterClassRootQuaternionWithInterpolationGeometry},
                 {0x010F2258u, &lift_d1::SetLayoutClassRootQuaternion},
-                {0x0113A1E8u, &lift_d1::init_particle_manager},
-                {0x01146230u, &lift_d1::init_wind_manager},
                 {0x01166EC8u, &lift_d1::InitDamageLetter},
             };
             for (const auto &e : kTargets)

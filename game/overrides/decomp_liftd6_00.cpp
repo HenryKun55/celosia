@@ -82,13 +82,9 @@ namespace lift_d1
     void dynamic_cast_to_camera_obj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void get_camera_lws_animation_parameter_by_name(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void get_camera_obj_layout_class(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void get_particle_effect_id_by_name(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void get_wind_effect_data(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void inWaterEffectInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void iosCreateSema(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void is_eternal_wind(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void is_loop_camera_lws_animation(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    void is_loop_particle(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void kernel_sub_001B42C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void kernel_sub_001B44D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void kernel_sub_001B70A8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -7273,7 +7269,7 @@ L_10bad68:
                         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(s6, 56))));
                         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
                         ctx->pc = 0x113F8F8u;
-                        if (!PS2_CALL_GUEST_DIRECT(0x113F8F8u, lift_d1::get_particle_effect_id_by_name, 0x10BAD74u, 0x10BAD6Cu, DirectCall, "JAL")) { return; }
+                        if (!PS2_CALL_GUEST_KNOWN(0x113F8F8u, get_particle_effect_id_by_name_0x113f8f8, 0x10BAD74u, 0x10BAD6Cu, DirectCall, "JAL")) { return; }
                     }
                     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU32(ctx, 22); s7 = Ps2GprU32(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU32(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); hi = ctx->hi; lo = ctx->lo; df_a3 = false; df_s4 = false; df_s6 = false; df_s7 = false; df_fp = false;
                     (s2 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -7286,7 +7282,7 @@ L_10bad68:
                         (a0 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
                         Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
                         ctx->pc = 0x113F700u;
-                        if (!PS2_CALL_GUEST_DIRECT_NOCHK(0x113F700u, lift_d1::is_loop_particle, 0x10BAD88u, 0x10BAD80u, DirectCall, "JAL")) { return; }
+                        if (!PS2_CALL_GUEST_NOCHK(0x113F700u, is_loop_particle_0x113f700, 0x10BAD88u, 0x10BAD80u, DirectCall, "JAL")) { return; }
                     }
                     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU32(ctx, 22); s7 = Ps2GprU32(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU32(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); hi = ctx->hi; lo = ctx->lo; df_a3 = false; df_s4 = false; df_s6 = false; df_s7 = false; df_fp = false;
                     (v1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -7328,7 +7324,7 @@ L_10badd0:
                         (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(s6, 64))));
                         Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0); Ps2SetGpr64(ctx, 5, a1);
                         ctx->pc = 0x11463B0u;
-                        if (!PS2_CALL_GUEST_DIRECT(0x11463B0u, lift_d1::get_wind_effect_data, 0x10BADDCu, 0x10BADD4u, DirectCall, "JAL")) { return; }
+                        if (!PS2_CALL_GUEST_KNOWN(0x11463B0u, get_wind_effect_data_0x11463b0, 0x10BADDCu, 0x10BADD4u, DirectCall, "JAL")) { return; }
                     }
                     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU32(ctx, 22); s7 = Ps2GprU32(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU32(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); hi = ctx->hi; lo = ctx->lo; df_a3 = false; df_s4 = false; df_s6 = false; df_s7 = false; df_fp = false;
                     (s2 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
@@ -7341,7 +7337,7 @@ L_10badd0:
                         (a0 = (uint64_t)((uint64_t)s2 + (uint64_t)0ULL));
                         Ps2SetGpr64(ctx, 18, s2); Ps2SetGpr64(ctx, 31, sx64(ra)); Ps2SetGpr64(ctx, 4, a0);
                         ctx->pc = 0x11464C0u;
-                        if (!PS2_CALL_GUEST_DIRECT_NOCHK(0x11464C0u, lift_d1::is_eternal_wind, 0x10BADF0u, 0x10BADE8u, DirectCall, "JAL")) { return; }
+                        if (!PS2_CALL_GUEST_NOCHK(0x11464C0u, is_eternal_wind_0x11464c0, 0x10BADF0u, 0x10BADE8u, DirectCall, "JAL")) { return; }
                     }
                     s0 = Ps2GprU64(ctx, 16); s1 = Ps2GprU64(ctx, 17); s2 = Ps2GprU64(ctx, 18); s3 = Ps2GprU64(ctx, 19); v0 = Ps2GprU64(ctx, 2); s4 = Ps2GprU32(ctx, 20); s5 = Ps2GprU64(ctx, 21); s6 = Ps2GprU32(ctx, 22); s7 = Ps2GprU32(ctx, 23); sp = Ps2GprU64(ctx, 29); v1 = Ps2GprU64(ctx, 3); fp = Ps2GprU32(ctx, 30); ra = Ps2GprU32(ctx, 31); a0 = Ps2GprU64(ctx, 4); a1 = Ps2GprU64(ctx, 5); a2 = Ps2GprU64(ctx, 6); a3 = Ps2GprU32(ctx, 7); hi = ctx->hi; lo = ctx->lo; df_a3 = false; df_s4 = false; df_s6 = false; df_s7 = false; df_fp = false;
                     {
@@ -22974,10 +22970,6 @@ namespace
                 {0x0112A148u, &lift_d1::InitCollisionFinderWithRelyNumber},
                 {0x01138AA8u, &lift_d1::InitClothWork},
                 {0x011394C0u, &lift_d1::SetClothAccessSwitch},
-                {0x0113F700u, &lift_d1::is_loop_particle},
-                {0x0113F8F8u, &lift_d1::get_particle_effect_id_by_name},
-                {0x011463B0u, &lift_d1::get_wind_effect_data},
-                {0x011464C0u, &lift_d1::is_eternal_wind},
                 {0x0115CF20u, &lift_d1::sheetFileRead},
                 {0x0115EC08u, &lift_d1::sheetWait},
                 {0x01161F78u, &lift_d1::is_loop_camera_lws_animation},
