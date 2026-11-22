@@ -23571,3 +23571,28 @@ docs/decomp_a4.md. Scripts, runs and logs: `build/agent-scratch/a4/`. Switch `SO
   accesses. **On by default** (`SOTC_A4TYPED=0` off).
 - **Next**: the frame's address escaping (38, a vector on the guest stack passed by pointer), n4_abi's 177 unproven,
   the 63 relocated calls, direct typed calls from lifted callers.
+## Perf P1: the character chain for the Vita's memory system (p1chara) (2026-11-22)
+
+docs/perf_p1.md. Scripts, runs and logs: `build/agent-scratch/p1/`. Switch `SOTC_P1CHARA` (A/B `p1chara`, `kP1Chara`),
+**off by default**; console package `build/agent-scratch/p1/celosia-p1.vpk` + `env-ab.txt`.
+
+- **Aim**: the console profile's characters (8.4-9.1 ms riding), cost shaped like memory latency. Cut what the chain
+  reads again and again from scattered guest records, from compact host structures built once and validated once a frame.
+  No new thread (S3 jobs, S8, char104 all lost; cores 1-2 ~60% busy on the console).
+- **What p1chara does**: C1's key rows and once-a-frame rig on (exact, never measured on the console before); the pose
+  reads bone offsets from the rig's contiguous host array (compared with the guest's this frame) and prefetches the next
+  bones' lines; the gaze (manager_sub_010C6238) takes its per-node keys from a host table per gaze motion, filled by the
+  real curveEval, validated once a frame (formats / channel words every frame, records in turns, the curve table): ~90
+  curveEval guest calls a frame riding (~136 at the lake) become host loads; the call's last key stays real, and a served
+  packed key puts its vf1 and fcr31's C in the context as the call would; the skin palette prefetches ahead.
+- **Exact**: SOTC_P1CHARA_CHECK runs every gaze both ways (outputs, the gaze's registers, the whole rest of the context,
+  the dead stack) and turns on S3's / C1's checks. p4 (shipped): ride7 / attract / lake6 48 570 gaze calls compared, 0 differences of any kind; 448 056 poses (12.5 M bones), 406 226 key calls, 717 339 trusted rigs: 0. (p1 / p3's checks
+  found the registers the original's last packed curveEval leaves, vf1 and C: fixed in p4.)
+- **Measured** (Vita3K 222, p3, off - on): ride7 +0.066 +- 0.119 / -0.013 +- 0.161, lake6 +0.192 +- 0.096 (2 SE);
+  pooled frame **+0.082 +- 0.037 ms** (z 2.2), busy +0.094 +- 0.038 (z 2.5). The lake again on p4 (shipped code): +0.259 +- 0.215 (frame), +0.265 +- 0.208 (busy): the same direction.
+- **Work proxy** (a frame, P1 on): riding ~31 KB of guest loads and ~1.4 KB of stores fewer (gaze 6.6 -> 0.6 KB, pose
+  offsets 10.6 -> 5.3 KB, rig compares ~18 -> ~3 KB, key lines 637 -> 471), and ~90 guest calls fewer; the lake ~35 KB and
+  ~136 calls.
+- **Boot**: 89 MB taken, mounted at 3 025, rode the 600 s; pictures normal (Wander, Agro, reins, shadows). spalign 0.
+- **Honest size**: Vita3K sees ~0.1 ms; the console estimate is 0.2-0.5 ms, far from the 3 ms aimed at: the rest of the
+  chain's cost is its PS2 shape (ctx-native / lifted code on the R5900 context), which needs the DC rewrite, not layouts.
