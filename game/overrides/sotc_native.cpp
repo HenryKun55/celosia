@@ -45,6 +45,7 @@
 #include "sotc_worker.h"
 #include "s5_particles.h"
 #include "p2_particles.h"
+#include "p3_par.h"
 #include "s6_coll.h"
 namespace char104 // round 104 (decomp_char104.cpp)
 {
@@ -2019,6 +2020,9 @@ namespace sotc_native
     // VU1 data memory as the palette leaves it (1024 qwords, zero where it
     // wrote nothing). Only the qwords the last palette wrote are cleared
     // again (was the whole 16 KB per skinned instance).
+    // Round P3's check (p3_par.h): the hook worker runs a kick pass with p3par on (its guest reads counted).
+    thread_local bool t_p3InKick = false;
+    std::atomic<uint64_t> g_p3Reads{0};
     struct VuPalette
     {
         std::vector<float> vu = std::vector<float>(1024u * 4u, 0.0f);
@@ -2128,6 +2132,8 @@ namespace sotc_native
     bool readChainPalette(uint32_t own, VuPalette &palette)
     {
         SOTC_READ_SITE(7);
+        if (__builtin_expect(t_p3InKick, false)) // round P3's check: a guest read by a kick pass a move did not wait for
+            g_p3Reads.fetch_add(1, std::memory_order_relaxed);
         if (((word(own) >> 28) & 7u) != 2u)
             return false;
         const uint32_t ret = word(own + 4u), qwc = word(ret) & 0xFFFFu;
@@ -2177,6 +2183,8 @@ namespace sotc_native
     bool readChainPaletteLean(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes)
     {
         SOTC_READ_SITE(7);
+        if (__builtin_expect(t_p3InKick, false)) // round P3's check (as readChainPalette)
+            g_p3Reads.fetch_add(1, std::memory_order_relaxed);
         ret = 0;
         bytes = 0;
         if (((word(own) >> 28) & 7u) != 2u)
@@ -2646,18 +2654,79 @@ namespace sotc_native
     // as readChainPalette leaves the VU picture). One picture for both ways
     // (zero but for the last palette's qwords).
     VuPalette g_kickNow;
-    template <typename Fetch>
-    void skinAtKickWith(Fetch &&fetch)
+    // Round P3: the pass's outputs through a sink. KickSinkLive draws them (the renderer's frame palettes and meshes) and,
+    // with SOTC_P3PAR_CHECK, hashes what it draws; KickSinkDry (the check's second run) only hashes the same things.
+    inline uint64_t p3Mix(uint64_t h, const void *data, size_t n)
     {
-        SOTC_READ_SITE(10);
-        if (g_skinDrawList.empty())
-            return;
-        VuPalette &now = g_kickNow;
-        SkinKickStats &st = g_skinKickStats;
-        ++st.kicks;
-        for (uint32_t r = 0; r < g_skinRecords.size(); ++r)
+        const uint8_t *b = static_cast<const uint8_t *>(data);
+        for (size_t i = 0; i < n; ++i)
+            h = (h ^ b[i]) * 0x100000001B3ull;
+        return h;
+    }
+    inline uint64_t p3MixMesh(uint64_t h, uint64_t mesh, const native_renderer::Vertex *out, const PosedMesh &w)
+    {
+        h = p3Mix(h, &mesh, 8);
+        h = p3Mix(h, &w.vertices, 4);
+        h = p3Mix(h, &w.indices, 4);
+        h = p3Mix(h, &w.base, 4);
+        h = p3Mix(h, out, static_cast<size_t>(w.vertices) * sizeof(native_renderer::Vertex));
+        if (w.index && w.indices)
+            h = p3Mix(h, w.index, static_cast<size_t>(w.indices) * 4u);
+        return h;
+    }
+    struct KickSinkLive
+    {
+        bool hash = false;
+        uint64_t h = 0xCBF29CE484222325ull;
+        void palette(uint32_t handle, const float *data, uint32_t count)
         {
-            SkinRecord &rec = g_skinRecords[r];
+            native_renderer::rewriteFramePalette(handle, data, count);
+            if (hash)
+            {
+                h = p3Mix(h, &handle, 4);
+                h = p3Mix(h, &count, 4);
+                h = p3Mix(h, data, static_cast<size_t>(count) * 16u);
+            }
+        }
+        bool mesh(uint64_t mesh, const SkinnedPacket &packet, const float *palette)
+        {
+            native_renderer::Vertex *out = native_renderer::frameMesh(std::max<uint32_t>(packet.maxVertices, static_cast<uint32_t>(packet.bind.size())));
+            if (!out)
+                return false;
+            const PosedMesh written = poseSkinned(packet, palette, out);
+            if (hash)
+                h = p3MixMesh(h, mesh, out, written);
+            native_renderer::commitFrameMesh(mesh, written.vertices, written.indices);
+            return true;
+        }
+    };
+    struct KickSinkDry
+    {
+        uint64_t h = 0xCBF29CE484222325ull;
+        std::vector<native_renderer::Vertex> out;
+        void palette(uint32_t handle, const float *data, uint32_t count)
+        {
+            h = p3Mix(h, &handle, 4);
+            h = p3Mix(h, &count, 4);
+            h = p3Mix(h, data, static_cast<size_t>(count) * 16u);
+        }
+        bool mesh(uint64_t mesh, const SkinnedPacket &packet, const float *palette)
+        {
+            const size_t n = std::max<size_t>(packet.maxVertices, packet.bind.size());
+            if (out.size() < n)
+                out.resize(n);
+            const PosedMesh written = poseSkinned(packet, palette, out.data());
+            h = p3MixMesh(h, mesh, out.data(), written);
+            return true;
+        }
+    };
+    template <typename Fetch, typename Sink>
+    void skinAtKickCore(Fetch &&fetch, std::vector<SkinRecord> &records, VuPalette &now, SkinKickStats &st, Sink &sink)
+    {
+        ++st.kicks;
+        for (uint32_t r = 0; r < records.size(); ++r)
+        {
+            SkinRecord &rec = records[r];
             ++st.records;
             if (!fetch(rec.own, now))
                 continue;
@@ -2676,21 +2745,31 @@ namespace sotc_native
                     continue;
                 if (d.handle)
                 {
-                    native_renderer::rewriteFramePalette(d.handle, now.data() + d.lo * 4u, d.count);
+                    sink.palette(d.handle, now.data() + d.lo * 4u, d.count);
                     ++st.rewritten;
                 }
                 else if (d.mesh)
                 {
-                    const SkinnedPacket &packet = *d.packet;
-                    if (native_renderer::Vertex *out = native_renderer::frameMesh(std::max<uint32_t>(packet.maxVertices, static_cast<uint32_t>(packet.bind.size()))))
-                    {
-                        const PosedMesh written = poseSkinned(packet, now.data(), out);
-                        native_renderer::commitFrameMesh(d.mesh, written.vertices, written.indices);
+                    if (sink.mesh(d.mesh, *d.packet, now.data()))
                         ++st.reposed;
-                    }
                 }
             }
         }
+    }
+    uint64_t g_p3LiveHash = 0; // round P3's check: the last kick pass's output hash (the hook worker's, read after its join)
+    bool g_p3HashNext = false; // round P3's check: the next kick pass hashes its outputs (the worker's, set at its start)
+    template <typename Fetch>
+    void skinAtKickWith(Fetch &&fetch)
+    {
+        SOTC_READ_SITE(10);
+        if (g_skinDrawList.empty())
+            return;
+        SkinKickStats &st = g_skinKickStats;
+        KickSinkLive sink;
+        sink.hash = g_p3HashNext;
+        skinAtKickCore(fetch, g_skinRecords, g_kickNow, st, sink);
+        if (sink.hash)
+            g_p3LiveHash = sink.h;
         static const bool log = ps2_diag::env("SOTC_SKIN_KICK_LOG") != nullptr;
         if (log && st.kicks % 600u == 0u)
             std::fprintf(stderr, "[skin-kick] %llu kicks: %llu instance palettes, %llu changed after their draws: %llu parts posed again, %llu GPU palettes rewritten; "
@@ -2782,48 +2861,75 @@ namespace sotc_native
     }
     // The worker: the pass on the kick's copies (a chain not among them, which
     // the verify would show, read as before).
+    // The fetch of the kick's pass from a kick job's copies (stats: the live pass's counts; round P3's dry run passes false).
+    bool kickFetch(const KickJob &job, uint32_t own, VuPalette &now, bool stats)
+    {
+        const KickPalette *const first = job.palettes.data(), *const last = first + job.count;
+        const KickPalette *k = std::lower_bound(first, last, own, [](const KickPalette &a, uint32_t o) { return a.own < o; });
+        if (k == last || k->own != own)
+        {
+            if (stats)
+                ++g_skinKickStats.missed;
+            return readChainPalette(own, now);
+        }
+        if (!k->ok)
+            return false;
+        uint32_t lo = k->lo, hi = k->hi;
+        const std::vector<float> *data = &k->data;
+        if (k->fromLast)
+        {
+            // Round S4: the last hook read of this chain, as the worker kept it.
+            const std::vector<float> *last = nullptr;
+            uint32_t llo = 0, lhi = 0;
+            const bool have = s4disp::paletteLast(own, llo, lhi, last);
+            if (k->checkData && stats)
+                s4disp::paletteKickStats(0, 0, 1, (!have || llo != lo || lhi != hi || *last != k->data) ? 1u : 0u);
+            if (!have)
+            {
+                if (stats)
+                    ++g_skinKickStats.missed;
+                if (!k->checkData)
+                    return readChainPalette(own, now);
+            }
+            else if (!k->checkData)
+                lo = llo, hi = lhi, data = last;
+        }
+        // As readChainPalette leaves the picture: the last palette's
+        // qwords cleared, this one's written (zero where no UNPACK wrote).
+        if (now.hi > now.lo)
+            std::fill(now.vu.begin() + now.lo * 4u, now.vu.begin() + now.hi * 4u, 0.0f);
+        if (hi > lo)
+            std::copy(data->begin(), data->end(), now.vu.begin() + lo * 4u);
+        now.lo = lo;
+        now.hi = hi;
+        return true;
+    }
     void kickRun(const KickJob &job)
     {
-        skinAtKickWith([&job](uint32_t own, VuPalette &now)
+        skinAtKickWith([&job](uint32_t own, VuPalette &now) { return kickFetch(job, own, now, true); });
+    }
+    // Round P3 (p3_par.h): true when the kick pass on `job` reads no guest memory: every skin record's chain is among the
+    // job's copies (kickFetch's readChainPalette is for a chain that is not), and a copy that stands for S4's kept read
+    // finds it. Called by the hook worker at the job's start, when every model job before it is done (the records, the draw
+    // list and S4's kept reads are what the pass will see).
+    bool kickReadsNoGuest(const KickJob &job)
+    {
+        if (g_skinDrawList.empty())
+            return true; // (skinAtKickWith returns at once)
+        const KickPalette *const first = job.palettes.data(), *const last = first + job.count;
+        for (const SkinRecord &rec : g_skinRecords)
         {
-            const KickPalette *const first = job.palettes.data(), *const last = first + job.count;
-            const KickPalette *k = std::lower_bound(first, last, own, [](const KickPalette &a, uint32_t o) { return a.own < o; });
-            if (k == last || k->own != own)
-            {
-                ++g_skinKickStats.missed;
-                return readChainPalette(own, now);
-            }
-            if (!k->ok)
+            const KickPalette *k = std::lower_bound(first, last, rec.own, [](const KickPalette &a, uint32_t o) { return a.own < o; });
+            if (k == last || k->own != rec.own)
                 return false;
-            uint32_t lo = k->lo, hi = k->hi;
-            const std::vector<float> *data = &k->data;
-            if (k->fromLast)
-            {
-                // Round S4: the last hook read of this chain, as the worker kept it.
-                const std::vector<float> *last = nullptr;
-                uint32_t llo = 0, lhi = 0;
-                const bool have = s4disp::paletteLast(own, llo, lhi, last);
-                if (k->checkData)
-                    s4disp::paletteKickStats(0, 0, 1, (!have || llo != lo || lhi != hi || *last != k->data) ? 1u : 0u);
-                if (!have)
-                {
-                    ++g_skinKickStats.missed;
-                    if (!k->checkData)
-                        return readChainPalette(own, now);
-                }
-                else if (!k->checkData)
-                    lo = llo, hi = lhi, data = last;
-            }
-            // As readChainPalette leaves the picture: the last palette's
-            // qwords cleared, this one's written (zero where no UNPACK wrote).
-            if (now.hi > now.lo)
-                std::fill(now.vu.begin() + now.lo * 4u, now.vu.begin() + now.hi * 4u, 0.0f);
-            if (hi > lo)
-                std::copy(data->begin(), data->end(), now.vu.begin() + lo * 4u);
-            now.lo = lo;
-            now.hi = hi;
-            return true;
-        });
+            if (!k->ok || !k->fromLast || k->checkData)
+                continue;
+            uint32_t lo = 0, hi = 0;
+            const std::vector<float> *data = nullptr;
+            if (!s4disp::paletteLast(rec.own, lo, hi, data))
+                return false;
+        }
+        return true;
     }
 
     // ---- Draw plans (round 8) --------------------------------------------
@@ -3537,7 +3643,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -5803,6 +5909,7 @@ namespace sotc_native
         PtclVtxJob ptcl;
         Draw2DJob draw2d;
         uint32_t kick = 0; // round 34: its KickJob (g_kickJobs; not one a ring slot, which would keep every palette's room)
+        bool p3 = false;   // round P3: a kick job handed over with p3par on (a garbage move may go on beside it)
     };
     void runJob(HookJob &job);
     // SOTC_HOOK_ASYNC_VERIFY: a hash of everything a job took at the hook
@@ -5877,6 +5984,305 @@ namespace sotc_native
         // game thread (~80 a frame riding; Vita3K's sampler: sceKernelGetProcessTimeWide from push 0.57% of the
         // game thread). Only with SOTC_FRAME_LOG_ALL or SOTC_DIAG_TIMERS=1; never in the release build.
         bool g_timingLag = false;
+
+        // ---- Round P3 (SOTC_P3PAR, p3_par.h): a garbage move without the kick pass's join --------------------------------
+        p3par::Stats g_p3;
+        uint64_t g_p3Size[4] = {}, g_p3Hit[2] = {};
+        uint64_t g_p3Kinds[64] = {}, g_p3Last[8] = {}, g_p3Queued[5] = {}, g_p3Draws[4] = {}, g_p3KickInside = 0; // (diagnostics)
+        uint32_t g_p3KickIdx = ~0u;          // the ring index of the last kick job handed over with p3par on (game thread)
+        std::atomic<uint64_t> g_p3FreeKicks{0}; // the worker: flagged kick jobs that read no guest memory
+        std::atomic<uint64_t> g_p3Start{0};  // the worker, at such a job's start: ((index + 1) << 1) | (reads no guest memory)
+        bool g_p3AtMove = false;             // the game thread: this join is copyViaSpr's (g_beforeGuestMove)
+        bool g_p3Inited = false, g_p3Check = false;
+        uint32_t g_p3RamEvery = 16u, g_p3Log = 0u;
+        uint32_t g_p3ElidedIdx = ~0u;        // the kick job a move did not wait for (game thread; the check's RAM copy is for its first move)
+        uint32_t g_p3VerifyIdx = ~0u;        // the check: the flagged kick job to run again alone once it is joined (game thread)
+        uint32_t g_p3SinceRam = 0u;          // elided moves since the last RAM check
+        uint8_t *g_p3Snap = nullptr;         // the RAM check's copy (32 MB, check mode only)
+        bool g_p3SnapArmed = false;
+        // The check's copies of a flagged kick job's inputs and its output hash (the worker's from the job's start to its end;
+        // the game thread's once the job is joined).
+        struct P3Copy
+        {
+            uint32_t idx = ~0u;
+            bool done = false;
+            std::vector<SkinRecord> records;
+            VuPalette now;
+            KickJob job;
+            uint64_t hash = 0;
+        } g_p3Copy;
+        void p3Init()
+        {
+            if (g_p3Inited)
+                return;
+            g_p3Inited = true;
+            const char *c = ps2_diag::env("SOTC_P3PAR_CHECK");
+            g_p3Check = c && std::atoi(c) != 0;
+            if (const char *r = ps2_diag::env("SOTC_P3PAR_RAMCHECK"))
+                g_p3RamEvery = static_cast<uint32_t>(std::max(0, std::atoi(r)));
+            const char *l = ps2_diag::env("SOTC_P3PAR_LOG");
+            const char *on = std::getenv("SOTC_P3PAR");
+            g_p3Log = l ? static_cast<uint32_t>(std::max(0, std::atoi(l))) : ((g_p3Check || (on && on[0] >= '1' && on[0] <= '3')) ? 600u : 0u);
+            if (g_p3Check || g_p3Log)
+                std::fprintf(stderr, "[p3par] on %d check %d ramcheck every %u log %u\n", sotc_decomp::p3parOn() ? 1 : 0, g_p3Check ? 1 : 0, g_p3RamEvery, g_p3Log);
+        }
+        // The hook worker, at a flagged kick job's start (every job before it done): what the pass will read decided, the
+        // check's copies made, the decision published.
+        void p3KickStart(const HookJob &job, uint32_t idx)
+        {
+            const KickJob &k = g_kickJobs[job.kick];
+            const bool free = kickReadsNoGuest(k);
+            if (free)
+                g_p3FreeKicks.fetch_add(1, std::memory_order_relaxed);
+            if (g_p3Check)
+            {
+                g_p3Copy.idx = idx;
+                g_p3Copy.done = false;
+                g_p3Copy.records = g_skinRecords;
+                g_p3Copy.now = g_kickNow;
+                g_p3Copy.job = k;
+                g_p3LiveHash = 0xCBF29CE484222325ull; // (an empty draw list: skinAtKickWith returns before hashing)
+                g_p3HashNext = true;
+                t_p3InKick = true;
+            }
+            g_p3Start.store(((static_cast<uint64_t>(idx) + 1u) << 1) | (free ? 1u : 0u), std::memory_order_seq_cst);
+            if (g_joining.load(std::memory_order_seq_cst))
+            {
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_done.notify_all();
+            }
+        }
+        void p3KickEnd(uint32_t idx)
+        {
+            if (!g_p3Check)
+                return;
+            g_p3HashNext = false;
+            t_p3InKick = false;
+            if (g_p3Copy.idx == idx)
+            {
+                g_p3Copy.hash = g_p3LiveHash;
+                g_p3Copy.done = true;
+            }
+        }
+        // The game thread at a garbage move with jobs queued (p3par on): true when it may go on without the rest of the
+        // queue (every job before the last, a kick job, is done and the kick job reads no guest memory; or the queue ran
+        // out), false for the whole join as before.
+        bool p3Partial()
+        {
+            ++g_p3.pending;
+            const uint32_t head = g_head.load(std::memory_order_relaxed), k = g_p3KickIdx;
+            if (k == ~0u || head != k + 1u)
+            {
+                ++g_p3.notLast;
+                // What is queued (the [p3q] histogram): job kinds, the last one, the count, the frame's draws so far.
+                const uint32_t tail = g_tail.load(std::memory_order_acquire);
+                uint32_t kinds = 0;
+                for (uint32_t i = tail; i != head; ++i)
+                    kinds |= 1u << g_ring[i % kRing].kind;
+                ++g_p3Kinds[kinds & 63u];
+                ++g_p3Last[g_ring[(head - 1u) % kRing].kind & 7u];
+                const uint32_t n = head - tail;
+                ++g_p3Queued[n < 2u ? 0 : n < 5u ? 1 : n < 20u ? 2 : n < 100u ? 3 : 4];
+                ++g_p3Draws[g_frameDraws == 0u ? 0 : g_frameDraws < 50u ? 1 : g_frameDraws < 500u ? 2 : 3];
+                if (k != ~0u && k - tail < n) // a kick job among them, not last
+                    ++g_p3KickInside;
+                // The move's span (the hole and the block, [min(src, dst), max(src, dst) + bytes)) against the queued model jobs'
+                // root pointers (instance, header, matrix, chain): a hint of how often a move touches what the jobs draw.
+                const uint32_t ms = sotc_decomp::g_moveSrc & PS2_RAM_MASK, md = sotc_decomp::g_moveDst & PS2_RAM_MASK, mb = sotc_decomp::g_moveBytes;
+                const uint32_t lo = std::min(ms, md), hi = std::max(ms, md) + mb;
+                ++g_p3Size[mb < 4096u ? 0 : mb < 65536u ? 1 : mb < 1048576u ? 2 : 3];
+                uint32_t hit = 0;
+                for (uint32_t i = tail; i != head; ++i)
+                {
+                    const HookJob &j = g_ring[i % kRing];
+                    if (j.kind != kJobModel)
+                        continue;
+                    const uint32_t r[4] = {j.model.instance, j.model.header, j.model.matrix, j.model.own};
+                    for (uint32_t a : r)
+                        if ((a & PS2_RAM_MASK) >= lo && (a & PS2_RAM_MASK) < hi)
+                            ++hit;
+                }
+                ++g_p3Hit[hit ? 1 : 0];
+                return false;
+            }
+            const uint64_t t0 = native_renderer::nowUs(), want = (static_cast<uint64_t>(k) + 1u) << 1;
+            int result = -1; // 1 the queue ran out, 2 go on beside the kick pass, 0 the whole join
+            const auto look = [&]
+            {
+                const uint32_t tail = g_tail.load(std::memory_order_seq_cst);
+                if (tail == head)
+                    return 1;
+                if (tail == k)
+                {
+                    const uint64_t st = g_p3Start.load(std::memory_order_seq_cst);
+                    if ((st & ~1ull) == want)
+                        return (st & 1u) ? 2 : 0;
+                }
+                return -1;
+            };
+            for (int spin = 0; result < 0; ++spin)
+            {
+                result = look();
+                if (result >= 0 || spin < 512)
+                    continue;
+                std::unique_lock<std::mutex> lock(g_mutex);
+                g_joining.store(true, std::memory_order_seq_cst);
+                result = look();
+                if (result < 0)
+                {
+                    if (g_sleeping.load(std::memory_order_seq_cst))
+                    {
+#if defined(__vita__)
+                        if (g_sema)
+                            sceKernelSignalSema(g_semaId, 1);
+                        else
+#endif
+                            g_wake.notify_one();
+                    }
+                    g_done.wait_for(lock, std::chrono::milliseconds(1));
+                }
+                g_joining.store(false, std::memory_order_relaxed);
+            }
+            g_p3.partialUs += native_renderer::nowUs() - t0;
+            if (result == 0)
+            {
+                ++g_p3.notFree;
+                return false;
+            }
+            if (result == 1)
+            {
+                ++g_p3.doneMeanwhile;
+                return true;
+            }
+            ++g_p3.elided;
+            if (g_p3Check && g_p3ElidedIdx != k) // the first move that did not wait for this kick job: the original joined it here
+            {
+                g_p3ElidedIdx = k;
+                if (g_p3RamEvery && ++g_p3SinceRam >= g_p3RamEvery && g_ram)
+                {
+                    g_p3SinceRam = 0;
+                    if (!g_p3Snap)
+                        g_p3Snap = static_cast<uint8_t *>(std::malloc(PS2_RAM_SIZE));
+                    if (g_p3Snap)
+                    {
+                        std::memcpy(g_p3Snap, g_ram, PS2_RAM_SIZE);
+                        g_p3SnapArmed = true;
+                    }
+                }
+            }
+            return true;
+        }
+        // The check, right after copyViaSpr's move (sotc_decomp::g_afterGuestMove): the copy taken before it, moved the same
+        // way, against main RAM word for word.
+        void p3AfterMove(uint32_t srcOff, uint32_t dstOff, uint32_t total)
+        {
+            if (!g_p3SnapArmed)
+                return;
+            g_p3SnapArmed = false;
+            uint8_t *m = g_p3Snap;
+            if (total && srcOff + total <= PS2_RAM_SIZE && dstOff + total <= PS2_RAM_SIZE)
+            {
+                if (dstOff <= srcOff || dstOff >= srcOff + total)
+                    std::memmove(m + dstOff, m + srcOff, total);
+                else // (copyViaSpr's chunks, 16 KB at a time from the start)
+                {
+                    static uint8_t chunk[0x4000];
+                    for (uint32_t done = 0; done < total; done += 0x4000u)
+                    {
+                        const uint32_t n = std::min<uint32_t>(0x4000u, total - done);
+                        std::memcpy(chunk, m + srcOff + done, n);
+                        std::memcpy(m + dstOff + done, chunk, n);
+                    }
+                }
+            }
+            uint64_t differ = 0;
+            uint32_t first = ~0u;
+            for (uint32_t a = 0; a < PS2_RAM_SIZE; a += 64u)
+                if (std::memcmp(m + a, g_ram + a, 64) != 0)
+                    for (uint32_t w = a; w < a + 64u; w += 4u)
+                        if (std::memcmp(m + w, g_ram + w, 4) != 0)
+                        {
+                            ++differ;
+                            if (first == ~0u)
+                                first = w;
+                        }
+            ++g_p3.ramChecks;
+            g_p3.ramWordsDiffer += differ;
+            if (differ)
+            {
+                ++g_p3.ramChecksDiffer;
+                static int shown = 0;
+                if (shown++ < 10)
+                    std::fprintf(stderr, "[p3chk] frame %llu: RAM after the move differs from the copy moved the same way: %llu words, first %07x\n",
+                                 (unsigned long long)g_frame, (unsigned long long)differ, first);
+            }
+        }
+        // The check, at a join that leaves no job queued: the kick pass a move did not wait for, run again alone on its
+        // inputs' copies into the dry sink, and the hashes compared.
+        void p3Verify()
+        {
+            if (g_p3VerifyIdx == ~0u || static_cast<int32_t>(g_tail.load(std::memory_order_acquire) - g_p3VerifyIdx) <= 0)
+                return; // (not done yet)
+            const uint32_t k = g_p3VerifyIdx;
+            g_p3VerifyIdx = ~0u;
+            const bool elided = g_p3ElidedIdx == k;
+            if (elided)
+                ++g_p3.checkedElided;
+            g_p3.reads += g_p3Reads.exchange(0, std::memory_order_relaxed);
+            if (g_p3Copy.idx != k || !g_p3Copy.done)
+            {
+                ++g_p3.missed;
+                return;
+            }
+            KickSinkDry dry;
+            SkinKickStats st;
+            if (!g_skinDrawList.empty())
+            {
+                const KickJob &job = g_p3Copy.job;
+                skinAtKickCore([&job](uint32_t own, VuPalette &now) { return kickFetch(job, own, now, false); }, g_p3Copy.records, g_p3Copy.now, st,
+                               dry);
+            }
+            ++g_p3.checked;
+            if (dry.h != g_p3Copy.hash)
+            {
+                ++g_p3.differ;
+                static int shown = 0;
+                if (shown++ < 10)
+                    std::fprintf(stderr, "[p3chk] frame %llu: kick pass %u differs from its run alone: %016llx / %016llx (records %u, rewritten %llu, posed %llu)\n",
+                                 (unsigned long long)g_frame, k, (unsigned long long)g_p3Copy.hash, (unsigned long long)dry.h,
+                                 static_cast<unsigned>(g_p3Copy.records.size()), (unsigned long long)st.rewritten, (unsigned long long)st.reposed);
+            }
+        }
+        void p3Report(uint64_t frame)
+        {
+            const p3par::Stats &t = g_p3;
+            std::fprintf(stderr,
+                         "[p3par] frame %llu: on %d; moves %llu (jobs queued %llu): went on %llu (the queue ran out %llu), whole join: last not a kick %llu, "
+                         "kick reads guest %llu; partial wait %.1f ms; kicks flagged %llu, no guest %llu; move joins on %.1f ms / %llu frames, off %.1f ms / %llu frames",
+                         (unsigned long long)frame, sotc_decomp::p3parOn() ? 1 : 0, (unsigned long long)t.moves, (unsigned long long)t.pending,
+                         (unsigned long long)t.elided, (unsigned long long)t.doneMeanwhile, (unsigned long long)t.notLast, (unsigned long long)t.notFree,
+                         t.partialUs / 1000.0, (unsigned long long)t.kicksFlagged, (unsigned long long)g_p3FreeKicks.load(std::memory_order_relaxed), t.moveUsOn / 1000.0,
+                         (unsigned long long)t.framesOn, t.moveUsOff / 1000.0, (unsigned long long)t.framesOff);
+            if (g_p3Check)
+                std::fprintf(stderr, "; check: kick passes run again %llu (a move went on beside %llu), differ %llu, not found %llu, guest reads %llu; RAM checks %llu, differ %llu (%llu words)",
+                             (unsigned long long)t.checked, (unsigned long long)t.checkedElided, (unsigned long long)t.differ, (unsigned long long)t.missed, (unsigned long long)t.reads,
+                             (unsigned long long)t.ramChecks, (unsigned long long)t.ramChecksDiffer, (unsigned long long)t.ramWordsDiffer);
+            std::fprintf(stderr, "\n");
+            std::string q;
+            char item[48];
+            for (int i = 0; i < 64; ++i)
+                if (g_p3Kinds[i])
+                    std::snprintf(item, sizeof(item), " k%02x:%llu", i, (unsigned long long)g_p3Kinds[i]), q += item;
+            std::fprintf(stderr, "[p3q] frame %llu: queued kinds (bits model mesh shadow ptcl 2d kick)%s; last model %llu mesh %llu shadow %llu ptcl %llu 2d %llu kick %llu; "
+                         "count <2 %llu <5 %llu <20 %llu <100 %llu more %llu; frame draws 0 %llu <50 %llu <500 %llu more %llu; kick inside %llu; "
+                         "bytes <4K %llu <64K %llu <1M %llu more %llu; a queued model job's roots in the move's span: %llu (none %llu)\n",
+                         (unsigned long long)frame, q.c_str(), (unsigned long long)g_p3Last[0], (unsigned long long)g_p3Last[1], (unsigned long long)g_p3Last[2],
+                         (unsigned long long)g_p3Last[3], (unsigned long long)g_p3Last[4], (unsigned long long)g_p3Last[5], (unsigned long long)g_p3Queued[0],
+                         (unsigned long long)g_p3Queued[1], (unsigned long long)g_p3Queued[2], (unsigned long long)g_p3Queued[3], (unsigned long long)g_p3Queued[4],
+                         (unsigned long long)g_p3Draws[0], (unsigned long long)g_p3Draws[1], (unsigned long long)g_p3Draws[2], (unsigned long long)g_p3Draws[3],
+                         (unsigned long long)g_p3KickInside, (unsigned long long)g_p3Size[0], (unsigned long long)g_p3Size[1], (unsigned long long)g_p3Size[2],
+                         (unsigned long long)g_p3Size[3], (unsigned long long)g_p3Hit[1], (unsigned long long)g_p3Hit[0]);
+        }
 
 #if !defined(__vita__)
         // SOTC_KICK_DEFER_CHECK=1 (Mac, round 34): what the deferred kick
@@ -6223,7 +6629,12 @@ namespace sotc_native
                     ++g_runChecked;
                     g_runChanged += modelRunInputs(job.model) != job.model.runInputs ? 1u : 0u;
                 }
+                const bool p3 = job.kind == kJobKick && job.p3; // round P3: the decision published at the kick pass's start
+                if (p3)
+                    p3KickStart(job, tail);
                 runJob(job);
+                if (p3)
+                    p3KickEnd(tail);
                 if (start)
                     g_jobUs += native_renderer::nowUs() - start;
                 ++g_jobs;
@@ -6281,7 +6692,11 @@ namespace sotc_native
             } checkEnd{g_deferCheck && deferCheckStart()};
 #endif
             if (!pending())
+            {
+                if (__builtin_expect(g_p3VerifyIdx != ~0u, 0)) // round P3's check (the queue is empty: the kick pass ran)
+                    p3Verify();
                 return;
+            }
             ps2_load::Wait waiting(ps2_load::kSiteHookJoin); // round 132: marked for prof129
             const uint64_t start = g_timing || g_verify ? native_renderer::nowUs() : 0u;
             ++g_waits;
@@ -6300,6 +6715,9 @@ namespace sotc_native
                     }
                 }
             } siteTime{site, start};
+            // Round P3 (p3_par.h): a garbage move waits only for the jobs before a last kick job that reads no guest memory.
+            if (site == k_move && g_p3AtMove && sotc_decomp::p3parOn() && p3Partial())
+                goto done;
             for (int spin = 0; spin < 512; ++spin)
                 if (!pending())
                     goto done;
@@ -6324,6 +6742,8 @@ namespace sotc_native
         done:
             if (start)
                 g_joinUs += native_renderer::nowUs() - start;
+            if (__builtin_expect(g_p3VerifyIdx != ~0u, 0) && !pending()) // round P3's check
+                p3Verify();
         }
         // The next free job (waits while the ring is full).
         HookJob &next()
@@ -6360,6 +6780,14 @@ namespace sotc_native
             c.lagMaxUs = std::max(c.lagMaxUs, g_lagMaxUs);
             g_jobUs = g_joinUs = g_jobs = 0;
             g_lagUs = g_lagMaxUs = 0;
+            // Round P3: the move joins' wait by p3par's state, the [p3par] line.
+            p3Init();
+            if (sotc_decomp::p3parOn())
+                g_p3.moveUsOn += g_frameSiteUs[k_move], ++g_p3.framesOn;
+            else
+                g_p3.moveUsOff += g_frameSiteUs[k_move], ++g_p3.framesOff;
+            if (g_p3Log && g_frame % g_p3Log == 0u)
+                p3Report(g_frame);
             std::memcpy(g_lastSiteUs, g_frameSiteUs, sizeof(g_lastSiteUs));
             std::fill(g_frameSiteUs, g_frameSiteUs + kSites, 0u);
             static uint64_t frames = 0, changed = 0, jobs = 0;
@@ -13605,7 +14033,16 @@ void installSotcNative(PS2Runtime &runtime)
     }
     g_modelDisp = runtime.lookupFunction(kModelDisp);
     runtime.registerFunction(kModelDisp, modelDispHook);
-    sotc_decomp::g_beforeGuestMove = [] { sotc_native::hookJoin(hookjobs::k_move); }; // the jobs' memos by address
+    sotc_decomp::g_beforeGuestMove = [] // the jobs' memos by address
+    {
+        // Round P3 (p3_par.h): with p3par on, this join need not wait for a last kick job that reads no guest memory.
+        if (hookjobs::g_on && sotc_decomp::p3parOn())
+            ++hookjobs::g_p3.moves;
+        hookjobs::g_p3AtMove = true;
+        sotc_native::hookJoin(hookjobs::k_move);
+        hookjobs::g_p3AtMove = false;
+    };
+    sotc_decomp::g_afterGuestMove = [](uint32_t src, uint32_t dst, uint32_t bytes) { hookjobs::p3AfterMove(src, dst, bytes); }; // round P3's check
     g_getCameraContext = sotc_decomp::behindHook(runtime, kGetCameraContext); // its native when registered (round 42)
     runtime.registerFunction(kGetCameraContext, getCameraContextHook);
     if (runtime.hasFunction(kGsReg) && runtime.hasFunction(kTexTransRequest) && runtime.hasFunction(kPushLayer) && runtime.hasFunction(kPopLayer))
@@ -13672,6 +14109,13 @@ void installSotcNative(PS2Runtime &runtime)
                     sotc_native::HookJob &job = hookjobs::next();
                     job.kind = sotc_native::kJobKick;
                     job.kick = k;
+                    // Round P3: a kick job handed over with p3par on (the ring index a garbage move looks for).
+                    job.p3 = sotc_decomp::p3parOn();
+                    hookjobs::g_p3KickIdx = job.p3 ? hookjobs::g_head.load(std::memory_order_relaxed) : ~0u;
+                    if (job.p3)
+                        ++hookjobs::g_p3.kicksFlagged;
+                    if (job.p3 && hookjobs::g_p3Check) // round P3's check: every flagged kick pass is run again alone once joined
+                        hookjobs::g_p3VerifyIdx = hookjobs::g_p3KickIdx;
                     hookjobs::push();
                 }
 #if !defined(__vita__)

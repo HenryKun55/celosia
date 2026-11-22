@@ -993,6 +993,7 @@ namespace
         {
             // (dst, src, bytes): 16 KB at a time through the scratchpad.
             uint32_t dst = GPR_U32(ctx, 4), src = GPR_U32(ctx, 5), qwc = GPR_U32(ctx, 6) >> 4;
+            sotc_decomp::g_moveSrc = src, sotc_decomp::g_moveDst = dst, sotc_decomp::g_moveBytes = qwc * 16u; // (round P3's diagnostics)
             if (sotc_decomp::g_beforeGuestMove)
                 sotc_decomp::g_beforeGuestMove();
             ++sotc_decomp::g_guestMoveSerial; // the native hooks' memos sample again
@@ -1034,6 +1035,8 @@ namespace
                 std::memcpy(spr, from + (chunks - 1u) * 0x4000u, last);
                 std::memmove(rdram + dstOff, from, total);
                 sotc_decomp::noteGuestMove(srcOff, dstOff, total);
+                if (sotc_decomp::g_afterGuestMove) // round P3's check
+                    sotc_decomp::g_afterGuestMove(srcOff, dstOff, total);
                 if (check)
                 {
                     static uint64_t checks = 0, bad = 0;
@@ -1045,6 +1048,7 @@ namespace
                 }
                 return returnTo(ctx);
             }
+            const uint32_t src0 = src & PS2_RAM_MASK, dst0 = dst & PS2_RAM_MASK, total0 = qwc * 16u;
             while (true)
             {
                 const uint32_t n = std::min(qwc, 0x400u);
@@ -1056,6 +1060,8 @@ namespace
                 src += 0x4000u;
                 dst += 0x4000u;
             }
+            if (sotc_decomp::g_afterGuestMove) // round P3's check
+                sotc_decomp::g_afterGuestMove(src0, dst0, total0);
             returnTo(ctx);
         }
         void dmaSendPath1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)

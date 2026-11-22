@@ -23679,3 +23679,31 @@ off unless SOTC_DC2_CALLBACK=1. Checks (SOTC_DC2_CHECK, every call against the o
 12.7 M / 6.4 M / 7.2 M calls, 0 differences. Vita3K A/B: -0.093 +- 0.030 ms pooled (z -3, slower; with the callback
 path on -0.030 +- 0.042, even). Chain: real 10 -> 17 of 407. Off by default; console package celosia-dc2.vpk +
 env-ab.txt.
+
+## Perf P3: work beside the game thread within the frame (p3par, off by default) (2026-11-22)
+
+docs/perf_p3.md. Scripts, runs and logs: `build/agent-scratch/p3/`. Switch `SOTC_P3PAR` (A/B `p3par`, `kP3Par`), **off by
+default**; console package `build/agent-scratch/p3/celosia-p3.vpk` + `env-ab.txt`.
+
+- **Aim**: 2 ms or more of game-thread work run exactly on cores 1-2 within the frame.
+- **The search**: no block left on the game thread fits (host-only, inputs fixed early, outputs read late): what is left
+  is guest-context code whose results the next guest call reads; the host-only pieces were moved by rounds 23 / 34 / 61 /
+  64 / S5 / P2, and every move of guest-shaped work to cores 1-2 lost on the console. What is left is a wait: the game
+  thread joining the hook worker at the heap's garbage moves (`joins move`: 0.86 / 1.03 ms a frame in the two console
+  rides, 0.2-0.6 in Vita3K).
+- **What p3par does**: a move waits only for the jobs before a last-queued deferred kick pass (round 34's skinned pass on
+  the kick's copies) once the worker says that pass reads no guest memory (every skin record among the copies); the pass
+  runs on beside the move and the logic. Exact by construction (the pass reads and writes only host memory).
+- **What the census showed** (`[p3q]`): the moves that wait come late in the frame, before the kick, with the frame's
+  whole display queued (100-500 model / cloth / shadow / particle / 2D jobs, a 2D job last); the kick pass is never
+  queued there. So p3par never lets a move go on in Vita3K: inert. In 4-11% of those moves the moved span holds a queued
+  model job's instance / header / matrix / chain, so the frame's jobs cannot be skipped by a simple rule.
+- **Exact**: SOTC_P3PAR_CHECK (every flagged kick pass run again alone on its inputs' copies, outputs hashed): ride7
+  17 339, attract 14 985, lake6 10 855 passes, **0 differences**, 0 guest reads, every pass guest-free. The elided path's
+  own RAM check never ran (no move went on).
+- **Measured** (Vita3K 222, off - on, 2 SE): ride7 -0.032 +- 0.148 / +0.043 +- 0.151, lake6 +0.031 +- 0.135; pooled
+  **+0.014 +- 0.042 ms (1 SE), z 0.3**: A/A.
+- **Boot**: 89 MB taken, rode the 600 s (mounted at 10 855), pictures normal. spalign 0.
+- **Honest size**: ~0 in Vita3K; on the console only if its moves come after the kick (the `[p3par]` / `[p3q]` lines of the
+  A/B package say). The ~1 ms console wait needs the hook jobs' guest reads made visible to the moves (one accessor with a
+  copy-on-move of the span, or per-job read sets): the next round's size.
