@@ -133,6 +133,10 @@ namespace ps2_syscalls
                               bool interruptSafe)
         {
             EeScheduler &ee = scheduler(rdram, ctx, runtime);
+            // Round B3: on a carrier, the in-place call (a woken higher-priority thread: a yield in place).
+            int inPlace = 0;
+            if (!interruptSafe && __builtin_expect(g_ps2xB3Sync != 0u, 0) && ee.carrierWakeup(static_cast<int>(getRegU32(ctx, 4)), inPlace))
+                return;
             const int result = ee.wakeupThread(static_cast<int>(getRegU32(ctx, 4)), interruptSafe);
             setReturnS32(ctx, result);
             ee.transferIfRequested(interruptSafe);
@@ -375,6 +379,10 @@ namespace ps2_syscalls
     void SleepThread(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         EeScheduler &ee = scheduler(rdram, ctx, runtime);
+        // Round B3: on a carrier, the in-place call (no wakeup counted: a yield in place; v0 KE_OK after the wake).
+        int inPlace = 0;
+        if (__builtin_expect(g_ps2xB3Sync != 0u, 0) && ee.carrierSleep(inPlace))
+            return;
         ee.sleepCurrent();
         if (runtime->m_eeClock.transferred)
             return; // blocked, the switch made by returning (round 52): the wake sets v0

@@ -326,6 +326,37 @@ struct EeB2Waits
     uint64_t inPlace = 0, handedBack = 0;
 };
 extern EeB2Waits g_eeB2Waits;
+// Round B3 (docs/decomp_b3.md): the remaining game threads on carriers (game/overrides/b3_threads.cpp): the thread system's
+// callback thread t4, the idle thread t5, the GP thread t10 and the game's main thread t9, behind one switch flag (zero: no
+// new take-overs, a carried one handed back at its next yield), each entry with its own counts (g_eeB3[kB3...]).
+extern uint32_t g_ps2xB3Carry;
+enum : int
+{
+    kB3T4 = 0,
+    kB3T5,
+    kB3T10,
+    kB3T9,
+    kB3Count
+};
+extern EeB1Stats g_eeB3[kB3Count];
+// Round B3: the guest syscalls WaitSema / SignalSema / PollSema / SleepThread / WakeupThread made on a carrier go through the
+// carrier* calls below (the same kernel records, the yield in place, the carrier pinned for the call) while this is set.
+extern uint32_t g_ps2xB3Sync;
+// Round B3: what the in-place calls did (every carrier together): calls by kind (0 wait, 1 signal, 2 poll, 3 sleep, 4 wake),
+// of them the ones that yielded in place (a wait that blocked, a signal / wake whose woken thread preempted, a sleep with no
+// wakeup counted), and calls refused because the caller was not a carried thread's own code.
+struct EeB3Sync
+{
+    uint64_t calls[5] = {}, yielded[5] = {}, refused = 0;
+};
+extern EeB3Sync g_eeB3Sync;
+// Round B3 (the check's per-semaphore counts; null: off): every semaphore syscall (op 0 wait, 1 signal, 2 poll, 3 iSignal,
+// 4 iPoll) with the semaphore id, the calling thread, whether it was made on a carrier, and the result.
+extern void (*g_ps2xSemaNote)(int op, int id, int thread, bool carrier, int result);
+// Round B3: true on a host thread that runs guest code for the EE scheduler (the executor and every carrier): the "game
+// thread" for the runtime's owner checks (PS2Memory::vif1AsyncJoin applied the asynchronous VIF1 walk only on the thread
+// that started it, the executor; on a carrier the game thread's own code runs on another host thread).
+extern thread_local bool t_ps2xEeGuestRunner;
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -565,27 +596,61 @@ public:
     // of them (kMaxCarry), each with its own switch flag (nonzero: take-overs allowed; zero: the carried thread is handed
     // back at its next yield) and its counts; setHostCarry is B1's entry (g_ps2xB1Carry, g_eeB1).
     using HostBody = void (*)(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    static constexpr int kMaxCarry = 4;
+    // Round B3: 8 entries (B1's t8, B2's t11, B3's t4 / t5 / t10 / t9).
+    static constexpr int kMaxCarry = 8;
     struct CarrySpec
     {
         uint32_t entry = 0, claimPc = 0;
         HostBody body = nullptr;
         const uint32_t *gate = nullptr;
         EeB1Stats *stats = nullptr;
+        // Round B3: a body that starts at any of its resume labels takes the thread over at any of these pcs (the
+        // thread's own top function dispatched there: only its own frame is on the guest stack), claimPc too.
+        const uint32_t *claimPcs = nullptr;
+        int claimCount = 0;
+        // Round B3: the carrier's host stack and the budget for guest calls below its start (the host stack floor);
+        // B1 / B2: 512 KB, 416 KB (96 KB left below the floor).
+        uint32_t stackKb = 512u, budgetKb = 416u;
     };
-    bool addHostCarry(uint32_t entry, uint32_t claimPc, HostBody body, const uint32_t *gate, EeB1Stats *stats) noexcept
+    bool addHostCarry(const CarrySpec &spec) noexcept
     {
         for (int i = 0; i < m_carryCount; ++i)
-            if (m_carry[i].entry == entry)
+            if (m_carry[i].entry == spec.entry)
             {
-                m_carry[i] = CarrySpec{entry, claimPc, body, gate, stats};
+                m_carry[i] = spec;
                 return true;
             }
         if (m_carryCount >= kMaxCarry)
             return false;
-        m_carry[m_carryCount++] = CarrySpec{entry, claimPc, body, gate, stats};
+        m_carry[m_carryCount++] = spec;
         return true;
     }
+    bool addHostCarry(uint32_t entry, uint32_t claimPc, HostBody body, const uint32_t *gate, EeB1Stats *stats) noexcept
+    {
+        CarrySpec spec;
+        spec.entry = entry;
+        spec.claimPc = claimPc;
+        spec.body = body;
+        spec.gate = gate;
+        spec.stats = stats;
+        return addHostCarry(spec);
+    }
+    // Round B3 (docs/decomp_b3.md section 5): the EE kernel's semaphore / sleep calls for host code running a carried
+    // thread's own code. Each one does what the guest syscall does to the kernel's records (counts, waiter queues in
+    // order, wakeup counts, the priority test that preempts) and, where the syscall would leave the thread (a wait that
+    // blocks, a sleep with no wakeup counted, a signal / wake that readies a higher-priority thread), hands the baton back
+    // in place: the dispatcher makes every decision as for the guest call and the call returns once the thread runs again,
+    // with its result. The thread's v0 is left as the syscall leaves it. The carrier is pinned for the call (never handed
+    // back in the middle: a typed caller has no resume label), so the switch going off hands it back at its next plain
+    // yield. False (nothing done): the calling host thread is not a carrier holding the baton for its thread's own code
+    // (off a carrier, inside an interrupt handler's invocation): the caller must use the guest call.
+    bool carrierWaitSema(int id, int &result);
+    bool carrierSignalSema(int id, int &result);
+    bool carrierPollSema(int id, int &result);
+    bool carrierSleep(int &result);
+    bool carrierWakeup(int id, int &result);
+    // True when the carrier* calls would act (the calling host thread holds the baton for a carried thread's own code).
+    [[nodiscard]] bool carrierCallable() const noexcept;
     void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept { addHostCarry(entry, claimPc, body, &g_ps2xB1Carry, &g_eeB1); }
     // On the carrier thread while it holds the baton (B1 code asks: a guest call that came back false there has
     // unwound, and the thread goes on as generated code).
@@ -628,6 +693,7 @@ private:
     bool claimCarrier(GuestThread &thread, const R5900Context &context);
     void resumeCarrier(GuestThread &thread);
     bool carrierYield(int why);
+    void carrierYieldPinned(); // round B3: a park / switch yield that is never answered "unwind" (the carrier* calls)
     bool checkpointSlowInner() noexcept;
     void b1Audit(int site) const noexcept;
     void b1WatchdogDump(int n);

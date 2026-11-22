@@ -27,6 +27,9 @@
 #include <vector>
 #include <unordered_map>
 
+// Round B3 (EeScheduler.cpp, declared in runtime/ee_scheduler.h): true on the EE executor and on every guest-thread carrier.
+extern thread_local bool t_ps2xEeGuestRunner;
+
 namespace
 {
     inline void inRange(uint32_t offset, size_t bytes, size_t regionSize, const char *op, uint32_t address)
@@ -3894,7 +3897,8 @@ bool PS2Memory::vif1AsyncJoin(int reason)
     if (!m_vif1AsyncPending.load(std::memory_order_relaxed) || !m_vif1A)
         return false;
     Vif1Async &a = *m_vif1A;
-    if (std::this_thread::get_id() != a.owner)
+    // Round B3: the game thread's role, wherever its code runs (the executor or a carrier: t_ps2xEeGuestRunner).
+    if (std::this_thread::get_id() != a.owner && !t_ps2xEeGuestRunner)
         return false; // only the game thread applies (no other thread looks)
     m_vif1AsyncPending.store(false, std::memory_order_relaxed);
     {

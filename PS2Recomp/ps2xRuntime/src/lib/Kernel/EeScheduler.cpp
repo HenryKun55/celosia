@@ -23,6 +23,7 @@
 #include <stdexcept>
 #if !defined(__vita__)
 #include <execinfo.h>
+#include <pthread.h>
 #endif
 #include "ThreadNaming.h"
 #if defined(__vita__)
@@ -57,6 +58,12 @@ EeB1Stats g_eeB1;
 uint32_t g_ps2xB2Carry = 0u; // round B2 (b2_load.cpp)
 EeB1Stats g_eeB2;
 EeB2Waits g_eeB2Waits;
+uint32_t g_ps2xB3Carry = 0u; // round B3 (b3_threads.cpp)
+EeB1Stats g_eeB3[kB3Count];
+uint32_t g_ps2xB3Sync = 0u;
+EeB3Sync g_eeB3Sync;
+void (*g_ps2xSemaNote)(int op, int id, int thread, bool carrier, int result) = nullptr;
+thread_local bool t_ps2xEeGuestRunner = false;
 
 // One host thread that runs a guest thread's own code (the body the game registered) while it holds the baton. The
 // dispatcher's host thread (the executor) and the carrier pass the baton through `carrierTurn`: the one that hands it
@@ -82,6 +89,8 @@ struct EeHostCarrier
     const uint32_t *gate = nullptr; // round B2: the table entry's switch flag (zero: hand the thread back at its next yield)
     EeB1Stats *stats = nullptr;     // round B2: the table entry's counts
     int slot = 0;                   // round B2: the table entry
+    unsigned stackBytes = 0, budgetBytes = 0; // round B3: the host stack, the guest calls' budget below its start
+    int pinned = 0;                 // round B3: inside a carrier* call (EeScheduler::carrierWaitSema ...): never handed back
     uint8_t *rdram = nullptr;
     R5900Context *ctx = nullptr;
     PS2Runtime *runtime = nullptr;
@@ -160,11 +169,12 @@ namespace
 #endif
         ps2_load::setThreadSlot(ps2_load::kGame);
         ps2SetEeFloatingPointMode(); // the game thread's rounding (toward zero) and flush-to-zero
+        t_ps2xEeGuestRunner = true;  // round B3: the game thread's role (PS2Memory's owner checks)
         {
             char probe = 0;
             std::lock_guard<std::mutex> lock(c->m);
             c->hostId = std::this_thread::get_id();
-            c->floor = reinterpret_cast<uintptr_t>(&probe) - (kCarrierStack - kCarrierStackSlack);
+            c->floor = reinterpret_cast<uintptr_t>(&probe) - (c->budgetBytes ? c->budgetBytes : (kCarrierStack - kCarrierStackSlack));
             c->ready = true;
             c->cv.notify_all();
         }
@@ -235,10 +245,16 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
     for (int i = 0; i < m_carryCount; ++i)
     {
         const CarrySpec &spec = m_carry[i];
-        if (*spec.gate != 0u && thread.entry == spec.entry && context.pc == spec.claimPc)
+        if (*spec.gate != 0u && thread.entry == spec.entry)
         {
-            slot = i;
-            break;
+            bool at = context.pc == spec.claimPc;
+            for (int k = 0; !at && k < spec.claimCount; ++k)
+                at = context.pc == spec.claimPcs[k];
+            if (at)
+            {
+                slot = i;
+                break;
+            }
         }
     }
     if (__builtin_expect(slot < 0, 1) || m_activeCarrier != nullptr || m_stopRequested.load(std::memory_order_relaxed))
@@ -249,6 +265,8 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
     if (!c)
     {
         c = new EeHostCarrier;
+        c->stackBytes = spec.stackKb * 1024u;
+        c->budgetBytes = spec.budgetKb * 1024u;
 #if defined(__vita__)
         if (g_ps2xB1BatonSema != 0u)
         {
@@ -260,11 +278,20 @@ bool EeScheduler::claimCarrier(GuestThread &thread, const R5900Context &context)
 #if defined(PLATFORM_VITA)
         extern unsigned int _pthread_stack_default_user;
         const unsigned int stackDefault = _pthread_stack_default_user;
-        _pthread_stack_default_user = kCarrierStack;
-#endif
+        _pthread_stack_default_user = c->stackBytes;
         std::thread(carrierMain, c).detach();
-#if defined(PLATFORM_VITA)
         _pthread_stack_default_user = stackDefault;
+#else
+        {
+            // Round B3: the entry's stack size (std::thread takes the platform's default: 512 KB on macOS).
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, c->stackBytes);
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+            pthread_t tid;
+            pthread_create(&tid, &attr, [](void *p) -> void * { carrierMain(static_cast<EeHostCarrier *>(p)); return nullptr; }, c);
+            pthread_attr_destroy(&attr);
+        }
 #endif
         std::unique_lock<std::mutex> lock(c->m);
         c->cv.wait(lock, [c] { return c->ready; });
@@ -309,7 +336,7 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
     g_b1ExecSite.store(1, std::memory_order_relaxed);
     g_b1ExecPasses.fetch_add(1, std::memory_order_relaxed);
     passBaton(c, true);
-    if (!c.ended && (*c.gate == 0u || m_stopRequested.load(std::memory_order_relaxed)))
+    if (!c.ended && c.pinned == 0 && (*c.gate == 0u || m_stopRequested.load(std::memory_order_relaxed)))
     {
         c.unwind = true;
         ++(m_stopRequested.load(std::memory_order_relaxed) ? st.handBackStop : st.handBackSwitch);
@@ -324,7 +351,10 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
     m_runtime.m_guestJumpSerial = jumpSerial;
     m_executorThread = executor;
     m_runtime.m_hostStackFloor = floor;
-    m_runtime.m_noCheckFloor = noCheckFloor;
+    // Round B3: NOCHK turned on / off while the carrier ran (the game's endFrame runs on the main thread, now a carrier:
+    // PS2Runtime::setNoCheck) stays so; its floor is the executor's again.
+    m_runtime.m_noCheckFloor = m_runtime.m_noCheckFloor != UINTPTR_MAX ? floor : UINTPTR_MAX;
+    (void)noCheckFloor;
     if (t0)
         st.carrierUs += ps2_stats::nowUs() - t0;
     if (c.ended)
@@ -351,6 +381,7 @@ bool EeScheduler::carrierYield(int why)
     c.site.store(1, std::memory_order_relaxed);
     return c.unwind;
 }
+
 
 // Round B1b: the watchdog (debug; SOTC_B1_WATCHDOG=<seconds>, b1_sound.cpp). Its reads of the scheduler's state are
 // racy by design: it looks only once nothing has moved for seconds.
@@ -400,6 +431,17 @@ void EeScheduler::b1WatchdogDump(int n)
                  (unsigned long long)g_eeB1.yieldCheckpoint, (unsigned long long)g_eeB1.yieldLeave, (void *)m_activeCarrier, (void *)m_spareCarrier[0],
                  g_ps2xB2Carry, (unsigned long long)g_eeB2.claims, (unsigned long long)g_eeB2.resumes, (unsigned long long)g_eeB2.yieldCheckpoint,
                  (unsigned long long)g_eeB2.yieldLeave, (unsigned long long)g_eeB2Waits.inPlace);
+    // Round B3: the b3threads carriers (t4 t5 t10 t9) and the in-place kernel calls.
+    std::fprintf(stderr, "[b1dog] %d: b3 carry %u sync %u:", n, g_ps2xB3Carry, g_ps2xB3Sync);
+    for (int i = 0; i < kB3Count; ++i)
+        std::fprintf(stderr, " [%d] claims %llu resumes %llu yields cp %llu park %llu hand-backs %llu/%llu/%llu", i, (unsigned long long)g_eeB3[i].claims,
+                     (unsigned long long)g_eeB3[i].resumes, (unsigned long long)g_eeB3[i].yieldCheckpoint, (unsigned long long)g_eeB3[i].yieldLeave,
+                     (unsigned long long)g_eeB3[i].handBackSwitch, (unsigned long long)g_eeB3[i].handBackUnwind, (unsigned long long)g_eeB3[i].handBackThrow);
+    std::fprintf(stderr, " | in-place calls %llu %llu %llu %llu %llu yielded %llu %llu %llu %llu %llu refused %llu\n",
+                 (unsigned long long)g_eeB3Sync.calls[0], (unsigned long long)g_eeB3Sync.calls[1], (unsigned long long)g_eeB3Sync.calls[2],
+                 (unsigned long long)g_eeB3Sync.calls[3], (unsigned long long)g_eeB3Sync.calls[4], (unsigned long long)g_eeB3Sync.yielded[0],
+                 (unsigned long long)g_eeB3Sync.yielded[1], (unsigned long long)g_eeB3Sync.yielded[2], (unsigned long long)g_eeB3Sync.yielded[3],
+                 (unsigned long long)g_eeB3Sync.yielded[4], (unsigned long long)g_eeB3Sync.refused);
     for (const auto &[id, t] : m_threads)
     {
         if (id < 0 && t.status == EeThreadStatus::Dormant && t.invocations.empty())
@@ -660,6 +702,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
 void EeScheduler::run()
 {
     assertExecutor();
+    t_ps2xEeGuestRunner = true; // round B3: the game thread's role (PS2Memory's owner checks)
     m_running.store(true, std::memory_order_release);
     // Host stack budget for nested guest calls and jumps (PS2Runtime::
     // callGuest / jumpGuest): past it they unwind to here. The game thread
@@ -3973,4 +4016,148 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
     m_insideInterrupt = false;
     updateGate();
     return 0;
+}
+
+// Round B3: a park / switch yield inside a carrier* call: the dispatcher never answers "unwind" to it (pinned).
+void EeScheduler::carrierYieldPinned()
+{
+    EeHostCarrier &c = *m_activeCarrier;
+    ++c.pinned;
+    if (g_ps2xB1Check)
+        b1Audit(4);
+    (void)carrierYield(1);
+    --c.pinned;
+}
+
+bool EeScheduler::carrierCallable() const noexcept
+{
+    if (m_activeCarrier == nullptr || m_currentThreadId == 0 || m_insideInterrupt)
+        return false;
+    const auto it = m_threads.find(m_currentThreadId);
+    return it != m_threads.end() && it->second.carrier == m_activeCarrier && it->second.invocations.empty();
+}
+
+// Round B3: WaitSema in place (waitSemaphore's records; blockCurrentOrReturn's park, the yield pinned).
+bool EeScheduler::carrierWaitSema(int id, int &result)
+{
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    ++g_eeB3Sync.calls[0];
+    GuestThread *self = currentThread();
+    R5900Context &ctx = self->context;
+    EeSemaphore *object = semaphore(id);
+    if (!object)
+    {
+        result = KE_UNKNOWN_SEMID;
+        setReturnS32(&ctx, result);
+        return true;
+    }
+    if (object->count != 0)
+    {
+        --object->count;
+        result = id;
+        setReturnS32(&ctx, id);
+        publishSnapshot();
+        return true;
+    }
+    object->waiters.push_back(self->id);
+    parkCurrent(EeWaitState{EeWaitReason::Semaphore, EeSemaphoreWait{id}});
+    ++g_eeB3Sync.yielded[0];
+    carrierYieldPinned();
+    result = static_cast<int32_t>(getRegU32(&ctx, 2)); // makeReady's result (the id, or the wait's release / deletion)
+    return true;
+}
+
+// Round B3: SignalSema in place (signalSemaphore, then transferIfRequested's switch as a pinned yield).
+bool EeScheduler::carrierSignalSema(int id, int &result)
+{
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    ++g_eeB3Sync.calls[1];
+    GuestThread *self = currentThread();
+    R5900Context &ctx = self->context;
+    result = signalSemaphore(id, false);
+    setReturnS32(&ctx, result);
+    if (m_rescheduleRequested)
+    {
+        enqueueReady(*self, true);
+        m_currentThreadId = 0;
+        m_rescheduleRequested = false;
+        m_timeSliceExpired = false;
+        publishSnapshot();
+        ++g_eeB3Sync.yielded[1];
+        carrierYieldPinned();
+    }
+    return true;
+}
+
+bool EeScheduler::carrierPollSema(int id, int &result)
+{
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    ++g_eeB3Sync.calls[2];
+    result = pollSemaphore(id);
+    setReturnS32(&currentThread()->context, result);
+    return true;
+}
+
+// Round B3: SleepThread in place (sleepCurrent; the stub's KE_OK after the wake).
+bool EeScheduler::carrierSleep(int &result)
+{
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    ++g_eeB3Sync.calls[3];
+    GuestThread *self = currentThread();
+    R5900Context &ctx = self->context;
+    if (self->wakeupCount != 0u)
+    {
+        --self->wakeupCount;
+        result = KE_OK;
+        setReturnS32(&ctx, KE_OK);
+        return true;
+    }
+    parkCurrent(EeWaitState{EeWaitReason::Sleep, std::monostate{}});
+    ++g_eeB3Sync.yielded[3];
+    carrierYieldPinned();
+    result = KE_OK;
+    setReturnS32(&ctx, KE_OK);
+    return true;
+}
+
+// Round B3: WakeupThread in place (wakeupThread, then transferIfRequested's switch as a pinned yield).
+bool EeScheduler::carrierWakeup(int id, int &result)
+{
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    ++g_eeB3Sync.calls[4];
+    GuestThread *self = currentThread();
+    R5900Context &ctx = self->context;
+    result = wakeupThread(id, false);
+    setReturnS32(&ctx, result);
+    if (m_rescheduleRequested)
+    {
+        enqueueReady(*self, true);
+        m_currentThreadId = 0;
+        m_rescheduleRequested = false;
+        m_timeSliceExpired = false;
+        publishSnapshot();
+        ++g_eeB3Sync.yielded[4];
+        carrierYieldPinned();
+    }
+    return true;
 }

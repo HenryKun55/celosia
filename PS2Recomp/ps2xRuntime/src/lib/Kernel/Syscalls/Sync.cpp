@@ -30,13 +30,30 @@ namespace ps2_syscalls
             ee.transferIfRequested(interruptSafe);
         }
 
+        // Round B3 (the check's per-semaphore counts, g_ps2xSemaNote): before the call, so a switch below cannot skip it; arg: a
+        // wait that will block / a signal that wakes a waiter (1) or not (0), a poll that will take a count (1) or not (0).
+        void noteSema(EeScheduler &ee, int op, int id)
+        {
+            const EeSemaphore *object = ee.semaphore(id);
+            const int arg = !object ? -1 : op == 0 ? (object->count == 0 ? 1 : 0) : (op == 1 || op == 3) ? (object->waiters.empty() ? 0 : 1) : (object->count != 0 ? 1 : 0);
+            g_ps2xSemaNote(op, id, ee.currentThreadId(), ee.onCarrier(), arg);
+        }
+
         void signalSemaphoreImpl(uint8_t *rdram,
                                  R5900Context *ctx,
                                  PS2Runtime *runtime,
                                  bool interruptSafe)
         {
             EeScheduler &ee = scheduler(rdram, ctx, runtime);
-            const int result = ee.signalSemaphore(static_cast<int>(getRegU32(ctx, 4)), interruptSafe);
+            const int id = static_cast<int>(getRegU32(ctx, 4));
+            if (__builtin_expect(g_ps2xSemaNote != nullptr, 0))
+                noteSema(ee, interruptSafe ? 3 : 1, id);
+            // Round B3: on a carrier, the in-place call (the same records; the switch to a woken higher-priority thread is
+            // a yield in place).
+            int inPlace = 0;
+            if (!interruptSafe && __builtin_expect(g_ps2xB3Sync != 0u, 0) && ee.carrierSignalSema(id, inPlace))
+                return;
+            const int result = ee.signalSemaphore(id, interruptSafe);
             setReturnS32(ctx, result);
             ee.transferIfRequested(interruptSafe);
         }
@@ -108,13 +125,27 @@ namespace ps2_syscalls
 
     void WaitSema(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        scheduler(rdram, ctx, runtime).waitSemaphore(static_cast<int>(getRegU32(ctx, 4)));
+        EeScheduler &ee = scheduler(rdram, ctx, runtime);
+        const int id = static_cast<int>(getRegU32(ctx, 4));
+        if (__builtin_expect(g_ps2xSemaNote != nullptr, 0))
+            noteSema(ee, 0, id);
+        // Round B3: on a carrier, the in-place call (a wait that blocks yields in place; v0 the wait's result).
+        int inPlace = 0;
+        if (__builtin_expect(g_ps2xB3Sync != 0u, 0) && ee.carrierWaitSema(id, inPlace))
+            return;
+        ee.waitSemaphore(id);
     }
 
     void PollSema(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        setReturnS32(ctx,
-                     scheduler(rdram, ctx, runtime).pollSemaphore(static_cast<int>(getRegU32(ctx, 4))));
+        EeScheduler &ee = scheduler(rdram, ctx, runtime);
+        const int id = static_cast<int>(getRegU32(ctx, 4));
+        if (__builtin_expect(g_ps2xSemaNote != nullptr, 0))
+            noteSema(ee, 2, id);
+        int inPlace = 0;
+        if (__builtin_expect(g_ps2xB3Sync != 0u, 0) && ee.carrierPollSema(id, inPlace))
+            return;
+        setReturnS32(ctx, ee.pollSemaphore(id));
     }
 
     void iPollSema(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
