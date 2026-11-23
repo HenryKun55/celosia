@@ -832,6 +832,26 @@ namespace sotc_replay
                 }
             }
         }
+        // Round B4: SOTC_RIDE_PROBE=1: the game's ride-off calls (nico_ResetPlayerHorseRidingControl 0x13B50B8, its
+        // ...AndContinueMotionCurrentSpeed 0x13B65D0, nico_resetHorseRidingStatusForHorse 0x1396F68) and mount calls
+        // (nico_ChangePlayerHorseRidingControlWith{ParentObj,VCol,HCol} 0x13B6D00 / 0x13B6DD8 / 0x13B6EB0) logged with their
+        // caller (ra, and the caller's own return address when its frame keeps it), Wander's and Agro's places ([rideprobe]).
+        constexpr uint32_t kRideProbe[6] = {0x013B50B8u, 0x013B65D0u, 0x01396F68u, 0x013B6D00u, 0x013B6DD8u, 0x013B6EB0u};
+        PS2Runtime::RecompiledFunction g_rideProbeOrig[6] = {};
+        template <int K>
+        void rideProbeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            auto rd = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+            auto rf = [&](uint32_t a) { float v; std::memcpy(&v, rdram + (a & 0x1FFFFFCu), 4); return v; };
+            const uint32_t ix = rd(0x01465900u) & 0xFFFFu;
+            const uint32_t pl = ix ? rd(0x0021B900u + ix * 24u) : 0u;
+            const bool okp = pl && pl < 0x2000000u, okh = g_horse && g_horse < 0x2000000u;
+            std::fprintf(stderr, "[rideprobe] frame %llu vblank %llu: %08x a0 %08x a1 %08x ra %08x sp %08x | Wander %.2f %.2f %.2f Agro %.2f %.2f %.2f\n",
+                         (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed),
+                         kRideProbe[K], GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 31), GPR_U32(ctx, 29), okp ? rf(pl + 0x170u) : 0.0f, okp ? rf(pl + 0x174u) : 0.0f,
+                         okp ? rf(pl + 0x178u) : 0.0f, okh ? rf(g_horse + 0x170u) : 0.0f, okh ? rf(g_horse + 0x174u) : 0.0f, okh ? rf(g_horse + 0x178u) : 0.0f);
+            g_rideProbeOrig[K](rdram, ctx, runtime);
+        }
         void probeHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             if (!g_probeRet)
@@ -1747,7 +1767,10 @@ namespace sotc_replay
             g_mode = kRecord;
             startRecording(record);
         }
-        if (g_mode == kOff)
+        // Round B4: SOTC_REC_ROUTE=1: the test route's aids (teleports, the ride flag and steering, the ride probe) with an
+        // input recording or replay too (else only without one).
+        const bool routeInRec = std::getenv("SOTC_REC_ROUTE") && std::atoi(std::getenv("SOTC_REC_ROUTE")) > 0;
+        if (g_mode == kOff || routeInRec)
         {
             // Round 135: SOTC_POS_LOG alone: only Agro's step wrapped (its object noted, nothing else changes).
             const char *pos = ps2_diag::env("SOTC_POS_LOG");
@@ -1938,12 +1961,23 @@ namespace sotc_replay
             if (const char *st = std::getenv("SOTC_RIDE_STEER"))
                 g_steerFrom = std::strtoull(st, nullptr, 10);
             g_rideFlag = g_steerFrom || !g_teleports.empty() || (std::getenv("SOTC_RIDE_FLAG") && std::atoi(std::getenv("SOTC_RIDE_FLAG")) > 0);
+            if (const char *rp = std::getenv("SOTC_RIDE_PROBE"); rp && std::atoi(rp) > 0)
+            {
+                static const PS2Runtime::RecompiledFunction hooks[6] = {rideProbeHook<0>, rideProbeHook<1>, rideProbeHook<2>, rideProbeHook<3>, rideProbeHook<4>, rideProbeHook<5>};
+                for (int k = 0; k < 6; ++k)
+                    if (runtime.hasFunction(kRideProbe[k]))
+                    {
+                        g_rideProbeOrig[k] = runtime.lookupFunction(kRideProbe[k]);
+                        runtime.registerFunction(kRideProbe[k], hooks[k]);
+                    }
+            }
             if (((pos && std::atoi(pos) > 0) || !g_teleports.empty() || g_teleportList || g_teleportPosEvery || g_teleportObjsEvery || g_rideFlag) && runtime.hasFunction(kHorseStep))
             {
                 g_horseOriginal = runtime.lookupFunction(kHorseStep);
                 runtime.registerFunction(kHorseStep, horseHook);
             }
-            return;
+            if (g_mode == kOff)
+                return;
         }
         g_runtime = &runtime;
         if (!runtime.hasFunction(kTick) || !runtime.hasFunction(kFlush))
@@ -1990,7 +2024,7 @@ namespace sotc_replay
             g_garbageOriginal = runtime.lookupFunction(kGarbageCall);
             runtime.registerFunction(kGarbageCall, garbageHook);
         }
-        if (runtime.hasFunction(kHorseStep))
+        if (runtime.hasFunction(kHorseStep) && !g_horseOriginal) // (round B4: once, SOTC_REC_ROUTE may have wrapped it)
         {
             g_horseOriginal = runtime.lookupFunction(kHorseStep);
             runtime.registerFunction(kHorseStep, horseHook);

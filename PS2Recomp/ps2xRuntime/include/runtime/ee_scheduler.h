@@ -357,6 +357,29 @@ extern void (*g_ps2xSemaNote)(int op, int id, int thread, bool carrier, int resu
 // thread" for the runtime's owner checks (PS2Memory::vif1AsyncJoin applied the asynchronous VIF1 walk only on the thread
 // that started it, the executor; on a carrier the game thread's own code runs on another host thread).
 extern thread_local bool t_ps2xEeGuestRunner;
+// Round B4 (docs/decomp_b4.md; switch b4fast, game/overrides/b3_threads.cpp sets it once a frame): a carrier that yields
+// (a checkpoint that must reach the scheduler, a park, a switch) runs the dispatcher's own loop in place, on its own host
+// thread, while it holds the baton (EeScheduler::carrierNest, S17's nested dispatch for carriers): the events, the interrupt
+// handlers (on the thread run() would queue them on), the woken threads (other carriers resumed from there: one hand-over each
+// way instead of two) until the loop would pick the yielding thread's own context again, which then goes on with no hand-over
+// at all. Where run() would wait for an event (no thread ready) or the loop cannot run there, the baton goes back to the
+// executor as before.
+extern uint32_t g_ps2xB4Fast;
+extern uint32_t g_ps2xB4Mode; // 2: direct hand-overs between carriers (default; the semaphore baton), 1: the nested form (SOTC_B4_MODE)
+struct EeB4Stats
+{
+    uint64_t nests[2] = {};   // nested loops opened, at a checkpoint / at a park or switch
+    uint64_t goOn[2] = {};    // of them, the yielding thread picked again in place (no hand-over)
+    uint64_t local = 0;       // of the nests, opened by a carrier resumed from another nested loop (round B4's local loop)
+    uint64_t bailed[7] = {};  // given back to the executor: 0 the thread no longer ready (not waiting), 1 stop, 2 no thread
+                              // ready (run() would wait for an event), 3 the switch off / handed back, 4 host stack, 5 the next
+                              // thread runs as generated code (run() runs it on the executor), 6 a local loop's next thread
+                              // is another one (the outer loop runs it)
+    uint64_t handoffs = 0;    // direct hand-overs to the next carrier (SOTC_B4_MODE=2)
+    uint64_t runs = 0, carrierRuns = 0, handlers = 0; // threads dispatched in a nested loop, of them carriers, handler invocations
+    uint64_t invocations = 0;  // guest invocations queued (interrupt handlers, callbacks; every dispatcher, both paths)
+};
+extern EeB4Stats g_eeB4;
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -694,6 +717,9 @@ private:
     void resumeCarrier(GuestThread &thread);
     bool carrierYield(int why);
     void carrierYieldPinned(); // round B3: a park / switch yield that is never answered "unwind" (the carrier* calls)
+    // Round B4: the dispatcher's loop run in place on the yielding carrier: -1 the baton goes back to the executor (the
+    // caller's hand-over), else the thread goes on (1: unwind there, the thread handed back).
+    int carrierNest(EeHostCarrier &c, int why);
     bool checkpointSlowInner() noexcept;
     void b1Audit(int site) const noexcept;
     void b1WatchdogDump(int n);

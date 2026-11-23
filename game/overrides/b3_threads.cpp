@@ -789,6 +789,31 @@ namespace b3threads
         uint64_t g_lastLogFrame = 0;
         EeB1Stats g_lastB3[kB3Count]{};
         EeB3Sync g_lastSync{};
+        EeB4Stats g_lastB4{};
+        uint64_t g_lastRuns[16]{};
+        // Round B4: `[b4fast]`: the nested loops a frame (opened at a checkpoint / a park, went on in place, given back by
+        // reason), what ran in them, and the scheduling decisions a frame by thread (makeRunning, both paths) with the
+        // invocations queued: the guest-level counts that must keep their shape on / off.
+        void b4Line(uint64_t frame, double f)
+        {
+            const EeB4Stats &b = g_eeB4, &p = g_lastB4;
+            char line[1200];
+            int n = std::snprintf(line, sizeof(line),
+                                  "[b4fast] frame %llu: on %u mode %u | a frame: nests cp %.2f park %.2f (local %.2f), went on cp %.2f park %.2f, given back stopped-ready %.3f stop %.3f "
+                                  "none-ready %.2f off %.3f stack %.3f generated %.3f to-outer %.2f | direct hand-overs %.2f | nested runs %.2f (carriers %.2f, handlers %.2f) | invocations %.2f | picks by thread",
+                                  (unsigned long long)frame, g_ps2xB4Fast, g_ps2xB4Mode, (b.nests[0] - p.nests[0]) / f, (b.nests[1] - p.nests[1]) / f, (b.local - p.local) / f,
+                                  (b.goOn[0] - p.goOn[0]) / f, (b.goOn[1] - p.goOn[1]) / f, (b.bailed[0] - p.bailed[0]) / f,
+                                  (b.bailed[1] - p.bailed[1]) / f, (b.bailed[2] - p.bailed[2]) / f, (b.bailed[3] - p.bailed[3]) / f,
+                                  (b.bailed[4] - p.bailed[4]) / f, (b.bailed[5] - p.bailed[5]) / f, (b.bailed[6] - p.bailed[6]) / f, (b.handoffs - p.handoffs) / f, (b.runs - p.runs) / f, (b.carrierRuns - p.carrierRuns) / f,
+                                  (b.handlers - p.handlers) / f, (b.invocations - p.invocations) / f);
+            for (int t = 0; t < 16 && n < 1100; ++t)
+                if (g_eeS11.runs[t] != g_lastRuns[t])
+                    n += std::snprintf(line + n, sizeof(line) - n, " t%d %.2f", t, (g_eeS11.runs[t] - g_lastRuns[t]) / f);
+            std::fprintf(stderr, "%s\n", line);
+            g_lastB4 = b;
+            for (int t = 0; t < 16; ++t)
+                g_lastRuns[t] = g_eeS11.runs[t];
+        }
     }
 
     void install(PS2Runtime &runtime)
@@ -807,6 +832,8 @@ namespace b3threads
         g_log = l ? static_cast<uint32_t>(std::max(0, std::atoi(l))) : ((g_count || (on && on[0] >= '1' && on[0] <= '3')) ? 600u : 0u);
         const char *mk = std::getenv("SOTC_B3_MASK");
         g_mask = mk ? static_cast<uint32_t>(std::strtoul(mk, nullptr, 0)) & 15u : 15u;
+        if (const char *bm = std::getenv("SOTC_B4_MODE"))
+            g_ps2xB4Mode = static_cast<uint32_t>(std::atoi(bm)) == 1u ? 1u : 2u; // round B4: 1 the nested form, 2 direct hand-overs
         const char *sy = std::getenv("SOTC_B3_SYNC");
         g_syncOn = (sy && sy[0] == '0') ? 0u : 1u;
         if (g_count)
@@ -863,8 +890,19 @@ namespace b3threads
             g_gate[i] = on && (g_mask >> i & 1u) ? 1u : 0u;
         g_ps2xB3Carry = on ? 1u : 0u;
         g_ps2xB3Sync = on && g_syncOn ? 1u : 0u;
-        if (g_log == 0u || frame - g_lastLogFrame < g_log || !g_rt)
+        // Round B4 (b4fast): the carriers' yields run the dispatcher's loop in place (EeScheduler::carrierNest). On its own
+        // switch (a carrier of any of B1 / B2 / B3 uses it); only once GAMECORE runs, as the carriers.
+        const bool b4 = sotc_decomp::switchOn(sotc_decomp::kB4Fast) && sotc_decomp::gamecoreEntered();
+        g_ps2xB4Fast = b4 ? 1u : 0u;
+        const uint32_t every = g_log ? g_log : (b4 ? 600u : 0u); // (b4fast on with b3threads' log off: its line every 600 frames)
+        if (every == 0u || frame - g_lastLogFrame < every || !g_rt)
             return;
+        b4Line(frame, static_cast<double>(frame - g_lastLogFrame));
+        if (g_log == 0u)
+        {
+            g_lastLogFrame = frame;
+            return;
+        }
         const double f = static_cast<double>(frame - g_lastLogFrame);
         g_lastLogFrame = frame;
         static const char *const names[kB3Count] = {"t4", "t5", "t10", "t9"};
