@@ -1289,6 +1289,14 @@ namespace
 
 PS2_REGISTER_GAME_OVERRIDE("Shadow of the Colossus (USA)", "SCUS_974.72", 0u, 0u, applySotcOverrides)
 
+PS2Runtime::RecompiledFunction sotc_decomp::swapIosRecvInner(PS2Runtime::RecompiledFunction f)
+{
+    PS2Runtime::RecompiledFunction old = g_iosRecvMsg;
+    if (old)
+        g_iosRecvMsg = f;
+    return old;
+}
+
 // The idle thread's turn once a game frame (round 25: the console's loader
 // stall). A thread that waits for the EE to be idle (the loader, t11, in a
 // type 0 job) sends to the bufferless idle queue 0x1fc870 and sleeps on its

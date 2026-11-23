@@ -4381,6 +4381,31 @@ bool EeScheduler::carrierWakeup(int id, int &result)
     return true;
 }
 
+// Round B6 (docs/decomp_b6.md): the wakes of an ios receive's sender list, made by the receiver (see the header).
+bool EeScheduler::carrierWakeList(const int *ids, int n, int *results, bool &yielded)
+{
+    yielded = false;
+    if (!carrierCallable())
+    {
+        ++g_eeB3Sync.refused;
+        return false;
+    }
+    GuestThread *self = currentThread();
+    for (int i = 0; i < n; ++i)
+        results[i] = wakeupThread(ids[i], false);
+    if (m_rescheduleRequested)
+    {
+        enqueueReady(*self, true);
+        m_currentThreadId = 0;
+        m_rescheduleRequested = false;
+        m_timeSliceExpired = false;
+        publishSnapshot();
+        yielded = true;
+        carrierYieldPinned();
+    }
+    return true;
+}
+
 // Round B4 (docs/decomp_b4.md): the dispatcher's loop on the carrier that yields (b4fast). A carrier that yields (why 0: a
 // checkpoint that must reach the scheduler, its thread still running; 1: a park or a switch, its thread no longer current)
 // runs run()'s loop right here on its own host thread, which holds the baton and is the executor while it does (its

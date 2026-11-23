@@ -683,6 +683,12 @@ public:
     bool carrierPollSema(int id, int &result);
     bool carrierSleep(int &result);
     bool carrierWakeup(int id, int &result);
+    // Round B6 (docs/decomp_b6.md): WakeupThread of each id in order (wakeupThread's records: a sleeping thread readied, else
+    // its wakeup counted), then one switch if a woken thread outranks the caller (transferIfRequested's, as a pinned yield):
+    // what the callback thread t4 does for an ios receive's sender list (at priority 2 it is preempted by none of the woken
+    // threads; it parks and the dispatcher picks), done by the receiver itself. results[i]: each wake's result; yielded:
+    // the switch was made (the call returns once the caller runs again). False (nothing done): not carrierCallable().
+    bool carrierWakeList(const int *ids, int n, int *results, bool &yielded);
     // True when the carrier* calls would act (the calling host thread holds the baton for a carried thread's own code).
     [[nodiscard]] bool carrierCallable() const noexcept;
     void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept { addHostCarry(entry, claimPc, body, &g_ps2xB1Carry, &g_eeB1); }
