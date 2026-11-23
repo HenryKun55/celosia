@@ -1,8 +1,10 @@
 // typed_a10_nchk.h: round A10's check of a hand native against what its typed callers take for it
-// (docs/a9_natives.txt, the A9 cores of typed_a9_ext.h, GetLayoutClass's slot holder; docs/decomp_a9.md). A check build only (PS2X_A10_CHECK=1): A10_NCHK(address) at the top of the native
-// runs the typed function first on the native's entry state, its stores on the check's logged memory (nothing written),
-// then lets the native run and compares, when it returns, its return value and every byte the typed function stored
-// (outside the dead stack below the entry sp) with what the native left. Elsewhere it is nothing.
+// (the slot holders round A10's a6Is takes: the camera hook, the cam126 / collision natives; docs/decomp_a10.md). A check build
+// only (PS2X_A10_CHECK=1): A10_NCHK(address) at the top of the holder runs the typed function (the camera hook: the typed
+// iosgluGetCameraContext and its note) or the lifted function itself (the natives) first on the entry state, its stores on the
+// check's logged memory (nothing written), then lets the holder run and compares, when it returns, v0 (the note), every register
+// and every byte the leg stored (outside the dead stack below the entry sp) with what the holder left ([a10hold]). Elsewhere it is
+// nothing.
 #pragma once
 
 #include <cstdint>

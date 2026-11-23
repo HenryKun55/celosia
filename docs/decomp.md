@@ -23934,3 +23934,35 @@ checkpoint's own loop only). Console package `build/agent-scratch/b4/celosia-b4.
   grows with the dispatcher work moved off the executor's host thread, not with the hand-overs' count.
 - **Loads**: the Load Game pair no longer longer with the carriers on (478 vs 490 ms, 367 vs 415 ms). **Boots** (89 MB, all on):
   three rides of 600 s, 0 dismounts, pictures normal, 67.2 MB free; attract normal. spalign 0.
+## Decomp A10: recursion in the generator, the camera hook's note on the typed path, the slot holders, the upper-half class (a10typed) (2026-11-23)
+
+docs/decomp_a10.md. Scripts, runs and logs: `build/agent-scratch/a10/`. Switch `SOTC_A10TYPED` (A/B `a10typed`, `kA10Typed`);
+`SOTC_A10AD=0` leaves stage 10's never-lifted adapter out of the table; `SOTC_A10HOLD=<mask>` picks the slot holders a6Is takes
+(default 7).
+
+- **Stage 10** (tools/typed_lift2.py, `Emit(a10=True)`, Stage7 with `rec=True`): recursive functions and cycles of several typed
+  against their own interfaces to a fixpoint (`rec_sccs`, `emit_rec`: provisional signatures replaced by what the emission gives
+  until unchanged; host frames per C++ call, guest frames at the MIPS's addresses; members of a cycle declared first; A10_REC
+  counts the depth in a check build); the upper-half class (A6's: an A1-A3 callee whose lifted `movz` / `movn` writes 128 bits)
+  modelled by exact variants `<name>_u10` in the VU0 form wherever the caller's interface holds the half, their callers testing
+  the slot strictly (A10_HOLDSX).
+- **5 more functions** (manager_sub_010C68F8, recursive; IsParentCharOrLwsOrient, AddLayoutObjSubLink, gamecore_sub_013828A8,
+  SelectOmakeItem back from docs/a3_skip.txt); 11 variants. Recursion's census: 74 recursive functions (29 self, 7 cycles), 1
+  typed; the rest stop on run-time frames, jalr, iosPush / PopCurrentMatrix and above all hand natives outside the cycle. The
+  ~540 behind GetCharacterClassOptionNodeGeo / NodeQuaternionPos turn out to wait on eleven motion natives at once. Waiting
+  3 816 -> 3 806.
+- **The camera hook**: one note core (sotc_native::s4NoteCamera) for the hook and the typed iosgluGetCameraContext
+  (A10_CAMNOTE, typed_a10_note.h); a6Is takes the hook (531 798 NCHK checks: v0 and the note 0 differences). A8's adapter entries
+  failing the slot test: 55% -> 0 (ride7 pc, frame 3 000).
+- **The slot holders**: GetMotionOptionNodeParentId's and GetCharacterClassOptionNodeLocalQuaternionPos's cam126 natives taken
+  (their NCHK against the lifted function differs only in dropped scratch slots); GetCollisionDBPlane / AttributeAdr's natives
+  not (they leave extra-output registers as their helpers do); the worker gates, the timer and the scratchpad copy are host state.
+- **GetMotionMatrix** (goal 3): not done; the native's fallbacks reach the MIPS, which calls iosPush / PopCurrentMatrix (VU0 data
+  memory), and the motion family has to come in together (docs/decomp_a10.md section 4).
+- **Exact**: A3-A10 in-run checks 0 differences on ride7 / attract / lake6 (A9 4.13 M, A8 0.92 M, A7 3.92 M, A6 4.41 M, A5 1.28 M,
+  A4 1.24 M, A3 2.70 M; natives' own checks 0); the camera hook against the typed path 531 798 checks, 0. A10's own functions are not
+  reached on the routes (GetLayoutClass's native holds the slot the strict test wants; the rest are not called there). Offline harness
+  240 000 A10 checks (30 runs, random upper halves too) 0; A9-A3 harnesses 0.
+- **Measured**: A/B pooled +0.024 +- 0.086 ms (neutral); 89 MB boot rode to frame 18 000, pictures normal; spalign 0. Failed slot tests
+  (default holders, ride7 pc, frame 3 000): A8 55% -> 15%, A9 11% -> 6.4% (the rest is GetCollisionDBPlane's native). (d) = **3 976
+  (44.1%)**, 16.7% of the bytes, 10.7% of the console game thread.
