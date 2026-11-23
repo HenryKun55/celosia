@@ -20529,110 +20529,6 @@ L_13ffaf4:;
     __builtin_unreachable();
 }
 
-// SelectOmakeItem (0x1400a20): typed by tools/typed_lift2.py (round A6; loop frame calls; VU0 in h5, out h2 h3 h4, relocated calls 6, guest sp, frame 80 bytes, 0 slot accesses)
-inline uint64_t SelectOmakeItem(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a3, uint32_t sp, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19, uint64_t &io_h2, uint64_t &io_h3, uint64_t &io_h4, uint64_t io_h5)
-{
-    uint64_t v0 = 0;
-    uint64_t v1 = 0;
-    uint64_t a2 = 0;
-    uint64_t s0 = 0;
-    uint64_t s1 = 0;
-    uint64_t s2 = 0;
-    uint64_t s3 = 0;
-    uint64_t s4 = 0;
-    uint64_t s5 = 0;
-    uint64_t s6 = 0;
-    uint32_t s7 = 0;
-    uint32_t fp = 0;
-    uint64_t h2 = io_h2;
-    uint64_t h3 = io_h3;
-    uint64_t h4 = io_h4;
-    uint64_t h5 = io_h5;
-    { const uint32_t _dynInsn = A1_R32(0x1400A20u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400A24u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400A28u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32(ADD32((uint32_t)v0, _dynSimm))))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400A2Cu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a2, _dynSimm)))); }
-    (s4 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL));
-    (v1 = (uint64_t)(RC_U64X(v1) ^ RC_U64X(v0)));
-    (s6 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL));
-    fp = 0x1470000u;
-    if (RC_U64X(v1) == 0) do { const a4::q128 _v = (a4v::setzero_si128()); h2 = a4::hi64(_v); std::memcpy(&v0, &_v, 8); } while (0);
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(fp, 4294950200))));
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)v0, 12))));
-    { (s1 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)v0, 16)))); A3_CHARGE(); v0 = MakeStrHashValue(ram, rt, v0, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2); }
-    { const bool c = (int32_t)s0 <= 0; (s5 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL)); if (c) goto L_1400b30; }
-    (s2 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL));
-    (s3 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
-    s7 = 0x1470000u;
-L_1400a98:;
-    { A3_CHARGE(); v0 = a1_sx64(getGameHardMode(ram, rt)); }
-    { const bool c = (int64_t)v0 == 0; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(s7, 4294950192)))); if (c) goto L_1400ab0; }
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s2, 8))));
-    goto L_1400ab4;
-L_1400ab0:;
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s2, 4))));
-L_1400ab4:;
-    { A3_CHARGE(); v0 = MakeStrHashValue(ram, rt, v0, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2); }
-    (a0 = (uint64_t)((uint64_t)s4 + (uint64_t)0ULL));
-    (a1 = (uint64_t)((uint64_t)s5 + (uint64_t)0ULL));
-    { const bool c = (int64_t)s0 == (int64_t)v0; (a2 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL)); if (c) goto L_1400b20; }
-    { A3_CHARGE(); v0 = SpriteMenuGetMenuIdByHash(ram, rt, a0, a1, a2); }
-    if ((int64_t)s6 != (int64_t)v0) { (s3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s3, 4294967295)))); goto L_1400b24; }
-    (s1 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s2, 24))));
-    { (a0 = (uint64_t)((uint64_t)RC_U64X(s1) + (uint64_t)0ULL)); A3_CHARGE(); v0 = _omakeSelectFlagChk(ram, rt, a0); }
-    { const bool c = (int64_t)v0 == 0; (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL)); if (c) goto L_1400b18; }
-    { (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s2, 28)))); A3_CHARGE(); v0 = a1_sx64(getSelectWeapon(ram, rt)); }
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)SRL32((uint32_t)s0, 18))));
-    (s0 = (uint64_t)(RC_U64X(s0) & (uint64_t)(uint16_t)4095));
-    { const bool c = (int64_t)s0 == (int64_t)v0; (a0 = (uint64_t)((uint64_t)s1 + (uint64_t)0ULL)); if (c) goto L_1400b20; }
-    { (s3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s3, 4294967295)))); A3_CHARGE(); v0 = _omakeSelectFlagCls(ram, rt, a0, a1_sx64((uint32_t)(sp + 0xFFFFFFB0u)), h3, h5); }
-    (s2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s2, 32))));
-    goto L_1400b28;
-L_1400b18:;
-    { A3_CHARGE(); v0 = _omakeSelectFlagSet(ram, rt, a0, a1_sx64((uint32_t)(sp + 0xFFFFFFB0u)), h3, h5); }
-L_1400b20:;
-    (s3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s3, 4294967295))));
-L_1400b24:;
-    (s2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s2, 32))));
-L_1400b28:;
-    if ((int64_t)s3 != 0) { A3_BACK(); goto L_1400a98; }
-L_1400b30:;
-    { const uint32_t _dynInsn = A1_R32(0x1400B30u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400B34u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)_dynImm << 16)))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400B38u); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v1 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32(ADD32((uint32_t)v0, _dynSimm))))); }
-    { const uint32_t _dynInsn = A1_R32(0x1400B3Cu); const int32_t _dynSimm = (int16_t)(_dynInsn & 0xFFFFu); const uint32_t _dynImm = _dynInsn & 0xFFFFu; (void)_dynSimm; (void)_dynImm; (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, _dynSimm)))); }
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(fp, 4294950200))));
-    (v1 = (uint64_t)(RC_U64X(v1) ^ RC_U64X(v0)));
-    if (RC_U64X(v1) == 0) do { const a4::q128 _v = (a4v::setzero_si128()); h2 = a4::hi64(_v); std::memcpy(&v0, &_v, 8); } while (0);
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)v0, 12))));
-    { (s1 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)v0, 16)))); A3_CHARGE(); v0 = MakeStrHashValue(ram, rt, v0, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2); }
-    { const bool c = (int32_t)s0 <= 0; (s3 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL)); if (c) goto L_1400bc4; }
-    (s1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s1, 24))));
-    (s2 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
-    s7 = 0x1470000u;
-L_1400b70:;
-    { A3_CHARGE(); v0 = a1_sx64(getGameHardMode(ram, rt)); }
-    { const bool c = (int64_t)v0 == 0; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(s7, 4294950192)))); if (c) goto L_1400b88; }
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s1, -16))));
-    goto L_1400b8c;
-L_1400b88:;
-    (s0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s1, -20))));
-L_1400b8c:;
-    { A3_CHARGE(); v0 = MakeStrHashValue(ram, rt, v0, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2); }
-    if ((int64_t)s0 == (int64_t)v0) { (s2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s2, 4294967295)))); goto L_1400bbc; }
-    { (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)s1, 0)))); A3_CHARGE(); v0 = _omakeSelectFlagChk(ram, rt, a0); }
-    (a0 = (uint64_t)((uint64_t)s4 + (uint64_t)0ULL));
-    (a1 = (uint64_t)((uint64_t)s3 + (uint64_t)0ULL));
-    (a2 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
-    { (a3 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL)); A3_CHARGE(); v0 = SpriteMenuSetCheckBoxByHash(ram, rt, a0, a1, a2, a3, h4); }
-    (s2 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s2, 4294967295))));
-L_1400bbc:;
-    { const bool c = (int64_t)s2 != 0; (s1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s1, 32)))); if (c) { A3_BACK(); goto L_1400b70; } }
-L_1400bc4:;
-    { io_h2 = h2; io_h3 = h3; io_h4 = h4; return v0; }
-    __builtin_unreachable();
-}
-
 // gamecore_sub_01402458 (0x1402458): typed by tools/typed_lift2.py (round A6; frame calls; VU0 in h2, out h2, relocated calls 9, frame 48 bytes, 0 slot accesses)
 inline uint64_t gamecore_sub_01402458(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19, uint64_t &io_h2)
 {
@@ -24521,46 +24417,6 @@ L_10cc4c4:;
     __builtin_unreachable();
 }
 
-// IsParentCharOrLwsOrient (0x10cc628): typed by tools/typed_lift2.py (round A6; loop frame calls, extra outputs xo[0]=a1 xo[1]=a2 xo[2]=a3; VU0 in -, out h2 h7, frame 16 bytes, 0 slot accesses)
-inline uint64_t IsParentCharOrLwsOrient(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t v0, uint64_t a0, uint64_t a1, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19, uint64_t &io_h2, uint64_t &io_h7, uint64_t *xo = nullptr)
-{
-    uint32_t v1 = 0;
-    uint32_t a2 = 0;
-    uint64_t a3 = 0;
-    uint64_t s0 = 0;
-    uint64_t h2 = io_h2;
-    uint64_t h7 = io_h7;
-    bool a3xw1 = false;
-    { (s0 = (uint64_t)((uint64_t)a0 + (uint64_t)0ULL)); A3_CHARGE(); v0 = GetScrLwsOriClass(ram, rt, a0); }
-    { const bool c = (int64_t)v0 == 0; (a3 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL)); if (c) goto L_10cc6a0; }
-    (a2 = (uint32_t)((int32_t)((int32_t)A1_R32B((uint32_t)v0, 4600)))); a3xw1 = true;
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)v0, 4608))));
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B(a2, 48))));
-    { const bool c = (int32_t)v0 <= 0; (a1 = (uint64_t)((uint64_t)0ULL + (uint64_t)0ULL)); if (c) goto L_10cc6b4; }
-    (v1 = (uint32_t)((int32_t)((int32_t)A1_R32B((uint32_t)a0, 0))));
-    goto L_10cc674;
-L_10cc660:;
-    (a1 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a1, 1))));
-    (v0 = (uint64_t)(((int64_t)(int64_t)RC_U64X(a1) < (int64_t)(int64_t)v0) ? 1 : 0));
-    { const bool c = (int64_t)v0 == 0; (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)a0, 80)))); if (c) goto L_10cc6b4; }
-    (v1 = (uint32_t)((int32_t)((int32_t)A1_R32B((uint32_t)a0, 0))));
-L_10cc674:;
-    if (v1 == 0) { (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B(a2, 48)))); { A3_BACK(); goto L_10cc660; } }
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B(v1, 324))));
-    if ((int64_t)v0 == 0) { (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B(a2, 48)))); { A3_BACK(); goto L_10cc660; } }
-    (a3 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32(v1, 32))));
-    goto L_10cc6b4;
-L_10cc6a0:;
-    { (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL)); A3_CHARGE(); uint64_t a7c[3] = {0u, 0u, a1}; v0 = GetLayoutClass(ram, rt, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2, a7c); a1 = a7c[2]; }
-    (a3 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
-    (v0 = (uint64_t)((int64_t)(int32_t)((int32_t)A1_R32B((uint32_t)a3, 292))));
-    if (RC_U64X(v0) == 0) do { const a4::q128 _v = (a4v::setzero_si128()); h7 = a4::hi64(_v); std::memcpy(&a3, &_v, 8); } while (0);
-L_10cc6b4:;
-    (v0 = (uint64_t)((uint64_t)a3 + (uint64_t)0ULL));
-    { if (xo) { xo[0] = a1; if (a3xw1) xo[1] = a1_sx64(a2); xo[2] = a3; } io_h2 = h2; io_h7 = h7; return v0; }
-    __builtin_unreachable();
-}
-
 // manager_sub_010CCBE8 (0x10ccbe8): typed by tools/typed_lift2.py (round A6; frame calls, extra outputs xo[0]=f0 xo[1]=a1 xo[2]=a2 xo[3]=a3 xo[4]=t0 xo[5]=t1; VU0 in -, out h2, guest sp, frame 32 bytes, 0 slot accesses)
 inline uint64_t manager_sub_010CCBE8(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t a0, uint64_t a1, uint64_t a3, uint64_t t1, uint32_t t2, uint32_t t3, uint32_t sp, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19, uint64_t &io_h2, uint64_t *xo = nullptr)
 {
@@ -25298,21 +25154,6 @@ L_10f2138:;
 L_10f2158:;
 L_10f215c:;
     { if (xo) { xo[0] = a1; } io_h2 = h2; return v0; }
-    __builtin_unreachable();
-}
-
-// AddLayoutObjSubLink (0x10f2178): typed by tools/typed_lift2.py (round A6; frame calls; VU0 in -, out h2, frame 32 bytes, 0 slot accesses)
-inline uint64_t AddLayoutObjSubLink(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint64_t v0, uint64_t a0, uint64_t a1, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19, uint64_t &io_h2)
-{
-    uint64_t s0 = 0;
-    uint64_t s1 = 0;
-    uint64_t h2 = io_h2;
-    { (s0 = (uint64_t)((uint64_t)a1 + (uint64_t)0ULL)); A3_CHARGE(); v0 = GetLayoutClass(ram, rt, a0, f12, f13, f14, f15, f16, f17, f18, f19, h2); }
-    (a0 = (uint64_t)((uint64_t)s0 + (uint64_t)0ULL));
-    { (s1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL)); A3_CHARGE(); v0 = GetSubLinkClass(ram, rt, a0); }
-    (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)s1, 268))));
-    (a1 = (uint64_t)((uint64_t)v0 + (uint64_t)0ULL));
-    { const uint32_t a4_t = AddTwoWayLinkNext(ram, rt, (uint32_t)a0, (uint32_t)a1); io_h2 = h2; return a1_sx64(a4_t); }
     __builtin_unreachable();
 }
 

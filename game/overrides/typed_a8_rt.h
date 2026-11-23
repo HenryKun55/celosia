@@ -37,16 +37,22 @@ inline bool a8Holds(bool held)
         ++g_a8s.slot;
     return held;
 }
+inline bool a8HoldsAt(uint32_t addr, PS2Runtime::RecompiledFunction got, bool held)
+{
+    if (!held)
+        ++g_a8s.slot, a3MissAt(8u, addr, reinterpret_cast<uintptr_t>(got));
+    return held;
+}
 #endif
 
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A8_CHECK
 #define A8_GO() a8GoCount(runtime, PS2_N4_SP())
-#define A8_HOLDS(addr, known) a8Holds(PS2_GUEST_FN(addr) == &known)
+#define A8_HOLDS(addr, known) a8HoldsAt((addr), PS2_GUEST_FN(addr), a6Is(PS2_GUEST_FN(addr), &known))
 #define A8_IN(id) a3InOn(g_a8s, runtime, (id))
 #define A8_OUT() a3Out(runtime)
 #elif defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
 #define A8_GO() (g_a8Typed && PS2_N4_SP() >= runtime->m_noCheckFloor)
-#define A8_HOLDS(addr, known) (PS2_GUEST_FN(addr) == &known)
+#define A8_HOLDS(addr, known) a6Is(PS2_GUEST_FN(addr), &known) // round A9: as A6_HOLDS (DC2's GetCharacterClass entry)
 #define A8_IN(id) ((void)0)
 #define A8_OUT() ((void)0)
 #else

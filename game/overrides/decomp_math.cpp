@@ -7,6 +7,7 @@
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
+#include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -158,6 +159,7 @@ namespace decomp_math
     // Round 122: the plain float path first (SOTC_QUAT122).
     void getSinCos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BDDB0u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::sinCos(rdram, ctx, runtime, getSinCosOld))
             getSinCosOld(rdram, ctx, runtime);
     }
@@ -708,6 +710,7 @@ namespace decomp_libm
     }
     void acosExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BE388u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::acos(rdram, ctx, runtime, acosExactOld, true))
             acosExactOld(rdram, ctx, runtime);
     }

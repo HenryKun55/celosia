@@ -56,6 +56,12 @@ bool g_a8Typed = true; // round A8 (typed_a8_rt.h): the switch a8typed, likewise
 #if PS2X_A8_CHECK
 A3Stats g_a8s; // round A8's check build: its adapters' test and deferred checkpoints (A3's counters)
 #endif
+bool g_a9Typed = true; // round A9 (typed_a9_rt.h): a9typed and the quat122 / geo126 default paths, set once a frame
+uint64_t g_a9Outside[8] = {}; // round A9: the cores' calls outside their native's default path (typed_a9_ext.h)
+#include "typed_a9_rt.h"
+#if PS2X_A9_CHECK
+A3Stats g_a9s; // round A9's check build: its adapters' test and deferred checkpoints (A3's counters)
+#endif
 namespace a6
 {
     // the breaks a typed call took, on the adapter's context after the call: handleBreak at the first site and, when more

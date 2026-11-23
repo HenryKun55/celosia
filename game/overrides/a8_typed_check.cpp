@@ -3431,7 +3431,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x13ff298u: ref::gamecore_sub_013FF298(rdram, ctx, runtime); break;
     case 0x13ff580u: ref::gamecore_sub_013FF580(rdram, ctx, runtime); break;
     case 0x13ff9a8u: ref::gamecore_sub_013FF9A8(rdram, ctx, runtime); break;
-    case 0x1400a20u: ref::SelectOmakeItem(rdram, ctx, runtime); break;
     case 0x1402458u: ref::gamecore_sub_01402458(rdram, ctx, runtime); break;
     case 0x1402560u: ref::gamecore_sub_01402560(rdram, ctx, runtime); break;
     case 0x1402640u: ref::gamecore_sub_01402640(rdram, ctx, runtime); break;
@@ -3545,7 +3544,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x10cc2a8u: ref::CharaCtrlResetPlayableCtrlStatus(rdram, ctx, runtime); break;
     case 0x10cc370u: ref::CharaCtrlSetOutsideScriptCtrlStatus(rdram, ctx, runtime); break;
     case 0x10cc408u: ref::CharaCtrlSetScriptCtrlStatusCallBack(rdram, ctx, runtime); break;
-    case 0x10cc628u: ref::IsParentCharOrLwsOrient(rdram, ctx, runtime); break;
     case 0x10ccbe8u: ref::manager_sub_010CCBE8(rdram, ctx, runtime); break;
     case 0x10cd118u: ref::ForceAcceptMotion(rdram, ctx, runtime); break;
     case 0x10d32f0u: ref::checkShift(rdram, ctx, runtime); break;
@@ -3553,7 +3551,6 @@ bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Run
     case 0x10df590u: ref::manager_sub_010DF590(rdram, ctx, runtime); break;
     case 0x10f1fc0u: ref::ForceUnparentLayoutObj(rdram, ctx, runtime); break;
     case 0x10f20c0u: ref::ForceParentLayoutObj(rdram, ctx, runtime); break;
-    case 0x10f2178u: ref::AddLayoutObjSubLink(rdram, ctx, runtime); break;
     case 0x10f5b70u: ref::GetAmbientBrightnessOfLayoutObject(rdram, ctx, runtime); break;
     case 0x1102a58u: ref::SetScriptObjDeleteCallBackFunc(rdram, ctx, runtime); break;
     case 0x1102a90u: ref::SetScriptObjDeleteCallBackFunc2(rdram, ctx, runtime); break;

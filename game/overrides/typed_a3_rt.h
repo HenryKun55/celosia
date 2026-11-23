@@ -40,6 +40,36 @@ struct A3Stats
     uint64_t fnMaxDef[kFns] = {};
 };
 extern A3Stats g_a3;
+// Round A9: which slot a failed adapter test met and what held it (the first failing test of an entry: the && chain stops
+// there), per round (5..9), for the "[a9miss]" lines of a check build (sotc_native.cpp): the holder's host address, mapped
+// to a symbol with the ELF's nm.
+struct A3Miss
+{
+    uint32_t addr, round;
+    uintptr_t got;
+    uint64_t n;
+};
+inline A3Miss g_a3Miss[2048];
+inline uint64_t g_a3MissLost = 0;
+inline void a3MissAt(uint32_t round, uint32_t addr, uintptr_t got)
+{
+    uint32_t h = ((addr >> 2) * 2654435761u ^ round) & 2047u;
+    for (uint32_t i = 0; i < 2048u; ++i, h = (h + 1u) & 2047u)
+    {
+        A3Miss &m = g_a3Miss[h];
+        if (m.n && m.addr == addr && m.round == round && m.got == got)
+        {
+            ++m.n;
+            return;
+        }
+        if (!m.n)
+        {
+            m.addr = addr, m.round = round, m.got = got, m.n = 1;
+            return;
+        }
+    }
+    ++g_a3MissLost;
+}
 // the counters the current adapter call charges (round A4's adapters charge their own, g_a4s: A4_IN)
 extern A3Stats *g_a3cur;
 inline bool a3GoCount(PS2Runtime *runtime, uintptr_t sp)

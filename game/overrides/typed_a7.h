@@ -291,7 +291,6 @@ void getPlayerWeaponHitAttr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 void getRatioFromInterp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void getSObjNode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void getSScriptWork(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-void getSelectWeapon(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void getSubPointData(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void getSubPointDataByAreaIdx(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 void getTorchInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

@@ -187,6 +187,25 @@ void a8ckReport(unsigned long long frame); // a8_typed_check.cpp
 void a8ckExtra(unsigned long long frame);  // typed_a8_check_rt.h (in a8_typed_check.cpp)
 #endif
 static uint64_t g_a8Frames[2] = {0, 0};
+// Round A9 (typed_a9_rt.h): the switch a9typed's flag (with the quat122 / geo126 default paths its cores stand for) and frame counts
+// (the [a9] line, on SOTC_A1_LOG).
+#include "typed_a9_rt.h" // g_a9Typed, PS2X_A9_CHECK
+#if PS2X_A9_CHECK
+void a9ckReport(unsigned long long frame); // a9_typed_check.cpp
+void a9ckExtra(unsigned long long frame);  // typed_a9_check_rt.h (in a9_typed_check.cpp)
+#endif
+static uint64_t g_a9Frames[2] = {0, 0};
+// a9typed's flag: the switch, and the default paths of the natives A9 types as cores (quat122 and geo126 on; quat122's own
+// check off: SOTC_CHAR122_CHECK runs the old path every 4th call, which the cores do not)
+static bool a9TypedNow()
+{
+    static const bool quatCheck = [] {
+        const char *e = std::getenv("SOTC_CHAR122_CHECK");
+        return e && std::atoi(e) > 0;
+    }();
+    return sotc_decomp::switchOn(sotc_decomp::kA9Typed) && sotc_decomp::switchOn(sotc_decomp::kQuat122) && sotc_decomp::switchOn(sotc_decomp::kGeo126) &&
+           !quatCheck;
+}
 
 namespace decomp_wind
 {
@@ -3691,7 +3710,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4401,6 +4420,9 @@ namespace sotc_native
         // Round A8 (a8typed): stage 8's typed functions (the varargs functions' spills, more natives; typed_a8.h).
         g_a8Typed = sotc_decomp::switchOn(sotc_decomp::kA8Typed);
         ++g_a8Frames[g_a8Typed ? 1 : 0];
+        // Round A9 (a9typed): stage 9's typed functions (the quat122 / geo126 natives as shared cores; typed_a9.h).
+        g_a9Typed = a9TypedNow();
+        ++g_a9Frames[g_a9Typed ? 1 : 0];
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
             std::fprintf(stderr, "[a1] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a1Typed ? 1 : 0,
@@ -4669,6 +4691,55 @@ namespace sotc_native
                     o += std::snprintf(buf + o, sizeof(buf) - o, " %u: %llu / %u / %u;", top[k], (unsigned long long)g.fnMaxDef[top[k]], g.fnDeferred[top[k]],
                                        g.fnMaxBacks[top[k]]);
                 std::fprintf(stderr, "%s\n", buf);
+            }
+#endif
+            std::fprintf(stderr, "[a9] frame %llu: typed %d; frames off %llu on %llu; check build %d; core calls outside the default path %llu/%llu/%llu/%llu/%llu/%llu/%llu\n",
+                         (unsigned long long)g_frame, g_a9Typed ? 1 : 0, (unsigned long long)g_a9Frames[0], (unsigned long long)g_a9Frames[1], PS2X_A9_CHECK,
+                         (unsigned long long)g_a9Outside[0], (unsigned long long)g_a9Outside[1], (unsigned long long)g_a9Outside[2], (unsigned long long)g_a9Outside[3],
+                         (unsigned long long)g_a9Outside[4], (unsigned long long)g_a9Outside[5], (unsigned long long)g_a9Outside[6]);
+#if PS2X_A9_CHECK
+            a9ckReport((unsigned long long)g_frame);
+            a9ckExtra((unsigned long long)g_frame);
+            {
+                const A3Stats &g = g_a9s;
+                std::fprintf(stderr, "[a9] frame %llu: adapters entered %llu: typed off %llu, below the NOCHK floor %llu, a callee slot held by another function %llu, "
+                                     "sp not 16-aligned %llu, loop-free leaves %llu; calls %llu, back edges %llu (max %llu in one call), "
+                                     "due (would have tested) %llu (at calls %llu), calls with a deferred checkpoint %llu, deferral EE cycles mean %.1f max %llu\n",
+                             (unsigned long long)g_frame, (unsigned long long)g.entered, (unsigned long long)g.off, (unsigned long long)g.floor,
+                             (unsigned long long)g.slot, (unsigned long long)g.sp16, (unsigned long long)g.leaves,
+                             (unsigned long long)g.calls, (unsigned long long)g.backs, (unsigned long long)g.maxBacks, (unsigned long long)g.dues,
+                             (unsigned long long)g.callDues, (unsigned long long)g.deferred, g.deferred ? (double)g.defSum / (double)g.deferred : 0.0,
+                             (unsigned long long)g.defMax);
+            }
+#endif
+#if PS2X_A3_CHECK
+            {
+                // round A9: the slots the failed adapter tests met (the first failing test of an entry), the most entries first
+                int idx[40];
+                int n = 0;
+                for (int i = 0; i < 2048; ++i)
+                {
+                    if (!g_a3Miss[i].n)
+                        continue;
+                    int k = n < 40 ? n++ : (g_a3Miss[i].n > g_a3Miss[idx[39]].n ? 39 : -1);
+                    if (k < 0)
+                        continue;
+                    idx[k] = i;
+                    for (; k > 0 && g_a3Miss[idx[k]].n > g_a3Miss[idx[k - 1]].n; --k)
+                    {
+                        const int t = idx[k];
+                        idx[k] = idx[k - 1];
+                        idx[k - 1] = t;
+                    }
+                }
+                for (int k = 0; k < n; ++k)
+                {
+                    const A3Miss &m = g_a3Miss[idx[k]];
+                    std::fprintf(stderr, "[a9miss] frame %llu: round a%u slot 0x%x held by host 0x%lx: %llu entries\n", (unsigned long long)g_frame, m.round, m.addr,
+                                 (unsigned long)m.got, (unsigned long long)m.n);
+                }
+                if (g_a3MissLost)
+                    std::fprintf(stderr, "[a9miss] frame %llu: %llu misses past the table\n", (unsigned long long)g_frame, (unsigned long long)g_a3MissLost);
             }
 #endif
         }
@@ -14741,6 +14812,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         g_a6Typed = sotc_decomp::switchOn(sotc_decomp::kA6Typed); // round A6
         g_a7Typed = sotc_decomp::switchOn(sotc_decomp::kA7Typed); // round A7
         g_a8Typed = sotc_decomp::switchOn(sotc_decomp::kA8Typed); // round A8
+        g_a9Typed = a9TypedNow();                                 // round A9
         e = std::getenv("SOTC_A1_LOG");
         g_a1Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }

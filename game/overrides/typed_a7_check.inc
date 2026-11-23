@@ -351,7 +351,6 @@ void CheckSwordIndicateAimPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 void gamecore_sub_013FF298(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, float, float, float, float, float, float, float, float);
 void gamecore_sub_013FF580(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void gamecore_sub_013FF9A8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float, float);
-void SelectOmakeItem(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint32_t, float, float, float, float, float, float, float, float);
 void gamecore_sub_01402458(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void gamecore_sub_01402560(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void gamecore_sub_01402640(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
@@ -465,7 +464,6 @@ void CharaCtrlSetScriptCtrlStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime 
 void CharaCtrlResetPlayableCtrlStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void CharaCtrlSetOutsideScriptCtrlStatus(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void CharaCtrlSetScriptCtrlStatusCallBack(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
-void IsParentCharOrLwsOrient(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void manager_sub_010CCBE8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, float, float, float, float, float, float, float, float);
 void ForceAcceptMotion(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, float, float, float, float, float, float, float, float, float, float);
 void checkShift(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, float, float, float, float, float, float, float, float);
@@ -473,7 +471,6 @@ void charrootdyn_setkeepcolhitstatus(uint8_t *rdram, R5900Context *ctx, PS2Runti
 void manager_sub_010DF590(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint32_t, float, float, float, float, float, float, float, float);
 void ForceUnparentLayoutObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void ForceParentLayoutObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
-void AddLayoutObjSubLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void GetAmbientBrightnessOfLayoutObject(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void SetScriptObjDeleteCallBackFunc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);
 void SetScriptObjDeleteCallBackFunc2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint64_t, uint64_t, uint64_t, uint64_t, float, float, float, float, float, float, float, float);

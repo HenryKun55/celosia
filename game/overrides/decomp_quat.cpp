@@ -23,6 +23,7 @@
 // and the VU0 registers each function writes as the original leaves them.
 #include "sotc_decomp.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
+#include "typed_a9_nchk.h" // a9: A9_NCHK
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1293,21 +1294,25 @@ namespace decomp_quat
     }
     void atan2Exact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BE458u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::atan2Exact(rdram, ctx, runtime, atan2ExactOld))
             atan2ExactOld(rdram, ctx, runtime);
     }
     void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BBDA8u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::axisRotate(rdram, ctx, runtime, axisRotateOld))
             axisRotateOld(rdram, ctx, runtime);
     }
     void diffQuat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BA4D0u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::diffQuat(rdram, ctx, runtime, diffQuatOld))
             diffQuatOld(rdram, ctx, runtime);
     }
     void axisDirZY(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x001BC308u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         if (!char122::quat::on() || !char122::quat::axisDirZY(rdram, ctx, runtime, axisDirZYOld))
             axisDirZYOld(rdram, ctx, runtime);
     }

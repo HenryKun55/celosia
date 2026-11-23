@@ -73,6 +73,12 @@ inline bool a5Holds(bool held)
         ++g_a5s.slot;
     return held;
 }
+inline bool a5HoldsAt(uint32_t addr, PS2Runtime::RecompiledFunction got, bool held)
+{
+    if (!held)
+        ++g_a5s.slot, a3MissAt(5u, addr, reinterpret_cast<uintptr_t>(got));
+    return held;
+}
 inline bool a5Sp16(bool ok)
 {
     if (!ok)
@@ -92,7 +98,7 @@ inline bool a5Jal(bool ok)
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A5_CHECK
 #define A5_GO() a5GoCount(runtime, PS2_N4_SP())
 #define A5_GO_LEAF() a5GoLeaf()
-#define A5_HOLDS(addr, known) a5Holds(PS2_GUEST_FN(addr) == &known)
+#define A5_HOLDS(addr, known) a5HoldsAt((addr), PS2_GUEST_FN(addr), PS2_GUEST_FN(addr) == &known)
 #define A5_SP16() a5Sp16((Ps2GprU32(ctx, 29) & 15u) == 0u)
 #define A5_JAL(site, target) a5Jal(((READ32(site) & 0x3FFFFFFu) << 2) == (target))
 #define A5_IN(id) a3InOn(g_a5s, runtime, (id))

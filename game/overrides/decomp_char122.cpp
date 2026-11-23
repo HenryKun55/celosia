@@ -29,6 +29,7 @@
 // line (calls, host us a frame by part).
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
+#include "typed_a9_core.h" // round A9: the shared cores
 #include "p1_chara.h"
 
 namespace s3chara
@@ -1784,6 +1785,41 @@ namespace char122
             return qmulVu(q1, r);
         }
 
+        // ---- round A9: the shared cores (typed_a9_core.h). One out-of-line copy each: the paths below call them and so do
+        // round A9's typed callers (typed_a9_ext.h) and its check, so every caller gets the same bits.
+        __attribute__((noinline)) float32x4_t axisRotateCore(const uint8_t *ram, uint32_t angle, float32x4_t axis) { return axisRotateQ(ram, angle, axis); }
+        __attribute__((noinline)) float32x4_t diffCore(float32x4_t a, float32x4_t b, float32x4_t axis) { return diffQ(a, b, axis); }
+        __attribute__((noinline)) float32x4_t axisDirZYCore(const uint8_t *ram, float32x4_t dir, float32x4_t v, float &cosOut)
+        {
+            int32_t turn;
+            return axisDirZYQ(ram, dir, v, cosOut, turn);
+        }
+        // iosGetSinCosf's (sin, cos, 0, 0): the PS2 code's own polynomial (its coefficients in the boot ELF at 0x1e2bc0) on
+        // sin(pi/2 -+ x) after the angle is brought into -pi..pi, the other lane +-sqrt(1 - s^2); false when the angle is
+        // not finite or past 1e6 (the old path then)
+        __attribute__((noinline)) bool sinCosCore(const uint8_t *ram, float x, float r[4])
+        {
+            if (!std::isfinite(x) || std::fabs(x) > 1.0e6f)
+                return false;
+            const float pi = 3.14159274f, twoPi = 6.28318548f;
+            if (x < -pi || x >= pi)
+                x -= twoPi * static_cast<float>(static_cast<int32_t>((x + (x < 0.0f ? -pi : pi)) / twoPi));
+            const bool neg = x < 0.0f;
+            const float t = neg ? 1.57079637f + x : 1.57079637f - x;
+            float c[4];
+            std::memcpy(c, at(ram, 0x001E2BC0u), 16);
+            const float t2 = t * t, t3 = t2 * t, t5 = t3 * t2, t7 = t5 * t2, t9 = t7 * t2;
+            const float s = t + c[3] * t3 + c[2] * t5 + c[1] * t7 + c[0] * t9;
+            const float o = std::sqrt(std::fabs(1.0f - s * s));
+            r[0] = s;
+            r[1] = neg ? -o : o;
+            r[2] = 0.0f;
+            r[3] = 0.0f;
+            return true;
+        }
+        __attribute__((noinline)) float acosCore(float v) { return v >= 1.0f ? 0.0f : (v <= -1.0f ? 3.14159250f : std::acos(v)); }
+        __attribute__((noinline)) float atan2ExactCore(float y, float x) { return std::atan2(clamp1(y), clamp1(x)); }
+
         // ---- the registered functions' new paths (true: done) ----------------
         Stat sAtan{"atan"}, sAtan2{"atan2"}, sAtan2x{"atan2Exact"}, sAxisRot{"axisRotate"}, sDiff{"diffQuat"}, sDirZY{"axisDirZY"}, sSinCos{"sinCos"}, sAcos{"acos"}, sAsin{"asin"};
 
@@ -1818,7 +1854,7 @@ namespace char122
         bool atan2Exact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, Fn old)
         {
             static uint64_t k = 0;
-            return floatFn(rdram, ctx, runtime, old, sAtan2x, k, [](float y, float x) { return std::atan2(clamp1(y), clamp1(x)); });
+            return floatFn(rdram, ctx, runtime, old, sAtan2x, k, [](float y, float x) { return atan2ExactCore(y, x); });
         }
         bool acos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, Fn old, bool exact)
         {
@@ -1826,7 +1862,7 @@ namespace char122
             const float x = ctx->f[12];
             if (!exact && !(x >= -1.0f && x <= 1.0f))
                 return false;
-            return floatFn(rdram, ctx, runtime, old, sAcos, k, [](float v, float) { return v >= 1.0f ? 0.0f : (v <= -1.0f ? 3.14159250f : std::acos(v)); });
+            return floatFn(rdram, ctx, runtime, old, sAcos, k, [](float v, float) { return acosCore(v); });
         }
         bool asin(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, Fn old)
         {
@@ -1843,20 +1879,9 @@ namespace char122
         {
             static uint64_t k = 0;
             const uint32_t out = GPR_U32(ctx, 4);
-            float x = ctx->f[12];
-            if (!inRam(out, 16u) || !std::isfinite(x) || std::fabs(x) > 1.0e6f)
+            float r[4];
+            if (!inRam(out, 16u) || !sinCosCore(rdram, ctx->f[12], r))
                 return false;
-            const float pi = 3.14159274f, twoPi = 6.28318548f;
-            if (x < -pi || x >= pi)
-                x -= twoPi * static_cast<float>(static_cast<int32_t>((x + (x < 0.0f ? -pi : pi)) / twoPi));
-            const bool neg = x < 0.0f;
-            const float t = neg ? 1.57079637f + x : 1.57079637f - x;
-            float c[4];
-            std::memcpy(c, at(rdram, 0x001E2BC0u), 16);
-            const float t2 = t * t, t3 = t2 * t, t5 = t3 * t2, t7 = t5 * t2, t9 = t7 * t2;
-            const float s = t + c[3] * t3 + c[2] * t5 + c[1] * t7 + c[0] * t9;
-            const float o = std::sqrt(std::fabs(1.0f - s * s));
-            const float r[4] = {s, neg ? -o : o, 0.0f, 0.0f};
             if (checkNow(k))
             {
                 old(rdram, ctx, runtime);
@@ -1873,7 +1898,7 @@ namespace char122
             const uint32_t out = GPR_U32(ctx, 4), axis = GPR_U32(ctx, 6);
             if (!inRam(out, 16u) || !inRam(axis, 16u))
                 return false;
-            const float32x4_t q = axisRotateQ(rdram, GPR_U32(ctx, 5), ldq(rdram, axis));
+            const float32x4_t q = axisRotateCore(rdram, GPR_U32(ctx, 5), ldq(rdram, axis));
             if (checkNow(k))
             {
                 old(rdram, ctx, runtime);
@@ -1891,7 +1916,7 @@ namespace char122
             const uint32_t out = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5), to = GPR_U32(ctx, 6), axis = GPR_U32(ctx, 7);
             if (!inRam(out, 16u) || !inRam(from, 16u) || !inRam(to, 16u) || !inRam(axis, 16u))
                 return false;
-            const float32x4_t q = diffQ(ldq(rdram, from), ldq(rdram, to), ldq(rdram, axis));
+            const float32x4_t q = diffCore(ldq(rdram, from), ldq(rdram, to), ldq(rdram, axis));
             if (checkNow(k))
             {
                 old(rdram, ctx, runtime);
@@ -1909,8 +1934,7 @@ namespace char122
             if (!inRam(q0, 16u) || !inRam(dir, 16u) || !inRam(v, 16u))
                 return false;
             float c;
-            int32_t turn;
-            const float32x4_t q = axisDirZYQ(rdram, ldq(rdram, dir), ldq(rdram, v), c, turn);
+            const float32x4_t q = axisDirZYCore(rdram, ldq(rdram, dir), ldq(rdram, v), c);
             if (checkNow(k))
             {
                 old(rdram, ctx, runtime);

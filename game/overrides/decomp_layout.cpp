@@ -16,6 +16,7 @@
 // native too; the boot ELF's other matrix helpers (once a call) stay guest
 // calls (their jal sites are relocated: targets read from the
 // code). A negative bone count goes to the recompiled code.
+#include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "sotc_decomp.h"
 
 #include "ps2_runtime_macros.h"
@@ -591,6 +592,7 @@ namespace decomp_layoutclass
     sotc_decomp::NativeCount g_count("GetLayoutClass"); // namespace scope: no guard a call
     void getLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x010F1A20u); // round A9: a check build compares the typed GetLayoutClass its typed callers take (typed_a9_nchk.h)
         g_count.hit();
         if (sotc_decomp::fastNativeOn())
             return getLayoutClassFast(rdram, ctx, runtime);

@@ -35,6 +35,8 @@
 // host C++) was measured this round and is not in the build: the lifted code
 // was slower than the recompiled code in the sampler (docs/decomp.md, round 126).
 #include "cam126.h"
+#include "typed_a9_core.h" // round A9: the shared core (frameCore)
+#include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "s11rt.h"
 #include "s11_motion.h"
 #include "sotc_decomp.h"
@@ -167,6 +169,14 @@ namespace cam126
         f.r[2] = vld1q_f32(r2);
         f.r[3] = vsetq_lane_f32(1.0f, pos, 3);
         return f;
+    }
+    // Round A9: GetMatrixFromQuatPos's rows as the shared core (typed_a9_core.h): one out-of-line copy, called by the native and by
+    // round A9's typed callers (typed_a9_ext.h).
+    __attribute__((noinline)) void frameCore(float32x4_t q, float32x4_t pos, float out[16])
+    {
+        const Frame f = frameOf(q, pos);
+        for (int r = 0; r < 4; ++r)
+            vst1q_f32(out + 4 * r, f.r[r]);
     }
     // r0 l.x + r1 l.y + r2 l.z + r3 l.w (vmulax / vmadday / vmaddaz / vmaddw .xyzw).
     inline float32x4_t apply(const Frame &f, float32x4_t l)
@@ -459,12 +469,14 @@ namespace cam126
     // GetMatrixFromQuatPos (0x1135720): a0 the matrix out, a1 the quaternion (+0x10 the position).
     void matFromQuatPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A9_NCHK(0x01135720u); // round A9: a check build compares the typed core (typed_a9_nchk.h)
         const uint32_t out = GPR_U32(ctx, 4), qp = GPR_U32(ctx, 5);
         if (!geoOn() || !okAddr(qp) || !okAddr(out))
             return sotc_decomp::recompiled(kMatFromQuatPos)(rdram, ctx, runtime);
-        const Frame f = frameOf(ldq(rdram, qp), ldq(rdram, qp + 0x10u));
+        float m[16];
+        frameCore(ldq(rdram, qp), ldq(rdram, qp + 0x10u), m);
         for (uint32_t r = 0; r < 4u; ++r)
-            stq(rdram, out + r * 16u, f.r[r]);
+            stq(rdram, out + r * 16u, vld1q_f32(m + 4u * r));
         SET_GPR_U32(ctx, 2, qp + 0x10u);
         ++g_counts.mat;
         returnTo(ctx);

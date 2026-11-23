@@ -72,21 +72,34 @@ inline bool a6Holds(bool held)
         ++g_a6s.slot;
     return held;
 }
+inline bool a6HoldsAt(uint32_t addr, PS2Runtime::RecompiledFunction got, bool held)
+{
+    if (!held)
+        ++g_a6s.slot, a3MissAt(6u, addr, reinterpret_cast<uintptr_t>(got));
+    return held;
+}
 #endif
 
 // A slot holds a native the typed callee was proven against. Round DC2 registers its own GetCharacterClass entry
 // (dc2::entryCharacterClass): with dc2chara off it calls decomp_characlass::getCharacterClass, with it on it returns the same
 // value (SOTC_DC2_CHECK, 23 M calls 0 differ), so a slot holding it counts as holding the native.
+// Round A9: GetLayoutClass's slot holds round 42 / 49's native (decomp_layoutclass::getLayoutClass), not the lifted function the
+// typed callee was made from; it counts as holding it: the native leaves v0 (all 64 bits), v1, a0, a1 and memory as the typed
+// GetLayoutClass does (read against the MIPS: docs/decomp_a9.md; A9_NCHK at the native's entry in a check build compares them).
+// A7 / A8 / A9 take a6Is too (round A9: their tests compared the pointer only, so DC2's entry failed them).
 namespace dc2 { void entryCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
 namespace decomp_characlass { void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+namespace lift_d1 { void GetLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+namespace decomp_layoutclass { void getLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
 inline bool a6Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
 {
-    return got == known || (known == &::decomp_characlass::getCharacterClass && got == &::dc2::entryCharacterClass);
+    return got == known || (known == &::decomp_characlass::getCharacterClass && got == &::dc2::entryCharacterClass) ||
+           (known == &::lift_d1::GetLayoutClass && got == &::decomp_layoutclass::getLayoutClass);
 }
 
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A6_CHECK
 #define A6_GO() a6GoCount(runtime, PS2_N4_SP())
-#define A6_HOLDS(addr, known) a6Holds(a6Is(PS2_GUEST_FN(addr), &known))
+#define A6_HOLDS(addr, known) a6HoldsAt((addr), PS2_GUEST_FN(addr), a6Is(PS2_GUEST_FN(addr), &known))
 #define A6_IN(id) a3InOn(g_a6s, runtime, (id))
 #define A6_OUT() a3Out(runtime)
 #elif defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
