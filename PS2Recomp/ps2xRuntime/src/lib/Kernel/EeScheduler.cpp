@@ -66,6 +66,49 @@ void (*g_ps2xSemaNote)(int op, int id, int thread, bool carrier, int result) = n
 thread_local bool t_ps2xEeGuestRunner = false;
 uint32_t g_ps2xB4Fast = 0u; // round B4 (b3_threads.cpp)
 EeB4Stats g_eeB4;
+// Round B5 (docs/decomp_b5.md; set once a frame by b3_threads.cpp: on with b3threads, SOTC_B5_DEFER=0 / 1 overrides): a thread
+// that parks while no other thread of its priority or higher is ready leaves the EE clock's host catch-up to the next
+// thread's park (or the idle thread's idle wait), so a VBlank that fell due while it ran is taken after the lower-priority
+// thread that runs next has had its turn, not on that thread's first dispatch (the memory-card manager's livelock).
+uint32_t g_ps2xB5Defer = 0u;
+EeB5Stats g_eeB5;
+namespace
+{
+    bool g_b5Deferred = false; // a park's catch-up is pending (the scheduler's state: the host thread holding the baton)
+    std::chrono::steady_clock::time_point g_b5DeferredAt{};
+}
+// Round B5 (debug; SOTC_B5_TRACE, b3_threads.cpp): the last scheduling decisions in a ring, written by the host thread that
+// holds the baton (one writer at a time; the baton's fences order them), printed by b5Dump.
+uint32_t g_ps2xB5Trace = 0u;
+namespace b5trace
+{
+    struct Entry
+    {
+        uint32_t frame;
+        uint8_t kind, who;
+        int16_t tid;
+        uint32_t a;
+    };
+    constexpr uint32_t kSize = 2048u;
+    Entry g_ring[kSize];
+    uint32_t g_pos = 0u;
+    thread_local uint8_t t_who = 0u; // 0 the executor's host thread (run()), slot + 1 a carrier
+    enum : uint8_t
+    {
+        kPick = 1, kEnqueue, kPark, kNest, kBail, kHandover, kPush, kWait, kResume, kPop, kReady, kGenerated, kToExec, kGoOn, kEvent, kYield
+    };
+    inline void note(uint8_t kind, int tid, uint32_t a = 0u)
+    {
+        if (__builtin_expect(g_ps2xB5Trace == 0u, 1))
+            return;
+        Entry &e = g_ring[g_pos++ & (kSize - 1u)];
+        e.frame = static_cast<uint32_t>(ps2_stats::vif1Chains.load(std::memory_order_relaxed));
+        e.kind = kind;
+        e.who = t_who;
+        e.tid = static_cast<int16_t>(tid);
+        e.a = a;
+    }
+}
 
 // One host thread that runs a guest thread's own code (the body the game registered) while it holds the baton. The
 // dispatcher's host thread (the executor) and the carrier pass the baton through `carrierTurn`: the one that hands it
@@ -183,6 +226,7 @@ namespace
         ps2_load::setThreadSlot(ps2_load::kGame);
         ps2SetEeFloatingPointMode(); // the game thread's rounding (toward zero) and flush-to-zero
         t_ps2xEeGuestRunner = true;  // round B3: the game thread's role (PS2Memory's owner checks)
+        b5trace::t_who = static_cast<uint8_t>(c->slot + 1); // (claimCarrier sets the slot before the first hand-over)
         {
             char probe = 0;
             std::lock_guard<std::mutex> lock(c->m);
@@ -212,6 +256,7 @@ namespace
                 c->haveJob = false;
             }
             c->site.store(1, std::memory_order_relaxed);
+            b5trace::t_who = static_cast<uint8_t>(c->slot + 1); // (the table entry, set by claimCarrier before this hand-over)
             bool threw = false;
             try
             {
@@ -353,6 +398,7 @@ void EeScheduler::resumeCarrier(GuestThread &thread)
     g_b1ExecSite.store(1, std::memory_order_relaxed);
     g_b1ExecPasses.fetch_add(1, std::memory_order_relaxed);
     g_b4Returner = &c;
+    b5trace::note(b5trace::kResume, thread.id);
     passBaton(c, true);
     // Round B4: with b4fast's direct hand-overs (carrierNest) the baton may come back from another carrier than c: the one
     // that gave it back is the one handed back / told to unwind, and its state is the one saved.
@@ -410,6 +456,7 @@ bool EeScheduler::carrierYield(int why)
     }
     c.site.store(why == 0 ? 2 : 3, std::memory_order_relaxed);
     c.passes.fetch_add(1, std::memory_order_relaxed);
+    b5trace::note(b5trace::kToExec, c.threadId, static_cast<uint32_t>(why));
     passBaton(c, false);
     c.site.store(1, std::memory_order_relaxed);
     return c.unwind;
@@ -448,15 +495,15 @@ void EeScheduler::startB1Watchdog(unsigned seconds)
     }).detach();
 }
 
-void EeScheduler::b1WatchdogDump(int n)
+void EeScheduler::b1WatchdogDump(int n, const char *tag)
 {
     static const char *const execSites[] = {"elsewhere", "waits for the carrier", "waits for the carrier's unwind", "idle wait", "generated code"};
     static const char *const carrierSites[] = {"not started", "runs the body", "yielded (checkpoint)", "yielded (park / switch)", "waits for a body", "ended"};
     const int es = g_b1ExecSite.load(std::memory_order_relaxed);
-    std::fprintf(stderr, "[b1dog] %d: no frame for a while (frame %llu, ee cycle %llu, next deadline %llu) | executor: %s, passes %llu, "
+    std::fprintf(stderr, "[%s] %d: no frame for a while (frame %llu, ee cycle %llu, next deadline %llu) | executor: %s, passes %llu, "
                  "guest executing %d, current thread %d, reschedule %d, checkpoint pending %d, s17 depth %d, inside interrupt %d | b1 carry %u, "
                  "claims %llu resumes %llu yields cp %llu park %llu, active carrier %p spare %p | b2 carry %u, claims %llu resumes %llu yields cp %llu park %llu, in-place waits %llu\n",
-                 n, (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)eeNow(),
+                 tag, n, (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), (unsigned long long)eeNow(),
                  (unsigned long long)m_nextDeadlineCycle.load(std::memory_order_relaxed), es >= 0 && es < 5 ? execSites[es] : "?",
                  (unsigned long long)g_b1ExecPasses.load(std::memory_order_relaxed), m_guestExecuting.load(std::memory_order_relaxed) ? 1 : 0,
                  m_currentThreadId, m_rescheduleRequested ? 1 : 0, m_checkpointPending.load(std::memory_order_relaxed) ? 1 : 0, m_s17Depth,
@@ -465,7 +512,7 @@ void EeScheduler::b1WatchdogDump(int n)
                  g_ps2xB2Carry, (unsigned long long)g_eeB2.claims, (unsigned long long)g_eeB2.resumes, (unsigned long long)g_eeB2.yieldCheckpoint,
                  (unsigned long long)g_eeB2.yieldLeave, (unsigned long long)g_eeB2Waits.inPlace);
     // Round B3: the b3threads carriers (t4 t5 t10 t9) and the in-place kernel calls.
-    std::fprintf(stderr, "[b1dog] %d: b3 carry %u sync %u:", n, g_ps2xB3Carry, g_ps2xB3Sync);
+    std::fprintf(stderr, "[%s] %d: b3 carry %u sync %u:", tag, n, g_ps2xB3Carry, g_ps2xB3Sync);
     for (int i = 0; i < kB3Count; ++i)
         std::fprintf(stderr, " [%d] claims %llu resumes %llu yields cp %llu park %llu hand-backs %llu/%llu/%llu", i, (unsigned long long)g_eeB3[i].claims,
                      (unsigned long long)g_eeB3[i].resumes, (unsigned long long)g_eeB3[i].yieldCheckpoint, (unsigned long long)g_eeB3[i].yieldLeave,
@@ -481,8 +528,8 @@ void EeScheduler::b1WatchdogDump(int n)
             continue;
         const R5900Context &own = t.context;
         const R5900Context *act = t.invocations.empty() ? &own : &t.invocations.back().context;
-        std::fprintf(stderr, "[b1dog] %d:   t%d entry %x prio %d status %d wait %d wakeups %u suspend %u invocations %u pc %x ra %x (own pc %x ra %x sp %x) carrier %p",
-                     n, id, t.entry, t.currentPriority, static_cast<int>(t.status), static_cast<int>(t.wait.reason), static_cast<unsigned>(t.wakeupCount),
+        std::fprintf(stderr, "[%s] %d:   t%d entry %x prio %d status %d wait %d wakeups %u suspend %u invocations %u pc %x ra %x (own pc %x ra %x sp %x) carrier %p",
+                     tag, n, id, t.entry, t.currentPriority, static_cast<int>(t.status), static_cast<int>(t.wait.reason), static_cast<unsigned>(t.wakeupCount),
                      static_cast<unsigned>(t.suspendCount), static_cast<unsigned>(t.invocations.size()), act->pc, getRegU32(act, 31), own.pc,
                      getRegU32(&own, 31), getRegU32(&own, 29), (void *)t.carrier);
         if (const EeHostCarrier *c = t.carrier)
@@ -500,7 +547,7 @@ void EeScheduler::b1WatchdogDump(int n)
     }
     {
         std::lock_guard lock(m_eventMutex);
-        std::fprintf(stderr, "[b1dog] %d: events %u:", n, static_cast<unsigned>(m_events.size()));
+        std::fprintf(stderr, "[%s] %d: events %u:", tag, n, static_cast<unsigned>(m_events.size()));
         for (size_t i = 0; i < m_events.size() && i < 8; ++i)
             std::fprintf(stderr, " (type %d id %x)", static_cast<int>(m_events[i].type), m_events[i].id);
         std::fprintf(stderr, " | deadlines %u:", static_cast<unsigned>(m_deadlines.size()));
@@ -517,6 +564,94 @@ void EeScheduler::b1WatchdogDump(int n)
         std::fprintf(stderr, "\n");
     }
 }
+// Round B5 (docs/decomp_b5.md): the idle thread's watchdog dump (b3_threads.cpp calls it from the frame's end, on the host
+// thread that holds the baton, so the records are consistent): b1WatchdogDump's records, then the baton's owners, each
+// carrier's thread / pin / the Vita semaphores' counts, and every semaphore with a waiter or one of the ids asked for.
+void EeScheduler::b5Dump(int n, const int *semaIds, int semaCount)
+{
+    auto carrierThread = [](const EeHostCarrier *c) { return c ? c->threadId : -1; };
+    std::fprintf(stderr, "[b5dog] %d: baton: active carrier t%d, executor waits on t%d's carrier, returner t%d | "
+                 "b4fast %u mode %u, s17 depth %d, current t%d, reschedule %d, slice expired %d, pending invocations %u, picks t5 %llu t12 %llu\n",
+                 n, carrierThread(m_activeCarrier), carrierThread(g_b4ExecWait), carrierThread(g_b4Returner),
+                 g_ps2xB4Fast, g_ps2xB4Mode, m_s17Depth, m_currentThreadId, m_rescheduleRequested ? 1 : 0,
+                 m_timeSliceExpired ? 1 : 0, static_cast<unsigned>(m_pendingInvocations.size()), (unsigned long long)g_eeS11.runs[5],
+                 (unsigned long long)g_eeS11.runs[12]);
+    b1WatchdogDump(n, "b5dog");
+    for (const auto &[id, t] : m_threads)
+    {
+        const EeHostCarrier *c = t.carrier;
+        if (!c)
+            continue;
+        int semC = -9, semE = -9;
+#if defined(__vita__)
+        if (c->sema)
+        {
+            SceKernelSemaInfo info{};
+            info.size = sizeof(info);
+            if (sceKernelGetSemaInfo(c->semCarrier, &info) >= 0)
+                semC = info.currentCount;
+            info = SceKernelSemaInfo{};
+            info.size = sizeof(info);
+            if (sceKernelGetSemaInfo(c->semExec, &info) >= 0)
+                semE = info.currentCount;
+        }
+#endif
+        std::fprintf(stderr, "[b5dog] %d:   t%d's carrier: thread t%d slot %d pinned %d site %d turn %d, semaphore counts carrier %d exec %d\n", n, id, c->threadId,
+                     c->slot, c->pinned, c->site.load(std::memory_order_relaxed), c->carrierTurn ? 1 : 0, semC, semE);
+    }
+    for (const auto &[id, sema] : m_semaphores)
+    {
+        bool asked = false;
+        for (int i = 0; i < semaCount; ++i)
+            asked = asked || semaIds[i] == id;
+        if (!asked && sema.waiters.empty())
+            continue;
+        char buf[256];
+        int k = std::snprintf(buf, sizeof(buf), "[b5dog] %d:   semaphore %d count %d max %d waiters", n, id, sema.count, sema.maxCount);
+        for (int w : sema.waiters)
+            if (k > 0 && k < 230)
+                k += std::snprintf(buf + k, sizeof(buf) - k, " t%d", w);
+        std::fprintf(stderr, "%s\n", buf);
+    }
+    if (g_ps2xB5Trace != 0u)
+    {
+        // The ring, oldest first: frame, who (x the executor, cN carrier slot N-1), kind + thread [: arg]. Kinds: P pick (arg:
+        // invocations), E enqueue (1 front), K park (wait reason), N carrier loop opened (why), B loop given back (reason),
+        // H direct hand-over to (from), I invocation pushed (pc), W run() idle wait, R resumeCarrier, O invocation popped,
+        // Y made ready (by), G generated dispatch (pc), X yield to the executor (why), C went on in place, V event (type<<24|id).
+        static const char kinds[] = "?PEKNBHIWROYGXCVy";
+        const uint32_t n = std::min<uint32_t>(b5trace::g_pos, std::min<uint32_t>(b5trace::kSize, 1200u));
+        char buf[1100];
+        int k = 0;
+        uint32_t lastFrame = ~0u;
+        for (uint32_t i = b5trace::g_pos - n; i != b5trace::g_pos; ++i)
+        {
+            const b5trace::Entry &e = b5trace::g_ring[i & (b5trace::kSize - 1u)];
+            if (k == 0)
+                k = std::snprintf(buf, sizeof(buf), "[b5trace] %d:", n);
+            if (e.frame != lastFrame)
+            {
+                k += std::snprintf(buf + k, sizeof(buf) - k, " |f%u", e.frame);
+                lastFrame = e.frame;
+            }
+            const char kc = e.kind < sizeof(kinds) - 1 ? kinds[e.kind] : '?';
+            if (e.who == 0u)
+                k += std::snprintf(buf + k, sizeof(buf) - k, " x%c%d", kc, e.tid);
+            else
+                k += std::snprintf(buf + k, sizeof(buf) - k, " c%u%c%d", static_cast<unsigned>(e.who - 1u), kc, e.tid);
+            if (e.a != 0u)
+                k += std::snprintf(buf + k, sizeof(buf) - k, ":%x", e.a);
+            if (k > 1000)
+            {
+                std::fprintf(stderr, "%s\n", buf);
+                k = 0;
+            }
+        }
+        if (k > 0)
+            std::fprintf(stderr, "%s\n", buf);
+    }
+}
+
 namespace n5stat
 {
     static uint64_t us[32], runs[32], nestedUs = 0, lastFrame = 0;
@@ -843,6 +978,7 @@ void EeScheduler::run()
                     flushVu0Owner();
                 GuestInvocation completed = std::move(running->invocations.back());
                 running->invocations.pop_back();
+                b5trace::note(b5trace::kPop, running->id, 0u);
                 if (completed.onComplete)
                 {
                     try
@@ -873,6 +1009,7 @@ void EeScheduler::run()
             m_pendingInvocations.pop_front();
             if (needsStack)
                 SET_GPR_U32(&invocation.context, 29, stackTop);
+            b5trace::note(b5trace::kPush, running->id, invocation.context.pc);
             if (__builtin_expect(m_s17Open, 0))
             {
                 s17Note(6, invocation.context.pc);
@@ -907,6 +1044,8 @@ void EeScheduler::run()
         {
             continue;
         }
+        if (!carried)
+            b5trace::note(b5trace::kGenerated, running->id, context.pc);
 
         // VU0 registers are one hardware unit shared by every thread and
         // interrupt handler, but each guest context carries its own copy.
@@ -2759,6 +2898,7 @@ void EeScheduler::enqueueReady(GuestThread &item, bool front)
 {
     assert(item.currentPriority >= 0 && item.currentPriority < kPriorityCount);
     item.status = EeThreadStatus::Ready;
+    b5trace::note(b5trace::kEnqueue, item.id, front ? 1u : 0u);
     auto &queue = m_readyQueues[item.currentPriority];
     if (front)
     {
@@ -2809,6 +2949,7 @@ void EeScheduler::makeRunning(GuestThread &item)
     item.status = EeThreadStatus::Running;
     m_currentThreadId = item.id;
     ++g_eeS11.runs[item.id < 15 ? item.id : 15];
+    b5trace::note(b5trace::kPick, item.id, static_cast<uint32_t>(item.invocations.size()));
     if (__builtin_expect(m_s17Open, 0))
     {
         s17Note(0, static_cast<uint32_t>(item.id));
@@ -2955,7 +3096,26 @@ void EeScheduler::parkCurrent(EeWaitState wait)
                   << std::hex << " ra=0x" << GPR_U32(selfCtx, 31)
                   << " a0=0x" << GPR_U32(selfCtx, 4) << std::dec << std::endl;
     }
-    syncCyclesToHostClock();
+    // Round B5: the catch-up left to the next park when only lower-priority threads can run next and the catch-up would make
+    // a deadline due (an interrupt that fell due while this thread ran: taken after the next thread's turn) (g_ps2xB5Defer).
+    if (__builtin_expect(g_ps2xB5Defer != 0u, 0) && m_hostClockSync && !hasReadyAtOrAbovePriority(self->currentPriority) && [this]
+        {
+            const uint64_t next = m_nextDeadlineCycle.load(std::memory_order_relaxed);
+            if (next == 0u || next <= eeNow())
+                return false; // (nothing scheduled, or already due by the cycles run: no catch-up decides it)
+            const uint64_t us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - m_hostClockBase).count());
+            return microsecondsToEeCycles(us) >= next;
+        }())
+    {
+        ++g_eeB5.deferred;
+        if (!g_b5Deferred)
+        {
+            g_b5Deferred = true;
+            g_b5DeferredAt = std::chrono::steady_clock::now();
+        }
+    }
+    else
+        syncCyclesToHostClock();
     if (__builtin_expect(stat139::on(), 0))
     {
         ++stat139::leaves;
@@ -2964,6 +3124,7 @@ void EeScheduler::parkCurrent(EeWaitState wait)
     s17Note(1, static_cast<uint32_t>(wait.reason) << 16 | static_cast<uint32_t>(self->id));
     self->wait = std::move(wait);
     self->status = self->suspendCount == 0 ? EeThreadStatus::Waiting : EeThreadStatus::WaitingSuspended;
+    b5trace::note(b5trace::kPark, self->id, static_cast<uint32_t>(self->wait.reason));
     m_currentThreadId = 0;
     publishSnapshot();
 }
@@ -2982,6 +3143,7 @@ void EeScheduler::makeReady(GuestThread &item, int result, bool interruptSafe)
         std::cerr << std::endl;
     }
     s17Note(4, static_cast<uint32_t>(item.id));
+    b5trace::note(b5trace::kReady, item.id, static_cast<uint32_t>(m_currentThreadId));
     auto completion = std::move(item.wait.completion);
     item.wait = {};
     setReturnS32(&item.activeContext(), result);
@@ -3041,6 +3203,12 @@ void EeScheduler::processPendingEvents()
     {
         applyPendingPreemption();
         return;
+    }
+    // Round B5: a park's deferred catch-up still pending after 4 ms (the lower-priority thread ran on without parking): now.
+    if (__builtin_expect(g_b5Deferred, 0) && std::chrono::steady_clock::now() - g_b5DeferredAt > std::chrono::milliseconds(4))
+    {
+        ++g_eeB5.late;
+        syncCyclesToHostClock();
     }
     processDueDeadlines();
     const uint32_t timerInterrupts = m_pendingEeTimerInterrupts;
@@ -3166,6 +3334,7 @@ void EeScheduler::processDueDeadlines()
 
 void EeScheduler::processEvent(const EeEvent &event)
 {
+    b5trace::note(b5trace::kEvent, m_currentThreadId, static_cast<uint32_t>(event.type) << 24 | (event.id & 0xFFFFFFu));
     switch (event.type)
     {
     case EeEventType::Stop:
@@ -3312,6 +3481,7 @@ void EeScheduler::writeGuestU32(uint32_t address, uint32_t value)
 
 void EeScheduler::waitForEvent()
 {
+    b5trace::note(b5trace::kWait, 0);
     m_profileContext.store(nullptr, std::memory_order_relaxed);
     g_b1ExecSite.store(3, std::memory_order_relaxed); // round B1b's watchdog (left at 3 until the next dispatch)
     std::unique_lock lock(m_eventMutex);
@@ -3431,6 +3601,11 @@ void EeScheduler::syncCyclesToHostClock()
     if (!m_hostClockSync)
     {
         return;
+    }
+    if (g_b5Deferred)
+    {
+        g_b5Deferred = false; // round B5: a deferred park catch-up, done here
+        ++g_eeB5.applied;
     }
     const auto elapsed = std::chrono::steady_clock::now() - m_hostClockBase;
     // Round A9 sweep: the two 64-bit divisions (nanoseconds -> microseconds, then microsecondsToEeCycles' / 10^6) without
@@ -4243,6 +4418,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
     // queued on this thread and this thread again; the first other thread goes back to that loop.
     const bool local = m_s17Depth != 0 || selfOnly;
     ++g_eeB4.nests[w];
+    b5trace::note(b5trace::kNest, homeId, static_cast<uint32_t>(why));
     if (local)
         ++g_eeB4.local;
     EeHostCarrier *const self = m_activeCarrier;
@@ -4262,6 +4438,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         m_pendingInvocations.pop_front();
         if (needsStack)
             SET_GPR_U32(&invocation.context, 29, stackTop);
+        b5trace::note(b5trace::kPush, owner.id, invocation.context.pc);
     };
     auto handOverVu0 = [this](GuestThread &running, R5900Context &context)
     {
@@ -4379,6 +4556,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
                     flushVu0Owner();
                 GuestInvocation completed = std::move(running->invocations.back());
                 running->invocations.pop_back();
+                b5trace::note(b5trace::kPop, running->id, 1u);
                 if (completed.onComplete)
                 {
                     try
@@ -4468,6 +4646,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         // its own until a loop picks its thread again and installs its identity the same way.
         ++g_eeB4.handoffs;
         EeHostCarrier &n = *to;
+        b5trace::note(b5trace::kHandover, n.threadId, static_cast<uint32_t>(homeId));
         c.throwDepth = saveThrow;
         c.jumpSerial = saveSerial;
         m_xferThrowDepth = n.throwDepth;
@@ -4500,6 +4679,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         // The executor takes over from here: the baton goes back (the yield's hand-over) and its run() goes on where this
         // loop stopped (after a dispatch / at its loop's top), as after the unwind.
         ++g_eeB4.bailed[bail];
+        b5trace::note(b5trace::kBail, homeId, static_cast<uint32_t>(bail));
         if (m_currentThreadId != 0 && m_currentThreadId != homeId)
         {
             enqueueReady(*currentThread(), true);
@@ -4508,6 +4688,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         return -1;
     }
     ++g_eeB4.goOn[w];
+    b5trace::note(b5trace::kGoOn, homeId);
     updateGate();
     return 0;
 }

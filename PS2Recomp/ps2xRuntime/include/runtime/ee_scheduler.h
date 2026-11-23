@@ -381,6 +381,15 @@ struct EeB4Stats
     uint64_t invocations = 0;  // guest invocations queued (interrupt handlers, callbacks; every dispatcher, both paths)
 };
 extern EeB4Stats g_eeB4;
+// Round B5 (docs/decomp_b5.md; b3_threads.cpp sets it once a frame, with b3threads): a park with no ready thread of its
+// priority or higher leaves the EE clock's host catch-up (syncCyclesToHostClock) to the next park or idle wait.
+extern uint32_t g_ps2xB5Defer;
+struct EeB5Stats
+{
+    uint64_t deferred = 0, applied = 0, late = 0; // parks that deferred the catch-up, deferred catch-ups done, of them by the 4 ms limit
+};
+extern EeB5Stats g_eeB5;
+extern uint32_t g_ps2xB5Trace; // round B5 (debug, SOTC_B5_TRACE): the scheduling decisions' ring, printed with the [b5dog] dumps
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -683,6 +692,10 @@ public:
     // prints the baton's state, each side's site, every guest thread's kernel record and the pending interrupts /
     // events / deadlines ([b1dog] lines; again every `seconds` while frozen, at most 6 times a freeze).
     void startB1Watchdog(unsigned seconds);
+    // Round B5 (debug; b3_threads.cpp's idle-thread watchdog, SOTC_B5_DOG): b1WatchdogDump's records ([b5dog] lines), the baton's
+    // owners, each carrier's pin / Vita semaphore counts, every semaphore with a waiter and the ids asked for. Called by the host
+    // thread that holds the baton.
+    void b5Dump(int n, const int *semaIds, int semaCount);
 
     // Direct syscall tests use the same main-thread record without starting a
     // second executor. Production execution calls reset() before run().
@@ -723,7 +736,7 @@ private:
     int carrierNest(EeHostCarrier &c, int why);
     bool checkpointSlowInner() noexcept;
     void b1Audit(int site) const noexcept;
-    void b1WatchdogDump(int n);
+    void b1WatchdogDump(int n, const char *tag = "b1dog");
     EeHostCarrier *m_activeCarrier = nullptr;
     // The host threads of carriers that ended, kept for the next take-overs (round B2: one per table entry at most).
     EeHostCarrier *m_spareCarrier[kMaxCarry] = {};

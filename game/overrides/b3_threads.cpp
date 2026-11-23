@@ -40,6 +40,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
 #include "runtime/ps2_diag.h"
+#include "runtime/ps2_stats.h"
 #include "sotc_decomp.h"
 
 namespace b3threads
@@ -816,6 +817,85 @@ namespace b3threads
         }
     }
 
+    // Round B5 (docs/decomp_b5.md): the idle thread's watchdog (SOTC_B5_DOG=<seconds>, debug, off unless set: t5
+    // legitimately waits seconds in heavy stretches such as an area load). Once a frame: when the carried idle thread t5 has had no turn of its loop for that long (host time), a `[b5dog]` dump
+    // of the scheduler's records (EeScheduler::b5Dump: the threads, the ready queues, the baton, the carriers, the semaphores),
+    // the idle queue's box (0x1fc870: +0 buffer, +0x14 receiver, +0x18 senders and their thread ids), the kernel's message
+    // semaphore (*0x1e0be8) and the callback thread's slot (0x201db0..0x201dc4); again at 2x and 4x the time, then quiet until t5
+    // turns again. It reads the records from the frame's end, on the host thread holding the baton.
+    uint32_t g_dogSec = 0u;
+    int g_deferEnv = -1; // SOTC_B5_DEFER: -1 unset (follows b3threads), 0 off, 1 on whatever the switches
+    void idleDog(uint64_t frame, uint8_t *rdram, bool on)
+    {
+        static uint64_t lastTurns = 0, lastMoveUs = 0;
+        static int dumps = 0;
+        if (g_dogSec == 0u || !g_rt || !rdram || !sotc_decomp::gamecoreEntered())
+            return;
+        // Carried: the loop's turns; generated (b3threads off): the dispatcher's picks of t5 (its id in every run).
+        const uint64_t turns = on && g_gate[kB3T5] ? g_stats[kB3T5].turns : g_eeS11.runs[5], now = ps2_stats::nowUs();
+        // SOTC_B5_DUMP_AT=<frame>[,<frame>...] (debug): a dump at those frames whatever t5 does (the trace's comparison runs).
+        static uint64_t at[8] = {};
+        static int atCount = -1;
+        if (atCount < 0)
+        {
+            atCount = 0;
+            if (const char *e = ps2_diag::env("SOTC_B5_DUMP_AT"))
+                for (const char *q = e; *q && atCount < 8;)
+                {
+                    at[atCount++] = std::strtoull(q, nullptr, 10);
+                    while (*q && *q != ',')
+                        ++q;
+                    if (*q == ',')
+                        ++q;
+                }
+        }
+        bool forced = false;
+        for (int i = 0; i < atCount; ++i)
+            forced = forced || at[i] == frame;
+        // SOTC_B5_DUMP_EVERY=<from>,<to>,<step>: a dump every <step> frames in [from, to] (the ring covers ~15 frames).
+        static uint64_t ev[3] = {};
+        static int evRead = 0;
+        if (!evRead)
+        {
+            evRead = 1;
+            if (const char *e = ps2_diag::env("SOTC_B5_DUMP_EVERY"))
+                std::sscanf(e, "%llu,%llu,%llu", (unsigned long long *)&ev[0], (unsigned long long *)&ev[1], (unsigned long long *)&ev[2]);
+        }
+        if (ev[2] != 0u && frame >= ev[0] && frame <= ev[1] && (frame - ev[0]) % ev[2] == 0u)
+            forced = true;
+        if (!forced && (turns != lastTurns || lastMoveUs == 0u))
+        {
+            if (dumps > 0)
+                std::fprintf(stderr, "[b5dog] frame %llu: t5 turns again (%llu)\n", (unsigned long long)frame, (unsigned long long)turns);
+            lastTurns = turns;
+            lastMoveUs = now;
+            dumps = 0;
+            return;
+        }
+        if (!forced && (dumps >= 3 || now - lastMoveUs < static_cast<uint64_t>(g_dogSec) * 1000000ull * (1ull << dumps)))
+            return;
+        const int n = forced ? 9 : dumps++;
+        const uint32_t box = 0x001FC870u;
+        std::fprintf(stderr, "[b5dog] %d: frame %llu: the idle thread t5 has had no turn for %.1f s (turns %llu) | idle box +0 %08x +4 %08x +8 %08x +c %08x +14 %08x +18 %08x"
+                             " | kernel message sema %d, callback slot: thread rec %08x type %08x fn %08x arg %08x sema %d\n",
+                     n, (unsigned long long)frame, (now - lastMoveUs) / 1e6, (unsigned long long)turns, rd32(rdram, box), rd32(rdram, box + 4u), rd32(rdram, box + 8u),
+                     rd32(rdram, box + 0xCu), rd32(rdram, box + 0x14u), rd32(rdram, box + 0x18u), static_cast<int>(rd32(rdram, 0x1E0BE8u)), rd32(rdram, 0x201DB0u),
+                     rd32(rdram, 0x201DC0u), rd32(rdram, 0x201DB8u), rd32(rdram, 0x201DBCu), static_cast<int>(rd32(rdram, 0x201DC4u)));
+        {
+            char buf[256];
+            int k = std::snprintf(buf, sizeof(buf), "[b5dog] %d: idle box senders:", n);
+            uint32_t sender = rd32(rdram, box + 0x18u);
+            for (int guard = 0; sender && sender < 0x2000000u && guard < 16 && k > 0 && k < 200; ++guard)
+            {
+                k += std::snprintf(buf + k, sizeof(buf) - k, " %08x (t%d)", sender, static_cast<int>(rd32(rdram, sender + 4u)));
+                sender = rd32(rdram, sender + 0x28u);
+            }
+            std::fprintf(stderr, "%s\n", buf);
+        }
+        const int semas[2] = {static_cast<int>(rd32(rdram, 0x1E0BE8u)), static_cast<int>(rd32(rdram, 0x201DC4u))};
+        g_rt->eeScheduler().b5Dump(n, semas, 2);
+    }
+
     void install(PS2Runtime &runtime)
     {
         if (!runtime.hasFunction(kT9Entry) || !runtime.hasFunction(kT10Entry) || !runtime.hasFunction(kT5Entry) || !runtime.hasFunction(kT4Entry))
@@ -839,6 +919,14 @@ namespace b3threads
         }
         const char *sy = std::getenv("SOTC_B3_SYNC");
         g_syncOn = (sy && sy[0] == '0') ? 0u : 1u;
+        {
+            const char *d = ps2_diag::env("SOTC_B5_DOG");
+            g_dogSec = d ? static_cast<uint32_t>(std::max(0, std::atoi(d))) : 0u;
+            const char *df = std::getenv("SOTC_B5_DEFER");
+            g_deferEnv = df ? (std::atoi(df) != 0 ? 1 : 0) : -1;
+            const char *tr = ps2_diag::env("SOTC_B5_TRACE");
+            g_ps2xB5Trace = tr && std::atoi(tr) != 0 ? 1u : 0u;
+        }
         if (g_count)
         {
             g_origSend = runtime.lookupFunction(0x001B0FC0u);
@@ -897,10 +985,21 @@ namespace b3threads
         // switch (a carrier of any of B1 / B2 / B3 uses it); only once GAMECORE runs, as the carriers.
         const bool b4 = sotc_decomp::switchOn(sotc_decomp::kB4Fast) && sotc_decomp::gamecoreEntered();
         g_ps2xB4Fast = b4 ? 1u : 0u;
+        // Round B5 (docs/decomp_b5.md): the park's host catch-up deferred past the lower-priority thread's turn, with b3threads
+        // (SOTC_B5_DEFER=0 / 1 overrides; 1 also without the carriers, for the default path's comparison); once GAMECORE runs.
+        g_ps2xB5Defer = (g_deferEnv < 0 ? on : (g_deferEnv != 0 && sotc_decomp::gamecoreEntered())) ? 1u : 0u;
+        idleDog(frame, rdram, on);
         const uint32_t every = g_log ? g_log : (b4 ? 600u : 0u); // (b4fast on with b3threads' log off: its line every 600 frames)
         if (every == 0u || frame - g_lastLogFrame < every || !g_rt)
             return;
         b4Line(frame, static_cast<double>(frame - g_lastLogFrame));
+        {
+            static EeB5Stats last{};
+            const double f = static_cast<double>(frame - g_lastLogFrame);
+            std::fprintf(stderr, "[b5] frame %llu: defer %u | a frame: park catch-ups deferred %.2f, deferred ones done %.2f (of them by the 4 ms limit %.3f)\n",
+                         (unsigned long long)frame, g_ps2xB5Defer, (g_eeB5.deferred - last.deferred) / f, (g_eeB5.applied - last.applied) / f, (g_eeB5.late - last.late) / f);
+            last = g_eeB5;
+        }
         if (g_log == 0u)
         {
             g_lastLogFrame = frame;
