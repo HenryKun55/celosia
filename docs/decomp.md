@@ -24071,3 +24071,33 @@ adapters out; `SOTC_A12HOLD=<mask>` the motion natives a12Is takes (default keyV
 - **The freeze**: 3 of 9 ride7 runs with a12typed on froze the world after mounting (frames go on, Agro and Wander stop, always at
   x = -148 on the plain), 0 of 2 A11 controls; bisection inconclusive. Hence off by default. (d) = **4 251 (47.1%)**, 20.2% of the bytes,
   12.4% of the console game thread (typed code that exists; with the switch off it does not run).
+
+## Decomp B7: the interrupt handlers as host functions, the carriers' checkpoints reduced to delivery points (b7irq, off by default) (2026-11-23)
+
+docs/decomp_b7.md. Code: game/overrides/b7_irq.cpp, `EeHostIrq` / `addHostIrq` / `b7Find` / `b7RunIrq` / `b7CheckIrq` and the
+gate part in EeScheduler.cpp. Scripts, runs and logs: `build/agent-scratch/b7/`. Switch `SOTC_B7IRQ` (acts once GAMECORE runs,
+with b3threads on; toggles on its own); `SOTC_B7_CHECK` the shadow check; `SOTC_B7_CP=0` keeps the IOP batch in the carriers'
+gate; `SOTC_B7_HANDLERS` (1 VBlank, 2 GS). Console package `build/agent-scratch/b7/celosia-b7.vpk` + `env-ab.txt` (all six on,
+A/B b7irq, period 300).
+
+- **Live interrupts after GAMECORE**: only INTC 2 (VBlank start, 0x1c8180: wakes t8) and INTC 0 (GS, 0x1c37f0: IMR masked and
+  restored, a counter, the CSR's FINISH event acknowledged, and from the title on GAMECORE's GP finish callback 0x1345fb0: a
+  timing stamp through iosGetTCountExtension). T0 / T2 are stopped by sysnative (their handlers never fire), INTC 3 and the
+  DMAC causes have no handler, and no alarm / GS VSync callback / other invocation is queued.
+- **Host handlers**: where the dispatcher would run the handler invocation's generated code (B1_INVOKE in run(), S17's nest,
+  B4's carrierNest: on the carrier holding the baton), its host function runs on the same invocation record: same push, charge,
+  pop and reschedule; the same operations in the same order through the same memory paths; iWakeupThread straight to
+  `wakeupThread(id, true)`, the IMR as GsGetIMR / GsPutIMR do; the generated code's cycle charges (8 a JAL / JALR); no VU0
+  hand-over (no handler touches VU0).
+- **Checkpoints**: on a carrier the slow path was 13.6 a frame riding, 11.3 of them only re-syncing the IOP batch / gate. The
+  IOP's CPU is halted after the native boot and every IOP reader syncs it first, so the carriers' gate leaves the IOP batch out:
+  6.7 a frame remain (deliveries ~2.3, gate re-sets after timer reads ~4). Cycle charges stay (they decide when a deadline is seen).
+- **Checks** (all six on, every check): **0 bad of 91 254 handler comparisons** (records, ready queues, flags, next pick, IMR,
+  CSR, words, cycles: 0 cycle differences), 0 of 7.2 M B6 shadow checks, 0 of 0.40 M audits, watchdogs silent (ride7 600 /
+  attract 400 / lake6 400). **Boots**: 15 89 MB boots, 14 reached the field, 10 rode; one Vita3K close at the Load Game screen
+  ("write protected region" violations, also seen in A12's runs the same day). Loads: no new hitch.
+- **Measured** (Vita3K 222, off - on, one run at a time): -0.09 +- 0.14 ms (1 SE): no measurable difference (the counts say
+  microseconds). 89 MB boot rode 600 s, shots normal. spalign 0.
+- **What is left of the PS2 scheduler**: the thread records and run()'s decisions, the interrupt invocation records around the
+  host handlers, the cycle charges and the deadline / timer-read slow paths, the id-keyed semaphore / event records, the
+  hand-back path and resume labels, the boot threads (decomp_b7.md section 6).
