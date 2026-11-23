@@ -24048,3 +24048,26 @@ A/B b6sync, period 300).
 - **What is left of the PS2 scheduler**: the thread records and run()'s decisions, the EE clock and checkpoints, interrupts as
   guest invocations, the id-keyed semaphore / event records with the syscall entries for the boot / handlers, the hand-back
   path and resume labels, the boot threads (decomp_b6.md section 6).
+## Decomp A12: the motion group taken as a whole, the spin rule's list walk and counted loop (a12typed, off by default) (2026-11-23)
+
+docs/decomp_a12.md. Scripts, runs and logs: `build/agent-scratch/a12/`. Switch `SOTC_A12TYPED` (A/B `a12typed`, `kA12Typed`), **off
+unless SOTC_A12TYPED=1** (an intermittent ride7 freeze with it on, cause not found); `SOTC_A12AD=0` leaves stage 12's never-lifted
+adapters out; `SOTC_A12HOLD=<mask>` the motion natives a12Is takes (default keyVec3 only), `SOTC_A12MMPATHS` GetMotionMatrix's proven paths.
+
+- **Stage 12** (tools/typed_lift2.py, `Emit(a12=True)`): the twelve motion natives typed from their MIPS (docs/a12_natives.txt; A10's
+  GetCharacterClassOptionNodeGeo and A8's manager_sub_010AC4A0 follow), the spin rule's base taint flow-sensitive (getBlendLastMotion's
+  list walk) and counted-loop exits (AddCharacterClassOptionNodeSubGeometries), a likely branch's restore on its taken edge
+  (GetMotionOptionNodeFloatFrame), a callee-written register passed to a 64-bit parameter taken back as an extra output
+  (GetOptionNodePhysicalNodeId), 40 rounds of extra-output requests (the group settles in 36). The spin-rule change alone: 48 functions.
+- **215 more functions** (65 never lifted, 14 MIPS-step natives), 85 variants; two stale-stack skip lines (gamecore_sub_01418BA8,
+  charrootdyn_getParentedEdgeInfo). Waiting 3 758 -> 3 674; the ~540 now wait behind GetMotionNodeQuaternionPosToolCoord (516: a VU0 /
+  field extra output of manager_sub_010AC4A0 its lifted callers read).
+- **The natives' check** (A12_NCHK: the slots wrapped in a check build, the lifted reference on the entry state, every register and
+  byte compared): keyVec3 equal (17 581 checks); curveEval, optionNodeSample differ in registers typed callers consume (a3, f1-f6; v0's
+  upper half); GetMotionMatrix's S3 rig differs from the MIPS on every check (v0, memory, VU0 data), so its typed callers need the
+  recompiled path (A12MM_PROVEN); nodeQuatPos 7 VU0-data differences; the four inner natives were only nested (pass 2 not run).
+- **Exact**: A3-A12 in-run checks 0 (A12 422 113 checks on 31-40 functions; the matrix stack exercised in game: 0.7 M push / pop in
+  the legs); offline 0 in 30 runs (4.5 M checks; 17 given up as A8's stale-stack class), A3-A11 harnesses 0. spalign 0.
+- **The freeze**: 3 of 9 ride7 runs with a12typed on froze the world after mounting (frames go on, Agro and Wander stop, always at
+  x = -148 on the plain), 0 of 2 A11 controls; bisection inconclusive. Hence off by default. (d) = **4 251 (47.1%)**, 20.2% of the bytes,
+  12.4% of the console game thread (typed code that exists; with the switch off it does not run).

@@ -43,7 +43,7 @@ extern int g_a12MmPath;       // the path GetMotionMatrix's native took last (de
 #define A12H_NODEQP 0x2000u    // manager_sub_010AC4A0: decomp_hot44d::nodeQuatPos (docs/a8_natives.txt; stage 12 types it)
 #define A12H_ALL 0x3FFFu
 #ifndef A12H_DEFAULT
-#define A12H_DEFAULT A12H_ALL // round A12: the holders whose A12_NCHK showed no difference a typed caller can see (docs/decomp_a12.md)
+#define A12H_DEFAULT A12H_KEYVEC3 // round A12: the holders whose A12_NCHK showed no difference a typed caller can see (docs/decomp_a12.md)
 #endif
 
 namespace decomp_curve { void curveEval(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }

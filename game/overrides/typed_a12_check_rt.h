@@ -666,6 +666,15 @@ namespace a12nchk
         const Holder &h = kH[H];
         HStats &g = g_h[H];
         ++g.calls;
+        static const uint32_t chkMask = [] {
+            const char *e = std::getenv("SOTC_A12NCHK"); // the holders checked (default all; the others pass straight through)
+            return e ? static_cast<uint32_t>(std::strtoul(e, nullptr, 0)) : 0xFFFFFFFFu;
+        }();
+        if (!(chkMask & h.bit))
+        {
+            ++g.nested;
+            return h.native(rdram, ctx, runtime);
+        }
         if (g_busy >= 0 || sotc_decomp::onWorkerLane(runtime)) // one at a time, the game thread's only (a static snapshot)
         {
             ++g.nested;

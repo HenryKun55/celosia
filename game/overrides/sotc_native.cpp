@@ -264,13 +264,20 @@ void a12ckExtra(unsigned long long frame);    // typed_a12_check_rt.h (in a12_ty
 void a12nchkReport(unsigned long long frame); // typed_a12_check_rt.h (in a12_typed_check.cpp)
 #endif
 #ifndef A12MM_PROVEN
-#define A12MM_PROVEN 0x3Eu // round A12: the paths whose A12_NCHK showed no difference (docs/decomp_a12.md)
+#define A12MM_PROVEN 0x08u // round A12: the paths whose A12_NCHK showed no difference: the recompiled MIPS only (S3's rig differs: docs/decomp_a12.md)
 #endif
 namespace s3chara { bool on(); }
 static uint64_t g_a12Frames[2] = {0, 0};
 static void a12FlagsNow()
 {
-    g_a12Typed = sotc_decomp::switchOn(sotc_decomp::kA12Typed) && g_a11Typed;
+    // Off unless SOTC_A12TYPED=1 (an opt-in, read once): 3 of 9 ride7 runs with it on froze the world after mounting (the horse
+    // and Wander stop updating while frames go on; docs/decomp_a12.md section 7), cause not found. The A/B (SOTC_AB_FLAG=a12typed)
+    // flips the switch only when the opt-in is set.
+    static const bool optIn = [] {
+        const char *e = std::getenv("SOTC_A12TYPED");
+        return e && e[0] >= '1' && e[0] <= '3';
+    }();
+    g_a12Typed = optIn && sotc_decomp::switchOn(sotc_decomp::kA12Typed) && g_a11Typed;
     static uint32_t proven = A12MM_PROVEN;
     static bool fastWalk = true;
     static const bool read = [] {
