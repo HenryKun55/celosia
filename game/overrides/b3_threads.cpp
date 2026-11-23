@@ -833,7 +833,10 @@ namespace b3threads
         const char *mk = std::getenv("SOTC_B3_MASK");
         g_mask = mk ? static_cast<uint32_t>(std::strtoul(mk, nullptr, 0)) & 15u : 15u;
         if (const char *bm = std::getenv("SOTC_B4_MODE"))
-            g_ps2xB4Mode = static_cast<uint32_t>(std::atoi(bm)) == 1u ? 1u : 2u; // round B4: 1 the nested form, 2 direct hand-overs
+        {
+            const int m = std::atoi(bm); // round B4: 1 the nested form, 2 direct hand-overs, 3 a checkpoint's own loop only
+            g_ps2xB4Mode = m == 1 ? 1u : m == 3 ? 3u : 2u;
+        }
         const char *sy = std::getenv("SOTC_B3_SYNC");
         g_syncOn = (sy && sy[0] == '0') ? 0u : 1u;
         if (g_count)

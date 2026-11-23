@@ -4230,13 +4230,18 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         ++g_eeB4.bailed[4];
         return -1;
     }
+    // SOTC_B4_MODE=3 (self only): only a checkpoint's loop, and only until it would run another thread (which the executor
+    // then runs as before): what goes on in place is the thread's own checkpoints that only ran events / handlers.
+    const bool selfOnly = g_ps2xB4Mode == 3u;
+    if (selfOnly && why != 0)
+        return -1;
     const int homeId = c.threadId;
     const int w = why != 0 ? 1 : 0;
     // The direct hand-over needs the semaphore baton (a carrier waits on its own semaphore whoever wakes it).
     const bool direct = g_ps2xB4Mode == 2u && c.sema;
     // Nested form, resumed from a nested loop (another carrier's, or S17's on the executor): only the events, the handlers
     // queued on this thread and this thread again; the first other thread goes back to that loop.
-    const bool local = m_s17Depth != 0;
+    const bool local = m_s17Depth != 0 || selfOnly;
     ++g_eeB4.nests[w];
     if (local)
         ++g_eeB4.local;

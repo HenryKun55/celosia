@@ -365,7 +365,8 @@ extern thread_local bool t_ps2xEeGuestRunner;
 // at all. Where run() would wait for an event (no thread ready) or the loop cannot run there, the baton goes back to the
 // executor as before.
 extern uint32_t g_ps2xB4Fast;
-extern uint32_t g_ps2xB4Mode; // 2: direct hand-overs between carriers (default; the semaphore baton), 1: the nested form (SOTC_B4_MODE)
+extern uint32_t g_ps2xB4Mode; // 2: direct hand-overs between carriers (default; the semaphore baton), 1: the nested form, 3: a
+                              // checkpoint's own loop only (SOTC_B4_MODE)
 struct EeB4Stats
 {
     uint64_t nests[2] = {};   // nested loops opened, at a checkpoint / at a park or switch
