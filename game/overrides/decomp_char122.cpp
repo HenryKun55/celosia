@@ -60,8 +60,8 @@ namespace s3chara
 #include <vector>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
-#include "a9sweep.h"
 #endif
+#include "a9sweep.h"
 
 namespace s8cloth
 {

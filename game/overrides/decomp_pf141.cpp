@@ -26,8 +26,8 @@
 #include <thread>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
-#include "a9sweep.h"
 #endif
+#include "a9sweep.h"
 
 namespace pf141
 {
