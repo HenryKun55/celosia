@@ -72,6 +72,11 @@ EeB4Stats g_eeB4;
 // thread that runs next has had its turn, not on that thread's first dispatch (the memory-card manager's livelock).
 uint32_t g_ps2xB5Defer = 0u;
 EeB5Stats g_eeB5;
+// Round B7 (docs/decomp_b7.md; b7_irq.cpp sets them once a frame): the host interrupt handlers, their check, the checkpoint parts.
+uint32_t g_ps2xB7Irq = 0u;
+uint32_t g_ps2xB7Check = 0u;
+uint32_t g_ps2xB7Cp = 0u;
+EeB7Stats g_eeB7;
 namespace
 {
     bool g_b5Deferred = false; // a park's catch-up is pending (the scheduler's state: the host thread holding the baton)
@@ -859,6 +864,8 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     {                                                \
         if (carried)                                          \
             resumeCarrier(*running);                          \
+        else if (hostIrq)                                     \
+            b7RunIrq(*hostIrq, *running, context);            \
         else                                                  \
         {                                                     \
             g_b1ExecSite.store(4, std::memory_order_relaxed); \
@@ -1044,6 +1051,8 @@ void EeScheduler::run()
         {
             continue;
         }
+        // Round B7: a handler invocation with a host form runs it in B1_INVOKE (no VU0 hand-over: it touches no VU0 register).
+        const EeHostIrq *const hostIrq = (!carried && __builtin_expect(g_ps2xB7Irq != 0u, 0)) ? b7Find(*running, context) : nullptr;
         if (!carried)
             b5trace::note(b5trace::kGenerated, running->id, context.pc);
 
@@ -1052,7 +1061,7 @@ void EeScheduler::run()
         // Keep them coherent by moving the live VU0 state into whichever
         // context runs next.
         static const bool sharedVu0 = std::getenv("PS2X_VU0_PER_THREAD") == nullptr;
-        if (sharedVu0)
+        if (sharedVu0 && (!hostIrq || g_ps2xB7Check != 0u))
         {
             const Vu0OwnerKey key{m_currentThreadId, running->invocations.size(),
                                   running->invocations.empty() ? 0u : running->invocations.back().sequence};
@@ -1281,6 +1290,8 @@ EeS11Stats g_eeS11;
 bool EeScheduler::checkpointSlow() noexcept
 {
     const bool r = checkpointSlowInner();
+    // Round B7: the outcome, by where it ran (a carrier or not)
+    ++(m_activeCarrier != nullptr ? g_eeB7.cpCarrier : g_eeB7.cpExec)[m_slowOutcome];
     if (__builtin_expect(m_activeCarrier != nullptr, 0))
     {
         if (g_ps2xB1Check)
@@ -1327,6 +1338,7 @@ bool EeScheduler::checkpointSlowInner() noexcept
         m_stopRequested.load(std::memory_order_relaxed))
     {
         // Round S17: the dispatch nested here instead of the unwind (s17Checkpoint).
+        m_slowOutcome = 0; // round B7
         if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
         {
             if (g_ps2xS17Log != 0u)
@@ -1344,6 +1356,7 @@ bool EeScheduler::checkpointSlowInner() noexcept
     if (nextEventCycle != 0u && eeNow() >= nextEventCycle)
     {
         ++g_eeS11.deadline;
+        m_slowOutcome = 1; // round B7
         flagCheckpoint(3);
         if (__builtin_expect((g_ps2xS17Parts | g_ps2xS17Log) != 0u, 0))
         {
@@ -1360,6 +1373,7 @@ bool EeScheduler::checkpointSlowInner() noexcept
         m_sliceEndCycle = eeNow() + kDefaultTimeSliceCycles;
     if (eeNow() < m_sliceEndCycle)
     {
+        m_slowOutcome = 2; // round B7
         ++g_eeS11.cont;
         updateGate();
         return false;
@@ -1371,6 +1385,7 @@ bool EeScheduler::checkpointSlowInner() noexcept
     if (running != nullptr && hasReadyAtOrAbovePriority(running->currentPriority - (g_ps2xN5Sched != 0u && g_ps2xN5Spin == 0u ? 1 : 0)))
     {
         ++g_eeS11.preempt;
+        m_slowOutcome = 3; // round B7
         if (g_ps2xN5Sched != 0u)
             ++n5stat::spinPreempts;
         m_rescheduleRequested = true;
@@ -1386,6 +1401,7 @@ bool EeScheduler::checkpointSlowInner() noexcept
     }
 
     ++g_eeS11.renew;
+    m_slowOutcome = 4; // round B7
     if (g_ps2xN5Sched != 0u)
         ++n5stat::spinRenews;
     renewTimeSlice();
@@ -1477,6 +1493,9 @@ void EeScheduler::flagCheckpoint(int site) noexcept
 
 void EeScheduler::updateGate() noexcept
 {
+#if !PS2X_EE_CLOCK64
+    g_eeB7.charged += m_clock.run; // round B7: the cycles guest code charged since the last fold
+#endif
     m_clock.fold();
     if (!m_gateEnabled)
     {
@@ -1494,11 +1513,34 @@ void EeScheduler::updateGate() noexcept
         gate = nextEventCycle;
         by = 2;
     }
+    if (__builtin_expect(g_ps2xB7Cp != 0u && m_activeCarrier != nullptr, 0))
+    {
+        // Round B7 (part 1): on a carrier the IOP batch is left out of the gate. The IOP's CPU is halted after the native
+        // IOP's boot (its clock only counts: IopEmulator::runCycles), and every reader of the IOP (an RPC, a module call, the
+        // SIF) brings it up to date first (PS2Runtime::catchUpIopNow: syncAccounting, then catchUpIop): the cycles still
+        // reach it, all of them, at the next checkpoint that goes to the scheduler (a delivery: an event, a deadline, a timer
+        // interrupt) or at the next park / dispatch. (The time slice needs nothing: with n5sched it does not end after
+        // GAMECORE, renewTimeSlice.)
+        if (iopSlack < timerSlack)
+        {
+            ++g_eeB7.dropIop;
+            // (no timer interrupt set up: the slack is the maximum; saturate)
+            gate = timerSlack > UINT64_MAX - m_accountedCycle ? UINT64_MAX : m_accountedCycle + timerSlack;
+            by = 0;
+            if (nextEventCycle != 0u && nextEventCycle < gate)
+            {
+                gate = nextEventCycle;
+                by = 2;
+            }
+        }
+    }
     if (m_sliceEndCycle < gate)
     {
         gate = m_sliceEndCycle;
         by = 3;
     }
+    if (m_activeCarrier != nullptr)
+        ++g_eeB7.gateCarrier[by]; // round B7
     m_clock.setGate(gate);
     ++(by == 0 ? g_eeS11.gateTimer : by == 1 ? g_eeS11.gateIop : by == 2 ? g_eeS11.gateDeadline : g_eeS11.gateSlice);
     // The pending flag lives in the gate (flagCheckpoint): one posted while
@@ -2271,6 +2313,7 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
 {
     assertExecutor();
     invocation.sequence = ++m_invocationSequence;
+    ++g_eeB7.byKind[static_cast<unsigned>(invocation.kind) & 7u]; // round B7
     m_pendingInvocations.push_back(std::move(invocation));
     ++g_eeB4.invocations;
     flagCheckpoint(5);
@@ -2480,6 +2523,7 @@ void EeScheduler::dispatchIrq(bool dmac, uint32_t cause)
         SET_GPR_U32(&invocation.context, 28, handler.gp);
         SET_GPR_U32(&invocation.context, 29, 0u);
         SET_GPR_U32(&invocation.context, 31, 0u);
+        ++g_eeB7.byKind[0]; // round B7 (GuestInvocationKind::Interrupt)
         s17Note(5, handler.handler);
         flagCheckpoint(6);
     }
@@ -3661,6 +3705,7 @@ void EeScheduler::syncCyclesToHostClock()
             m_hostClockBase += std::chrono::microseconds((lag - maxLag) * 1000000ull / kEeClockHz);
             lag = maxLag;
         }
+        g_eeB7.synced += lag; // round B7
         while (lag != 0u)
         {
             const uint64_t step = std::min<uint64_t>(lag, kVBlankPeriodCycles);
@@ -4176,7 +4221,9 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         PS2Runtime::RecompiledFunction function = carried ? nullptr : m_runtime.lookupFunction(context.pc);
         if (checkpointDue(kGuestDispatchCycles))
             continue;
-        handOverVu0(*running, context);
+        const EeHostIrq *const hostIrq = (!carried && __builtin_expect(g_ps2xB7Irq != 0u, 0)) ? b7Find(*running, context) : nullptr; // round B7
+        if (!hostIrq || g_ps2xB7Check != 0u)
+            handOverVu0(*running, context);
         try
         {
             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
@@ -4631,7 +4678,9 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         PS2Runtime::RecompiledFunction function = carried ? nullptr : m_runtime.lookupFunction(context.pc);
         if (checkpointDue(kGuestDispatchCycles))
             continue;
-        handOverVu0(*running, context);
+        const EeHostIrq *const hostIrq = (!carried && __builtin_expect(g_ps2xB7Irq != 0u, 0)) ? b7Find(*running, context) : nullptr; // round B7
+        if (!hostIrq || g_ps2xB7Check != 0u)
+            handOverVu0(*running, context);
         if (carried && direct && running->carrier->sema)
         {
             // run() would resume that carrier now: the baton goes straight to it (below).
@@ -4726,4 +4775,217 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
     b5trace::note(b5trace::kGoOn, homeId);
     updateGate();
     return 0;
+}
+
+// Round B7 (docs/decomp_b7.md): the host interrupt handlers. The dispatcher pushes a queued handler invocation onto the thread it
+// picks, charges the dispatch checkpoint and runs the invocation's context at the handler's entry (B1_INVOKE); then (pc 0 on
+// return) the reschedule and, at the thread's next dispatch, the pop. With b7irq the run itself is the handler's host function
+// when it has one: the same invocation record, the same charges, pop and reschedule; no VU0 hand-over (no handler touches a VU0
+// register: the hand-over and the pop's flush would move the same values back and forth). A handler already started (resumed
+// at a label after an unwind) or a path the host form does not cover (accept) runs as generated code.
+const EeHostIrq *EeScheduler::b7Find(const GuestThread &running, const R5900Context &context) noexcept
+{
+    if (running.invocations.empty())
+        return nullptr;
+    const GuestInvocation &top = running.invocations.back();
+    if (top.kind != GuestInvocationKind::Interrupt || &top.context != &context)
+        return nullptr;
+    if (context.pc == 0u || getRegU32(&context, 31) != 0u) // not at its entry (ra is 0 until the handler's first call)
+        return nullptr;
+    for (int i = 0; i < m_hostIrqCount; ++i)
+        if (m_hostIrq[i].pc == context.pc)
+        {
+            if (m_hostIrq[i].accept && !m_hostIrq[i].accept(m_rdram))
+            {
+                ++g_eeB7.guest[i];
+                return nullptr;
+            }
+            return &m_hostIrq[i];
+        }
+    ++g_eeB7.other;
+    return nullptr;
+}
+
+void EeScheduler::b7RunIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context)
+{
+    if (__builtin_expect(g_ps2xB7Check != 0u, 0))
+    {
+        b7CheckIrq(spec, running, context);
+        return;
+    }
+    ++g_eeB7.host[&spec - m_hostIrq];
+    spec.fn(*this, m_rdram, &context, &m_runtime);
+}
+
+// Check mode (SOTC_B7_CHECK): the host function runs first on a copy of the invocation's context; what it changed (every thread's
+// status, wakeup count, wait, pending completion, v0 and invocation depth; the ready queues; the reschedule / slice flags; the GS
+// IMR and CSR's event bits; the entry's guest doublewords; the cycles charged) is recorded and undone; then the generated handler
+// runs for real (the guest path: the game goes on exactly as without b7irq) and its result is compared with the host one's.
+void EeScheduler::b7CheckIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context)
+{
+    (void)running;
+    struct Rec
+    {
+        int id = 0;
+        EeThreadStatus status{};
+        uint32_t wakeup = 0;
+        int suspend = 0;
+        EeWaitState wait{};
+        std::function<void(R5900Context &)> resume;
+        uint64_t v0[2] = {};
+        size_t depth = 0;
+    };
+    struct State
+    {
+        std::vector<Rec> recs;
+        std::array<std::deque<int>, kPriorityCount> ready{};
+        bool resched = false, expired = false, stretched = false;
+        uint64_t sliceEnd = 0, imr = 0, csr = 0, words[4] = {};
+    };
+    static State *s0 = new State, *sh = new State, *sg = new State; // (the heap: nothing large or aligned on the stack)
+    static R5900Context *scratch = new R5900Context;
+    GSRegisters &gs = m_runtime.memory().gs();
+    auto take = [&](State &st)
+    {
+        st.recs.clear();
+        for (auto &[id, t] : m_threads)
+        {
+            Rec r;
+            r.id = id;
+            r.status = t.status;
+            r.wakeup = t.wakeupCount;
+            r.suspend = t.suspendCount;
+            r.wait = t.wait;
+            r.resume = t.resumeCompletion;
+            std::memcpy(r.v0, &t.activeContext().r[2], sizeof(r.v0));
+            r.depth = t.invocations.size();
+            st.recs.push_back(std::move(r));
+        }
+        st.ready = m_readyQueues;
+        st.resched = m_rescheduleRequested;
+        st.expired = m_timeSliceExpired;
+        st.stretched = m_sliceStretched;
+        st.sliceEnd = m_sliceEndCycle;
+        st.imr = gs.imr;
+        st.csr = gs.csr.load(std::memory_order_acquire);
+        for (int i = 0; i < 4; ++i)
+            if (spec.watch[i])
+                std::memcpy(&st.words[i], m_rdram + (spec.watch[i] & 0x01FFFFF8u), 8);
+    };
+    auto restore = [&](const State &st)
+    {
+        for (const Rec &r : st.recs)
+        {
+            GuestThread *t = thread(r.id);
+            if (!t)
+                continue;
+            t->status = r.status;
+            t->wakeupCount = r.wakeup;
+            t->suspendCount = r.suspend;
+            t->wait = r.wait;
+            t->resumeCompletion = r.resume;
+            std::memcpy(&t->activeContext().r[2], r.v0, sizeof(r.v0));
+        }
+        m_readyQueues = st.ready;
+        m_rescheduleRequested = st.resched;
+        m_timeSliceExpired = st.expired;
+        m_sliceStretched = st.stretched;
+        m_sliceEndCycle = st.sliceEnd;
+        gs.imr = st.imr;
+        gs.csr.store(st.csr, std::memory_order_release);
+        for (int i = 0; i < 4; ++i)
+            if (spec.watch[i])
+                std::memcpy(m_rdram + (spec.watch[i] & 0x01FFFFF8u), &st.words[i], 8);
+    };
+    const int idx = static_cast<int>(&spec - m_hostIrq);
+    take(*s0);
+    std::memcpy(static_cast<void *>(scratch), &context, sizeof(R5900Context));
+    // The guest path first, for real (the shadow must not touch the gate or the clock before it).
+    ++g_eeB7.guest[idx];
+    PS2Runtime::RecompiledFunction function = m_runtime.lookupFunction(context.pc);
+    const uint32_t j0 = m_runtime.m_guestJumpSerial;
+    const uint64_t g0 = eeNow();
+    function(m_rdram, &context, &m_runtime);
+    const uint64_t guestCycles = eeNow() - g0;
+    const uint32_t guestJumps = m_runtime.m_guestJumpSerial - j0;
+    if (context.pc != 0u || m_unwinding || m_clock.transferred)
+    {
+        ++g_eeB7.interrupted; // unwound inside (a checkpoint went to the scheduler): it goes on later as generated code
+        return;
+    }
+    take(*sg);
+    // The host form as a shadow from the state before (the records, the queues, the flags, IMR / CSR, the words); its charges
+    // stay on the clock (check mode only: the timers may have seen them), its jump serial is put back, then the guest's result.
+    restore(*s0);
+    const uint32_t j1 = m_runtime.m_guestJumpSerial;
+    const uint64_t c0 = eeNow();
+    spec.fn(*this, m_rdram, scratch, &m_runtime);
+    const uint64_t hostCycles = eeNow() - c0;
+    const uint32_t hostJumps = m_runtime.m_guestJumpSerial - j1;
+    m_runtime.m_guestJumpSerial = j1;
+    const bool hostDone = scratch->pc == 0u;
+    take(*sh);
+    restore(*sg);
+    ++g_eeB7.checks;
+    auto bad = [&](const char *what, uint64_t a, uint64_t b)
+    {
+        ++g_eeB7.bad;
+        static int printed = 0;
+        if (++printed <= 12)
+            std::fprintf(stderr, "[b7chk] %s %s: host %llx guest %llx (thread %d)\n", spec.name, what, static_cast<unsigned long long>(a),
+                         static_cast<unsigned long long>(b), m_currentThreadId);
+    };
+    if (!hostDone)
+        bad("host form did not return", scratch->pc, context.pc);
+    if (hostCycles != guestCycles)
+    {
+        ++g_eeB7.cycBad;
+        bad("cycles", hostCycles, guestCycles);
+    }
+    if (hostJumps != guestJumps)
+        bad("jump serial", hostJumps, guestJumps);
+    if (sh->recs.size() != sg->recs.size())
+        bad("threads", sh->recs.size(), sg->recs.size());
+    else
+        for (size_t i = 0; i < sh->recs.size(); ++i)
+        {
+            const Rec &a = sh->recs[i], &b = sg->recs[i];
+            if (a.id != b.id || a.status != b.status || a.wakeup != b.wakeup || a.suspend != b.suspend || a.wait.reason != b.wait.reason ||
+                static_cast<bool>(a.resume) != static_cast<bool>(b.resume) || a.v0[0] != b.v0[0] || a.depth != b.depth)
+                bad("thread record", static_cast<uint64_t>(a.id) << 32 | static_cast<uint32_t>(a.status) << 16 | a.wakeup,
+                    static_cast<uint64_t>(b.id) << 32 | static_cast<uint32_t>(b.status) << 16 | b.wakeup);
+        }
+    if (sh->ready != sg->ready)
+        bad("ready queues", 0, 0);
+    if (sh->resched != sg->resched || sh->expired != sg->expired)
+        bad("reschedule", sh->resched, sg->resched);
+    if (sh->stretched != sg->stretched || sh->sliceEnd != sg->sliceEnd)
+        bad("slice", sh->sliceEnd, sg->sliceEnd);
+    if (sh->imr != sg->imr)
+        bad("imr", sh->imr, sg->imr);
+    if ((sh->csr & 3u) != (sg->csr & 3u))
+        bad("csr events", sh->csr, sg->csr);
+    for (int i = 0; i < 4; ++i)
+    {
+        if (!spec.watch[i] || sh->words[i] == sg->words[i])
+            continue;
+        // A timer stamp (spec.stampWord): the shadow reads the timer after the guest run and its own charges: later, by at most
+        // those cycles' ticks (T0 counts the bus clock at most: one tick per two EE cycles).
+        if (spec.stampWord == i + 1 && sh->words[i] >= sg->words[i] && sh->words[i] - sg->words[i] <= (guestCycles + hostCycles) / 2u + 1u)
+        {
+            ++g_eeB7.stampLater;
+            continue;
+        }
+        bad(i == 0 ? "guest word 0" : i == 1 ? "guest word 1" : i == 2 ? "guest word 2" : "guest word 3", sh->words[i], sg->words[i]);
+    }
+    // The next pick: the front of the highest non-empty ready queue.
+    auto pick = [](const State &st)
+    {
+        for (const auto &q : st.ready)
+            if (!q.empty())
+                return q.front();
+        return 0;
+    };
+    if (pick(*sh) != pick(*sg))
+        bad("next pick", static_cast<uint64_t>(pick(*sh)), static_cast<uint64_t>(pick(*sg)));
 }

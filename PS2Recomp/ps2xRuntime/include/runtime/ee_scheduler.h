@@ -391,6 +391,45 @@ struct EeB5Stats
 };
 extern EeB5Stats g_eeB5;
 extern uint32_t g_ps2xB5Trace; // round B5 (debug, SOTC_B5_TRACE): the scheduling decisions' ring, printed with the [b5dog] dumps
+// Round B7 (docs/decomp_b7.md; switch b7irq, game/overrides/b7_irq.cpp sets it once a frame with the carrier switches once
+// GAMECORE runs). (1) The live interrupt handlers as host functions (EeHostIrq, addHostIrq): where the dispatcher would run a
+// queued handler invocation's generated code (B1_INVOKE: run(), S17's nest, B4's carrierNest, on whichever host thread holds the
+// baton), the handler's host function runs instead, on the same invocation record (pushed, charged, popped and followed by the
+// reschedule exactly as before); its i* calls go to the kernel records directly. (2) Checkpoints on a carrier: the EE clock's
+// gate leaves out what has no effect before the next delivery point (g_ps2xB7Cp part 1: the IOP batch, whose every reader
+// syncs the IOP first), so the generated code's checkpoint stays the inline compare until something must be delivered (an
+// event, a deadline, a timer interrupt, a preemption: the pending flag closes the gate).
+extern uint32_t g_ps2xB7Irq;   // nonzero: the host handlers run (the switch)
+extern uint32_t g_ps2xB7Check; // check mode (SOTC_B7_CHECK): every host handler run is shadowed by the generated one, compared
+extern uint32_t g_ps2xB7Cp;    // the checkpoint parts in effect (0 off; set once a frame with g_ps2xB7Irq)
+struct EeB7Stats
+{
+    uint64_t host[4] = {}, guest[4] = {}; // handler invocations run as host functions / as generated code, by table entry
+    uint64_t other = 0;                    // interrupt invocations with no host form (no entry)
+    uint64_t crossed = 0;                  // host runs whose charges crossed the gate (the generated code would have unwound there)
+    uint64_t checks = 0, bad = 0, interrupted = 0, cycBad = 0; // check mode: compared runs, differences, generated runs unwound
+    uint64_t stampLater = 0;               // check mode: timer stamps the shadow read later (within its charges' ticks)
+    uint64_t byKind[8] = {};               // invocations queued, by GuestInvocationKind (dispatchIrq's included)
+    uint64_t cpCarrier[5] = {}, cpExec[5] = {}; // slow checkpoints by outcome (0 pending 1 deadline 2 below the slice 3 preempt
+                                                // 4 renew), on a carrier / elsewhere
+    uint64_t gateCarrier[4] = {};          // the gate set on a carrier, by its nearest term (0 timer 1 IOP 2 deadline 3 slice)
+    uint64_t charged = 0, synced = 0;      // EE cycles charged by guest code (folded) / added by the host clock's catch-up
+    uint64_t dropIop = 0;                  // gates set on a carrier with the IOP batch left out (part 1)
+};
+extern EeB7Stats g_eeB7;
+class EeScheduler;
+struct EeHostIrq
+{
+    uint32_t pc = 0; // the handler's guest entry
+    // The handler as host code: runs it on the invocation's context (as the generated function would) and returns with
+    // ctx->pc = its return address (0) and v0 set; charges the EE cycles the generated code would charge on the same path.
+    void (*fn)(EeScheduler &ee, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) = nullptr;
+    // Null, or false: this run takes the generated code (a path the host form does not cover).
+    bool (*accept)(const uint8_t *rdram) = nullptr;
+    uint32_t watch[4] = {}; // check mode: guest doublewords compared after both forms (0: none)
+    int stampWord = 0;      // check mode: watch[stampWord - 1] is a timer stamp (the shadow reads the timer later; 0: none)
+    const char *name = "";
+};
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
 {
@@ -689,6 +728,20 @@ public:
     // threads; it parks and the dispatcher picks), done by the receiver itself. results[i]: each wake's result; yielded:
     // the switch was made (the call returns once the caller runs again). False (nothing done): not carrierCallable().
     bool carrierWakeList(const int *ids, int n, int *results, bool &yielded);
+    // Round B7: a host form of the interrupt handler at spec.pc (a table of 4; the same pc again replaces it).
+    bool addHostIrq(const EeHostIrq &spec) noexcept
+    {
+        for (int i = 0; i < m_hostIrqCount; ++i)
+            if (m_hostIrq[i].pc == spec.pc)
+            {
+                m_hostIrq[i] = spec;
+                return true;
+            }
+        if (m_hostIrqCount >= 4)
+            return false;
+        m_hostIrq[m_hostIrqCount++] = spec;
+        return true;
+    }
     // True when the carrier* calls would act (the calling host thread holds the baton for a carried thread's own code).
     [[nodiscard]] bool carrierCallable() const noexcept;
     void setHostCarry(uint32_t entry, uint32_t claimPc, HostBody body) noexcept { addHostCarry(entry, claimPc, body, &g_ps2xB1Carry, &g_eeB1); }
@@ -744,6 +797,14 @@ private:
     bool checkpointSlowInner() noexcept;
     void b1Audit(int site) const noexcept;
     void b1WatchdogDump(int n, const char *tag = "b1dog");
+    // Round B7: the host interrupt handlers (addHostIrq), the one for the running thread's invocation about to be dispatched
+    // (null: the generated code), its run (and the check mode's shadow).
+    EeHostIrq m_hostIrq[4];
+    int m_hostIrqCount = 0;
+    int m_slowOutcome = 0; // round B7: checkpointSlowInner's last outcome (EeB7Stats::cpCarrier's index)
+    const EeHostIrq *b7Find(const GuestThread &running, const R5900Context &context) noexcept;
+    void b7RunIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context);
+    void b7CheckIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context);
     EeHostCarrier *m_activeCarrier = nullptr;
     // The host threads of carriers that ended, kept for the next take-overs (round B2: one per table entry at most).
     EeHostCarrier *m_spareCarrier[kMaxCarry] = {};
