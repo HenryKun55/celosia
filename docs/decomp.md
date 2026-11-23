@@ -23907,3 +23907,30 @@ docs/decomp_a9.md. Scripts, runs and logs: `build/agent-scratch/a9/`. Switch `SO
   halves too) 0; A8-A3 harnesses 0.
 - **Measured**: A/B pooled +0.055 +- 0.074 ms (neutral); 89 MB boot rode to frame 18 000, pictures normal; spalign 0. (d) = **3 972 (44.0%)**, 16.6% of the bytes, 10.7% of the
   console game thread.
+
+## Decomp B4: the dismount, and the carriers' baton cost (b4fast, off by default) (2026-11-23)
+
+docs/decomp_b4.md. Scripts, runs and logs: `build/agent-scratch/b4/`. Switch `SOTC_B4FAST` (A/B `b4fast`, `kB4Fast`), **off by
+default**, acting on b1sound / b2load / b3threads' carriers; `SOTC_B4_MODE` 2 (direct hand-overs, default), 1 (nested), 3 (a
+checkpoint's own loop only). Console package `build/agent-scratch/b4/celosia-b4.vpk` + `env-ab.txt` (A/B b4fast, all on).
+
+- **The dismount** (B3's bootR, frame 9 206): a game outcome of the ride route's timing, not a divergence. The route's script
+  gallops a polygon forever after the mount, and SotC's variable frame step makes the path different every run (mounts this
+  round from frame 2 657 to 9 418); the log shows a gallop with no teleport and no TRIANGLE, and the shot after it Wander on
+  foot by the ruins and cliffs. Not reproduced in 13 more mounted rides (0 dismounts). With one recorded input replayed
+  (`SOTC_REC_ROUTE=1`: the route's aids under a recording), b3threads on / off replays stay as close to each other as two
+  replays of the same configuration (0.07 units for 9 600 ticks when their first teleport landed on the same frame; 4-36
+  units otherwise, on / off and A/A alike). `SOTC_RIDE_PROBE=1` now logs the game's ride-off and mount calls with their
+  callers.
+- **b4fast**: a carrier that yields runs the dispatcher's loop itself (S17's nested dispatch for carriers,
+  `EeScheduler::carrierNest`): handlers in place, its thread going on with no hand-over when picked again, the baton straight
+  to the next carrier otherwise; the executor waits on whichever carrier gives it back. Riding: ~9 hand-overs a frame instead
+  of ~20, 0 round trips through the executor.
+- **Exact**: ride7 600 s / attract 400 s / lake6 400 s, every carrier and loop with all checks: executor audit 0 bad of
+  1 190 262, kept registers 0 bad, 0 hand-backs, B1's ticks = VBlanks in every window, watchdog silent; the same picks by
+  thread on / off.
+- **Measured** (Vita3K 222, off - on, 2 SE): b4fast pooled **-0.150 +- 0.032 ms (1 SE): on slower**; b3threads with b4fast on
+  both halves -0.150 +- 0.040 (B3: -0.174 +- 0.055). Form 1 -0.137 +- 0.043, form 3 -0.041 +- 0.052 (even): in Vita3K the cost
+  grows with the dispatcher work moved off the executor's host thread, not with the hand-overs' count.
+- **Loads**: the Load Game pair no longer longer with the carriers on (478 vs 490 ms, 367 vs 415 ms). **Boots** (89 MB, all on):
+  three rides of 600 s, 0 dismounts, pictures normal, 67.2 MB free; attract normal. spalign 0.
