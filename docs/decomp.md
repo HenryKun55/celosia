@@ -24020,3 +24020,31 @@ docs/decomp_a11.md. Scripts, runs and logs: `build/agent-scratch/a11/`. Switch `
   checks, vi15 and VU0's data memory drawn); A10 / A9 (also HI0) and A8-A3 harnesses 0.
 - **Measured**: A/B pooled -0.008 +- 0.298 ms (neutral); 89 MB boot (after SDL_AUDIODRIVER=dummy: Vita3K's CoreAudio failed from 05:37) rode to frame 15 600, no screenshots possible (Mac locked); spalign 0. (d) = **4 051 (44.9%)**, 17.8% of the bytes, 11.1% of the console game
   thread.
+
+## Decomp B6: the carriers' message boxes and semaphore calls as host primitives, t12 on a carrier (b6sync, off by default) (2026-11-23)
+
+docs/decomp_b6.md. Code: game/overrides/b6_sync.cpp, `EeScheduler::carrierWakeList`. Scripts, runs and logs:
+`build/agent-scratch/b6/`. Switch `SOTC_B6SYNC` (needs the carrier switches, toggles on its own); `SOTC_B6_CHECK` the shadow
+check; `SOTC_B6_T12=0` leaves t12 uncarried. Console package `build/agent-scratch/b6/celosia-b6.vpk` + `env-ab.txt` (all five on,
+A/B b6sync, period 300).
+
+- **The boxes are rendezvous points**: GP 0x26e9d0, frame 0x26d9a8 and the idle queue 0x1fc870 are created with no buffer; a
+  blocking send queues its ios record and sleeps, a receive takes the whole list and wakes it through the callback thread t4
+  (priority 2). B6 makes each a host wait list: the send parks in place (carrierSleep), the receive wakes the list itself in
+  order and makes the one switch the dispatcher makes after t4 parks (carrierWakeList). The memory-card box 0x121af50 (one
+  slot) is a host message ring. Guest box memory and t4's slot are written as the guest path leaves them; the host path runs
+  only while the kernel message semaphore / the slot's semaphore are free. Exact because the live threads' priorities are
+  distinct (the pick after t4's hop is the same), the semaphores end at the same counts, and memory ends the same.
+- **Semaphores**: already host records (EeSemaphore); B6 puts host calls in the WaitSema / SignalSema / PollSema stubs' slots
+  for carried threads' own code (the record directly, no syscall layer). Carrier-only after GAMECORE: 4, 11, 12, 13, 17, 18, 19;
+  14 / 15 shared with t7, 6 / 7 / 9 / 10 / 16 with boot threads or off-carrier calls.
+- **t12** (mcManager 0x11490f8) on a carrier of its own (B3's form, 33 claim labels): every live thread after GAMECORE is now
+  carried; t4 has ~0 turns a frame (B3: 2).
+- **Checks** (all five on, every check): **0 bad of 11.0 M shadow checks**, audit 0 bad of 0.81 M, 0 hand-backs, watchdogs
+  silent (ride7 600 / attract 400 / lake6 400). **Boots**: 10 of 10 89 MB ride7 boots reached the field and mounted; 20 boots with
+  b6sync, none stalled. Loads: no new hitch (single runs, noisy host).
+- **Measured** (Vita3K 222, off - on, six runs at host load 20-27): -0.14 +- 0.26 ms (1 SE): no measurable difference. 89 MB
+  boots rode 600 s (bootR: Mac locked, no shots; bootR2: shots normal). spalign 0.
+- **What is left of the PS2 scheduler**: the thread records and run()'s decisions, the EE clock and checkpoints, interrupts as
+  guest invocations, the id-keyed semaphore / event records with the syscall entries for the boot / handlers, the hand-back
+  path and resume labels, the boot threads (decomp_b6.md section 6).
