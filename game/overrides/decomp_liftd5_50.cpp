@@ -10,6 +10,7 @@
 #include "typed_a5.h" // a5
 #include "typed_a7.h" // a7
 #include "typed_a8.h" // a8
+#include "typed_a10.h" // a10
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -4886,6 +4887,7 @@ void ForceUnparentLayoutObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 void AddLayoutObjSubLink(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10F2178u, 0)) { AddLayoutObjSubLink_0x10f2178(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A10_GO() && A10_HOLDSX(0x10F1A20u, lift_d1::GetLayoutClass) && A10_HOLDS(0x10F93F0u, ::a6ad::GetLightClass) && A10_HOLDS(0x110A838u, lift_d1::GetScriptAnimationClass) && A10_HOLDS(0x110D058u, ::decomp_scriptvm3::getScriptLayoutClass) && A10_HOLDSX(0x1114490u, lift_d1::GetSubLinkClass) && A10_HOLDS(0x1147A88u, lift_d1::AddTwoWayLinkNext) && A10_HOLDS(0x1162E08u, lift_d1::dynamic_cast_to_camera_obj) && A10_HOLDS(0x1162F08u, lift_d1::get_camera_obj_layout_class), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f0 = ctx->f[0]; const float a2_f1 = ctx->f[1]; const float a2_f2 = ctx->f[2]; const float a2_f3 = ctx->f[3]; const float a2_f4 = ctx->f[4]; const float a2_f5 = ctx->f[5]; const float a2_f6 = ctx->f[6]; const float a2_f7 = ctx->f[7]; const float a2_f8 = ctx->f[8]; const float a2_f9 = ctx->f[9]; const float a2_f10 = ctx->f[10]; const float a2_f11 = ctx->f[11]; const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; const float a2_f20 = ctx->f[20]; const float a2_f21 = ctx->f[21]; const float a2_f22 = ctx->f[22]; const float a2_f23 = ctx->f[23]; const float a2_f24 = ctx->f[24]; const float a2_f25 = ctx->f[25]; const float a2_f26 = ctx->f[26]; const float a2_f27 = ctx->f[27]; const float a2_f28 = ctx->f[28]; const float a2_f29 = ctx->f[29]; const float a2_f30 = ctx->f[30]; const float a2_f31 = ctx->f[31]; A10_CHK(AddLayoutObjSubLink, a2_2, a2_4, a2_5, a2_f0, a2_f1, a2_f2, a2_f3, a2_f4, a2_f5, a2_f6, a2_f7, a2_f8, a2_f9, a2_f10, a2_f11, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a2_f21, a2_f22, a2_f23, a2_f24, a2_f25, a2_f26, a2_f27, a2_f28, a2_f29, a2_f30, a2_f31); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A10_IN(4); const uint64_t a2_r = typed::AddLayoutObjSubLink(rdram, runtime, a2_2, a2_4, a2_5, a2_f0, a2_f1, a2_f2, a2_f3, a2_f4, a2_f5, a2_f6, a2_f7, a2_f8, a2_f9, a2_f10, a2_f11, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a2_f21, a2_f22, a2_f23, a2_f24, a2_f25, a2_f26, a2_f27, a2_f28, a2_f29, a2_f30, a2_f31, a4_h2); A10_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a10
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     sp = sp - 0x20u;

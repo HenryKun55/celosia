@@ -112,7 +112,7 @@ def typed_functions():
                            ('docs/a3_typed.txt', 'typed_a3.inc', 'typed_lift2.py'), ('docs/a4_typed.txt', 'typed_a4.inc', 'typed_lift2.py'),
                            ('docs/a5_typed.txt', 'typed_a5.inc', 'typed_lift2.py'), ('docs/a6_typed.txt', 'typed_a6.inc', 'typed_lift2.py'),
                            ('docs/a7_typed.txt', 'typed_a7.inc', 'typed_lift2.py'), ('docs/a8_typed.txt', 'typed_a8.inc', 'typed_lift2.py'),
-                           ('docs/a9_typed.txt', 'typed_a9.inc', 'typed_lift2.py')):
+                           ('docs/a9_typed.txt', 'typed_a9.inc', 'typed_lift2.py'), ('docs/a10_typed.txt', 'typed_a10.inc', 'typed_lift2.py')):
         lst = os.path.join(ROOT, lst)
         inc = os.path.join(OVR, inc)
         if not (os.path.exists(lst) and os.path.exists(inc)):
@@ -141,7 +141,7 @@ def a6_adapted():
     """Round A6: the never-lifted functions stage 6 typed whose slot its adapter takes (docs/a6_typed.txt's slot holder ::a6ad::):
     the table runs the typed function (the recompiled one only as the adapter's fallback), as a lifted function's adapter does."""
     out = set()
-    for f, mark in (('docs/a6_typed.txt', '::a6ad::'), ('docs/a7_typed.txt', '::a7ad::'), ('docs/a8_typed.txt', '::a8ad::'), ('docs/a9_typed.txt', '::a9ad::')):  # round A7: its adapters likewise
+    for f, mark in (('docs/a6_typed.txt', '::a6ad::'), ('docs/a7_typed.txt', '::a7ad::'), ('docs/a8_typed.txt', '::a8ad::'), ('docs/a9_typed.txt', '::a9ad::'), ('docs/a10_typed.txt', '::a10ad::')):  # round A7: its adapters likewise
         p = os.path.join(ROOT, f)
         if os.path.exists(p):
             out |= {int(l.split()[0], 16) for l in open(p) if not l.startswith('#') and mark in l}
@@ -332,7 +332,7 @@ def main():
     order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
              'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
-             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9)'}
+             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -341,7 +341,7 @@ def main():
     print('native registrars whose body could not be read statically (counted c1): %d %s' % (
         len(unresolved), ' '.join('%s:%s' % (why[a]['file'], why[a]['fn']) for a in unresolved[:12])))
     print('slots held by a wrapper in front of the generated body (counted recomp, or lifted when lift tables hold it): %d' % len(wrapped))
-    print('typed functions (docs/a1_typed.txt ... docs/a9_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
+    print('typed functions (docs/a1_typed.txt ... docs/a10_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
         len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
     print()
     print('%-46s %6s %7s %10s %7s' % ('class', 'funcs', '%', 'bytes', '%'))

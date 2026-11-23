@@ -864,7 +864,7 @@ inline uint32_t iosSPrintf(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, uint32
 // iosgluGetCameraContext (0x108f518): typed by tools/typed_lift2.py (round A6; frame calls; VU0 in -, out -, frame 16 bytes, 0 slot accesses)
 inline uint32_t iosgluGetCameraContext(uint8_t *ram, [[maybe_unused]] PS2Runtime *rt, float f12, float f13, float f14, float f15, float f16, float f17, float f18, float f19)
 {
-    { return get_cur_camera_context(ram, rt); }
+    { return A10_CAMNOTE(get_cur_camera_context(ram, rt)); }
     __builtin_unreachable();
 }
 

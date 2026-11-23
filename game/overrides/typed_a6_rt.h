@@ -91,10 +91,53 @@ namespace dc2 { void entryCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2R
 namespace decomp_characlass { void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
 namespace lift_d1 { void GetLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
 namespace decomp_layoutclass { void getLayoutClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+// Round A10 (docs/decomp_a10.md section 3): more slot holders, each taken only while a10typed is on (g_a10Typed) and its bit
+// of g_a10HoldMask is set: the camera hook (sotc_native::getCameraContextHook) while it holds the slot over the native and the
+// typed iosgluGetCameraContext makes its note (g_a10CamHook, typed_a10_note.h); the natives proven against the lifted
+// function at their entry (A10_NCHK in a check build: every register and byte the lifted text leaves).
+#define A10H_CAM 1u
+#define A10H_PARENT 2u
+#define A10H_LOCALQP 4u
+#define A10H_PLANE 8u
+#define A10H_ATTR 16u
+#ifndef A10H_DEFAULT
+#define A10H_DEFAULT (A10H_CAM | A10H_PARENT | A10H_LOCALQP) // round A10: the holders whose A10_NCHK differs only in scratch slots no typed form gives back
+#endif
+extern bool g_a10Typed;
+extern bool g_a10CamHook;
+extern uint32_t g_a10HoldMask;
+namespace sotc_native { void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+namespace decomp_leaves { void gluCameraContext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); }
+namespace cam126
+{
+    void parentIdEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void localQPEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_collision
+{
+    void collisionPlane(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void attributeAdr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace lift_d1
+{
+    void GetMotionOptionNodeParentId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetCharacterClassOptionNodeLocalQuaternionPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetCollisionDBPlane(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetCollisionDBAttributeAdr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+inline bool a10Holds(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
+{
+    const uint32_t m = g_a10HoldMask;
+    return (known == &::decomp_leaves::gluCameraContext && got == &::sotc_native::getCameraContextHook && (m & A10H_CAM) && g_a10CamHook) ||
+           (known == &::lift_d1::GetMotionOptionNodeParentId && got == &::cam126::parentIdEntry && (m & A10H_PARENT)) ||
+           (known == &::lift_d1::GetCharacterClassOptionNodeLocalQuaternionPos && got == &::cam126::localQPEntry && (m & A10H_LOCALQP)) ||
+           (known == &::lift_d1::GetCollisionDBPlane && got == &::decomp_collision::collisionPlane && (m & A10H_PLANE)) ||
+           (known == &::lift_d1::GetCollisionDBAttributeAdr && got == &::decomp_collision::attributeAdr && (m & A10H_ATTR));
+}
 inline bool a6Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
 {
     return got == known || (known == &::decomp_characlass::getCharacterClass && got == &::dc2::entryCharacterClass) ||
-           (known == &::lift_d1::GetLayoutClass && got == &::decomp_layoutclass::getLayoutClass);
+           (known == &::lift_d1::GetLayoutClass && got == &::decomp_layoutclass::getLayoutClass) || (g_a10Typed && a10Holds(got, known));
 }
 
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A6_CHECK

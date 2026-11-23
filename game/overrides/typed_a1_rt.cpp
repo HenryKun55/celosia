@@ -62,6 +62,16 @@ uint64_t g_a9Outside[8] = {}; // round A9: the cores' calls outside their native
 #if PS2X_A9_CHECK
 A3Stats g_a9s; // round A9's check build: its adapters' test and deferred checkpoints (A3's counters)
 #endif
+bool g_a10Typed = true;    // round A10 (typed_a10_rt.h): a10typed and A9's flag, set once a frame
+bool g_a10CamHook = false; // round A10 (typed_a10_note.h): the camera hook holds iosgluGetCameraContext's slot over its native
+// round A10 (typed_a6_rt.h a6Is): the slot holders taken as their typed functions while a10typed is on, one bit each
+// (A10H_CAM the camera hook, A10H_PARENT GetMotionOptionNodeParentId's, A10H_LOCALQP GetCharacterClassOptionNodeLocalQuaternionPos's,
+// A10H_PLANE GetCollisionDBPlane's, A10H_ATTR GetCollisionDBAttributeAdr's native); SOTC_A10HOLD=<mask> overrides (sotc_native)
+uint32_t g_a10HoldMask = A10H_DEFAULT;
+#include "typed_a10_rt.h"
+#if PS2X_A10_CHECK
+A3Stats g_a10s; // round A10's check build: its adapters' test and deferred checkpoints (A3's counters)
+#endif
 namespace a6
 {
     // the breaks a typed call took, on the adapter's context after the call: handleBreak at the first site and, when more

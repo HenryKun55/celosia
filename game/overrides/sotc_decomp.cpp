@@ -36,6 +36,7 @@ uint32_t a6InstallAdapters(PS2Runtime &runtime); // typed_a6_adapters.cpp (round
 uint32_t a7InstallAdapters(PS2Runtime &runtime); // typed_a7_adapters.cpp (round A7)
 uint32_t a8InstallAdapters(PS2Runtime &runtime); // typed_a8_adapters.cpp (round A8)
 uint32_t a9InstallAdapters(PS2Runtime &runtime); // typed_a9_adapters.cpp (round A9)
+uint32_t a10InstallAdapters(PS2Runtime &runtime); // typed_a10_adapters.cpp (round A10)
 
 namespace sotc_decomp
 {
@@ -2134,6 +2135,14 @@ namespace sotc_decomp
             if (!(e && e[0] == '0'))
             {
                 std::cerr << "[a9] adapters installed over " << ::a9InstallAdapters(runtime) << " never-lifted functions" << std::endl;
+            }
+        }
+        // Round A10: likewise the never-lifted functions stage 10 typed (typed_a10_adapters.cpp). SOTC_A10AD=0: left out.
+        {
+            const char *e = std::getenv("SOTC_A10AD");
+            if (!(e && e[0] == '0'))
+            {
+                std::cerr << "[a10] adapters installed over " << ::a10InstallAdapters(runtime) << " never-lifted functions" << std::endl;
             }
         }
         g_checkedUsed = checked;

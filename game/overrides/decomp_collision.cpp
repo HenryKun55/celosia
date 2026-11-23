@@ -32,6 +32,7 @@
 // as the original leaves them.
 #include "sotc_decomp.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
+#include "typed_a10_nchk.h" // a10: A10_NCHK (the slot holders round A10 takes as their typed functions)
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "a9cmp.h"
 #include "sotc_pf141.h"
@@ -3149,6 +3150,7 @@ namespace decomp_collision
 
     void attributeAdr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A10_NCHK(0x01125B30u); // round A10: a check build compares the lifted function on the entry state (typed_a10_nchk.h)
         const G g{rdram, ctx, runtime};
         uint32_t v0;
         if (!attributeAddress(g, GPR_U32(ctx, 4), v0))
@@ -6116,6 +6118,7 @@ namespace decomp_collision
     constexpr uint32_t kCollisionPlane = 0x011257A0u;
     void collisionPlane(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A10_NCHK(0x011257A0u); // round A10: a check build compares the lifted function on the entry state (typed_a10_nchk.h)
         if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x011257D4u) != kGetLayoutClass ||
             sotc_decomp::jalTarget(rdram, 0x01125830u) != kVerticesIndep || sotc_decomp::jalTarget(rdram, 0x01125948u) != kVertices ||
             sotc_decomp::jalTarget(rdram, 0x011259E0u) != kEntryModified)

@@ -206,6 +206,36 @@ static bool a9TypedNow()
     return sotc_decomp::switchOn(sotc_decomp::kA9Typed) && sotc_decomp::switchOn(sotc_decomp::kQuat122) && sotc_decomp::switchOn(sotc_decomp::kGeo126) &&
            !quatCheck;
 }
+// Round A10 (typed_a10_rt.h): the switch a10typed's flag (with A9's: stage 10's functions call A9's cores), the camera hook's flag
+// (typed_a10_note.h: the hook holds iosgluGetCameraContext's slot over its native, so the typed path makes the hook's note) and
+// frame counts (the [a10] line, on SOTC_A1_LOG). SOTC_A10HOLD=<mask>: the slot holders a6Is takes (typed_a6_rt.h A10H_*).
+#include "typed_a10_rt.h"   // g_a10Typed, PS2X_A10_CHECK
+#include "typed_a10_nchk.h" // A10_NCHK (the camera hook's check)
+#if PS2X_A10_CHECK
+void a10ckReport(unsigned long long frame); // a10_typed_check.cpp
+void a10ckExtra(unsigned long long frame);  // typed_a10_check_rt.h (in a10_typed_check.cpp)
+#endif
+static uint64_t g_a10Frames[2] = {0, 0};
+namespace decomp_leaves
+{
+    void gluCameraContext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace sotc_native
+{
+    void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool a10CamHookHolds(); // below (the hook installed over gluCameraContext and still in the slot)
+}
+static void a10FlagsNow()
+{
+    g_a10Typed = sotc_decomp::switchOn(sotc_decomp::kA10Typed) && a9TypedNow();
+    g_a10CamHook = g_a10Typed && sotc_native::a10CamHookHolds();
+    static const bool maskRead = [] {
+        if (const char *e = std::getenv("SOTC_A10HOLD"))
+            g_a10HoldMask = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
+        return true;
+    }();
+    (void)maskRead;
+}
 
 namespace decomp_wind
 {
@@ -3710,7 +3740,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4423,6 +4453,10 @@ namespace sotc_native
         // Round A9 (a9typed): stage 9's typed functions (the quat122 / geo126 natives as shared cores; typed_a9.h).
         g_a9Typed = a9TypedNow();
         ++g_a9Frames[g_a9Typed ? 1 : 0];
+        // Round A10 (a10typed): stage 10's typed functions (recursion, the upper-half class; typed_a10.h), the camera note on the
+        // typed path and the slot holders proven equal to their typed functions.
+        a10FlagsNow();
+        ++g_a10Frames[g_a10Typed ? 1 : 0];
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
             std::fprintf(stderr, "[a1] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a1Typed ? 1 : 0,
@@ -4712,6 +4746,24 @@ namespace sotc_native
                              (unsigned long long)g.defMax);
             }
 #endif
+            std::fprintf(stderr, "[a10] frame %llu: typed %d; frames off %llu on %llu; check build %d; camera hook taken %d; slot holders taken 0x%x\n",
+                         (unsigned long long)g_frame, g_a10Typed ? 1 : 0, (unsigned long long)g_a10Frames[0], (unsigned long long)g_a10Frames[1], PS2X_A10_CHECK,
+                         g_a10CamHook ? 1 : 0, g_a10HoldMask);
+#if PS2X_A10_CHECK
+            a10ckReport((unsigned long long)g_frame);
+            a10ckExtra((unsigned long long)g_frame);
+            {
+                const A3Stats &g = g_a10s;
+                std::fprintf(stderr, "[a10] frame %llu: adapters entered %llu: typed off %llu, below the NOCHK floor %llu, a callee slot held by another function %llu, "
+                                     "sp not 16-aligned %llu, loop-free leaves %llu; calls %llu, back edges %llu (max %llu in one call), "
+                                     "due (would have tested) %llu (at calls %llu), calls with a deferred checkpoint %llu, deferral EE cycles mean %.1f max %llu\n",
+                             (unsigned long long)g_frame, (unsigned long long)g.entered, (unsigned long long)g.off, (unsigned long long)g.floor,
+                             (unsigned long long)g.slot, (unsigned long long)g.sp16, (unsigned long long)g.leaves,
+                             (unsigned long long)g.calls, (unsigned long long)g.backs, (unsigned long long)g.maxBacks, (unsigned long long)g.dues,
+                             (unsigned long long)g.callDues, (unsigned long long)g.deferred, g.deferred ? (double)g.defSum / (double)g.deferred : 0.0,
+                             (unsigned long long)g.defMax);
+            }
+#endif
 #if PS2X_A3_CHECK
             {
                 // round A9: the slots the failed adapter tests met (the first failing test of an entry), the most entries first
@@ -4969,13 +5021,21 @@ namespace sotc_native
         native_renderer::setShown(wantNative && !shownTune.forceEmulated && g_frameDraws != 0);
     }
 
+    void s4NoteCamera(uint32_t context);
     void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A10_NCHK(0x0108F518u); // round A10: a check build compares the typed iosgluGetCameraContext and its note (typed_a10_nchk.h)
         g_getCameraContext(rdram, ctx, runtime);
         if (runtime->transferPending())
             return; // a thread switch below (round 52): nothing more here
-        g_cameraContext = GPR_U32(ctx, 2);
-        sotc_decomp::g_cameraContextAddr = g_cameraContext;
+        s4NoteCamera(GPR_U32(ctx, 2)); // round A10: the note's core, shared with the typed path (typed_a10_note.h)
+    }
+    // Round A10: the hook holds the slot over iosgluGetCameraContext's native (what the typed function was made from), so a typed
+    // caller that makes the hook's note (A10_CAMNOTE) leaves what the hook does
+    bool a10CamHookHolds()
+    {
+        return g_runtimeForLog && g_getCameraContext == &::decomp_leaves::gluCameraContext &&
+               g_runtimeForLog->lookupFunction(kGetCameraContext) == &getCameraContextHook;
     }
 
     // The performance overlay's numbers (round 20, Tuning::perfOverlay):
@@ -14813,6 +14873,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         g_a7Typed = sotc_decomp::switchOn(sotc_decomp::kA7Typed); // round A7
         g_a8Typed = sotc_decomp::switchOn(sotc_decomp::kA8Typed); // round A8
         g_a9Typed = a9TypedNow();                                 // round A9
+        a10FlagsNow();                                            // round A10
         e = std::getenv("SOTC_A1_LOG");
         g_a1Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }

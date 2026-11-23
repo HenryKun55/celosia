@@ -9,6 +9,7 @@
 #include "typed_a5.h" // a5
 #include "typed_a7.h" // a7
 #include "typed_a9.h" // a9
+#include "typed_a10.h" // a10
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6293,6 +6294,7 @@ L_1088c9c:
 void manager_sub_010C68F8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10C68F8u, 0)) { manager_sub_010C68F8_0x10c68f8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A10_GO() && A10_HOLDS(0x10C68F8u, lift_d1::manager_sub_010C68F8) && A5_SP16(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const float a2_f0 = ctx->f[0]; A10_CHK(manager_sub_010C68F8, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_f0); a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vacc = ctx->vu0_acc; uint64_t a3_xo[1] = {(uint64_t)a1_bits(ctx->f[0])}; A10_IN(0); const uint32_t a2_r = typed::manager_sub_010C68F8(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_f0, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vacc, a3_xo); A10_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_acc = a4_vacc; ctx->pc = Ps2GprU32(ctx, 31); return; } // a10
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), t3 = Ps2GprU32(ctx, 11), s2 = Ps2GprU32(ctx, 18), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21);
     __m128 vf14 = ctx->vu0_vf[14], vf15 = ctx->vu0_vf[15], vf16 = ctx->vu0_vf[16], vf17 = ctx->vu0_vf[17], vf24 = ctx->vu0_vf[24], vf25 = ctx->vu0_vf[25], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27];

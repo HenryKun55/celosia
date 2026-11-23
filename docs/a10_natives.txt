@@ -1,0 +1,4 @@
+# a10_natives.txt: hand natives stage 10 of tools/typed_lift2.py types from their MIPS (round A10; docs/decomp_a10.md): address, the
+# native symbol the slot holds. A typed caller calls the typed function while the slot holds the native (A10_HOLDS); A10_NCHK
+# at the native's entry in a check build compares them.
+010bd3f8 decomp_hot47i::optionNodeGeo                # GetCharacterClassOptionNodeGeo: the MIPS step by step (round 47i), its frame in guest RAM; recursive (the parent option node first)

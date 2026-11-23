@@ -65,6 +65,8 @@ INC_LINE8 = '#include "typed_a8.h" // a8\n'
 ADAPT_MARK8 = ' // a8'
 INC_LINE9 = '#include "typed_a9.h" // a9\n'
 ADAPT_MARK9 = ' // a9'
+INC_LINE10 = '#include "typed_a10.h" // a10\n'
+ADAPT_MARK10 = ' // a10'
 SAVED = {16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31}
 LOADS = {0x20: 1, 0x24: 1, 0x21: 2, 0x25: 2, 0x23: 4, 0x27: 4, 0x31: 4, 0x37: 8}
 STORES = {0x28: 1, 0x29: 2, 0x2B: 4, 0x39: 4, 0x3F: 8}
@@ -116,6 +118,58 @@ GUARD_SYM = {}
 NO_BRK6 = [False]  # --no-brk6 (measuring)
 XO7_OFF = [False]  # --no-xo7 (measuring): stage 7 without callee extra outputs consumed by typed callers
 SPIN8_OFF = [False]  # --no-spin8 (measuring): stage 8 with spin_filter's flow-insensitive taint
+UH10_OFF = [False]  # --no-uh10 (measuring): stage 10 without the upper-half variants
+MUT10_OFF = [False]  # --no-mut10 (measuring): stage 10 with self recursion only
+# A10: the functions docs/a3_skip.txt left out for A6's upper-half class (a callee's 128-bit move not in its typed interface):
+# stage 10 takes them again, with the callees' exact variants (Stage7.uh_*)
+UH10 = ('IsParentCharOrLwsOrient', 'AddLayoutObjSubLink', 'SelectOmakeItem', 'gamecore_sub_013828A8')
+# A10: the camera note: the typed function of iosgluGetCameraContext returns through A10_CAMNOTE (typed_a10_note.h: the note
+# sotc_native's hook makes, while the hook holds the slot), so its typed callers leave the renderer's camera context as the hook does
+NOTE10 = {0x108F518: 'A10_CAMNOTE'}
+
+
+def rec_sccs(F, self_only=False):
+    """A10: {function: frozenset(its cycle)} for the call graph's cycles (Tarjan): a self-recursive function alone, or the members
+    of a strongly connected component of several functions (not with self_only)."""
+    import sys as _s
+    G = {a: sorted({n[1] for n in f['nodes'].values() if n[0] in ('jal', 'tail') and n[1] in F}) for a, f in F.items()}
+    idx, low, on, st, out = {}, {}, set(), [], {}
+    cnt = [0]
+    lim = _s.getrecursionlimit()
+    _s.setrecursionlimit(max(lim, 50000))
+
+    def sc(v):
+        idx[v] = low[v] = cnt[0]
+        cnt[0] += 1
+        st.append(v)
+        on.add(v)
+        for w in G[v]:
+            if w not in idx:
+                sc(w)
+                low[v] = min(low[v], low[w])
+            elif w in on:
+                low[v] = min(low[v], idx[w])
+        if low[v] == idx[v]:
+            comp = []
+            while True:
+                w = st.pop()
+                on.discard(w)
+                comp.append(w)
+                if w == v:
+                    break
+            if len(comp) > 1 and not self_only:
+                fz = frozenset(comp)
+                for w in comp:
+                    out[w] = fz
+            elif len(comp) == 1 and v in G[v]:
+                out[v] = frozenset(comp)
+    for v in sorted(G):
+        if v not in idx:
+            sc(v)
+    _s.setrecursionlimit(lim)
+    return out
+
+
 SP8_OFF = [False]  # --no-sp8 (measuring): stage 8 without the argument-register spills' entry values (the varargs functions)
 
 
@@ -320,8 +374,11 @@ def vu_text(text):
 class Emit:
     """One function written as typed C++ from lift_d1's IR."""
 
-    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False, a5=False, a6=False, a7=False, a8=False, a9=False):
+    def __init__(self, addr, name, abi, sigs, fin, ffacts, loops=False, xout=(), vu=False, a5=False, a6=False, a7=False, a8=False, a9=False, a10=False):
         self.addr, self.name = addr, name
+        # A10: stage 10 (stage 9's form, recursion; the adapters test the switch a10typed: A10_GO / A10_HOLDS)
+        self.a10 = a10
+        a9 = a9 or a10
         # A9: stage 9 (stage 8's form; the adapters test the switch a9typed: A9_GO / A9_HOLDS)
         self.a9 = a9
         a8 = a8 or a9
@@ -703,6 +760,11 @@ class Emit:
             self.check_xout(sigs)
         # ---------------------------------------------------------------- the text
         self.text = self.body(sigs)
+        if self.addr in NOTE10 and self.rtype == 'uint32_t' and not self.xout:
+            # A10: the camera note (NOTE10): every return's value through the note macro
+            t0 = self.text
+            self.text = re.sub(r'\breturn ([^;]+);', lambda m: f'return {NOTE10[self.addr]}({m.group(1)});', self.text)
+            assert self.text != t0
 
     def guest_frame(self, order, W):
         """A5: the frame in guest RAM. When the frame's address escapes (a pointer to a vector or a struct on the stack passed
@@ -1851,7 +1913,7 @@ class Emit:
     def adapter7(self, ld, args, st, r):
         """A7: A6's adapter with the switch a7typed (A7_GO / A7_HOLDS / A7_IN / A7_OUT / A7_CHK); a typed callee's extra outputs
         a lifted caller reads come back through the adapter's xo as A3's do."""
-        go = 'A7_GO()' + ''.join(f' && A7_HOLDS(0x{c:X}u, {guard_sym(c, nm)})' for c, nm in sorted(self.holds))
+        go = 'A7_GO()' + ''.join((f' && A7_HOLDSX(0x{c:X}u, {guard_sym(c, nm[:-2])})' if nm.endswith('@x') else f' && A7_HOLDS(0x{c:X}u, {guard_sym(c, nm)})') for c, nm in sorted(self.holds))
         go += ''.join(f' && A5_JAL(0x{site:X}u, 0x{t:X}u)' for site, t in sorted(self.relocs_all))
         if self.has128:
             go += ' && A5_SP16()'
@@ -1888,6 +1950,11 @@ class Emit:
         return self.adapter7(ld, args, st, r).replace('A7_GO()', 'A9_GO()').replace('A7_HOLDS(', 'A9_HOLDS(').replace(
             'A7_CHK(', 'A9_CHK(').replace('A7_IN(', 'A9_IN(').replace('A7_OUT()', 'A9_OUT()')[:-len(ADAPT_MARK7)] + ADAPT_MARK9
 
+    def adapter10(self, ld, args, st, r):
+        """A10: A9's adapter with the switch a10typed (A10_GO / A10_HOLDS / A10_IN / A10_OUT / A10_CHK)."""
+        return self.adapter7(ld, args, st, r).replace('A7_GO()', 'A10_GO()').replace('A7_HOLDS(', 'A10_HOLDS(').replace('A7_HOLDSX(', 'A10_HOLDSX(').replace(
+            'A7_CHK(', 'A10_CHK(').replace('A7_IN(', 'A10_IN(').replace('A7_OUT()', 'A10_OUT()')[:-len(ADAPT_MARK7)] + ADAPT_MARK10
+
     # the guest-signature adapter, one line at the top of the lifted function's body
     def adapter(self):
         ld, av = [], []
@@ -1910,6 +1977,8 @@ class Emit:
         elif rt == 'uint64_t':
             st = 'Ps2SetGpr64(ctx, 2, a2_r); '
         r = '' if rt == 'void' else f'const {rt} a2_r = '
+        if self.a10:
+            return self.adapter10(ld, args, st, r)
         if self.a9:
             return self.adapter9(ld, args, st, r)
         if self.a8:
@@ -2048,7 +2117,7 @@ def direct_targets(texts):
 
 # ----------------------------------------------------------------------------------------------- text / undo
 def undo_text(t):
-    t = t.replace(INC_LINE9, '').replace(INC_LINE8, '').replace(INC_LINE7, '').replace(INC_LINE6, '').replace(INC_LINE5, '').replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
+    t = t.replace(INC_LINE10, '').replace(INC_LINE9, '').replace(INC_LINE8, '').replace(INC_LINE7, '').replace(INC_LINE6, '').replace(INC_LINE5, '').replace(INC_LINE4, '').replace(INC_LINE3, '').replace(INC_LINE, '')
     return '\n'.join(line for line in t.split('\n') if not ((line.endswith(ADAPT_MARK) and 'A2_GO' in line) or
                                                            (line.endswith(ADAPT_MARK3) and 'A3_GO' in line) or
                                                            (line.endswith(ADAPT_MARK4) and 'A4_GO' in line) or
@@ -2056,7 +2125,8 @@ def undo_text(t):
                                                            (line.endswith(ADAPT_MARK6) and 'A6_GO' in line) or
                                                            (line.endswith(ADAPT_MARK7) and 'A7_GO' in line) or
                                                            (line.endswith(ADAPT_MARK8) and 'A8_GO' in line) or
-                                                           (line.endswith(ADAPT_MARK9) and 'A9_GO' in line)))
+                                                           (line.endswith(ADAPT_MARK9) and 'A9_GO' in line) or
+                                                           (line.endswith(ADAPT_MARK10) and 'A10_GO' in line)))
 
 
 HDR = '''// typed_a2.h: round A2's typed functions (tools/typed_lift2.py; docs/decomp_a2.md). Generated: do not edit.
@@ -2143,17 +2213,20 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         head = [f"// {tag}_typed_check.cpp: round {TAG}'s differential check of the typed functions (tools/typed_lift2.py --check-tu;",
                 f'// docs/decomp_{tag}.md). Generated: do not edit. Compiled to code only with PS2X_{TAG}_CHECK=1 (a check build) or',
                 f'// {TAG}_OFFLINE (the offline harness, tools/{tag}_harness.cpp).']
-    if tag in ('a7', 'a8', 'a9'):
+    if tag in ('a7', 'a8', 'a9', 'a10'):
         # A7: both legs' float operations at run time, in the game thread's rounding (toward zero): no compile-time folding in
         # the default rounding (GCC: the TU's functions with -frounding-math; the offline harness is built with it)
         head = head + ['#if defined(__GNUC__) && !defined(__clang__)', '#pragma GCC optimize("rounding-math")', '#endif']
+    if tag == 'a10':
+        # A10: the camera note in this TU's typed legs is captured, not made (typed_a10_check_rt.h camCap: A10_NCHK compares it)
+        head = head + ['#if !defined(A10_OFFLINE)', '#define A10_CAMNOTE(v) ::a10ck::camCap(v)', '#endif']
     out = head + [f'#include "typed_{tag}_check_rt.h"',
                   f'#if PS2X_{TAG}_CHECK || defined({TAG}_OFFLINE)',
                   f'namespace {ns}',
                   '{',
                   'bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);',
                   '}',
-                  REF_MACROS.replace('a2ck::', ns + '::') + (REF_JUMP.replace('a5ck::', ns + '::') if tag in ('a5', 'a6', 'a7', 'a8', 'a9') else ''),
+                  REF_MACROS.replace('a2ck::', ns + '::') + (REF_JUMP.replace('a5ck::', ns + '::') if tag in ('a5', 'a6', 'a7', 'a8', 'a9', 'a10') else ''),
                   f'namespace {ns}',
                   '{',
                   'namespace ref',
@@ -2171,6 +2244,14 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
     out.append('bool refCall(uint32_t t, uint32_t ret, uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)')
     out.append('{')
     out.append('    ctx->pc = t;')
+    if tag == 'a10':
+        # A10: the reference legs recurse through here; on random states (offline) a drawn cycle of pointers would not end
+        out.append('#if defined(A10_OFFLINE)')
+        out.append('    legBack(); // each reference call counts against the leg cap as a back edge does (a binary recursion on a drawn tree)')
+        out.append('    static int depth = 0; // and the depth is bounded (a drawn cycle of pointers: the host stack)')
+        out.append('    if (depth > 2000) throw Capped{};')
+        out.append('    struct Depth { Depth() { ++depth; } ~Depth() { --depth; } } depth_;')
+        out.append('#endif')
     out.append('    switch (t)')
     out.append('    {')
     for a, s in sorted(a1sigs.items()):
@@ -2179,8 +2260,8 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         if getattr(E, 'variant', False):
             continue
         out.append(f'    case 0x{E.addr:x}u: ref::{E.name}(rdram, ctx, runtime); break;')
-    if tag in ('a6', 'a7', 'a8', 'a9'):
-        for x in A6_EXT + (A7_EXT if tag in ('a7', 'a8', 'a9') else []) + (A8_EXT if tag in ('a8', 'a9') else []) + (A9_EXT if tag == 'a9' else []):  # the typed runtime stubs: the reference's call runs the stub's core on the leg's memory (refExt)
+    if tag in ('a6', 'a7', 'a8', 'a9', 'a10'):
+        for x in A6_EXT + (A7_EXT if tag in ('a7', 'a8', 'a9', 'a10') else []) + (A8_EXT if tag in ('a8', 'a9', 'a10') else []) + (A9_EXT if tag in ('a9', 'a10') else []) + (A10_EXT if tag == 'a10' else []):  # the typed runtime stubs: the reference's call runs the stub's core on the leg's memory (refExt)
             out.append(f'    case 0x{x[0]:x}u: refExt(0x{x[0]:x}u, rdram, ctx, runtime); break;')
     out.append('    default: ckUnknownCall(t); return true;')
     out.append('    }')
@@ -2202,11 +2283,11 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             out.append('    a1ck::ckMid();')
         else:  # A3: a leg that runs past the iteration cap (offline, random states) or the log is given up (ckLeg false)
             out.append('    R5900Context &c = ckCtx(ctx);')
-            sv = sorted((off, size) for (r, off, size) in getattr(E, 'save_at', {}).values()) if (getattr(E, 'gf', False) or tag in ('a6', 'a7', 'a8', 'a9')) else []
+            sv = sorted((off, size) for (r, off, size) in getattr(E, 'save_at', {}).values()) if (getattr(E, 'gf', False) or tag in ('a6', 'a7', 'a8', 'a9', 'a10')) else []
             if sv:  # A5: a guest frame's save slots (a reference store into one other than its save gives the check up)
                 out.append('    static const int32_t kSv[][2] = {' + ', '.join(f'{{{o}, {z}}}' for o, z in sv) + '};')
                 out.append(f'    ckSaves(kSv, {len(sv)}u);')
-            if tag in ('a6', 'a7', 'a8', 'a9'):
+            if tag in ('a6', 'a7', 'a8', 'a9', 'a10'):
                 out.append('    brkReset();')
             out.append(f'    if (!ckLeg([&] {{ ref::{getattr(E, "refname", E.name)}(rdram, &c, runtime); }})) return;')
             if sv:
@@ -2246,11 +2327,11 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
             else:
                 body = f'v0 = {"a1_sx64" if E.rtype == "uint32_t" else ""}(ty::{E.name}(rdram, runtime{av}{xa}));'
             out.append(f'    if (!ckLeg([&] {{ {body} }})) return;')
-            xc = ['brkDiffer()'] if tag in ('a6', 'a7', 'a8', 'a9') else []
+            xc = ['brkDiffer()'] if tag in ('a6', 'a7', 'a8', 'a9', 'a10') else []
             for j, (k, q) in enumerate(E.xout):
                 xc.append(f'Ps2GprU64(&c, {q}) != xo[{j}]' if k == 'g' else f'a1ck::ckBits(c.f[{q}]) != (uint32_t)xo[{j}]')
             vb = ''
-            if tag in ('a4', 'a5', 'a6', 'a7', 'a8', 'a9'):
+            if tag in ('a4', 'a5', 'a6', 'a7', 'a8', 'a9', 'a10'):
                 # the typed leg's VU0 state: the input context with the VU0 outputs written in, against the reference's
                 out.append('    R5900Context &t = ckTyCtx(ctx);')
                 for q, isout in vio:
@@ -2270,7 +2351,7 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         out.append('    {"none", 0u, nullptr},')
     out.append('};')
     out.append(f'const uint32_t kEntryCount = {len(emits)}u;')
-    if tag in ('a6', 'a7', 'a8', 'a9'):
+    if tag in ('a6', 'a7', 'a8', 'a9', 'a10'):
         # A6_NCHK: a hand native typed from its MIPS, its typed function run on the native's entry state (leg 1 of the overlay)
         out.append('bool nativeLeg(uint32_t addr, uint8_t *rdram, const R5900Context *ctx, PS2Runtime *runtime, uint64_t &v0, float &f0, int &kind)')
         out.append('{')
@@ -2299,10 +2380,10 @@ def write_check(emits, a1sigs, defs_n4, path_tu, path_ref, tag='a2', prev=(), pr
         out.append('    default: return false;')
         out.append('    }')
         out.append('}')
-    if tag in ('a5', 'a6', 'a7', 'a8', 'a9'):
+    if tag in ('a5', 'a6', 'a7', 'a8', 'a9', 'a10'):
         # the relocated sites' words (the static target each A5_JAL tests): the offline harness writes them into its RAM
         rw = sorted({(site, w) for E in emits for site, w in getattr(E, 'reloc_words', {}).items()})
-        if tag in ('a6', 'a7', 'a8', 'a9'):  # A6: every relocated site a function reaches through its typed callees too (A5_JAL tests them all)
+        if tag in ('a6', 'a7', 'a8', 'a9', 'a10'):  # A6: every relocated site a function reaches through its typed callees too (A5_JAL tests them all)
             allw = {}
             for E in list(prev) + list(emits):
                 allw.update(getattr(E, 'reloc_words', {}))
@@ -2448,6 +2529,43 @@ ADAPT9_HEAD = '''// typed_a9_adapters.cpp: round A9's adapters for the never-lif
 #include <ps2_recompiled_functions.h>
 
 namespace a9ad
+{
+inline uint64_t sx64(uint32_t v) { return a1_sx64(v); } // the adapters' v0 (as lift_d1::sx64 in the lifted batches)
+}
+
+'''
+
+
+HDR10 = '''// typed_a10.h: round A10's typed functions (tools/typed_lift2.py, stage 10; docs/decomp_a10.md). Generated: do not edit.
+// What A1-A9 left behind a callee they could not type and A10 types: recursive functions (a function that calls itself, or a
+// cycle of functions calling each other, typed against its own interface to a fixpoint: each call a C++ call with its own host
+// frame, or its guest frame in guest RAM below the guest sp as the MIPS keeps it), the upper-half class (a callee whose lifted
+// text writes a GPR's whole 128 bits typed with that upper half where its caller's VU0 interface holds it), and every caller
+// that then had all its callees typed (variants <name>_x10 of earlier functions as A7's).
+#pragma once
+#include "typed_a9.h"
+#include "typed_a10_rt.h"
+
+namespace typed
+{
+#include "typed_a10.inc"
+}
+'''
+
+
+ADAPT10_HEAD = '''// typed_a10_adapters.cpp: round A10's adapters for the never-lifted functions stage 10 typed (tools/typed_lift2.py;
+// docs/decomp_a10.md). Generated: do not edit. Each takes the recompiled function's slot at install (a10InstallAdapters, from
+// sotc_decomp::install after A9's, only while the slot still holds the recompiled function): the typed function while the
+// switch a10typed is on and every slot it reaches holds what its typed callee stands for (A10_GO / A10_HOLDS), else the
+// recompiled function as before.
+#include "sotc_decomp.h"
+#include "typed_a10.h"
+
+#include "ps2_runtime_macros.h"
+#include "ps2_runtime.h"
+#include <ps2_recompiled_functions.h>
+
+namespace a10ad
 {
 inline uint64_t sx64(uint32_t v) { return a1_sx64(v); } // the adapters' v0 (as lift_d1::sx64 in the lifted batches)
 }
@@ -2727,6 +2845,22 @@ def a9_ext_sigs():
     return out
 
 
+# A10: no new cores (the camera note is in the typed iosgluGetCameraContext itself: NOTE10)
+A10_EXT = []
+
+
+def a10_ext_sigs():
+    out = {}
+    for a, tname, nm, params, rt, v0w, vin, vout, vmust, sym in A10_EXT:
+        s = Sig(nm, a, rt, params, set(), v0w, 'a10x')
+        s.vin, s.vout, s.vmust = frozenset(vin), frozenset(vout), frozenset(vmust)
+        s.vio = tuple((q, q in vout) for q in sorted(set(vin) | set(vout), key=vu_sortkey))
+        s.ext = tname
+        out[a] = s
+        GUARD_SYM[a] = sym
+    return out
+
+
 def run_stage6(cand, sigs, depth, F, names, abi, cfin, refdefs, max_depth, nolift):
     """Stage 6: stage 5's form (loops, VU0, the typed ABI proof, relocations, guest frames, jump tables) plus `break`, over the
     lifted functions stage 5 left and the never-lifted / native-held functions in `nolift` (typed from their MIPS, no adapter:
@@ -2790,9 +2924,11 @@ class Stage7:
     the extra outputs, no adapter, called by stage-7 functions only, under the same slot test). Round by round until no new
     extra output is asked for (each round emits everything again from the accumulated requests)."""
 
-    def __init__(self, cand, base_sigs, base_depth, F, names, abi, cfin, refs, nolift, noadapter, lifted_names, sfx='_x7', a8=False, a9=False):
+    def __init__(self, cand, base_sigs, base_depth, F, names, abi, cfin, refs, nolift, noadapter, lifted_names, sfx='_x7', a8=False, a9=False, a10=False, rec=False):
         self.sfx, self.a8 = sfx, a8  # A8: stage 8 runs this class again (variants <name>_x8, Emit a8)
         self.a9 = a9  # A9: stage 9 likewise (variants <name>_x9, Emit a9)
+        self.a10 = a10  # A10: stage 10 likewise (variants <name>_x10, Emit a10)
+        self.rec = rec  # A10: recursive functions (a self call / a cycle typed against its own interface to a fixpoint)
         self.cand, self.cset = cand, set(cand)
         self.base_sigs, self.base_depth = base_sigs, base_depth
         self.F, self.names, self.abi, self.cfin, self.refs = F, names, abi, cfin, refs
@@ -2803,6 +2939,8 @@ class Stage7:
         self.want_var = collections.defaultdict(set)
         self.bad = collections.defaultdict(set)  # slots a function / variant could not give back (callers needing them refused)
         self.changed = False
+        # A10: the call graph's cycles: a self-recursive function {itself}, a cycle of several functions (unless --no-mut10)
+        self.scc = rec_sccs(F, MUT10_OFF[0]) if rec else {}
 
     def need(self, E):
         """A caller's NeedXout: record the requests; True when the caller can be retried now with variants (overlay)."""
@@ -2826,11 +2964,24 @@ class Stage7:
                     self.changed = True
         return retry
 
-    def emit(self, a, name, xout, sigs):
+    def emit(self, a, name, xout, sigs, extra=None):
         self.overlay = {}
         for _ in range(12):
-            sg = collections.ChainMap(self.overlay, sigs)
-            E = Emit(a, name, self.abi.get(a), sg, self.cfin, self.F[a], loops=True, xout=xout, vu=True, a5=True, a6=True, a7=True, a8=self.a8, a9=self.a9)
+            sg = collections.ChainMap(self.overlay, extra, sigs) if extra else collections.ChainMap(self.overlay, sigs)
+            sg = self.uh_overlay(sg)
+            E = Emit(a, name, self.abi.get(a), sg, self.cfin, self.F[a], loops=True, xout=xout, vu=True, a5=True, a6=True, a7=True, a8=self.a8, a9=self.a9, a10=self.a10)
+            if E.ok and self.a10 and not UH10_OFF[0]:
+                # A10: the upper-half class: a callee whose lifted text writes a GPR's whole 128 bits (movz / movn's 128-bit
+                # move) typed without that upper half, called where this function's VU0 interface holds the half: emitted
+                # again with the callee's exact variant (typed in the VU0 form, the half an output), until nothing changes
+                need = self.uh_need(E, sg)
+                if need and self.uh_add(need, sigs):
+                    continue
+                miss = frozenset()
+                for c in set(E.callees):
+                    if c != a:
+                        miss |= self.uh_missing(c, sg)
+                E.sig.uh_missing = miss
             if E.ok or E.need is None:
                 E.sg = sg
                 return E
@@ -2840,10 +2991,162 @@ class Stage7:
         E.why = 'a7: overlay limit'
         return E
 
+    # ---------------------------------------------------------------- A10: the upper-half class
+    def uh_ir(self, c, seen=()):
+        """A10: the GPRs whose upper half the lifted text of c or of anything it calls may write with a 128-bit move (movz / movn:
+        lift_d1's `ctx->r[N] = _v`, VEC_W / VEC_N), from the IR. Memoised."""
+        if c in self.uh_irm:
+            return self.uh_irm[c]
+        if c not in self.F or c in seen:
+            return frozenset()
+        out = set()
+        try:
+            lf = L.Lifter(c, {})
+            lf.build()
+            for x, n in lf.node_effects().items():
+                for k in ('code', 'dcode'):
+                    t = n.get(k) or ''
+                    out |= {int(m.group(2)) for m in VEC_W.finditer(t)} | {int(m.group(2)) for m in VEC_N.finditer(t)}
+        except Exception:
+            pass
+        for d in {n[1] for n in self.F[c]['nodes'].values() if n[0] in ('jal', 'tail')}:
+            if d != c:
+                out |= self.uh_ir(d, seen + (c,))
+        r = frozenset(out - {0})
+        self.uh_irm[c] = r
+        return r
+
+    def uh_missing(self, c, sg):
+        """A10: the upper halves typed callee c's interface does not carry although its lifted text may write them: everything
+        uh_ir finds for a function outside the VU0 form (A1-A3), what its callees miss for one in it (its own 128-bit moves are
+        modelled there), what an exact variant still misses past its registers, nothing for a core / stub."""
+        s_ = sg.get(c)
+        if s_ is None or getattr(s_, 'ext', None):
+            return frozenset()
+        if getattr(s_, 'uh_missing', None) is not None:
+            return s_.uh_missing
+        if c in self.uh_mm:
+            return self.uh_mm[c]
+        if getattr(s_, 'tier', '') in ('a1', 'a2'):
+            r = self.uh_ir(c)
+        else:
+            self.uh_mm[c] = frozenset()  # a cycle: its members' own halves are found on the way
+            r = frozenset()
+            if c in self.F:
+                for d in {n[1] for n in self.F[c]['nodes'].values() if n[0] in ('jal', 'tail')}:
+                    if d != c:
+                        r |= self.uh_missing(d, self.base_sigs)
+        self.uh_mm[c] = r
+        return r
+
+    def uh_need(self, E, sg):
+        """A10: {callee: registers} whose exact variant E needs (the callee's unmodelled upper halves within E's interface)."""
+        hs = {q[1] for q, _ in E.vio if q[0] == 'h'} | set(self.uh_force)
+        if not hs:
+            return {}
+        need = {}
+        for c in set(E.callees):
+            if c == E.addr:
+                continue
+            u = self.uh_missing(c, sg) & hs
+            if u:
+                need[c] = u
+        return need
+
+    def uh_add(self, need, sigs):
+        """A10: the exact variants asked for (callee, registers); True when one is new (the caller is emitted again)."""
+        new = False
+        for c, rs in need.items():
+            req = frozenset(rs) | self.uh_req.get(c, frozenset())
+            if c in self.uh_bad or (c in self.uh_var and self.uh_req.get(c) == req):
+                continue
+            self.uh_req[c] = req
+            orig = sigs[c]
+            oname = getattr(orig, 'orig', orig.name)
+            calls = [n[1] for n in self.F[c]['nodes'].values() if n[0] in ('jal', 'tail')] if c in self.F else []
+            if c not in self.F or any(cc not in sigs and cc != c for cc in calls):
+                self.uh_bad.add(c)
+                self.uh_why[c] = 'not in the IR / a callee untyped'
+                continue
+            save, force = self.overlay, self.uh_force
+            self.uh_force = req
+            E = self.emit(c, oname + '_u10', tuple(getattr(orig, 'xout', ())), sigs)
+            self.overlay, self.uh_force = save, force
+            if not E.ok or (getattr(E.sig, 'uh_missing', frozenset()) & req) or not ({('h', r) for r in req} <= set(E.vout)):
+                self.uh_bad.add(c)
+                self.uh_why[c] = E.why if not E.ok else 'the upper halves not outputs of the VU0 form'
+                continue
+            E.lifted = False
+            E.holds = E.sig.holds = self.holds_of(E, E.sg, calls)
+            E.guards = E.sig.guards = []
+            E.sig.orig = oname
+            E.sig.strict = True  # its callers' slot test: the slot holds exactly what it was typed from (no a6Is alternative: a native
+            #                     taken for the lifted function was proven against the form without the upper half)
+            E.depth = self.base_depth.get(c, 0)
+            E.variant = True
+            self.uh_var[c] = E
+            new = True
+        return new
+
+    def uh_overlay(self, sg):
+        """A10: the exact variants made so far in front of the signatures."""
+        if not getattr(self, 'uh_var', None):
+            return sg
+        return collections.ChainMap({c: E.sig for c, E in self.uh_var.items()}, sg)
+
+    # ---------------------------------------------------------------- A10: recursion
+    def prov_sig(self, a, name, xo):
+        """A10: a recursive function's provisional interface (the fixpoint's start): no parameters, both return slots, nothing
+        dropped, no VU0 state; its extra outputs the ones it is emitted with."""
+        s_ = Sig(name, a, 'a1::RetVF', [], set(), 32, 'a10')
+        s_.xout = tuple(sorted(xo, key=lambda q: (q[0], q[1])))
+        s_.xmust = frozenset()
+        s_.stk = False
+        s_.xfin = frozenset()
+        s_.relocs = set()
+        return s_
+
+    @staticmethod
+    def sig_key(s_):
+        return (tuple(s_.params), s_.rtype, frozenset(s_.dropped), s_.v0w, frozenset(s_.vin), frozenset(s_.vout), frozenset(s_.vmust),
+                tuple(s_.vio), tuple(getattr(s_, 'xout', ())), frozenset(getattr(s_, 'xmust', ())), bool(getattr(s_, 'stk', False)),
+                frozenset(getattr(s_, 'xfin', ())), bool(getattr(s_, 'brk', False)), frozenset(getattr(s_, 'relocs', set())))
+
+    def emit_rec(self, members, sigs):
+        """A10: a recursive function (members = {itself}) or a cycle of functions calling each other, typed together against
+        their own interfaces: each member emitted with the others' (and its own) current interface, the interfaces replaced by
+        what the emission gives, until they agree (a fixpoint: the typed text then calls functions whose interfaces are exactly
+        the ones written). ({addr: Emit}, None), or (None, why)."""
+        xos = {a: (self.want[a] | self.want_req[a]) - self.bad[a] for a in members}
+        prov = {a: self.prov_sig(a, self.names[a], xos[a]) for a in members}
+        for it in range(10):
+            Es = {}
+            for a in sorted(members):
+                E = self.emit(a, self.names[a], xos[a], sigs, extra=prov)
+                if not E.ok and E.need is None and (self.want[a] - self.bad[a]) - self.want_req[a]:
+                    self.bad[a] |= (self.want[a] - self.want_req[a])
+                    self.changed = True
+                    return None, 'recursion: a typed caller\'s extra output cannot be met (retried next round)'
+                if not E.ok:
+                    return None, E.why
+                Es[a] = E
+            new = {a: Es[a].sig for a in members}
+            if all(self.sig_key(new[a]) == self.sig_key(prov[a]) for a in members):
+                self.rec_iters[min(members)] = it + 1
+                return Es, None
+            prov = {}
+            for a in members:
+                s_ = Sig(self.names[a], a, new[a].rtype, list(new[a].params), set(new[a].dropped), new[a].v0w, 'a10')
+                for k in ('xout', 'xmust', 'stk', 'xfin', 'relocs', 'brk', 'vin', 'vout', 'vmust', 'vio', 'uh_missing'):
+                    if hasattr(new[a], k):
+                        setattr(s_, k, getattr(new[a], k))
+                prov[a] = s_
+        return None, 'recursion: no fixpoint'
+
     def holds_of(self, E, sg, calls):
         holds = set()
         for c in set(calls):
-            holds.add((c, getattr(sg[c], 'orig', sg[c].name)))
+            holds.add((c, getattr(sg[c], 'orig', sg[c].name) + ('@x' if getattr(sg[c], 'strict', False) else '')))
             holds |= sg[c].holds
         return holds
 
@@ -2878,10 +3181,36 @@ class Stage7:
                 E.variant = True
                 self.variants[c] = E
 
+    def finish(self, a, E, calls, sigs, depth, emitted, holds=None):
+        """One emitted function into the round's result (A7's tail of run_round); False with E.why when refused."""
+        name = self.names[a]
+        E.guards = E.sig.guards = []
+        if holds is None:
+            holds = self.holds_of(E, E.sg, calls)
+        if any(nm in N3.LIBC for c, nm in holds if c not in GUARD_SYM):
+            E.ok, E.why = False, 'callee named like a libc function'
+            return False
+        E.holds = E.sig.holds = holds
+        body = self.refs.get(name)
+        if body is not None:
+            body = body.replace('runtime->handleBreak(rdram, ctx);', 'A6_REF_BREAK();')
+            body = ref_reloc_guards(body, E)
+        E.ref = None if body is None else ref_body(name, a, body, a5=True)
+        if E.ref is None:
+            E.ok, E.why = False, 'reference text form'
+            return False
+        E.lifted = a not in self.nolift
+        E.depth = 1 + max([depth.get(c, 0) for c in calls] + [-1])
+        E.variant = False
+        return True
+
     def run_round(self, max_depth):
         sigs = dict(self.base_sigs)
         depth = dict(self.base_depth)
         self.vwhy = {}
+        self.rec_iters = {}
+        self.uh_irm, self.uh_mm, self.uh_var, self.uh_req, self.uh_bad, self.uh_why = {}, {}, {}, {}, set(), {}
+        self.uh_force = frozenset()
         self.build_variants(sigs)
         emitted, tried = {}, {}
         level = 0
@@ -2893,12 +3222,59 @@ class Stage7:
                     continue
                 f = self.F[a]
                 calls = [n[1] for n in f['nodes'].values() if n[0] in ('jal', 'tail')]
-                if any(c not in sigs for c in calls):
+                own = self.scc.get(a, frozenset()) if self.rec else frozenset()
+                if any(c not in sigs and c not in own for c in calls):
                     continue
                 if a in tried and tried[a] != 'untyped callee':
                     continue
                 if any(c in sigs and sigs[c].guards for c in calls):
                     tried[a] = 'callee needs a slot test'
+                    continue
+                if own:
+                    # A10: a recursive function (or a cycle): typed together once every callee outside the cycle is typed
+                    if not own <= self.cset:
+                        tried[a] = 'recursion: a member of the cycle is not a candidate'
+                        continue
+                    mcalls = {b: [n[1] for n in self.F[b]['nodes'].values() if n[0] in ('jal', 'tail')] for b in own}
+                    if any(any(c not in sigs and c not in own for c in mcalls[b]) for b in own):
+                        continue
+                    Es, why = self.emit_rec(own, sigs)
+                    if Es is None:
+                        for b in own:
+                            tried[b] = why
+                        continue
+                    holds = {b: set() for b in own}
+                    ch = True
+                    while ch:  # the members' slot tests: their callees' and each other's, to a fixpoint
+                        ch = False
+                        for b in own:
+                            h = set()
+                            for c in set(mcalls[b]):
+                                sgc = Es[c].sig if c in own else Es[b].sg[c]
+                                h.add((c, getattr(sgc, 'orig', sgc.name) + ('@x' if getattr(sgc, 'strict', False) else '')))
+                                h |= holds[c] if c in own else sgc.holds
+                            if h != holds[b]:
+                                holds[b] = h
+                                ch = True
+                    ok = True
+                    for b in own:
+                        if not self.finish(b, Es[b], [c for c in mcalls[b] if c not in own], sigs, depth, emitted, holds[b]):
+                            ok = False
+                            tried[b] = Es[b].why
+                    if not ok:
+                        for b in own:
+                            tried.setdefault(b, 'recursion: a member refused')
+                        continue
+                    dmax = max(Es[b].depth for b in own)
+                    for b in own:
+                        E = Es[b]
+                        E.depth = dmax
+                        E.rec = len(own)
+                        depth[b] = E.depth
+                        emitted[b] = E
+                        sigs[b] = E.sig
+                        self.abi[b] = (True, set(E.abi5[1]) | ({29} if E.needs_sp else set()), set(E.abi5[2]))
+                        added += 1
                     continue
                 name = self.names[a]
                 xo = self.want[a] | self.want_req[a]
@@ -2909,25 +3285,10 @@ class Stage7:
                     self.changed = True
                     E = self.emit(a, name, (self.want_req[a]) - self.bad[a], sigs)
                 if E.ok:
-                    E.guards = E.sig.guards = []
-                    holds = self.holds_of(E, E.sg, calls)
-                    if any(nm in N3.LIBC for c, nm in holds if c not in GUARD_SYM):
-                        E.ok, E.why = False, 'callee named like a libc function'
-                    E.holds = E.sig.holds = holds
-                if E.ok:
-                    body = self.refs.get(name)
-                    if body is not None:
-                        body = body.replace('runtime->handleBreak(rdram, ctx);', 'A6_REF_BREAK();')
-                        body = ref_reloc_guards(body, E)
-                    E.ref = None if body is None else ref_body(name, a, body, a5=True)
-                    if E.ref is None:
-                        E.ok, E.why = False, 'reference text form'
+                    self.finish(a, E, calls, sigs, depth, emitted)
                 if not E.ok:
                     tried[a] = E.why
                     continue
-                E.lifted = a not in self.nolift
-                E.depth = 1 + max([depth.get(c, 0) for c in calls] + [-1])
-                E.variant = False
                 depth[a] = E.depth
                 emitted[a] = E
                 sigs[a] = E.sig
@@ -3236,6 +3597,16 @@ def main():
     ap.add_argument('--ext9', default=None, help='A9 (measuring): only these A9_EXT addresses (comma-separated hex)')
     ap.add_argument('--natives9', default=os.path.join(REPO, 'docs/a9_natives.txt'),
                     help='A9: more hand natives typed from their MIPS (address, the native symbol the slot holds)')
+    ap.add_argument('--no-a10', action='store_true', help='no A10 stage (recursion, the upper-half class)')
+    ap.add_argument('--out-list10', default=os.path.join(REPO, 'docs/a10_typed.txt'))
+    ap.add_argument('--log10', default=None)
+    ap.add_argument('--rounds10', type=int, default=14, help='A10: rounds of extra-output requests')
+    ap.add_argument('--no-nat10', action='store_true', help='A10 (measuring): without docs/a10_natives.txt')
+    ap.add_argument('--no-rec10', action='store_true', help='A10 (measuring): without recursion')
+    ap.add_argument('--no-mut10', action='store_true', help='A10 (measuring): self recursion only (no cycles of several functions)')
+    ap.add_argument('--no-uh10', action='store_true', help='A10 (measuring): without the upper-half variants (docs/a3_skip.txt upper-half lines stay out)')
+    ap.add_argument('--natives10', default=os.path.join(REPO, 'docs/a10_natives.txt'),
+                    help='A10: more hand natives typed from their MIPS (address, the native symbol the slot holds)')
     ap.add_argument('--ov', default=None, help='write the generated typed files here instead of game/overrides (development)')
     ap.add_argument('--n3-exclude', default=os.path.join(REPO, 'tools/n3_direct_exclude.txt'),
                     help="A4: N3's excluded targets count as direct targets here (their adapters test every typed callee's slot)")
@@ -3829,9 +4200,129 @@ def main():
             stats += (f'\ntyped_lift2 stage 9 (A9): {len(cand9)} candidates ({len(nolift9)} more natives), {len(emits9)} converted '
                       f'({sum(1 for E in emits9 if not E.lifted)} without an adapter in the lifted text; {len(vars9)} variants of earlier functions) '
                       f'{dict(sorted(tiers9.items()))} (refused: {dict(why9.most_common(30))}); {nadapt9} adapters')
+        # ---- stage 10 (round A10): stage 9's form again over what it left, with recursion (a self call or a cycle typed
+        # against its own interface to a fixpoint), the upper-half class, more MIPS-step natives (docs/a10_natives.txt)
+        emits10, vars10, why10, tiers10, cand10 = [], [], collections.Counter(), collections.Counter(), []
+        emitted10, tried10, live10 = {}, {}, {}
+        natives10, nolift10 = {}, set()
+        do10 = do9 and not args.no_a10
+        if do10:
+            if args.natives10 and os.path.exists(args.natives10) and not args.no_nat10:
+                for line in open(args.natives10):
+                    line = line.split('#')[0].split()
+                    if len(line) >= 2:
+                        natives10[int(line[0], 16)] = line[1]
+            for a in sorted(natives10):
+                if a in sigs or a not in F or a in nolift or a in nolift7 or a in nolift8 or a in nolift9:
+                    continue
+                sym = tab.get(a, '')
+                m = re.match(r'^(\w+)_0x([0-9a-f]+)$', sym)
+                if not m or int(m.group(2), 16) != a:
+                    continue
+                nm = L.cxx(m.group(1))
+                if nm in used:
+                    nm = f'{nm}_{a:x}'
+                used.add(nm)
+                names6[a] = nm
+                GUARD_SYM[a] = '::' + natives10[a]
+                nolift10.add(a)
+            by_name6.update({names6[a]: a for a in nolift10})
+            base10 = dict(sigs)
+            base10.update(a10_ext_sigs())
+            UH10_OFF[0] = args.no_uh10
+            MUT10_OFF[0] = args.no_mut10
+            if not args.no_uh10:
+                # the upper-half functions that are never lifted (stage 6 left them out for their docs/a3_skip.txt line): named here
+                for a in sorted(F):
+                    if a in sigs or a in byaddr or a in reg_lifted or a in stubs or a in natreg or a in names6:
+                        continue
+                    sym = tab.get(a, '')
+                    m = re.match(r'^(\w+)_0x([0-9a-f]+)$', sym)
+                    if not m or int(m.group(2), 16) != a or L.cxx(m.group(1)) not in UH10:
+                        continue
+                    nm = L.cxx(m.group(1))
+                    if nm in used:
+                        nm = f'{nm}_{a:x}'
+                    used.add(nm)
+                    names6[a] = nm
+                    by_name6[nm] = a
+                    GUARD_SYM[a] = '::' + sym
+                    nolift10.add(a)
+                    natives10.pop(a, None)
+            uh10 = [] if args.no_uh10 else sorted({a for a, n in list(byaddr.items()) + [(b, m) for m, b in by_name6.items()] if n in UH10 and a in F and a not in base10})
+            cand10 = [a for a in cand9 if a not in emitted9 and a not in base10] + sorted(nolift10) + uh10
+            noadapter10 = frozenset(set(natives6) | set(natives7) | set(natives8) | set(natives9) | set(natives10))
+            S10 = Stage7(cand10, base10, dict(depth), F, names6, abi, cfin, Refs(), nolift | nolift7 | nolift8 | nolift9 | nolift10, noadapter10,
+                        {a: sg.name for a, sg in base10.items() if a in F}, sfx='_x10', a10=True, rec=not args.no_rec10)
+            for rnd in range(args.rounds10):
+                S10.changed = False
+                emitted10, tried10, sigs10, depth10 = S10.run_round(args.max_depth)
+                viol = caller_check7(emitted10, F, args.abi, abi, cfin, noadapter10)
+                for t, sl in viol.items():
+                    if not sl <= S10.want_req[t]:
+                        S10.want_req[t] |= sl
+                        S10.changed = True
+                drop = set(viol)
+                ch = True
+                while ch:
+                    ch = False
+                    for a, E in emitted10.items():
+                        if a not in drop and any(c in drop for c in E.callees):
+                            drop.add(a)
+                            ch = True
+                live10 = {}
+                for t in drop:
+                    live10[t] = ('live scratch at a caller (asked as an extra output: ' + ','.join(sorted(f'{k}{r}' for k, r in viol[t])) + ')') if t in viol \
+                        else 'a typed callee refused (live scratch)'
+                    del emitted10[t]
+                    del sigs10[t]
+                print(f'typed_lift2 stage 10 round {rnd + 1}: {len(emitted10)} typed, {len(S10.variants)} variants, {len(drop)} dropped at lifted callers; '
+                      f'requests: want {sum(len(v) for v in S10.want.values())} want_req {sum(len(v) for v in S10.want_req.values())} '
+                      f'variants {sum(len(v) for v in S10.want_var.values())}; changed {S10.changed}', file=sys.stderr)
+                if not S10.changed:
+                    break
+            sigs = sigs10
+            depth = depth10
+            why10 = why_counts(tried10, live10)
+            emits10 = [emitted10[a] for a in sorted(emitted10, key=lambda a: (emitted10[a].depth, a))]
+            for i, E in enumerate(emits10):
+                E.idx = i
+            # the variants the emitted functions call (extra-output variants <name>_x10, upper-half variants <name>_u10), transitively
+            usedv, usedu, work = set(), set(), [E for E in emits10]
+            while work:
+                E = work.pop()
+                for c in set(getattr(E, 'callees', ())):
+                    s_ = E.sg[c] if hasattr(E, 'sg') else None
+                    if c in S10.variants and s_ is S10.variants[c].sig and c not in usedv:
+                        usedv.add(c)
+                        work.append(S10.variants[c])
+                    if c in S10.uh_var and s_ is S10.uh_var[c].sig and c not in usedu:
+                        usedu.add(c)
+                        work.append(S10.uh_var[c])
+            vars10 = sorted([S10.variants[c] for c in usedv] + [S10.uh_var[c] for c in usedu], key=lambda E: (E.depth, E.addr, E.name))
+            # A10_REC: the recursive functions' depth counters (a check build's [a10] line), by index
+            recs10 = [E for E in emits10 if getattr(E, 'rec', 0)]
+            for k, E in enumerate(recs10):
+                E.recidx = k
+                E.text = E.text.replace('\n{\n', f'\n{{\n    A10_REC({k});\n', 1)
+            rec10 = {}
+            nat10 = set(natives6) | set(natives7) | set(natives8) | set(natives9) | set(natives10)
+            for E in emits10:
+                if not E.lifted and E.addr not in nat10:
+                    rec10[E.addr] = GUARD_SYM[E.addr]
+                    GUARD_SYM[E.addr] = f'::a10ad::{E.name}'
+            new, nadapt10 = insert_adapters(new, {E.name: E for E in emits10 if E.lifted}, INC_LINE10,
+                                           (INC_LINE9, INC_LINE8, INC_LINE7, INC_LINE6, INC_LINE5, INC_LINE4, INC_LINE3, INC_LINE, T1.INC_LINE, T1.INC_AFTER))
+            for E in emits10:
+                tiers10[('native ' if E.addr in nat10 else 'nolift ' if not E.lifted else '') + tier5(E) +
+                       (' break' if E.brks else '') + (' xo' if E.xout else '') + (' cons' if E.cons else '') +
+                       (' spill' if getattr(E, 'a7_spills', None) else '')] += 1
+            stats += (f'\ntyped_lift2 stage 10 (A10): {len(cand10)} candidates ({len(nolift10)} more natives), {len(emits10)} converted '
+                      f'({sum(1 for E in emits10 if not E.lifted)} without an adapter in the lifted text; {len(vars10)} variants of earlier functions) '
+                      f'{dict(sorted(tiers10.items()))} (refused: {dict(why10.most_common(30))}); {nadapt10} adapters; recursion fixpoint rounds {dict((f'{a:x}', n) for a, n in S10.rec_iters.items())}; cycles {len(set(S10.scc.values()))}, upper-half variants {len(S10.uh_var)} (not made: {dict((f'{a:x}', w[:40]) for a, w in S10.uh_why.items())})')
         if args.unlock and not args.no_a3:
             why_of = {}
-            for d in (tried_fail, live_refused, tried3, live3, tried4, live4, tried5, live5, tried6, live6, tried7, live7, tried8, live8, tried9, live9):
+            for d in (tried_fail, live_refused, tried3, live3, tried4, live4, tried5, live5, tried6, live6, tried7, live7, tried8, live8, tried9, live9, tried10, live10):
                 for a, w in d.items():
                     if a not in sigs:
                         why_of[a] = w
@@ -3843,9 +4334,9 @@ def main():
                     skipped[a] = 'docs/a3_skip.txt'
             if do6:
                 for a in F:
-                    if a not in sigs and a not in why_of and a not in byaddr and a not in nolift and a not in nolift7 and a not in nolift8 and a not in nolift9:
+                    if a not in sigs and a not in why_of and a not in byaddr and a not in nolift and a not in nolift7 and a not in nolift8 and a not in nolift9 and a not in nolift10:
                         skipped[a] = 'a hand native holds the slot' if a in natreg else 'not lifted once (lifted twice / a stub / unnamed)'
-            unlock_table(args.unlock, F, ({**byaddr, **{a: names6[a] for a in nolift | nolift7 | nolift8 | nolift9}} if do6 else byaddr), sigs, why_of, skipped)
+            unlock_table(args.unlock, F, ({**byaddr, **{a: names6[a] for a in nolift | nolift7 | nolift8 | nolift9 | nolift10}} if do6 else byaddr), sigs, why_of, skipped)
         if not args.check:
             with open(os.path.join(OV, 'typed_a2.inc'), 'w') as fo:
                 fo.write("// typed_a2.inc: round A2's typed functions (tools/typed_lift2.py). Generated: do not edit. "
@@ -4243,6 +4734,88 @@ def main():
                     write_check(emits9 + vars9, a1sigs, None, os.path.join(OV, 'a9_typed_check.cpp'), os.path.join(OV, 'typed_a9_ref.inc'),
                                 tag='a9', prev=emits + emits3 + emits4 + emits5 + emits6 + emits7 + emits8, prev_incs=('a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8'),
                                 natives6={**natives6, **natives7, **natives8, **natives9})
+            if do10:
+                with open(os.path.join(OV, 'typed_a10.inc'), 'w') as fo:
+                    fo.write("// typed_a10.inc: round A10's typed functions (tools/typed_lift2.py, stage 10: recursion, the upper-half class). Generated: do not edit. Included inside a namespace (typed_a10.h: namespace typed), after "
+                             "typed_a7.inc. First the variants of earlier functions (<name>_x10: the same MIPS typed with extra outputs, called "
+                             "by stage-10 functions only), then stage 10's functions.\n")
+                    fo.write('// the recursive functions (A10_REC index): ' + ', '.join(f'{E.recidx} {E.name}' for E in emits10 if getattr(E, 'rec', 0)) + '\n')
+                    fwd = [E for E in emits10 if getattr(E, 'rec', 0) > 1]
+                    if fwd:
+                        fo.write('// the cycles\' members (functions calling each other), declared first\n')
+                        fo.write(''.join(f'inline {E.decl};\n' for E in fwd) + '\n')
+                        for E in fwd:
+                            E.text = E.text.replace(f'inline {E.decl}', 'inline ' + E.decl.replace(' = nullptr', ''), 1)
+                    fo.write('\n'.join(E.text for E in vars10 + emits10))
+                with open(os.path.join(OV, 'typed_a10.h'), 'w') as fo:
+                    fo.write(HDR10)
+                    held = sorted({(c, nm) for E in vars10 + emits10 for c, nm in E.holds})
+                    lnames = sorted({nm[:-2] if nm.endswith('@x') else nm for c, nm in held if c not in GUARD_SYM})
+                    fo.write('\n// what the adapters test the slots against (A10_HOLDS): lifted functions, never-lifted functions\' recompiled '
+                             'functions / A6 / A7 / A9 / A10 adapters, hand natives, the runtime stubs\' holders\nnamespace lift_d1\n{\n')
+                    fo.write(''.join(f'void {nm}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);\n' for nm in lnames))
+                    fo.write('}\n')
+                    for sym in sorted({GUARD_SYM[c] for c, nm in held if c in GUARD_SYM}):
+                        parts = sym.lstrip(':').split('::')
+                        fo.write(''.join(f'namespace {x} {{ ' for x in parts[:-1]) + f'void {parts[-1]}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);'
+                                 + ' }' * (len(parts) - 1) + '\n')
+                rk = collections.Counter(E.rtype for E in emits10)
+
+                def vn10(ss):
+                    return ','.join(vu_local(q)[0] for q in sorted(ss, key=vu_sortkey))
+
+                def xn10(xs):
+                    return ','.join(f'{k}{r}' for k, r in xs)
+                with open(args.out_list10, 'w') as fo:
+                    fo.write(f"# a10_typed.txt: round A10's typed functions (tools/typed_lift2.py stage 10; docs/decomp_a10.md). {len(emits10)} converted "
+                             f"({sum(1 for E in emits10 if not E.lifted and E.addr not in nat10)} never lifted: their adapter over the recompiled function's slot; "
+                             f"{sum(1 for E in emits10 if E.addr in nat10)} MIPS-step natives: no adapter); {len(vars10)} variants of earlier functions "
+                             f"(lines marked variant: not counted); tiers {dict(sorted(tiers10.items()))}; returns {dict(rk)}\n")
+                    fo.write('# address name | C signature | dropped scratch slots | tier | PS2 float helpers | VU0 in | VU0 out | forms | slot holder | '
+                             'extra outputs | consumed from callees\n')
+                    for E in vars10 + emits10:
+                        forms = ' '.join(x for x in ('variant' if E.variant else '', 'uh' if E.name.endswith('_u10') else '', ('rec%d' % E.rec) if getattr(E, 'rec', 0) else '', 'nolift' if not E.lifted and not E.variant else '',
+                                                     'native' if E.addr in nat10 and not E.variant else '',
+                                                     'break' if E.brks else '', 'gframe' if E.gf else '',
+                                                     'gsp' if E.needs_sp and not E.gf else '', 'jtab%d' % len(E.jtabs) if E.jtabs else '',
+                                                     'reloc%d' % len(E.relocs) if E.relocs else '', 'w64' if E.wide_in else '',
+                                                     'spill' if getattr(E, 'a7_spills', None) else '',
+                                                     'ext:' + ','.join(sorted({E.sg[c].ext for c in set(E.callees) if getattr(E.sg[c], 'ext', None)}))
+                                                     if any(getattr(E.sg[c], 'ext', None) for c in E.callees) else '') if x)
+                        consn = ' '.join(sorted({f'{getattr(E.sg[E.lf.kind[x][1]], "orig", E.sg[E.lf.kind[x][1]].name)}:{xn10(sorted(c))}' for x, c in E.cons.items()}))
+                        fo.write(f'{E.addr:08x} {E.name} | {E.decl} | {",".join(k + str(r) for k, r in sorted(E.dropped, key=str))} | '
+                                 f'{"loop%d " % len(E.backs) if E.backs else ""}{("frame%d " % E.frame) if E.acc else ""}'
+                                 f'depth{E.depth if E.callees else 0} | {",".join(E.fpu_ps2)} | {vn10(E.vin)} | {vn10(E.vout)} | {forms} | '
+                                 f'{guard_sym(E.addr, getattr(E.sig, "orig", E.name))} | {xn10(E.xout)} | {consn}\n')
+                with open(os.path.join(OV, 'typed_a10_adapters.cpp'), 'w') as fo:
+                    fo.write(ADAPT10_HEAD)
+                    ad = [E for E in emits10 if E.addr in rec10]
+                    fo.write('namespace a10ad\n{\n')
+                    for E in ad:
+                        fo.write(f'// {E.name} (0x{E.addr:x}): the slot of a never-lifted function; the typed function while the adapter\'s '
+                                 f'test holds, else the recompiled function\n')
+                        fo.write(f'void {E.name}(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)\n{{\n')
+                        fo.write(f'    if (PS2_EXPECT(ctx->pc == 0x{E.addr:X}u, 1))\n    {{\n    {E.adapter()}\n    }}\n')
+                        fo.write(f'    {rec10[E.addr]}(rdram, ctx, runtime);\n}}\n')
+                    fo.write('}\n\n')
+                    fo.write('namespace\n{\n    struct A10Ad\n    {\n        uint32_t addr;\n        PS2Runtime::RecompiledFunction rec, ad;\n    };\n')
+                    fo.write(f'    const A10Ad kA10Ad[{max(1, len(ad))}] = {{\n')
+                    for E in ad:
+                        fo.write(f'        {{0x{E.addr:X}u, &{rec10[E.addr]}, &a10ad::{E.name}}},\n')
+                    if not ad:
+                        fo.write('        {0u, nullptr, nullptr},\n')
+                    fo.write('    };\n}\n\n')
+                    fo.write('// sotc_decomp::install: each adapter over its slot while the slot still holds the recompiled function\n')
+                    fo.write('uint32_t a10InstallAdapters(PS2Runtime &runtime)\n{\n    uint32_t n = 0;\n')
+                    fo.write(f'    for (uint32_t i = 0; i < {len(ad)}u; ++i)\n')
+                    fo.write('        if (runtime.lookupFunction(kA10Ad[i].addr) == kA10Ad[i].rec)\n')
+                    fo.write('        {\n            runtime.registerFunction(kA10Ad[i].addr, kA10Ad[i].ad);\n            ++n;\n        }\n    return n;\n}\n')
+                if args.check_tu:
+                    for E in vars10:
+                        E.refname = E.sig.orig
+                    write_check(emits10 + vars10, a1sigs, None, os.path.join(OV, 'a10_typed_check.cpp'), os.path.join(OV, 'typed_a10_ref.inc'),
+                                tag='a10', prev=emits + emits3 + emits4 + emits5 + emits6 + emits7 + emits8 + emits9, prev_incs=('a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9'),
+                                natives6={**natives6, **natives7, **natives8, **natives9, **natives10})
         def wlog(path, tf, lr, em):
             with open(path, 'w') as fo:
                 for a in sorted(set(tf) | set(lr) | set(em)):
@@ -4268,6 +4841,8 @@ def main():
             wlog(args.log8, tried8, live8, emitted8)
         if args.log9 and do9:
             wlog(args.log9, tried9, live9, emitted9)
+        if args.log10 and do10:
+            wlog(args.log10, tried10, live10, emitted10)
     changed = 0
     for f in files:
         if new[f] != texts[f]:

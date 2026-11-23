@@ -10,6 +10,7 @@
 #pragma once
 
 #include "typed_a7_rt.h"
+#include "typed_a10_note.h" // round A10: A10_CAMNOTE (the typed iosgluGetCameraContext of typed_a8.inc makes the camera hook's note)
 
 #ifndef PS2X_A8_CHECK
 #define PS2X_A8_CHECK 0

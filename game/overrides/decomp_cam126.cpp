@@ -37,6 +37,7 @@
 #include "cam126.h"
 #include "typed_a9_core.h" // round A9: the shared core (frameCore)
 #include "typed_a9_nchk.h" // a9: A9_NCHK
+#include "typed_a10_nchk.h" // a10: A10_NCHK (the slot holders round A10 takes as their typed functions)
 #include "s11rt.h"
 #include "s11_motion.h"
 #include "sotc_decomp.h"
@@ -788,6 +789,7 @@ namespace cam126
     }
     void parentIdEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A10_NCHK(0x010B63C0u); // round A10: a check build compares the lifted function on the entry state (typed_a10_nchk.h)
         if (!ctlOn())
         {
             // Round S13 (s13mot kRoot): the recompiled function kept in a pointer (as S11's kRootKey), no hash lookup a call
@@ -825,6 +827,7 @@ namespace cam126
     }
     void localQPEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        A10_NCHK(0x010C10E0u); // round A10: a check build compares the lifted function on the entry state (typed_a10_nchk.h)
         if (!ctlOn())
         {
             // Round S13 (s13mot kRoot): the recompiled function kept in a pointer, no hash lookup a call
