@@ -23851,3 +23851,33 @@ docs/decomp_a8.md. Scripts, runs and logs: `build/agent-scratch/a8/`. Switch `SO
   destination over its own jal word); a new counter gives up checks whose typed leg read a stack byte only the reference stored
   (the reference's own saves through a computed frame address: about 1% of random states, 0 in the game runs that differed).
 - **Measured**: A/B pooled -0.001 +- 0.080 ms (alone; +0.040 +- 0.069 under load): neutral; 89 MB boot rode, pictures normal (the Mac slept during it); spalign 0. **On by default**.
+
+## Decomp B3: the remaining game threads on host carriers, the EE sync calls in place (b3threads, off by default) (2026-11-22)
+
+docs/decomp_b3.md. Scripts, runs and logs: `build/agent-scratch/b3/`. Switch `SOTC_B3THREADS` (A/B `b3threads`, `kB3Threads`),
+**off by default**; check `SOTC_B3_CHECK=1`; console package `build/agent-scratch/b3/celosia-b3.vpk` + `env-ab.txt`.
+
+- **What**: the callback thread t4 (0x1b2ca0), the idle thread t5 (0x1ad270), the GP thread t10 (0x1c38d8) and the game's
+  main thread t9 (0x1c7ae0, the frame loop: the whole game runs below its three frame callbacks) run as host C++ on carriers
+  of their own (b3_threads.cpp, instruction for instruction from the generated functions). With B1's t8 and B2's t11 every
+  thread that runs after GAMECORE is carried except t12 (the memory-card manager). A body starts at any resume label of its
+  loop (`CarrySpec::claimPcs`): the dispatcher takes the thread over at its first dispatch at one of them after GAMECORE.
+  The table has 8 entries, a stack and budget each (t9: 1 MB, the executor's 384 KB). Two "game thread" ties followed it onto
+  the carrier: PS2Memory::vif1AsyncJoin's owner check and NOCHK's floor set by endFrame.
+- **In-place kernel calls**: `EeScheduler::carrierWaitSema / carrierSignalSema / carrierPollSema / carrierSleep /
+  carrierWakeup` (b3_sync.h for typed code): the syscalls' changes to the kernel's records, the switch as a pinned yield in
+  place, the result returned. They act only on a carrier running its thread's own code (else false: use the guest call), so
+  a typed caller can block in place where every thread that reaches it is carried. With b3threads on the guest syscalls go
+  through them (1.94 M waits, 291 K sleeps, 208 K wakes in the checks).
+- **Exact**: ride7 600 s / attract 400 s / lake6 400 s with six carriers and all checks: executor audit 0 bad of 1 200 473,
+  kept registers 0 bad, 0 hand-backs, 1 claim per carrier, B1's ticks = VBlanks and B2's jobs as before, watchdog silent,
+  every run to its end.
+- **Boxes / semaphores**: after GAMECORE three of the four boxes (GP, frame, idle) have carriers at both ends and every
+  semaphore but t12's / t7's has only carried users; none became a host primitive (the boxes' wakes go through t4's callback
+  hop and the runtime's idle turn reads the box: decomp_b3.md section 8).
+- **Loads**: the same hitches in the same frames; the Load Game pair 50-140 ms longer with b3threads on in single runs.
+- **Measured** (Vita3K 222, off - on, 2 SE, B1 / B2 on both halves): ride7 -0.085 +- 0.222 / -0.269 +- 0.168, lake6 -0.167 +-
+  0.174; pooled **-0.174 +- 0.055 ms (1 SE): on slower** (every yield is two host thread switches; S17 had made t9's
+  checkpoints cheap on the executor). ~45 000 take-overs / hand-backs in the A/Bs, no freeze.
+- **Boot**: 89 MB taken, rode the 600 s twice and the attract demo, pictures normal (one ride dismounted at frame 9 206, the
+  second did not: watch item). spalign 0.
