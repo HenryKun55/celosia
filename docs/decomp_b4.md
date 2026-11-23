@@ -271,3 +271,13 @@ s): the title's menu and the demo, normal (15 441 frames).
   recording) would make a ride replay lockstep enough to compare a dismount itself on / off.
 - With b4fast the executor's host thread is idle while the carriers run the dispatcher: a step toward dropping run() for the
   carriers altogether (decomp_b3.md's "checkpoints as pure delivery points").
+
+## Open bug found at the merge (2026-11-23): an intermittent memory-card load stall
+
+On the merge build (B4 rebased on A9, main 496cf72 + B4), one 89 MB ride7 boot with SOTC_B1SOUND=1 SOTC_B2LOAD=1
+SOTC_B3THREADS=1 SOTC_B4FAST=1 SOTC_RIDE_PROBE=1 sat on the memory card's "Loading data" screen for the whole 600 s
+(frames kept advancing, 28 800 frames, menu animating). The [b3threads] line shows the idle thread t5's turns frozen at
+2 848 from early on while t4 kept turning; the load needs t5 (iosWaitIdleThread polls). Two repeats right after
+(all four on, and b1+b2+b3 without b4fast, 300 s each) got through the load to the field, and B4's own six boots passed:
+1 stall in 7 boots with b3threads on, not yet attributed to b3threads or b4fast. Logs: build/agent-scratch/b4/runs/bootMon
+(stalled), repAll / repB3 (passed). Both switches stay off by default; this must be found before either goes on.
