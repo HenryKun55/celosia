@@ -23998,3 +23998,25 @@ on, A/B b3threads, period 300).
   -0.17 / -0.15); b4fast +0.086 +- 0.034 (B4: -0.150; two p10 runs and p9's seed 7, the third p10 run lost to the host's audio device going away). p9's lake6 A/B (-1.56 ms) found the idle wait's 1 ms, fixed in p10.
 - **Boot** (89 MB, p10, ride7 600 s): mounted at 2 603, rode to the end, pictures normal (Wander, Agro, ground, shadows), 67.2 MB
   free. spalign 0.
+## Decomp A11: the matrix stack as typed state, the MMI hi / lo uses, the motion natives read as a group (a11typed) (2026-11-23)
+
+docs/decomp_a11.md. Scripts, runs and logs: `build/agent-scratch/a11/`. Switch `SOTC_A11TYPED` (A/B `a11typed`, `kA11Typed`);
+`SOTC_A11AD=0` leaves stage 11's never-lifted adapters out of the table.
+
+- **Stage 11** (tools/typed_lift2.py, `Emit(a11=True)`, Stage7 with recursion): iosPushCurrentMatrix / iosPopCurrentMatrix as typed calls
+  (A11_EXT, typed_a11_ext.h) on VU0's data memory with vi15 a slot of the VU0 interface (`('x', 'vi15')`, ctx->vi[15] at the adapters):
+  the same bytes and the same vi15 the recompiled functions use, one out-of-line core each (typed_a11_rt.cpp), A11_NCHK over both slots
+  in a check build; the MMI instructions' exact hi / lo uses in the field-input test (mmi_exact: MMI0 / MMI1 and most of MMI2 / MMI3 read
+  neither).
+- **75 more functions** (22 never lifted), 21 variants: three recursive matrix-stack walkers (010B8798, 010B8958, 010C38E8) and
+  GetMotionBasePos call the stack; 71 come from the MMI step alone (camera / volume / script maths that waited on a transpose). One skip
+  line: GetQuaternionFromMatrix (kernel_sub_001BA690 reads one word past its local matrix, into the s0 save: A8's stale-stack class; the
+  harness found it, 10 functions above it go with it). Waiting 3 806 -> 3 758.
+- **The motion natives** (goals 2 / 3): listed as MIPS-step natives (dev mode) the eleven plus manager_sub_010B8590 leave one blocker,
+  getBlendLastMotion's spin rule (556 behind it); none taken: no NCHK proof yet, and GetMotionMatrix's native picks context-based paths
+  and the recompiled MIPS per call. kernel_sub_001AF988 (run-time frame) and the collision natives' extra outputs: not done.
+- **Exact**: A3-A11 in-run checks 0 differences on ride7 / attract / lake6 (A11 88 903 checks on 9-10 functions; the recompiled push /
+  pop are not called through their slots on these routes: the skeleton natives push inline); offline harness 0 in 30 runs (1.44 M
+  checks, vi15 and VU0's data memory drawn); A10 / A9 (also HI0) and A8-A3 harnesses 0.
+- **Measured**: A/B pooled -0.008 +- 0.298 ms (neutral); 89 MB boot (after SDL_AUDIODRIVER=dummy: Vita3K's CoreAudio failed from 05:37) rode to frame 15 600, no screenshots possible (Mac locked); spalign 0. (d) = **4 051 (44.9%)**, 17.8% of the bytes, 11.1% of the console game
+  thread.
