@@ -12,6 +12,7 @@
 #include "typed_a7.h" // a7
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
+#include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5416,6 +5417,7 @@ void iosCreateDC(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosSetDCParam (0x1bf048-0x1bf070)
 void iosSetDCParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A11_GO() && A11_HOLDS(0x1BEC18u, lift_d1::kernel_sub_001BEC18), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint32_t a2_29 = Ps2GprU32(ctx, 29); A11_CHK(iosSetDCParam, a2_4, a2_5, a2_6, a2_7, a2_8, a2_29); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A11_IN(12); const uint64_t a2_r = typed::iosSetDCParam(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_29, a4_h2, a4_h3, a3_xo); A11_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); Ps2SetGpr64(ctx, 10, a3_xo[6]); Ps2SetGpr64(ctx, 11, a3_xo[7]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a11
     uint32_t a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;
@@ -5437,6 +5439,7 @@ void iosSetDCParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosSetDCClearParam (0x1bf070-0x1bf0b0)
 void iosSetDCClearParam(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A11_GO() && A11_HOLDS(0x1BEC18u, lift_d1::kernel_sub_001BEC18), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint32_t a2_29 = Ps2GprU32(ctx, 29); A11_CHK(iosSetDCClearParam, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_29); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a3_xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A11_IN(13); const uint64_t a2_r = typed::iosSetDCClearParam(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_8, a2_9, a2_29, a4_h2, a4_h3, a3_xo); A11_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); Ps2SetGpr64(ctx, 10, a3_xo[6]); Ps2SetGpr64(ctx, 11, a3_xo[7]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a11
     uint32_t a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;

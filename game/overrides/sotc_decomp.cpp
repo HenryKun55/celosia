@@ -37,6 +37,14 @@ uint32_t a7InstallAdapters(PS2Runtime &runtime); // typed_a7_adapters.cpp (round
 uint32_t a8InstallAdapters(PS2Runtime &runtime); // typed_a8_adapters.cpp (round A8)
 uint32_t a9InstallAdapters(PS2Runtime &runtime); // typed_a9_adapters.cpp (round A9)
 uint32_t a10InstallAdapters(PS2Runtime &runtime); // typed_a10_adapters.cpp (round A10)
+uint32_t a11InstallAdapters(PS2Runtime &runtime); // typed_a11_adapters.cpp (round A11)
+#include "typed_a11_rt.h"
+#if PS2X_A11_CHECK
+namespace a11nchk
+{
+    uint32_t install(PS2Runtime &runtime); // typed_a11_rt.cpp: the matrix stack's check over its two slots
+}
+#endif
 
 namespace sotc_decomp
 {
@@ -2144,6 +2152,18 @@ namespace sotc_decomp
             {
                 std::cerr << "[a10] adapters installed over " << ::a10InstallAdapters(runtime) << " never-lifted functions" << std::endl;
             }
+        }
+        // Round A11: likewise the never-lifted functions stage 11 typed (typed_a11_adapters.cpp). SOTC_A11AD=0: left out. A check
+        // build also wraps the matrix stack's two slots (A11_NCHK: the cores against the recompiled functions, every call).
+        {
+            const char *e = std::getenv("SOTC_A11AD");
+            if (!(e && e[0] == '0'))
+            {
+                std::cerr << "[a11] adapters installed over " << ::a11InstallAdapters(runtime) << " never-lifted functions" << std::endl;
+            }
+#if PS2X_A11_CHECK
+            std::cerr << "[a11] matrix stack check over " << ::a11nchk::install(runtime) << " slots" << std::endl;
+#endif
         }
         g_checkedUsed = checked;
         if (unchecked)

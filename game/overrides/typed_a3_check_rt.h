@@ -224,6 +224,9 @@ namespace A3CK_NS
     {
         bool d = std::memcmp(&t.vu0_vf[0], &ref.vu0_vf[0], sizeof(t.vu0_vf)) != 0 || std::memcmp(&t.vu0_acc, &ref.vu0_acc, 16) != 0 ||
                  a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status;
+#if defined(A11_CHECK_TU)
+        d = d || t.vi[15] != ref.vi[15]; // round A11: vi15, the matrix stack's pointer (a slot of the VU0 interface)
+#endif
         for (int r = 1; r < 32 && !d; ++r)
             d = std::memcmp(reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8) != 0;
         return d;
@@ -237,6 +240,9 @@ namespace A3CK_NS
     {
         bool d = std::memcmp(&t.vu0_vf[0], &ref.vu0_vf[0], sizeof(t.vu0_vf)) != 0 || std::memcmp(&t.vu0_acc, &ref.vu0_acc, 16) != 0 ||
                  a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status;
+#if defined(A11_CHECK_TU)
+        d = d || t.vi[15] != ref.vi[15]; // round A11: vi15, the matrix stack's pointer (a slot of the VU0 interface)
+#endif
         bool out = false;
         for (int r = 1; r < 32; ++r)
         {
