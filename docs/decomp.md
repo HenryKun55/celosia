@@ -23881,3 +23881,29 @@ docs/decomp_b3.md. Scripts, runs and logs: `build/agent-scratch/b3/`. Switch `SO
   checkpoints cheap on the executor). ~45 000 take-overs / hand-backs in the A/Bs, no freeze.
 - **Boot**: 89 MB taken, rode the 600 s twice and the attract demo, pictures normal (one ride dismounted at frame 9 206, the
   second did not: watch item). spalign 0.
+## Decomp A9: the quat122 / geo126 natives as shared cores, why A8's adapters fell back, GetLayoutClass's slot (a9typed) (2026-11-22)
+
+docs/decomp_a9.md. Scripts, runs and logs: `build/agent-scratch/a9/`. Switch `SOTC_A9TYPED` (A/B `a9typed`, `kA9Typed`);
+`SOTC_A9AD=0` leaves stage 9's never-lifted adapters out of the table.
+
+- **Stage 9** (tools/typed_lift2.py, `Emit(a9=True)`, Stage7 again with variants `_x9`): the quat122 / geo126 natives
+  (SetQuaternionByAxisRotateVWithNoRegularize, GetDifferencialQuaternionWithNoRegularize, GetQuaternionByAxisDirZY,
+  iosGetSinCosf, iosGetACosfExact, iosGetATan2fExact, GetMatrixFromQuatPos) as typed calls to their default path's maths, now one
+  out-of-line copy each (typed_a9_core.h; decomp_char122 / decomp_cam126) that the native and its typed callers share
+  (typed_a9_ext.h): same compiled code, same values, same bits. A9_GO only while that path is in effect (quat122, geo126 on,
+  quat122's check off); calls outside the natives' own address / angle tests are counted (0 in every run).
+- **157 more functions** (105 lifted, 52 never lifted; 17 variants). Per step: SetQuaternionByAxisRotate 23, + the other two
+  quaternion natives 40, + sin / cos / acos / atan2 157, + GetMatrixFromQuatPos 157. Waiting 4 004 -> 3 816.
+- **Why A8's adapters fell back** (a per-slot miss record in check builds, `[a9miss]`): A8's 58% were iosgluGetCameraContext's
+  hook (68%: a host note of the camera context, not equivalent), GetLayoutClass's native (30%) and DC2's GetCharacterClass entry;
+  A7's 44% were DC2's entry (60%) and GetLayoutClass's native (38%). A7 / A8 / A9 now test with a6Is (DC2's entry), and
+  GetLayoutClass's native counts as its lifted function (A9_NCHK at the native: 3.63 M checks, 0 differ). A7's failed tests
+  44% -> 2%, A7 functions reached 128 -> 201. Reaching them found A6's upper-half class in IsParentCharOrLwsOrient (lifted
+  reference vs A2's typed callee; AddLayoutObjSubLink, SelectOmakeItem the same): left lifted (docs/a3_skip.txt).
+- GetCharacterClassNodeQuaternionPos waits on GetMotionMatrix (a multi-path host native); GetCharacterClassOptionNodeGeo calls
+  itself (no recursion in the generator yet).
+- **Exact**: in-run 5.31 M A9 checks, 4.87 M A9 native checks (the cores' natives with every untouched register 1.25 M, GetLayoutClass's
+  slot 3.63 M), A3-A8 rechecked (A7 4.70 M, A6 5.57 M ...), 0 differences. Offline harness 2.61 M A9 checks (30 runs, random upper
+  halves too) 0; A8-A3 harnesses 0.
+- **Measured**: A/B pooled +0.055 +- 0.074 ms (neutral); 89 MB boot rode to frame 18 000, pictures normal; spalign 0. (d) = **3 972 (44.0%)**, 16.6% of the bytes, 10.7% of the
+  console game thread.
