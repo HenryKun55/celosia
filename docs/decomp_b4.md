@@ -281,3 +281,13 @@ SOTC_B3THREADS=1 SOTC_B4FAST=1 SOTC_RIDE_PROBE=1 sat on the memory card's "Loadi
 (all four on, and b1+b2+b3 without b4fast, 300 s each) got through the load to the field, and B4's own six boots passed:
 1 stall in 7 boots with b3threads on, not yet attributed to b3threads or b4fast. Logs: build/agent-scratch/b4/runs/bootMon
 (stalled), repAll / repB3 (passed). Both switches stay off by default; this must be found before either goes on.
+
+**Outcome (round B5, docs/decomp_b5.md):** found and fixed. Not a lost wake and not b3threads' or b4fast's logic: a VBlank that
+fell due while the main thread ran was taken at its park, on the first dispatch of the memory-card manager t12 (the next ready
+thread), whose handler readied the VBlank chain and released the main thread at once: t12 was dispatched once a frame and never
+ran its own code (t5 and the loader starved behind it). The default path has the same livelock and escapes it whenever a frame
+ends before the next VBlank; the carriers' slightly longer menu frames made the escapes rarer, and the stalled boot had none.
+Fix (with b3threads): a park with only lower-priority threads ready whose clock catch-up would make a deadline due leaves the
+catch-up to the next park / idle wait, so the lower thread runs first.
+After: 18 of 18 89 MB ride7 boots with all four on reached the field (17 mounted), 0 stalls; checks 0 bad of 1.31 M (p10).
+Before, this round: the livelock regime in 6 of 9 boots with b4fast, 1 of 5 with b3threads alone, 0 of 4 on the default path.

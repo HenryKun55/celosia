@@ -23966,3 +23966,35 @@ docs/decomp_a10.md. Scripts, runs and logs: `build/agent-scratch/a10/`. Switch `
 - **Measured**: A/B pooled +0.024 +- 0.086 ms (neutral); 89 MB boot rode to frame 18 000, pictures normal; spalign 0. Failed slot tests
   (default holders, ride7 pc, frame 3 000): A8 55% -> 15%, A9 11% -> 6.4% (the rest is GetCollisionDBPlane's native). (d) = **3 976
   (44.1%)**, 16.7% of the bytes, 10.7% of the console game thread.
+
+## Decomp B5: the memory-card load stall (2026-11-23)
+
+docs/decomp_b5.md. Scripts, runs and logs: `build/agent-scratch/b5/`. No new switch: the fix acts with b3threads (off by
+default); `SOTC_B5_DEFER=0 / 1` overrides it. Console package `build/agent-scratch/b5/celosia-b5.vpk` + `env-ab.txt` (all four
+on, A/B b3threads, period 300).
+
+- **Root cause** (the `[b5dog]` dumps and the scheduler's decision ring, `SOTC_B5_DOG` / `SOTC_B5_TRACE`): not a lost wake. The
+  EE clock's host catch-up runs only at parks and in the idle wait, so a VBlank that falls due while the main thread t9 runs its
+  frame alone is taken at t9's park, after its frame-box send. The next ready thread, the memory-card manager t12 (priority
+  47), gets that VBlank handler pushed on at its first dispatch, the handler readies t8, and the VBlank chain (t8, t4, t10's
+  turn, t4) releases t9 at once: t12 is dispatched once a frame and never runs its own code; the idle thread t5 and the loader
+  t11 (waiting for t12's result) get nothing. A frame escapes only when t9's frame ends before the next VBlank. The stalled
+  boot had no such frame in 28 000.
+- **Not the carriers' doing**: the same per-frame analysis of the memory-card phase finds the same livelock and the same escapes
+  on the default path (13 frames of t12's own code in ~200), with b3threads (13) and with b4fast (10); every decision in it is
+  run()'s. The carriers' slightly longer frames make the escapes rarer: 600-1200 windows in the livelock regime (t11 0 picks):
+  b4fast 6 of 9 runs, b3threads alone 1 of 5, default 0 of 4.
+- **Fix** (`EeScheduler::parkCurrent`, with b3threads): a park with no ready thread of its priority or higher whose catch-up
+  would make a deadline due leaves the catch-up to the next park / idle wait (4 ms limit), so the lower-priority thread runs its
+  turn first and the VBlank comes right after it. Decisions unchanged; only when the VBlank is seen moves (by one lower-priority
+  turn, as host jitter does).
+- **Rate**: before, 1 stall in 7 boots (B4's merge) and the livelock regime in 7 of 14 carrier boots this round (b4fast 6 / 9,
+  b3threads 1 / 5; default 0 / 4); after (p9), **18 of 18** 89 MB ride7 boots with all four on reached the field at frame 2 000,
+  17 mounted (the 18th's route did not reach Agro in 300 s), 0 stalls, 0 livelocked windows, 0 dismounts. p10 (+ the idle wait
+  doing a pending catch-up at once): 5 more boots normal, one Vita3K process death at 85 s (pg3, no guest-side sign).
+- **Checks** (all on, all checks): p9 0 bad of 1 244 284, p10 0 bad of 1 314 440 (ride7 600 s / attract 400 s / lake6 400 s);
+  0 hand-backs, B1 ticks = VBlanks, watchdogs silent.
+- **Measured** (Vita3K 222, off - on, pooled): b3threads (b4fast on) **+0.170 +- 0.050 ms (1 SE): on faster** (B3 / B4:
+  -0.17 / -0.15); b4fast +0.086 +- 0.034 (B4: -0.150; two p10 runs and p9's seed 7, the third p10 run lost to the host's audio device going away). p9's lake6 A/B (-1.56 ms) found the idle wait's 1 ms, fixed in p10.
+- **Boot** (89 MB, p10, ride7 600 s): mounted at 2 603, rode to the end, pictures normal (Wander, Agro, ground, shadows), 67.2 MB
+  free. spalign 0.
