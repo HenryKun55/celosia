@@ -11,6 +11,7 @@
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
 #include "typed_a8.h" // a8
+#include "typed_a12.h" // a12
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -6181,6 +6182,7 @@ L_1111178:
 void manager_sub_011111C8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x11111C8u, 0)) { manager_sub_011111C8_0x11111c8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A12_CHK(manager_sub_011111C8, a2_4, a2_5); uint64_t a3_xo[5] = {(uint64_t)a1_bits(ctx->f[0]), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)}; A12_IN(7); const uint64_t a2_r = typed::manager_sub_011111C8(rdram, runtime, a2_4, a2_5, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); Ps2SetGpr64(ctx, 7, a3_xo[1]); Ps2SetGpr64(ctx, 8, a3_xo[2]); Ps2SetGpr64(ctx, 9, a3_xo[3]); Ps2SetGpr64(ctx, 10, a3_xo[4]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t at = Ps2GprU32(ctx, 1), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), t0 = Ps2GprU32(ctx, 8), t2 = Ps2GprU32(ctx, 10), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a3 = Ps2GprU64(ctx, 7), t1 = Ps2GprU64(ctx, 9);
     float f0 = ctx->f[0], f1 = ctx->f[1];
@@ -6679,6 +6681,7 @@ void SpriteMenuSetLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void SpriteMenuSetLayerPriorityAllLayer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1111EE0u, 0)) { SpriteMenuSetLayerPriorityAllLayer_0x1111ee0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A12_CHK(SpriteMenuSetLayerPriorityAllLayer, a2_4, a2_5); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h9 = a4::hi64(ctx->r[9]); uint64_t a3_xo[6] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)}; A12_IN(9); const uint64_t a2_r = typed::SpriteMenuSetLayerPriorityAllLayer(rdram, runtime, a2_4, a2_5, a4_h2, a4_h3, a4_h9, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); Ps2SetGpr64(ctx, 8, a3_xo[3]); Ps2SetGpr64(ctx, 9, a3_xo[4]); Ps2SetGpr64(ctx, 10, a3_xo[5]); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->r[9] = a4::mk128(a4_h9, Ps2GprU64(ctx, 9)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), t2 = Ps2GprU32(ctx, 10), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9);
     bool df_a1 = false, df_t2 = false;

@@ -38,6 +38,11 @@ uint32_t a8InstallAdapters(PS2Runtime &runtime); // typed_a8_adapters.cpp (round
 uint32_t a9InstallAdapters(PS2Runtime &runtime); // typed_a9_adapters.cpp (round A9)
 uint32_t a10InstallAdapters(PS2Runtime &runtime); // typed_a10_adapters.cpp (round A10)
 uint32_t a11InstallAdapters(PS2Runtime &runtime); // typed_a11_adapters.cpp (round A11)
+uint32_t a12InstallAdapters(PS2Runtime &runtime); // typed_a12_adapters.cpp (round A12)
+#include "typed_a12_rt.h"
+#if PS2X_A12_CHECK
+uint32_t a12nchkInstall(PS2Runtime &runtime); // typed_a12_check_rt.h (in a12_typed_check.cpp): the motion natives' check over their slots
+#endif
 #include "typed_a11_rt.h"
 #if PS2X_A11_CHECK
 namespace a11nchk
@@ -2163,6 +2168,18 @@ namespace sotc_decomp
             }
 #if PS2X_A11_CHECK
             std::cerr << "[a11] matrix stack check over " << ::a11nchk::install(runtime) << " slots" << std::endl;
+#endif
+        }
+        // Round A12: likewise the never-lifted functions stage 12 typed (typed_a12_adapters.cpp). SOTC_A12AD=0: left out. A check
+        // build also wraps the twelve motion natives' slots (A12_NCHK: the lifted reference against the native, every register and byte).
+        {
+            const char *e = std::getenv("SOTC_A12AD");
+            if (!(e && e[0] == '0'))
+            {
+                std::cerr << "[a12] adapters installed over " << ::a12InstallAdapters(runtime) << " never-lifted functions" << std::endl;
+            }
+#if PS2X_A12_CHECK
+            std::cerr << "[a12] motion natives' check over " << ::a12nchkInstall(runtime) << " slots" << std::endl;
 #endif
         }
         g_checkedUsed = checked;

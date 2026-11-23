@@ -11,6 +11,7 @@
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
 #include "typed_a9.h" // a9
+#include "typed_a12.h" // a12
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -6483,6 +6484,7 @@ void bosslifebar_resethp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void bosslifebar_sethp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13FA9A8u, 0)) { bosslifebar_sethp_0x13fa9a8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO() && A12_HOLDS(0x1346210u, lift_d1::getFadeValue) && A12_HOLDS(0x1346300u, lift_d1::getDemoBarFade) && A12_HOLDS(0x13F67B8u, lift_d1::gamecore_sub_013F67B8), 1)) { const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint64_t a2_10 = Ps2GprU64(ctx, 10); const float a2_f12 = ctx->f[12]; A12_CHK(bosslifebar_sethp, a2_6, a2_7, a2_8, a2_9, a2_10, a2_f12); uint64_t a3_xo[6] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)}; A12_IN(115); const a1::RetVF a2_r = typed::bosslifebar_sethp(rdram, runtime, a2_6, a2_7, a2_8, a2_9, a2_10, a2_f12, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); Ps2SetGpr64(ctx, 8, a3_xo[3]); Ps2SetGpr64(ctx, 9, a3_xo[4]); Ps2SetGpr64(ctx, 10, a3_xo[5]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t at = Ps2GprU32(ctx, 1), v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12];
     uint32_t fcr31 = ctx->fcr31;
@@ -12883,6 +12885,7 @@ void SCRConditionOverDistanceToBossWorldXZ(uint8_t *rdram, R5900Context *ctx, PS
 void SCRConditionControlModeCheck(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x14589F0u, 0)) { SCRConditionControlModeCheck_0x14589f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO() && A12_HOLDS(0x10C0A70u, ::decomp_characlass::getCharacterClass) && A5_JAL(0x1458A60u, 0x10C0A70u) && A5_JAL(0x1458AD4u, 0x10C0A70u), 1)) { const uint64_t a2_11 = Ps2GprU64(ctx, 11); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A12_CHK(SCRConditionControlModeCheck, a2_11, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); A12_IN(70); const uint64_t a2_r = typed::SCRConditionControlModeCheck(rdram, runtime, a2_11, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h5); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t v1 = Ps2GprU32(ctx, 3), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), t3 = Ps2GprU64(ctx, 11), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     uint64_t hi = ctx->hi;

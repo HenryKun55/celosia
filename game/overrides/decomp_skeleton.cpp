@@ -28,6 +28,8 @@
 #include <cstring>
 #include <vector>
 
+extern int g_a12MmPath; // round A12 (below)
+
 namespace pose82
 {
     bool motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -1522,13 +1524,18 @@ namespace decomp_skeleton
     void motionMatrix(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (s3chara::motionMatrix(rdram, ctx, runtime))
+        {
+            g_a12MmPath = 1; // round A12: the path this call took (A12_NCHK's per-path counts, typed_a12_check_rt.h)
             return;
+        }
         const uint64_t t0 = s3chara::timing() && !s3chara::on() ? s3chara::nowUs() : 0u;
         if (!pose82::motionMatrix(rdram, ctx, runtime))
         {
             motionMatrixPrev(rdram, ctx, runtime);
             pose82::after(rdram);
         }
+        else
+            g_a12MmPath = 2;
         if (t0 != 0u)
             s3chara::offTime(s3chara::nowUs() - t0);
     }
@@ -1538,9 +1545,16 @@ namespace decomp_skeleton
         count.hit();
         static const bool fastOn = !std::getenv("SOTC_SKELETON_FAST") || std::atoi(std::getenv("SOTC_SKELETON_FAST")) != 0;
         if (!sotc_decomp::motionOn() || !fastOn || GPR_U64(ctx, 5) == 0u || !fastSites(rdram) || !motionMatrixSites(rdram))
+        {
+            g_a12MmPath = 3;
             return sotc_decomp::recompiled(0x010B1D60u)(rdram, ctx, runtime);
+        }
         if (sotc_decomp::fastNativeOn() && r49::motionMatrix(rdram, ctx, runtime))
+        {
+            g_a12MmPath = 4;
             return;
+        }
+        g_a12MmPath = 5;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x100u;
         Fast f;
         f.rdram = rdram;
@@ -1588,6 +1602,9 @@ namespace decomp_skeleton
     }
 }
 SOTC_DECOMP_FUNCTION(0x010B1D60u, GetMotionMatrix, decomp_skeleton::motionMatrix);
+// Round A12: the path GetMotionMatrix's native took last (1 S3's rig, 2 pose82 / pose136, 3 the recompiled MIPS, 4 round 49's fast
+// native, 5 the Fast walk); a check build's A12_NCHK counts its checks per path (typed_a12_check_rt.h). A plain store per call.
+int g_a12MmPath = 0;
 
 namespace decomp_skeleton
 {

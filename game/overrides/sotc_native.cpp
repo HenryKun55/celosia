@@ -253,6 +253,47 @@ namespace a11nchk
 #endif
 static uint64_t g_a11Frames[2] = {0, 0};
 static void a11FlagsNow() { g_a11Typed = sotc_decomp::switchOn(sotc_decomp::kA11Typed) && g_a10Typed; }
+// Round A12 (typed_a12_rt.h): the switch a12typed's flag (with A11's), the motion natives a12Is takes (SOTC_A12HOLD=<mask>, read
+// once) and GetMotionMatrix's condition: every path its native can take this frame is one A12_NCHK proved (bits of
+// SOTC_A12MMPATHS, default A12MM_PROVEN; path 1 S3's rig while s3chara is on, 2 pose82 while its switch is on, 3 the recompiled
+// MIPS (always), 4 round 49's fast native while fastnative is on, 5 the Fast walk unless SOTC_SKELETON_FAST=0).
+#include "typed_a12_rt.h" // g_a12Typed, PS2X_A12_CHECK
+#if PS2X_A12_CHECK
+void a12ckReport(unsigned long long frame);   // a12_typed_check.cpp
+void a12ckExtra(unsigned long long frame);    // typed_a12_check_rt.h (in a12_typed_check.cpp)
+void a12nchkReport(unsigned long long frame); // typed_a12_check_rt.h (in a12_typed_check.cpp)
+#endif
+#ifndef A12MM_PROVEN
+#define A12MM_PROVEN 0x3Eu // round A12: the paths whose A12_NCHK showed no difference (docs/decomp_a12.md)
+#endif
+namespace s3chara { bool on(); }
+static uint64_t g_a12Frames[2] = {0, 0};
+static void a12FlagsNow()
+{
+    g_a12Typed = sotc_decomp::switchOn(sotc_decomp::kA12Typed) && g_a11Typed;
+    static uint32_t proven = A12MM_PROVEN;
+    static bool fastWalk = true;
+    static const bool read = [] {
+        if (const char *e = std::getenv("SOTC_A12HOLD"))
+            g_a12HoldMask = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
+        if (const char *e = std::getenv("SOTC_A12MMPATHS"))
+            proven = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
+        const char *f = std::getenv("SOTC_SKELETON_FAST");
+        fastWalk = !f || std::atoi(f) != 0;
+        return true;
+    }();
+    (void)read;
+    uint32_t can = 1u << 3;
+    if (s3chara::on())
+        can |= 1u << 1;
+    if (sotc_decomp::switchOn(sotc_decomp::kPose82))
+        can |= 1u << 2;
+    if (sotc_decomp::fastNativeOn())
+        can |= 1u << 4;
+    if (fastWalk)
+        can |= 1u << 5;
+    g_a12MotionOk = (can & ~proven) == 0u;
+}
 
 namespace decomp_wind
 {
@@ -3757,7 +3798,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4479,6 +4520,9 @@ namespace sotc_native
         // Round A11 (a11typed): stage 11's typed functions (the matrix stack on VU0's data memory, the MMI hi / lo uses; typed_a11.h).
         a11FlagsNow();
         ++g_a11Frames[g_a11Typed ? 1 : 0];
+        // Round A12 (a12typed): stage 12's typed functions (the motion natives typed from their MIPS, the list walk; typed_a12.h).
+        a12FlagsNow();
+        ++g_a12Frames[g_a12Typed ? 1 : 0];
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
             std::fprintf(stderr, "[a1] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a1Typed ? 1 : 0,
@@ -4766,6 +4810,21 @@ namespace sotc_native
                              (unsigned long long)g.calls, (unsigned long long)g.backs, (unsigned long long)g.maxBacks, (unsigned long long)g.dues,
                              (unsigned long long)g.callDues, (unsigned long long)g.deferred, g.deferred ? (double)g.defSum / (double)g.deferred : 0.0,
                              (unsigned long long)g.defMax);
+            }
+#endif
+            std::fprintf(stderr, "[a12] frame %llu: typed %d; frames off %llu on %llu; check build %d; motion natives taken 0x%x, GetMotionMatrix's paths proven %d\n",
+                         (unsigned long long)g_frame, g_a12Typed ? 1 : 0, (unsigned long long)g_a12Frames[0], (unsigned long long)g_a12Frames[1], PS2X_A12_CHECK,
+                         g_a12HoldMask, g_a12MotionOk ? 1 : 0);
+#if PS2X_A12_CHECK
+            a12ckReport((unsigned long long)g_frame);
+            a12ckExtra((unsigned long long)g_frame);
+            a12nchkReport((unsigned long long)g_frame);
+            {
+                const A3Stats &g = g_a12s;
+                std::fprintf(stderr, "[a12] frame %llu: adapters entered %llu: typed off %llu, below the NOCHK floor %llu, a callee slot held by another function %llu, "
+                                     "calls %llu, back edges %llu\n",
+                             (unsigned long long)g_frame, (unsigned long long)g.entered, (unsigned long long)g.off, (unsigned long long)g.floor,
+                             (unsigned long long)g.slot, (unsigned long long)g.calls, (unsigned long long)g.backs);
             }
 #endif
             std::fprintf(stderr, "[a11] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a11Typed ? 1 : 0,
@@ -14916,6 +14975,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
         g_a9Typed = a9TypedNow();                                 // round A9
         a10FlagsNow();                                            // round A10
         a11FlagsNow();                                            // round A11
+        a12FlagsNow();                                            // round A12
         e = std::getenv("SOTC_A1_LOG");
         g_a1Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }

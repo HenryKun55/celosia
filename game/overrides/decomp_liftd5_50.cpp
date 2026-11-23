@@ -11,6 +11,7 @@
 #include "typed_a7.h" // a7
 #include "typed_a8.h" // a8
 #include "typed_a10.h" // a10
+#include "typed_a12.h" // a12
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -6025,6 +6026,7 @@ L_11409a0:
 void manager_sub_01140C80(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1140C80u, 0)) { manager_sub_01140C80_0x1140c80(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO() && A12_HOLDS(0x1140E60u, lift_d1::manager_sub_01140E60), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint32_t a2_6 = Ps2GprU32(ctx, 6); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A12_CHK(manager_sub_01140C80, a2_4, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 6)}; A12_IN(43); const uint64_t a2_r = typed::manager_sub_01140C80(rdram, runtime, a2_4, a2_6, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 6, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17);
     bool df_sp = false;

@@ -11,6 +11,7 @@
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
 #include "typed_a9.h" // a9
+#include "typed_a12.h" // a12
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -12752,6 +12753,7 @@ void reset_camera_vs_ofst_cntrl_param_segment_array(uint8_t *rdram, R5900Context
 void get_nearest_camera_vs_ofst_cntrl_position(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1412320u, 0)) { get_nearest_camera_vs_ofst_cntrl_position_0x1412320(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO() && A12_HOLDS(0x107ED80u, lift_d1::GAMEUTIL_is_diff_nearly_equal_zero3D) && A5_JAL(0x141243Cu, 0x107ED80u), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f20 = ctx->f[20]; const float a2_f21 = ctx->f[21]; const float a2_f22 = ctx->f[22]; const float a2_f23 = ctx->f[23]; const float a2_f24 = ctx->f[24]; A12_CHK(get_nearest_camera_vs_ofst_cntrl_position, a2_4, a2_5, a2_6, a2_7, a2_29, a2_f20, a2_f21, a2_f22, a2_f23, a2_f24); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a3_xo[5] = {(uint64_t)a1_bits(ctx->f[20]), (uint64_t)a1_bits(ctx->f[21]), (uint64_t)a1_bits(ctx->f[22]), (uint64_t)a1_bits(ctx->f[23]), (uint64_t)a1_bits(ctx->f[24])}; A12_IN(56); const uint64_t a2_r = typed::get_nearest_camera_vs_ofst_cntrl_position(rdram, runtime, a2_4, a2_5, a2_6, a2_7, a2_29, a2_f20, a2_f21, a2_f22, a2_f23, a2_f24, a4_vf5, a4_vf6, a4_vf7, a4_h2, a4_h6, a4_h7, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[20] = a1_flt((uint32_t)a3_xo[0]); ctx->f[21] = a1_flt((uint32_t)a3_xo[1]); ctx->f[22] = a1_flt((uint32_t)a3_xo[2]); ctx->f[23] = a1_flt((uint32_t)a3_xo[3]); ctx->f[24] = a1_flt((uint32_t)a3_xo[4]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t at = Ps2GprU32(ctx, 1), s1 = Ps2GprU32(ctx, 17), s2 = Ps2GprU32(ctx, 18), s3 = Ps2GprU32(ctx, 19), s7 = Ps2GprU32(ctx, 23), sp = Ps2GprU32(ctx, 29), fp = Ps2GprU32(ctx, 30), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), s0 = Ps2GprU64(ctx, 16), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s6 = Ps2GprU64(ctx, 22);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f20 = ctx->f[20], f21 = ctx->f[21], f22 = ctx->f[22], f23 = ctx->f[23], f24 = ctx->f[24];

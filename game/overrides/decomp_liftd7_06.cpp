@@ -10,6 +10,7 @@
 #include "typed_a5.h" // a5
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
+#include "typed_a12.h" // a12
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -20167,6 +20168,7 @@ void _getPlayerHpRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void setPlayerGrip(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13584F8u, 0)) { setPlayerGrip_0x13584f8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO() && A12_HOLDS(0x1346210u, lift_d1::getFadeValue) && A12_HOLDS(0x1346300u, lift_d1::getDemoBarFade) && A12_HOLDS(0x134F120u, lift_d1::_gameFWorkChk) && A12_HOLDS(0x13F67B8u, lift_d1::gamecore_sub_013F67B8) && A12_HOLDS(0x13FA660u, lift_d1::setgrip), 1)) { const uint64_t a2_6 = Ps2GprU64(ctx, 6); const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_8 = Ps2GprU64(ctx, 8); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint64_t a2_10 = Ps2GprU64(ctx, 10); const float a2_f0 = ctx->f[0]; const float a2_f12 = ctx->f[12]; const float a2_f20 = ctx->f[20]; A12_CHK(setPlayerGrip, a2_6, a2_7, a2_8, a2_9, a2_10, a2_f0, a2_f12, a2_f20); uint64_t a3_xo[7] = {(uint64_t)a1_bits(ctx->f[12]), (uint64_t)a1_bits(ctx->f[20]), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10)}; A12_IN(140); const a1::RetVF a2_r = typed::setPlayerGrip(rdram, runtime, a2_6, a2_7, a2_8, a2_9, a2_10, a2_f0, a2_f12, a2_f20, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[12] = a1_flt((uint32_t)a3_xo[0]); ctx->f[20] = a1_flt((uint32_t)a3_xo[1]); Ps2SetGpr64(ctx, 5, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); Ps2SetGpr64(ctx, 10, a3_xo[6]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f20 = ctx->f[20];
     uint32_t fcr31 = ctx->fcr31;

@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a12.h" // a12
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7534,6 +7535,7 @@ void GetScrLwsOriClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void manager_sub_0110E938(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x110E938u, 0)) { manager_sub_0110E938_0x110e938(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A12_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A12_CHK(manager_sub_0110E938, a2_4); uint64_t a3_xo[8] = {Ps2GprU64(ctx, 2), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A12_IN(6); typed::manager_sub_0110E938(rdram, runtime, a2_4, a3_xo); A12_OUT(); Ps2SetGpr64(ctx, 2, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); Ps2SetGpr64(ctx, 10, a3_xo[6]); Ps2SetGpr64(ctx, 11, a3_xo[7]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a12
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), t4 = Ps2GprU32(ctx, 12), t6 = Ps2GprU32(ctx, 14), t7 = Ps2GprU32(ctx, 15), s0 = Ps2GprU32(ctx, 16), s2 = Ps2GprU32(ctx, 18), s3 = Ps2GprU32(ctx, 19), t8 = Ps2GprU32(ctx, 24), t9 = Ps2GprU32(ctx, 25), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t t5 = Ps2GprU64(ctx, 13), s1 = Ps2GprU64(ctx, 17);
     bool df_v0 = false, df_a1 = false, df_a2 = false, df_a3 = false, df_t0 = false, df_t1 = false, df_t2 = false, df_t3 = false, df_t4 = false, df_t6 = false, df_t7 = false, df_s0 = false, df_s2 = false, df_s3 = false, df_t8 = false, df_t9 = false;
