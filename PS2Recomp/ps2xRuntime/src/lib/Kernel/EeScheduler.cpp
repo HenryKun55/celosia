@@ -3673,6 +3673,16 @@ void EeScheduler::syncCyclesToHostClock()
 void EeScheduler::idleWait()
 {
     assertExecutor();
+    // Round B5: a park's deferred catch-up is pending (a deadline fell due on the host clock): do it now and let the next
+    // checkpoint take the deadline, instead of waiting (the wait below looks only at host deadlines still ahead: an overdue one
+    // would cost the full 1 ms).
+    if (__builtin_expect(g_b5Deferred, 0))
+    {
+        ++g_eeB5.idle;
+        syncCyclesToHostClock();
+        flagCheckpoint(10);
+        return;
+    }
     if (!m_hostClockSync || !m_pendingInvocations.empty() || m_pendingEeTimerInterrupts != 0u)
     {
         ++n5stat::idleRet[!m_hostClockSync ? 0 : !m_pendingInvocations.empty() ? 1 : 2];

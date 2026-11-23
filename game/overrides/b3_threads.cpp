@@ -996,8 +996,8 @@ namespace b3threads
         {
             static EeB5Stats last{};
             const double f = static_cast<double>(frame - g_lastLogFrame);
-            std::fprintf(stderr, "[b5] frame %llu: defer %u | a frame: park catch-ups deferred %.2f, deferred ones done %.2f (of them by the 4 ms limit %.3f)\n",
-                         (unsigned long long)frame, g_ps2xB5Defer, (g_eeB5.deferred - last.deferred) / f, (g_eeB5.applied - last.applied) / f, (g_eeB5.late - last.late) / f);
+            std::fprintf(stderr, "[b5] frame %llu: defer %u | a frame: park catch-ups deferred %.2f, deferred ones done %.2f (of them by the 4 ms limit %.3f, by the idle wait %.2f)\n",
+                         (unsigned long long)frame, g_ps2xB5Defer, (g_eeB5.deferred - last.deferred) / f, (g_eeB5.applied - last.applied) / f, (g_eeB5.late - last.late) / f, (g_eeB5.idle - last.idle) / f);
             last = g_eeB5;
         }
         if (g_log == 0u)

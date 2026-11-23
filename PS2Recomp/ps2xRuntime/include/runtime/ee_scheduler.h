@@ -387,6 +387,7 @@ extern uint32_t g_ps2xB5Defer;
 struct EeB5Stats
 {
     uint64_t deferred = 0, applied = 0, late = 0; // parks that deferred the catch-up, deferred catch-ups done, of them by the 4 ms limit
+    uint64_t idle = 0;                            // of them by the idle wait (which then returns at once)
 };
 extern EeB5Stats g_eeB5;
 extern uint32_t g_ps2xB5Trace; // round B5 (debug, SOTC_B5_TRACE): the scheduling decisions' ring, printed with the [b5dog] dumps
