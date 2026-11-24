@@ -24102,7 +24102,7 @@ A/B b7irq, period 300).
   host handlers, the cycle charges and the deadline / timer-read slow paths, the id-keyed semaphore / event records, the
   hand-back path and resume labels, the boot threads (decomp_b7.md section 6).
 
-## Decomp B8: the dispatcher's deliveries without invocation records, the gate re-set at timer reads (b8sched, off by default) (2026-11-23, partial: runs pending)
+## Decomp B8: the dispatcher's deliveries without invocation records, the gate re-set at timer reads (b8sched, off by default) (2026-11-23)
 
 docs/decomp_b8.md. Code: `b8Push` / `b8Dispatch` / `b8Materialize` / `b8Regate` (+ the check: `b8Step`, `b8Compare`) in
 EeScheduler.cpp, the regate hook in ps2_memory.cpp, game/overrides/b8_sched.cpp. Scripts, runs and logs: `build/agent-scratch/b8/`.
@@ -24117,7 +24117,11 @@ off. Console package `build/agent-scratch/b8/celosia-b8.vpk` + `env-ab.txt` (all
   checkpoint: carriers' slow checkpoints 6.1 -> 3.0 a frame riding (13.6 before B7).
 - **Checks** (all seven switches, every check): **0 bad of 681 695 dispatcher step comparisons, 130 386 charge comparisons,
   147 272 regate predictions** (ride7 600 / attract 400 / lake6 400); B7 / B6 / B3 checks still 0.
-- **Boots**: 3 89 MB boots so far, all 3 rode (mounted at 2 880 / 3 237 / 2 223). The rest (>=10 boots, loads on / off, the
-  Vita3K A/B, the 89 MB boot with pictures) was stopped for the user's screen share and is queued (b8chain3.sh). spalign 0.
+- **Boots**: 10 of 10 89 MB boots (ride7 300 s, all seven switches) mounted Agro and rode to the end (mounted at frames
+  2 223-6 091); 89 MB picture boot (bootR) mounted at frame 2 759 and rode 600 s, pictures at 300 / 540 s normal (ground,
+  Agro, shadows, ruins). Loads on / off the same (ride7 Load Game 166+200 vs 152+278 ms, teleport 175 vs 168; lake6 the same
+  to the ms); the attract route never reaches the field on or off. spalign 0.
+- **Vita3K A/B** (222 MHz, off - on): mixR7 +0.855 +- 1.915 ms, mixR13 -0.316 +- 2.705, mixL7 -0.236 +- 0.881: no measurable
+  difference.
 - **What is left of the PS2 scheduler**: run()'s loop and thread records (the delivery still takes the loop's push / run / pop
   turns), the cycle charges, the id-keyed semaphore / event records, the hand-back path, the boot threads (decomp_b8.md section 6).

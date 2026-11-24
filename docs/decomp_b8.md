@@ -10,9 +10,9 @@ b7_irq.cpp (each host handler's charge formula for the check), sotc_native.cpp /
 tables). Scripts, runs and logs: `build/agent-scratch/b8/` (NOTES.md). Vita3K trees ../vita3k-celosia-b1 / -b1b / -b1c (pointed
 at b8; 222 MHz, 3 cores, audio-volume 0; every run muted).
 
-**State of this document**: the round is paused twice for the user's meetings (the second time all Vita3K runs were stopped,
-22:2x, before the boot series and the A/B finished). The code, the checks and the first boots are done; the rest of the run plan
-is queued as `build/agent-scratch/b8/b8chain3.sh p2.vpk` (not started). Items marked **pending** below wait for it.
+**State of this document**: the round was paused twice for the user's meetings (the second time all Vita3K runs were stopped,
+22:2x, before the boot series and the A/B finished). The rest of the run plan then ran as `build/agent-scratch/b8/b8chain3.sh
+p2.vpk` (pf2-pf4, pf7-pf10, loads, bootR, then b8ab.sh); every result below is final.
 
 ## 1. What B7 left in record form
 
@@ -89,18 +89,33 @@ left is the deliveries themselves (~2.1) and ~0.3-0.9 below-slice crossings that
 same (0.28-0.90 below the slice, 3.06-3.10 regates a frame). Each removed slow checkpoint and each removed record is
 microseconds a frame on the console: the expected gain is again below what Vita3K's A/B resolves.
 
-**Boots** (89 MB, `SOTC_VITA_EAT_USER_MB=89`, ride7 300 s, all seven switches on): **3 done, 3 reached the field (frame 2 000)
-and 3 mounted Agro and rode**: pf5 mounted at frame 2 880 (9 000 frames in 300 s), pf1 at 3 237 (7 800), pf6 at 2 223 (7 800);
-0 dismounts, 0 watchdog lines (b1dog / b5dog), slots 2.7-3.3 a frame, 0 records made. pf7 and pf8 were killed mid-run by the
-stop; **pending**: pf2-pf4, pf7-pf10 (b8chain3.sh) for ≥10.
+**Boots** (89 MB, `SOTC_VITA_EAT_USER_MB=89`, ride7 300 s, all seven switches on): **10 of 10 booted on the first try, reached
+the field (frame 2 000), mounted Agro and rode to the end**: mounted at frame pf1 3 237, pf2 2 540, pf3 4 621, pf4 3 923,
+pf5 2 880, pf6 2 223, pf7 2 367, pf8 5 185, pf9 6 091, pf10 3 082 (7 800-9 000 frames in 300 s); 0 dismounts, 0 watchdog lines
+(b1dog / b5dog), slots 2.7-3.4 a frame, regates 3.03-3.11 a frame, 0 records made. (pf7 and pf8 of the first series were
+killed mid-run by the meeting stop and were run again in b8chain3.sh.)
 
-**Loads** (on vs off, `SOTC_FRAME_LOG=1`; ldOn/ldOff R / A / L): **pending** (b8chain3.sh).
+**Loads** (on vs off, `SOTC_FRAME_LOG=1`, 89 MB; `python3 lg.py runs/<r>/err.txt`):
 
-**Vita3K A/B** (222 MHz, `SOTC_AB_FLAG=b8sched`, one at a time on b1: mixR7 / mixR13 / mixL7, pooled off - on +- SE):
-**pending** (b8ab.sh, run at the end of b8chain3.sh).
+| | Load Game pair | frames 200-1999: longest / >100 ms / >200 ms | teleport load |
+|---|---|---|---:|
+| ride7 on (ldOnR) | 166 + 200 ms | 200 ms / 6 / 1 | 175 ms |
+| ride7 off (ldOffR) | 152 + 278 ms | 278 ms / 6 / 1 | 168 ms |
+| lake6 on (ldOnL) | 161 + 207 ms | 326 ms / 7 / 2 | 326 ms |
+| lake6 off (ldOffL) | 166 + 202 ms | 325 ms / 7 / 2 | 325 ms |
 
-**89 MB boot with pictures** (bootR, ride7 600 s, shots every 120 s): **pending** (b8chain3.sh; the shots may fail while
-windows are hidden: the picture check is the coordinator's).
+The same loads with and without b8sched. ldOnA / ldOffA (attract route) never entered the field (classify.py "STALL",
+field-at 0) with b8sched on and off alike: the attract route does not reach the field in that setup (B6 saw the same), not a
+B8 failure.
+
+**Vita3K A/B** (222 MHz, `SOTC_AB_FLAG=b8sched`, one at a time on b1: mixR7 / mixR13 / mixL7, off - on +- 2 SE over blocks of
+300 frames): mixR7 **+0.855 +- 1.915 ms** (25 blocks), mixR13 **-0.316 +- 2.705 ms** (17 blocks), mixL7 **-0.236 +- 0.881 ms**
+(22 blocks): no measurable difference, as expected for a few microseconds a frame.
+
+**89 MB boot with pictures** (bootR, ride7 600 s, all seven switches, shots every 120 s): booted on the first try, field at
+frame 2 000, **mounted at frame 2 759 and rode the full 600 s** (13 800 frames; 0 dismounts, 0 watchdog lines; slots 3.07, regates
+3.09 a frame, 0 records). Pictures at 300 s (riding over the grass towards the ruins, Agro and Wander with their ground shadow,
+sky) and 540 s (riding past the stone pillar, ruins and tree behind, ground texture, shadow) normal.
 
 **spalign**: `python3 ../tools/spalign.py p2.elf`: 0 sp-based :128/:256 NEON accesses (of 1 058 with a hint).
 
