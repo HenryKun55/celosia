@@ -24200,3 +24200,26 @@ docs/decomp_a14.md. Scripts, runs and logs: `build/agent-scratch/a14/`. Code com
   rode 900 s, pictures normal.
 - **Ships**: a12typed / a13typed / a14typed off by default. build/agent-scratch/a14/celosia-a14.vpk + env-ab.txt (SOTC_A12TYPED=1,
   SOTC_AB_FLAG=a14typed), not installed.
+
+## Decomp B10: the thread switch without the dispatcher's loop top (b10switch, off by default) (2026-11-24)
+
+docs/decomp_b10.md. Code: `B10_ROUND` / `b10Skip` / `b10Quiet`, the labels `b10Pick0-2` at the three loops' picks, the check
+`b10Top` / `b10Pick` / `b10Front` in EeScheduler.cpp, game/overrides/b10_switch.cpp. Scripts, runs and logs: `build/agent-scratch/b10/`.
+Switch `SOTC_B10SWITCH` (acts only while b9loop is in effect); `SOTC_B10_CHECK` runs the skipped tops and compares the picks.
+Console package `build/agent-scratch/b10/celosia-b10.vpk` + `env-ab.txt` (all nine on, A/B b10switch, period 300).
+
+- **The switch**: at every `continue` with no thread running (after a run that parked / gave way / ended, a carrier's switch
+  yield at carrierNest's entry, a completion, a delivery that woke another thread) the pick and the next thread's dispatch follow
+  the settle at once while the top would do nothing (`b10Quiet`: no stop, nothing flagged / posted, no timer interrupt latched, no
+  deadline due, no reschedule); otherwise the loop goes round. Same picks, steps, hand-overs and cycles. Riding, every switch
+  after GAMECORE (4-6.5 a frame, all in carrierNest) skips its top; none went round.
+- **Checks** (all nine switches, every check): **0 bad of 186 827 top comparisons and 93 338 pick comparisons** (143 races with
+  a post from another thread, allowed) on ride7 600 / attract 400 / lake6 400 / smoke; B9, B8, B7, B6, B3, B1 / B2 still 0.
+- **Boots** (host loaded by round A14): 10 of 10 89 MB boots reached the field, 9 mounted Agro at 450 s, the tenth on its rerun;
+  0 dismounts, 0 watchdog lines. 89 MB picture boot (bootR) mounted at frame 5 480, rode 600 s, pictures at 420 / 540 s normal.
+  Loads the same on / off; the attract route never reaches the field on or off. spalign 0 of 1 064, ELF room unchanged.
+- **Vita3K A/B** (222 MHz, off - on): mixR7 +0.368 +- 0.487 ms, mixR13 +0.583 +- 1.039, mixL7 -0.670 +- 0.830: no measurable
+  difference. Slow checkpoints unchanged (~5-6 a frame).
+- **What is left of the PS2 scheduler**: the thread records keyed by guest id in the PS2 kernel's shapes, the loop body three
+  times, the cycle charges and slow checkpoints, the id-keyed semaphore / event records, the hand-back path, the boot threads
+  (decomp_b10.md section 6).
