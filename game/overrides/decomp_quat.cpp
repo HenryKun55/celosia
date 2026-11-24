@@ -1640,6 +1640,12 @@ namespace decomp_quat
 #endif
         }
         PS2_FORCE_INLINE float xL0(V4 v) { return vgetq_lane_f32(v, 0); }
+        // The old bodies' operand clamps, kept where they act on lanes the game never initialised (a caller's vector's w,
+        // a register's stale lanes: an Inf / NaN pattern there is clamped to +-FLT_MAX, a denormal to a signed zero, and
+        // that value reaches a written register or RAM): vu::clamp (a load / register clamped once) and the PS2_VSUB /
+        // PS2_VADD operand clamp (ps2VuOperand).
+        PS2_FORCE_INLINE V4 xC(V4 v) { return ps2VuNormalize(v); }
+        PS2_FORCE_INLINE V4 xO(V4 v) { return ps2VuOperand(v); }
         // A GPR after mfc1 / lui: the low word, its sign in the second, the upper 64 bits kept.
         PS2_FORCE_INLINE void xSetLow32(V4 &r, uint32_t bits)
         {
@@ -1823,8 +1829,8 @@ namespace decomp_quat
             const V4 vf0 = s.vf[0], mx = xMask(1, 0, 0, 0), mw = xMask(0, 0, 0, 1), xyz = xMask(1, 1, 1, 0);
             V4 &vf5 = s.vf[5], &vf6 = s.vf[6], &vf7 = s.vf[7];
             V4 &acc = s.acc;
-            vf5 = xLd(m, from);
-            vf6 = xLd(m, to);
+            vf5 = xC(xLd(m, from));
+            vf6 = xC(xLd(m, to));
             vf7 = d1::vsel(vf7, d1::vadd(vf0, d1::bc<3>(vf0)), mx);
             vf6 = d1::vsel(vf6, d1::vmul(vf5, vf6), xyz);
             acc = d1::vsel(acc, d1::vadd(vf0, d1::bc<0>(vf6)), mx);
@@ -1834,7 +1840,7 @@ namespace decomp_quat
             const float dot = xL0(vf6);
             auto unitAxis = [&]()
             {
-                vf5 = xLd(m, axis);
+                vf5 = xC(xLd(m, axis));
                 vf7 = d1::vsel(vf7, d1::vmul(vf5, vf5), xyz);
                 acc = d1::vsel(acc, d1::vmul(vf0, d1::bc<0>(vf7)), mw);
                 acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(vf0, d1::bc<1>(vf7))), mw);
@@ -1859,11 +1865,11 @@ namespace decomp_quat
                 xSetLow32(s.r2, frame);
                 return;
             }
-            vf5 = xLd(m, from);
-            vf6 = xLd(m, to);
+            vf5 = xC(xLd(m, from));
+            vf6 = xC(xLd(m, to));
             acc = d1::vsel(acc, d1::vmul(xYzx(vf5), xZxy(vf6)), xyz);
             vf7 = d1::vsel(vf7, d1::vsub(acc, d1::vmul(xYzx(vf6), xZxy(vf5))), xyz);
-            vf7 = d1::vsel(vf7, d1::vsub(vf7, vf7), mw);
+            vf7 = d1::vsel(vf7, d1::vsub(xO(vf7), xO(vf7)), mw);
             const V4 cross = vf7;
             if (xLt(s, dot, 0.0f))
             {
@@ -1910,7 +1916,7 @@ namespace decomp_quat
             V4 &vf5 = s.vf[5], &vf8 = s.vf[8], &vf10 = s.vf[10], &vf11 = s.vf[11], &vf12 = s.vf[12], &vf13 = s.vf[13];
             V4 &vf14 = s.vf[14], &vf15 = s.vf[15], &vf16 = s.vf[16], &vf17 = s.vf[17];
             V4 &acc = s.acc;
-            vf11 = quat;
+            vf11 = xC(quat);
             vf5 = d1::vsel(vf5, d1::vsub(vf0, d1::bc<3>(vf0)), mx);
             vf11 = d1::vsel(vf11, d1::vmul(vf11, d1::bc<0>(vf5)), xyz);
             vf12 = d1::vsel(vf12, d1::vadd(vf0, d1::bc<3>(vf0)), xyz);
@@ -1937,7 +1943,7 @@ namespace decomp_quat
             vf14 = d1::vsel(vf14, vf15, mz);
             vf15 = d1::vsel(vf15, vf16, mz);
             vf16 = d1::vsel(vf16, vf17, mz);
-            vf8 = vec;
+            vf8 = xC(vec);
             vf17 = vf0;
             acc = d1::vmul(vf14, d1::bc<0>(vf8));
             acc = d1::vmadd(acc, vf15, d1::bc<1>(vf8));
@@ -1952,8 +1958,8 @@ namespace decomp_quat
             const V4 mx = xMask(1, 0, 0, 0), mw = xMask(0, 0, 0, 1), xyz = xMask(1, 1, 1, 0);
             V4 &vf11 = s.vf[11], &vf12 = s.vf[12], &vf13 = s.vf[13], &vf14 = s.vf[14], &vf15 = s.vf[15], &vf16 = s.vf[16];
             V4 &acc = s.acc;
-            vf11 = a;
-            vf12 = b;
+            vf11 = xC(a);
+            vf12 = xC(b);
             vf13 = d1::vmul(vf11, vf12);
             vf13 = d1::vsel(vf13, d1::vadd(vf13, d1::bc<1>(vf13)), mx);
             vf13 = d1::vsel(vf13, d1::vadd(vf13, d1::bc<2>(vf13)), mx);
@@ -1972,7 +1978,7 @@ namespace decomp_quat
         {
             const V4 mx = xMask(1, 0, 0, 0);
             V4 &vf14 = s.vf[14], &vf15 = s.vf[15];
-            vf14 = xLd(m, q0);
+            vf14 = xC(xLd(m, q0));
             vf15 = d1::vmul(vf14, vf14);
             vf15 = d1::vsel(vf15, d1::vadd(vf15, d1::bc<1>(vf15)), mx);
             vf15 = d1::vsel(vf15, d1::vadd(vf15, d1::bc<2>(vf15)), mx);
@@ -2011,7 +2017,7 @@ namespace decomp_quat
             s.g4 = frame + 0x70u;
             const float f0 = xF(m, frame + 0x74u);
             vf6 = xViaGpr(s.r2, f0);
-            vf5 = d1::vmul(xLd(m, kZ), d1::bc<0>(vf6));
+            vf5 = d1::vmul(xC(xLd(m, kZ)), d1::bc<0>(xC(vf6)));
             const float f1 = xF(m, frame + 0x70u);
             const V4 r = vsetq_lane_f32(f1, vf5, 3);
             xSt(m, frame + 0x60u, r);
@@ -2041,16 +2047,16 @@ namespace decomp_quat
             V4 &vf5 = s.vf[5], &vf6 = s.vf[6], &vf7 = s.vf[7];
             V4 &acc = s.acc;
             const V4 xyz = xMask(1, 1, 1, 0), mw = xMask(0, 0, 0, 1);
-            vf5 = xLd(m, dir);
-            vf6 = xLd(m, axis);
+            vf5 = xC(xLd(m, dir));
+            vf6 = xC(xLd(m, axis));
             acc = d1::vsel(acc, d1::vmul(xYzx(vf5), xZxy(vf6)), xyz);
             vf7 = d1::vsel(vf7, d1::vsub(acc, d1::vmul(xYzx(vf6), xZxy(vf5))), xyz);
-            vf7 = d1::vsel(vf7, d1::vsub(vf7, vf7), mw);
+            vf7 = d1::vsel(vf7, d1::vsub(xO(vf7), xO(vf7)), mw);
             vf5 = vf7;
-            vf6 = xLd(m, dir);
+            vf6 = xC(xLd(m, dir));
             acc = d1::vsel(acc, d1::vmul(xYzx(vf5), xZxy(vf6)), xyz);
             vf7 = d1::vsel(vf7, d1::vsub(acc, d1::vmul(xYzx(vf6), xZxy(vf5))), xyz);
-            vf7 = d1::vsel(vf7, d1::vsub(vf7, vf7), mw);
+            vf7 = d1::vsel(vf7, d1::vsub(xO(vf7), xO(vf7)), mw);
             xSt(m, out, vf7);
         }
 
@@ -2063,7 +2069,7 @@ namespace decomp_quat
             V4 &vf14 = s.vf[14], &vf15 = s.vf[15], &vf16 = s.vf[16], &vf17 = s.vf[17];
             V4 &acc = s.acc;
             vf12 = d1::vsel(vf12, d1::vadd(vf0, d1::bc<3>(vf0)), xyz);
-            vf11 = quat;
+            vf11 = xC(quat);
             const V4 r32 = vextq_f32(vf0, vf0, 1); // (y, z, w, x)
             vf14 = d1::vsel(vf14, r32, mw);
             vf15 = d1::vsel(vf15, r32, mw);
@@ -2096,8 +2102,8 @@ namespace decomp_quat
             const uint32_t frame = sp - 0x70u, s0 = frame + 0x10u;
             V4 &vf5 = s.vf[5], &vf6 = s.vf[6], &vf7 = s.vf[7];
             V4 &acc = s.acc;
-            vf5 = xLd(m, end);
-            vf6 = xLd(m, start);
+            vf5 = xC(xLd(m, end));
+            vf6 = xC(xLd(m, start));
             vf7 = d1::vsub(vf5, vf6);
             xSt(m, s0, vf7);
             const float d0 = vgetq_lane_f32(vf7, 0), d1v = vgetq_lane_f32(vf7, 1), d2 = vgetq_lane_f32(vf7, 2);
@@ -2132,28 +2138,28 @@ namespace decomp_quat
             // -start through the transposed rows.
             V4 vf24 = vf4, vf25 = s.vf25, vf28 = s.vf28;
             vf25 = d1::vsel(vf25, d1::vsub(vf0, d1::bc<3>(vf0)), mx);
-            vf28 = d1::vsel(vf28, d1::vmul(vf24, d1::bc<0>(vf25)), xyz);
-            vf28 = d1::vsel(vf28, d1::vsub(vf28, vf28), mw);
+            vf28 = d1::vsel(vf28, d1::vmul(xC(vf24), d1::bc<0>(vf25)), xyz);
+            vf28 = d1::vsel(vf28, d1::vsub(xO(vf28), xO(vf28)), mw);
             const float32x4x2_t t45 = vzipq_f32(s.vf[14], s.vf[15]), t67 = vzipq_f32(s.vf[16], vf0);
             vf24 = vcombine_f32(vget_low_f32(t45.val[0]), vget_low_f32(t67.val[0]));
             vf25 = vcombine_f32(vget_high_f32(t45.val[0]), vget_high_f32(t67.val[0]));
             const V4 vf26 = vcombine_f32(vget_low_f32(t45.val[1]), vget_low_f32(t67.val[1]));
-            V4 a = d1::vmul(vf24, d1::bc<0>(vf28));
-            a = d1::vmadd(a, vf25, d1::bc<1>(vf28));
-            a = d1::vmadd(a, vf26, d1::bc<2>(vf28));
+            V4 a = d1::vmul(xC(vf24), d1::bc<0>(vf28));
+            a = d1::vmadd(a, xC(vf25), d1::bc<1>(vf28));
+            a = d1::vmadd(a, xC(vf26), d1::bc<2>(vf28));
             V4 vf29 = d1::vmadd(a, vf0, d1::bc<3>(vf28));
-            vf29 = d1::vsel(vf29, d1::vsub(vf29, vf29), mw);
-            vf29 = d1::vsel(vf29, d1::vadd(vf29, vf0), mw);
+            vf29 = d1::vsel(vf29, d1::vsub(xO(vf29), xO(vf29)), mw);
+            vf29 = d1::vsel(vf29, d1::vadd(xO(vf29), vf0), mw);
             xSt(m, inv, vf24);
             xSt(m, inv + 0x10u, vf25);
             xSt(m, inv + 0x20u, vf26);
             xSt(m, inv + 0x30u, vf29);
             // end through inv: the length along z.
             V4 &vf8 = s.vf[8], &vf10 = s.vf[10], &vf14 = s.vf[14], &vf15 = s.vf[15], &vf16 = s.vf[16], &vf17 = s.vf[17];
-            vf8 = xLd(m, end);
-            vf14 = vf24;
-            vf15 = vf25;
-            vf16 = vf26;
+            vf8 = xC(xLd(m, end));
+            vf14 = xC(vf24);
+            vf15 = xC(vf25);
+            vf16 = xC(vf26);
             vf17 = vf29;
             acc = d1::vmul(vf14, d1::bc<0>(vf8));
             acc = d1::vmadd(acc, vf15, d1::bc<1>(vf8));
