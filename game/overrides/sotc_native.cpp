@@ -284,6 +284,7 @@ void a13ckExtra(unsigned long long frame);  // typed_a13_check_rt.h (in a13_type
 #endif
 static uint64_t g_a13Frames[2] = {0, 0};
 static void a12FlagsNow();
+bool g_ckSampleOff = false; // round A13 (typed_a3_check_rt.h): SOTC_CK_EVERY
 static void a13FlagsNow() { g_a13Typed = sotc_decomp::switchOn(sotc_decomp::kA13Typed) && g_a12Typed; }
 static void a12FlagsNow()
 {
@@ -4552,6 +4553,14 @@ namespace sotc_native
         a12FlagsNow();
         ++g_a12Frames[g_a12Typed ? 1 : 0];
         a13diag::noteFrame(g_a12Typed); // round A13: the flag's history for the ride watchdog
+        {
+            // Round A13: SOTC_CK_EVERY=<n> (a check build): the in-run checks on one frame in n, so a long ride runs fast enough to mount.
+            static const uint64_t ckEvery = [] {
+                const char *e = std::getenv("SOTC_CK_EVERY");
+                return e ? static_cast<uint64_t>(std::strtoull(e, nullptr, 10)) : 0ull;
+            }();
+            g_ckSampleOff = ckEvery > 1u && (g_frame % ckEvery) != 0u;
+        }
         // Round A13 (a13typed): stage 13's typed functions (hi / lo as extra outputs; typed_a13.h).
         a13FlagsNow();
         ++g_a13Frames[g_a13Typed ? 1 : 0];

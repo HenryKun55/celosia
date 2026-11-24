@@ -27,6 +27,10 @@
 #include "typed_a2_rt.h"
 #include "typed_a3_rt.h"
 
+#if !defined(A3_OFFLINE)
+extern bool g_ckSampleOff; // round A13: SOTC_CK_EVERY=<n> (a check build): the in-run checks on one frame in n (sotc_native, once a frame)
+#endif
+
 namespace A3CK_NS
 {
     extern const a1ck::CkEntry kEntries[];
@@ -333,6 +337,10 @@ namespace A3CK_NS
             ++g_stats.nested;
             return false;
         }
+#if !defined(A3_OFFLINE)
+        if (g_ckSampleOff) // round A13: a frame SOTC_CK_EVERY leaves out (the call runs as usual, unchecked)
+            return false;
+#endif
         s.active = true;
         s.gen += 2u; // never 0 (the overlay's initial generation)
         s.used[0] = s.used[1] = 0;
