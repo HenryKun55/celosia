@@ -135,6 +135,8 @@ series' fA7 / fA13 / fA13b): -0.061 +- 0.125, +0.086 +- 0.287, +0.027 +- 0.651 m
 
 **89 MB boot** (pm = the build of the first close, with a12typed and a13typed on by default; SOTC_VITA_EAT_USER_MB=89, ride7 600 s): booted on the first try (`[vita] SOTC_VITA_EAT_USER_MB=89: taken`, `[a12] adapters installed over 64`, `[a13] ... over 4`), mounted at frame 2 444 and rode to frame 11 100 (horse -589.54 6.84 -428.66; `[a12] typed 1` all run, 15.6 fps at the end on the loaded host); no FREEZE. Screenshot at 420 s: Wander on Agro by the cliffs, ground and shadows normal.
 
+**89 MB boot of the merged build** (pm8 = A13 rebased on B8 main 29370ed, a12typed / a13typed back to opt-in, default switches; SOTC_VITA_EAT_USER_MB=89, ride7 600 s): booted on the first try, mounted at frame 3 139 and rode the whole run (15 280 frames, 27 fps at the end); no FREEZE. Screenshots at 300 / 540 s: Wander on Agro galloping by the ruins and the bridge, then along the cliff wall; ground, shadows and sky normal.
+
 **Default ride** dR (pm, a12typed on by default in it, ride7 1500 s, watchdog): mounted at frame 10 401, rode to 31 800 (horse -420.20 0.76 -236.90), no FREEZE.
 
 **Console package**: build/agent-scratch/a13/celosia-a13.vpk (pm: built before the revert, so a12typed / a13typed are on by default in it) + env-ab.txt (the console base env, SOTC_AB_FLAG=a12typed
