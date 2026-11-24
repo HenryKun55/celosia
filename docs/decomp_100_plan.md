@@ -294,6 +294,8 @@ and its raw guest offsets typed struct accesses. 40-60 a round, checked with the
 A/B'd on Vita3K and on the console (the console is where the cache-miss cost lives: docs/console_profile_2026-11-20.md
 section 4).
 
+**Status (2026-11-24, round D1, docs/decomp_d1.md)**: phase D's first round: 56 hand natives (27.8% of the console game thread) got D1 bodies next to their untouched old bodies (switch d1native, off by default): ctx read at the entry only, cores with C++ parameters over typed guest memory, ~1 700 FPU / VU0 macro sites as plain float / NEON vec4 (exact for finite operands; operand clamps kept where a lane can be stale), 9 natives calling host cores directly. 27 full (counted (d)), 29 partial (guest calls kept). (d) = 4 466 (49.5%), 22.5% of the bytes, 23.8% of the console game thread; difftest of each body against its old body 0 differences beyond the A/A control's (VU0 exit registers in four natives, host caches); Vita3K A/B +0.18 +- 0.19 ms (no measurable difference); console A/B pending (celosia-d1.vpk). Next: the big orchestrators skipped here (DispDispObjGroupModel, ExecCharaGeometry, rootBlend, the finder, ctrl*), which need their guest calls typed first, and the console's verdict on whether instruction cuts pay without touching the memory layout.
+
 **Phase E: teardown (2 rounds)**
 
 | round | what | done when |

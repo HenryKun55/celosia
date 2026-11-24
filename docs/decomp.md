@@ -24223,3 +24223,28 @@ Console package `build/agent-scratch/b10/celosia-b10.vpk` + `env-ab.txt` (all ni
 - **What is left of the PS2 scheduler**: the thread records keyed by guest id in the PS2 kernel's shapes, the loop body three
   times, the cycle charges and slow checkpoints, the id-keyed semaphore / event records, the hand-back path, the boot threads
   (decomp_b10.md section 6).
+
+## Decomp D1: the hand natives' D1 bodies (plain float / NEON vec4, ctx at the entry only, typed guest memory; d1native off by default) (2026-11-24)
+
+docs/decomp_d1.md. Scripts, runs and logs: `build/agent-scratch/d1/`. Code commits b2b9ae4 (framework), 541e830 (the bodies), b603795
+(the quaternion bodies' operand clamps). Switch `SOTC_D1NATIVE` (A/B `d1native`, `kD1Native`), **off by default**; `SOTC_D1_LOG=<n>` prints
+the bodies' run counts.
+
+- **Phase D's first round** (docs/decomp_100_plan.md section 6): 56 hand natives, 27.8% of the console game thread (2026-11-20 profile),
+  get a D1 body next to their untouched old body (PGO): an adapter reading `ctx` at the entry, a core with C++ parameters over `d1::Mem`,
+  the exit writing what the old body leaves. 27 are **full** (the core meets the typed bar: counted (d)), 29 **partial** (guest calls kept
+  between converted math). ~1 700 PS2 FPU / VU0 macro sites became d1:: plain float (scalar: the PS2 adder's alignment only when
+  magnitudes subtract, no result clamps) / NEON vec4 (result clamp only); 9 natives call host cores directly instead of the table
+  (sinCosCore, the char122 quaternion cores, intKeysC1, windZones, blend / step / emitter). docs/d1_natives.txt lists them.
+- **The slots**: each holds `<fn>Sw` with d1native on and the old function with it off (`d1::syncTable` once a frame; d1_alias.h);
+  `a6Is` / `a12Is` take a dispatcher as its old function (the typed adapters' HOLDS tests: 269 sites for GetCharacterClass alone).
+- **Checks**: `SOTC_DIFFTEST_SELF=1` (new: the native in both legs) with `SOTC_DIFFTEST_SWITCH=d1native SOTC_DIFFTEST_VU0=1
+  SOTC_DIFFTEST_DEPTH=1` (deeper nesting runs the Vita heap out): ride7 (mounted, frame 5 609), attract (7 004), lake6 (7 751), 41-43
+  natives checked a route: 0 differences except VU0 exit registers in four natives (invMatrix / axisDirZYExact vf7, CalcLightLayoutObj
+  vf4 / vf8, directCallBack vf4), which the A/A control (old body in both legs) shows at the same rate (46): host caches the legs share,
+  not D1. The three natives that can switch EE threads inside a leg are checked by gameplay only. spalign 0 of 2 068.
+- **Speed**: Vita3K A/B (off - on) ride7 seed 7 -0.17 +- 0.68, seed 13 -0.27 +- 0.29, lake6 +0.48 +- 0.41 / +0.85 +- 0.39 ms; pooled
+  **+0.18 +- 0.19 ms** (no measurable difference in Vita3K, which does not model the console's memory latency). The console A/B decides.
+- **Count**: (d) 4 439 -> **4 466** (49.49%), 22.48% of the bytes, **23.84%** of the console time (13.11% before).
+- **Boots**: bootD1 (p1) and bootD2 (p2), 89 MB, d1native on: mounted at 2 220 / 3 609 and rode 600 s, pictures normal (Agro, ground, shadows).
+- Console package celosia-d1.vpk + env-ab.txt (`SOTC_AB_FLAG=d1native`), not installed.
