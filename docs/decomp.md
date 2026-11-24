@@ -24101,3 +24101,23 @@ A/B b7irq, period 300).
 - **What is left of the PS2 scheduler**: the thread records and run()'s decisions, the interrupt invocation records around the
   host handlers, the cycle charges and the deadline / timer-read slow paths, the id-keyed semaphore / event records, the
   hand-back path and resume labels, the boot threads (decomp_b7.md section 6).
+
+## Decomp B8: the dispatcher's deliveries without invocation records, the gate re-set at timer reads (b8sched, off by default) (2026-11-23, partial: runs pending)
+
+docs/decomp_b8.md. Code: `b8Push` / `b8Dispatch` / `b8Materialize` / `b8Regate` (+ the check: `b8Step`, `b8Compare`) in
+EeScheduler.cpp, the regate hook in ps2_memory.cpp, game/overrides/b8_sched.cpp. Scripts, runs and logs: `build/agent-scratch/b8/`.
+Switch `SOTC_B8SCHED` (acts only while b7irq is in effect); `SOTC_B8_CHECK` the record form's shadow; `SOTC_B8_REGATE=0` part (2)
+off. Console package `build/agent-scratch/b8/celosia-b8.vpk` + `env-ab.txt` (all seven on, A/B b8sched, period 300).
+
+- **Deliveries**: a queued interrupt with a host handler moves into the owner thread's slot instead of a `GuestInvocation`; the
+  thread's next dispatch runs the host function as a plain call (checkpoint, flag, gate, run, events, reschedule in the record's
+  order), the dispatch after is the pop's flush test alone. Same loop steps, no record, no generated-dispatch lookup, no B7
+  search; anything not covered turns back into its record (0 times in every run).
+- **Gate at timer reads**: a timer read on a carrier re-sets the EE clock's gate in place (~3.1 a frame) instead of a slow
+  checkpoint: carriers' slow checkpoints 6.1 -> 3.0 a frame riding (13.6 before B7).
+- **Checks** (all seven switches, every check): **0 bad of 681 695 dispatcher step comparisons, 130 386 charge comparisons,
+  147 272 regate predictions** (ride7 600 / attract 400 / lake6 400); B7 / B6 / B3 checks still 0.
+- **Boots**: 3 89 MB boots so far, all 3 rode (mounted at 2 880 / 3 237 / 2 223). The rest (>=10 boots, loads on / off, the
+  Vita3K A/B, the 89 MB boot with pictures) was stopped for the user's screen share and is queued (b8chain3.sh). spalign 0.
+- **What is left of the PS2 scheduler**: run()'s loop and thread records (the delivery still takes the loop's push / run / pop
+  turns), the cycle charges, the id-keyed semaphore / event records, the hand-back path, the boot threads (decomp_b8.md section 6).
