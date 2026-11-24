@@ -29,6 +29,7 @@ void installSotcNativeLate(PS2Runtime &runtime);
 #include "a9sweep.h"
 #include "sotc_prof.h"
 #include "sotc_replay.h"
+#include "a13_watch.h" // round A15: the stage manager's load centre
 
 #if defined(__vita__)
 extern "C" void ps2x_vita_present_hist(uint32_t *out8); // raylib_vita.cpp (round 107)
@@ -1282,6 +1283,8 @@ namespace
         ps2_lean::afterOverrides(runtime);
         // The input recorder / replay (SOTC_INPUT_RECORD, SOTC_INPUT_REPLAY).
         sotc_replay::install(runtime);
+        // Round A15: the ride7 freeze's fix (the stage manager's load centre on the riding pair when the camera trails it).
+        a13diag::installLoadCenter(runtime);
         // Last: it wraps whatever is in the table by now (SOTC_SUBSYS_PROF).
         sotc_prof::install(runtime);
     }

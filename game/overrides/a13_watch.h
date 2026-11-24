@@ -20,4 +20,8 @@ namespace a13diag
     // sotc_replay's horse step (game thread): h the ridden horse (0 on foot), still the steps both places were bit-identical
     void rideStep(PS2Runtime *runtime, uint8_t *rdram, uint32_t player, uint32_t horse, uint32_t h, uint32_t still, uint64_t frame);
     void report(uint64_t frame); // the [a13w] shell counts (sotc_native's [a12] line)
+    // Round A15 (docs/decomp_a15.md): the stage manager's load centre (gamecore_sub_01362208 wrapped; SOTC_A15_LOADCENTER,
+    // default on) and how many of its calls were given the riding pair's place instead of the camera's.
+    void installLoadCenter(PS2Runtime &runtime);
+    uint64_t loadCenterSwaps();
 }
