@@ -8,6 +8,7 @@
 #include "typed_a3.h" // a3
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
+#include "typed_a13.h" // a13
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -1907,6 +1908,7 @@ void iosMvecAllOnes(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosMvecAllOne (0x1b9d98-0x1b9da8)
 void iosMvecAllOne(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A13_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_hi = ctx->hi; const uint64_t a2_lo = ctx->lo; A13_CHK(iosMvecAllOne, a2_4, a2_hi, a2_lo); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A13_IN(0); const uint64_t a2_r = typed::iosMvecAllOne(rdram, runtime, a2_4, a2_hi, a2_lo, a4_h2); A13_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a13
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), ra = Ps2GprU64(ctx, 31);
     do { const __m128i _v = (PS2_PCEQW(_mm_setzero_si128(), _mm_setzero_si128())); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
     do { const __m128i _v = (_mm_srli_epi32(Ps2GprVecWithLow(ctx->r[2], v0), 31)); ctx->r[2] = _v; std::memcpy(&v0, &_v, 8); } while (0);
@@ -2172,6 +2174,7 @@ void iosUcharColClampAdd(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosSWToMmColMvec (0x1ba240-0x1ba268)
 void iosSWToMmColMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A13_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const uint64_t a2_hi = ctx->hi; const uint64_t a2_lo = ctx->lo; A13_CHK(iosSWToMmColMvec, a2_4, a2_5, a2_29, a2_hi, a2_lo); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A13_IN(1); const uint64_t a2_r = typed::iosSWToMmColMvec(rdram, runtime, a2_4, a2_5, a2_29, a2_hi, a2_lo, a4_h2); A13_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a13
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)(READ64_B((uint32_t)a1, 8)));
     (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 4294967280))));
@@ -2193,6 +2196,7 @@ void iosSWToMmColMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosMmColToSWMvec (0x1ba268-0x1ba290)
 void iosMmColToSWMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A13_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const uint64_t a2_hi = ctx->hi; const uint64_t a2_lo = ctx->lo; A13_CHK(iosMmColToSWMvec, a2_4, a2_5, a2_29, a2_hi, a2_lo); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A13_IN(2); const uint64_t a2_r = typed::iosMmColToSWMvec(rdram, runtime, a2_4, a2_5, a2_29, a2_hi, a2_lo, a4_h2); A13_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a13
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)(READ64_B((uint32_t)a1, 8)));
     (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 4294967280))));
@@ -2214,6 +2218,7 @@ void iosMmColToSWMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 // iosITOF15ToMmColMvec (0x1ba290-0x1ba2b8)
 void iosITOF15ToMmColMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A13_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const uint64_t a2_hi = ctx->hi; const uint64_t a2_lo = ctx->lo; A13_CHK(iosITOF15ToMmColMvec, a2_4, a2_5, a2_29, a2_hi, a2_lo); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A13_IN(3); const uint64_t a2_r = typed::iosITOF15ToMmColMvec(rdram, runtime, a2_4, a2_5, a2_29, a2_hi, a2_lo, a4_h2); A13_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a13
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)(READ64_B((uint32_t)a1, 8)));
     (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 4294967280))));
@@ -2235,6 +2240,7 @@ void iosITOF15ToMmColMvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 // iosMmColToITOF15Mvec (0x1ba2b8-0x1ba2e0)
 void iosMmColToITOF15Mvec(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A13_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const uint64_t a2_hi = ctx->hi; const uint64_t a2_lo = ctx->lo; A13_CHK(iosMmColToITOF15Mvec, a2_4, a2_5, a2_29, a2_hi, a2_lo); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A13_IN(4); const uint64_t a2_r = typed::iosMmColToITOF15Mvec(rdram, runtime, a2_4, a2_5, a2_29, a2_hi, a2_lo, a4_h2); A13_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a13
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     (v0 = (uint64_t)(READ64_B((uint32_t)a1, 8)));
     (sp = (uint64_t)((int64_t)(int32_t)((int32_t)ADD32((uint32_t)sp, 4294967280))));

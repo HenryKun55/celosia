@@ -39,6 +39,7 @@ uint32_t a9InstallAdapters(PS2Runtime &runtime); // typed_a9_adapters.cpp (round
 uint32_t a10InstallAdapters(PS2Runtime &runtime); // typed_a10_adapters.cpp (round A10)
 uint32_t a11InstallAdapters(PS2Runtime &runtime); // typed_a11_adapters.cpp (round A11)
 uint32_t a12InstallAdapters(PS2Runtime &runtime); // typed_a12_adapters.cpp (round A12)
+uint32_t a13InstallAdapters(PS2Runtime &runtime); // typed_a13_adapters.cpp (round A13)
 #include "typed_a12_rt.h"
 #if PS2X_A12_CHECK
 uint32_t a12nchkInstall(PS2Runtime &runtime); // typed_a12_check_rt.h (in a12_typed_check.cpp): the motion natives' check over their slots
@@ -2181,6 +2182,12 @@ namespace sotc_decomp
 #if PS2X_A12_CHECK
             std::cerr << "[a12] motion natives' check over " << ::a12nchkInstall(runtime) << " slots" << std::endl;
 #endif
+        }
+        // Round A13: likewise the never-lifted functions stage 13 typed (typed_a13_adapters.cpp). SOTC_A13AD=0: left out.
+        {
+            const char *e = std::getenv("SOTC_A13AD");
+            if (!(e && e[0] == '0'))
+                std::cerr << "[a13] adapters installed over " << ::a13InstallAdapters(runtime) << " never-lifted functions" << std::endl;
         }
         g_checkedUsed = checked;
         if (unchecked)
