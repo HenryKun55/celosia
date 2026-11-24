@@ -186,6 +186,8 @@ adapters installed over 94 never-lifted functions` in every one):
 Plus smk (p1, a12 + a14 on, ride7 300 s: mounted 3 357, galloping across the plain at 300 s, picture normal), aR13 (the A/B, mounted
 3 048, rode to 12 600) and chkT (the check build, mounted 4 667, galloping at 660 / 960 s).
 
+**89 MB boot of the merged build** (pm14 = A14 rebased on B9 main b189f29 as cfe415f, a12typed / a13typed / a14typed / b9loop off by default, default switches; SOTC_VITA_EAT_USER_MB=89, ride7 600 s, muted; ELF room 120 KB unchanged, spalign 0 of 1 128): booted on the first try, mounted at frame 5 594 (about 305 s: 7-8 fps at 120-180 s on the loaded host) and rode the rest of the run to frame 14 577 (33 fps at the end); no FREEZE. Screenshots at 300 / 420 / 540 s: Wander by Agro on the plain, then on Agro galloping by the cliff wall and the ruins, then along the tall stone wall under the arch; ground, shadows and sky normal.
+
 ## 6. The ride7 freeze again (A12 / A13's, still open)
 
 With stage 14 on, 2 of 5 mounted 89 MB rides showed A12's ride7 freeze (boot14 by its pictures, boot14d by the watchdog: x = -148.76,
