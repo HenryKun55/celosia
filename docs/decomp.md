@@ -24263,3 +24263,24 @@ fix stay unproven. One new failure class: hA1, a whole-process hang at t = 705 s
 waits; evidence in build/agent-scratch/a15/hang-hA1). Defaults unchanged (a12typed / a13typed / a14typed / the fix off); ELF room
 120 KB (the merged build fits; 3e10a2d's 128 KB reverted). Not done: A/B. 89 MB boot of the merged build (665c8a1 on de2fc67,
 default switches): mounted at 3 491, rode to 8 213 (a dismount on the route), on foot to 9 793 (605 s), 0 FREEZE lines, pictures normal.
+
+## Decomp D2: the next 55 hand natives' native C++ bodies (same framework, same switch d1native; off by default) (2026-11-24)
+
+docs/decomp_d2.md, docs/d2_natives.txt. Scripts, runs and logs: `build/agent-scratch/d2/`. Same method as D1 (docs/decomp_d1.md): old body
+untouched (PGO), an adapter reading `ctx` at the entry, a core over `d1::Mem`, a dispatcher `<fn>Sw` swapped into the slot by
+`d1::syncTable` with d1native on; one console A/B (`SOTC_AB_FLAG=d1native`) covers D1 + D2.
+
+- **The set**: the hand natives ranked after D1's on the 2026-11-20 console profile, D1's set and skips left out: 55 bodies, **36 full**
+  (counted (d), 6.2% of the console game thread) and **19 partial** (3.0%): display lists / textures / modelClipPoint / light work,
+  collision flushes / water probe / area test, the motion leaves (parentId, localQP, rootKey, root float frame, base quaternion, child /
+  root nodes, curveEval, posKeyLerp, segmentTriangle), heap / import / random / group leaves, stringKeep, the small-animal AI param, the
+  char122 math wrappers (sinCos, acos, atan2Exact, diffQuat), bridle / cloth passes, _setNodeHPB. ~30 skipped with a reason each
+  (orchestrators with guest calls and VU0 state across them, coroutines / lock-taking walks, slots held by renderer hooks).
+- **Framework**: d1_alias.h's table 128 -> 256 slots (111 pairs); tools/decomp100_count.py reads docs/d2_natives.txt too.
+- **Checks**: difftest of each body against its old body on ride7 / attract / lake6 (+ ride7 without the heap natives, + the isys trio
+  with the lock-taking ones): 42-51 natives a route, every difference one RAM byte also seen in an A/A control (0x29126c, the known noise
+  byte; 0x157ba3c at DiscardLetterAll's first check, also with the D2 body in both legs; clip_particle_geodisp, also old vs old); none in
+  registers or VU0. Ride7 does not mount under the difftest (old-vs-old too: the harness). spalign 0 of 2 430; ELF room unchanged.
+- **Boots** (89 MB, ride7 600 s): d1native on x2 (mounted 2 372 / 2 218), default (2 478); pictures normal.
+- **Speed**: Vita3K A/B off - on: ride7 +0.21 +- 0.28 ms, lake6 +0.89 +- 0.05 ms (on faster). Count (d) 4 502 (49.89%), 23.26% of the
+  bytes, **30.07% of the console time** (D1: 23.84%). Package celosia-d2.vpk + env-ab.txt, not installed.
