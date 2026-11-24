@@ -150,5 +150,7 @@ natives are hot ones: one hand native carries as much time as hundreds of typed 
   `lookupFunction == &fn` tests) compare a slot with the old function; registering a dispatcher broke them in both A/B states. Fixed by
   the table swap (off = main's table) and d1::aliasOf in a6Is / a12Is.
 
-**Console package**: build/agent-scratch/d1/celosia-d1.vpk (= p2, b603795; d1native off by default) + env-ab.txt (console base env,
+**89 MB boots of the merged build** (pmd1 = D1 rebased on B10 main 4944550 as a5e8d07 / c21bb30 / 62e78ac; SOTC_VITA_EAT_USER_MB=89 `taken`, ride7, muted; 0 build errors, ELF room 120 KB unchanged, no "segment 1 overlaps", spalign 0 of 2 068): **bootMD1**, default switches (d1native off): booted on the first try, mounted at frame 5 459 and rode to frame 17 356 (600 s); no FREEZE, 0 watchdog lines; shots at 300 s (galloping on Agro past the tall stone tower, the colonnade behind) and 540 s (galloping toward the cliffs, Agro's ground shadow, a bird in the sky). **bootMD1on**, SOTC_D1NATIVE=1 (450 s, run in parallel): mounted at frame 3 124, rode to 13 094, the D1 bodies ran (`[d1] frame 13200: d1native 1; 55 bodies`); shots at 300 s (galloping across the grass plain, a bird overhead, wall and hill on the right) and 420 s (Agro trotting by the mossy temple walls). Wander, Agro, ground, shadows and sky normal in both. (The ride7 card avion/console/Mcd001-console.ps2 was gone from the scratch; both trees still held their copy of it from bootD1 / bootD2, unchanged.)
+
+**Console package**: build/agent-scratch/d1/celosia-d1.vpk (= pmd1, the merged build; d1native off by default) + env-ab.txt (console base env,
 SOTC_AB_FLAG=d1native SOTC_AB_PERIOD=300, SOTC_D1_LOG=600), not installed.
