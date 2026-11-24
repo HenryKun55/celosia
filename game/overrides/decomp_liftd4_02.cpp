@@ -15,6 +15,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -4218,6 +4219,7 @@ L_11590a8:
 // sheetFsGetStageTexSegIndex (0x115ba60-0x115bab8)
 void sheetFsGetStageTexSegIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); A14_CHK(sheetFsGetStageTexSegIndex, a2_4, a2_5); uint64_t a3_xo[3] = {Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7)}; A14_IN(37); const uint64_t a2_r = typed::sheetFsGetStageTexSegIndex(rdram, runtime, a2_4, a2_5, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); Ps2SetGpr64(ctx, 6, a3_xo[1]); Ps2SetGpr64(ctx, 7, a3_xo[2]); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), ra = Ps2GprU64(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;

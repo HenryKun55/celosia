@@ -12,6 +12,7 @@
 #include "typed_a7.h" // a7
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -5017,6 +5018,7 @@ L_1447010:
 void Sg2SepStopSndOff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1D28A0u, 0)) { Sg2SepStopSndOff_0x1d28a0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x10FB20u, lift_d1::DIntr) && A14_HOLDS(0x10FB70u, lift_d1::EIntr) && A14_HOLDS(0x1CE2C8u, lift_d1::Sg2ModMidiout1), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A14_CHK(Sg2SepStopSndOff, a2_4); uint32_t a4_c0st = ctx->cop0_status; uint64_t a3_xo[1] = {Ps2GprU64(ctx, 5)}; A14_IN(118); const uint64_t a2_r = typed::Sg2SepStopSndOff(rdram, runtime, a2_4, a4_c0st, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 5, a3_xo[0]); ctx->cop0_status = a4_c0st; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t a1 = Ps2GprU32(ctx, 5), s0 = Ps2GprU32(ctx, 16), s2 = Ps2GprU32(ctx, 18), s3 = Ps2GprU32(ctx, 19), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), s1 = Ps2GprU64(ctx, 17);
     bool df_s0 = false, df_s2 = false, df_s3 = false, df_sp = false;

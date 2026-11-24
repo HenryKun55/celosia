@@ -11,6 +11,7 @@
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7253,6 +7254,7 @@ L_1349d64:
 void gamecore_sub_01349D90(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1349D90u, 0)) { gamecore_sub_01349D90_0x1349d90(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x134EFB0u, lift_d1::_gameFlagSet), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(gamecore_sub_01349D90, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 6)}; A14_IN(95); typed::gamecore_sub_01349D90(rdram, runtime, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 6, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a2 = Ps2GprU32(ctx, 6), s0 = Ps2GprU32(ctx, 16), s2 = Ps2GprU32(ctx, 18), s3 = Ps2GprU32(ctx, 19), s5 = Ps2GprU32(ctx, 21), s6 = Ps2GprU32(ctx, 22), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s1 = Ps2GprU64(ctx, 17), s4 = Ps2GprU64(ctx, 20);
     uint64_t hi = ctx->hi;

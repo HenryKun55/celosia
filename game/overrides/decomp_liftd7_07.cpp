@@ -13,6 +13,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -7934,6 +7935,7 @@ void SetupStageManagerWithVariationId(uint8_t *rdram, R5900Context *ctx, PS2Runt
 void SetStageManagerAreaPreload(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1366120u, 0)) { SetStageManagerAreaPreload_0x1366120(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x134A7C0u, lift_d1::PauseCamFinalizer) && A14_HOLDS(0x134A7D0u, lift_d1::SetCamFinalizerGeometry), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_29 = Ps2GprU64(ctx, 29); A14_CHK(SetStageManagerAreaPreload, a2_4, a2_29); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a3_xo[12] = {(uint64_t)a1_bits(ctx->f[1]), (uint64_t)a1_bits(ctx->f[2]), (uint64_t)a1_bits(ctx->f[3]), (uint64_t)a1_bits(ctx->f[4]), (uint64_t)a1_bits(ctx->f[5]), (uint64_t)a1_bits(ctx->f[6]), Ps2GprU64(ctx, 1), Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), ctx->hi, ctx->lo}; A14_IN(97); const a1::RetVF a2_r = typed::SetStageManagerAreaPreload(rdram, runtime, a2_4, a2_29, a4_h2, a4_h6, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[1] = a1_flt((uint32_t)a3_xo[0]); ctx->f[2] = a1_flt((uint32_t)a3_xo[1]); ctx->f[3] = a1_flt((uint32_t)a3_xo[2]); ctx->f[4] = a1_flt((uint32_t)a3_xo[3]); ctx->f[5] = a1_flt((uint32_t)a3_xo[4]); ctx->f[6] = a1_flt((uint32_t)a3_xo[5]); Ps2SetGpr64(ctx, 1, a3_xo[6]); Ps2SetGpr64(ctx, 4, a3_xo[7]); Ps2SetGpr64(ctx, 5, a3_xo[8]); Ps2SetGpr64(ctx, 6, a3_xo[9]); ctx->hi = a3_xo[10]; ctx->lo = a3_xo[11]; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t at = Ps2GprU64(ctx, 1), v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f6 = ctx->f[6];
     uint64_t hi = ctx->hi;
@@ -8322,6 +8324,7 @@ L_1366650:
 void GetStageNumberNumber(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1366670u, 0)) { GetStageNumberNumber_0x1366670(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x12C048u, ::vsprintf_0x12c048) && A14_HOLDS(0x1B2920u, lift_d1::iosSPrintf) && A14_HOLDS(0x135FF08u, lift_d1::getstagenumber) && A14_HOLDS(0x1365230u, lift_d1::GetStageContext) && A5_JAL(0x1365430u, 0x1B2920u), 1)) { const uint64_t a2_7 = Ps2GprU64(ctx, 7); const uint64_t a2_10 = Ps2GprU64(ctx, 10); const uint64_t a2_11 = Ps2GprU64(ctx, 11); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f0 = ctx->f[0]; const float a2_f2 = ctx->f[2]; const float a2_f3 = ctx->f[3]; const float a2_f4 = ctx->f[4]; const float a2_f5 = ctx->f[5]; const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(GetStageNumberNumber, a2_7, a2_10, a2_11, a2_29, a2_f0, a2_f2, a2_f3, a2_f4, a2_f5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h4 = a4::hi64(ctx->r[4]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a4_h7 = a4::hi64(ctx->r[7]); uint64_t a3_xo[12] = {(uint64_t)a1_bits(ctx->f[0]), (uint64_t)a1_bits(ctx->f[2]), (uint64_t)a1_bits(ctx->f[3]), (uint64_t)a1_bits(ctx->f[4]), (uint64_t)a1_bits(ctx->f[5]), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A14_IN(152); const uint64_t a2_r = typed::GetStageNumberNumber(rdram, runtime, a2_7, a2_10, a2_11, a2_29, a2_f0, a2_f2, a2_f3, a2_f4, a2_f5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2, a4_h3, a4_h4, a4_h5, a4_h6, a4_h7, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->f[0] = a1_flt((uint32_t)a3_xo[0]); ctx->f[2] = a1_flt((uint32_t)a3_xo[1]); ctx->f[3] = a1_flt((uint32_t)a3_xo[2]); ctx->f[4] = a1_flt((uint32_t)a3_xo[3]); ctx->f[5] = a1_flt((uint32_t)a3_xo[4]); Ps2SetGpr64(ctx, 5, a3_xo[5]); Ps2SetGpr64(ctx, 6, a3_xo[6]); Ps2SetGpr64(ctx, 7, a3_xo[7]); Ps2SetGpr64(ctx, 8, a3_xo[8]); Ps2SetGpr64(ctx, 9, a3_xo[9]); Ps2SetGpr64(ctx, 10, a3_xo[10]); Ps2SetGpr64(ctx, 11, a3_xo[11]); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[3] = a4::mk128(a4_h3, Ps2GprU64(ctx, 3)); ctx->r[4] = a4::mk128(a4_h4, Ps2GprU64(ctx, 4)); ctx->r[5] = a4::mk128(a4_h5, Ps2GprU64(ctx, 5)); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); ctx->r[7] = a4::mk128(a4_h7, Ps2GprU64(ctx, 7)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     bool df_v1 = false;
@@ -9490,6 +9493,7 @@ L_1367b44:
 void time_attack_init_gstat_adrs(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1367D18u, 0)) { time_attack_init_gstat_adrs_0x1367d18(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO(), 1)) { A14_CHK(time_attack_init_gstat_adrs); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h8 = a4::hi64(ctx->r[8]); A14_IN(44); const uint32_t a2_r = typed::time_attack_init_gstat_adrs(rdram, runtime, a4_h3, a4_h8); A14_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->r[8] = a4::mk128(a4_h8, Ps2GprU64(ctx, 8)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t2 = Ps2GprU32(ctx, 10), t4 = Ps2GprU32(ctx, 12), ra = Ps2GprU32(ctx, 31);
     uint64_t t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t3 = Ps2GprU64(ctx, 11);
     uint64_t hi = ctx->hi;

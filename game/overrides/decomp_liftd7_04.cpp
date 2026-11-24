@@ -12,6 +12,7 @@
 #include "typed_a7.h" // a7
 #include "typed_a8.h" // a8
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -14046,6 +14047,7 @@ void SetGeometryPointerChainPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *r
 // ClipPoint (0x11333b8-0x1133408)
 void ClipPoint(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); const uint32_t a2_5 = Ps2GprU32(ctx, 5); A14_CHK(ClipPoint, a2_4, a2_5); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; a4::vec4 a4_vf29 = ctx->vu0_vf[29]; a4::vec4 a4_vf30 = ctx->vu0_vf[30]; a4::vec4 a4_vf31 = ctx->vu0_vf[31]; a4::vec4 a4_vacc = ctx->vu0_acc; uint32_t a4_vclip = ctx->vu0_clip_flags; A14_IN(35); const uint32_t a2_r = typed::ClipPoint(rdram, runtime, a2_4, a2_5, a4_vf0, a4_vf26, a4_vf27, a4_vf28, a4_vf29, a4_vf30, a4_vf31, a4_vacc, a4_vclip); A14_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); ctx->vu0_vf[27] = a4_vf27; ctx->vu0_vf[28] = a4_vf28; ctx->vu0_vf[29] = a4_vf29; ctx->vu0_vf[30] = a4_vf30; ctx->vu0_vf[31] = a4_vf31; ctx->vu0_acc = a4_vacc; ctx->vu0_clip_flags = a4_vclip; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v0 = Ps2GprU32(ctx, 2), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf26 = ctx->vu0_vf[26], vf27 = ctx->vu0_vf[27], vf28 = ctx->vu0_vf[28], vf29 = ctx->vu0_vf[29], vf30 = ctx->vu0_vf[30], vf31 = ctx->vu0_vf[31];
     __m128 vacc = ctx->vu0_acc;
@@ -17072,6 +17074,7 @@ L_114a230:
 void mcGetLastSaveGameDataIndex(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x114A280u, 0)) { mcGetLastSaveGameDataIndex_0x114a280(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); A14_CHK(mcGetLastSaveGameDataIndex, a2_4); uint64_t a3_xo[6] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9)}; A14_IN(36); const uint64_t a2_r = typed::mcGetLastSaveGameDataIndex(rdram, runtime, a2_4, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t a1 = Ps2GprU32(ctx, 5), t0 = Ps2GprU32(ctx, 8), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t1 = Ps2GprU64(ctx, 9);
     bool df_a1 = false, df_t0 = false;

@@ -231,6 +231,11 @@ namespace A3CK_NS
 #if defined(A11_CHECK_TU)
         d = d || t.vi[15] != ref.vi[15]; // round A11: vi15, the matrix stack's pointer (a slot of the VU0 interface)
 #endif
+#if defined(A14_CHECK_TU)
+        // round A14 (RT14): the runtime state stage 14 makes slots of the VU0 interface
+        d = d || t.lo1 != ref.lo1 || t.hi1 != ref.hi1 || t.sa != ref.sa || t.cop0_status != ref.cop0_status ||
+            t.vu0_clip_flags != ref.vu0_clip_flags || std::memcmp(&t.vu0_r, &ref.vu0_r, 16) != 0;
+#endif
         for (int r = 1; r < 32 && !d; ++r)
             d = std::memcmp(reinterpret_cast<const uint8_t *>(&t.r[r]) + 8, reinterpret_cast<const uint8_t *>(&ref.r[r]) + 8, 8) != 0;
         return d;
@@ -246,6 +251,11 @@ namespace A3CK_NS
                  a1ck::ckBits(t.vu0_q) != a1ck::ckBits(ref.vu0_q) || t.vu0_status != ref.vu0_status;
 #if defined(A11_CHECK_TU)
         d = d || t.vi[15] != ref.vi[15]; // round A11: vi15, the matrix stack's pointer (a slot of the VU0 interface)
+#endif
+#if defined(A14_CHECK_TU)
+        // round A14 (RT14): the runtime state stage 14 makes slots of the VU0 interface
+        d = d || t.lo1 != ref.lo1 || t.hi1 != ref.hi1 || t.sa != ref.sa || t.cop0_status != ref.cop0_status ||
+            t.vu0_clip_flags != ref.vu0_clip_flags || std::memcmp(&t.vu0_r, &ref.vu0_r, 16) != 0;
 #endif
         bool out = false;
         for (int r = 1; r < 32; ++r)

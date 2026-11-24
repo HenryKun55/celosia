@@ -11,6 +11,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -19714,6 +19715,7 @@ void getHorseInterpSpeed(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void SCRConditionHorseNeighPermission(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1396438u, 0)) { SCRConditionHorseNeighPermission_0x1396438(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A14_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A14_HOLDS(0x1455F80u, ::decomp_scriptvm2::getSCRDataCtrlWork) && A5_JAL(0x13CFAF0u, 0x110CB28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_29 = Ps2GprU64(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; const float a2_f20 = ctx->f[20]; A14_CHK(SCRConditionHorseNeighPermission, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A14_IN(157); const a1::RetVF a2_r = typed::SCRConditionHorseNeighPermission(rdram, runtime, a2_2, a2_4, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a2_f20, a4_h2); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t at = Ps2GprU64(ctx, 1), v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f20 = ctx->f[20];
     uint64_t hi = ctx->hi;

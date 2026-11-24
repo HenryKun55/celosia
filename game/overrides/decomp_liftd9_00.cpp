@@ -13,6 +13,7 @@
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
 #include "typed_a13.h" // a13
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -4819,6 +4820,7 @@ static inline void gamecore_sub_014498B8_n4(uint8_t *rdram, R5900Context *ctx, P
 void Sg2SepVabStopSndOff(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1D2AE8u, 0)) { Sg2SepVabStopSndOff_0x1d2ae8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x10FB20u, lift_d1::DIntr) && A14_HOLDS(0x10FB70u, lift_d1::EIntr) && A14_HOLDS(0x1CE2C8u, lift_d1::Sg2ModMidiout1) && A14_HOLDS(0x1D28A0u, lift_d1::Sg2SepStopSndOff) && A14_HOLDS(0x1DA0A0u, lift_d1::vab_check_alive), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); A14_CHK(Sg2SepVabStopSndOff, a2_2, a2_4); uint32_t a4_c0st = ctx->cop0_status; A14_IN(139); const uint64_t a2_r = typed::Sg2SepVabStopSndOff(rdram, runtime, a2_2, a2_4, a4_c0st); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->cop0_status = a4_c0st; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t s1 = Ps2GprU32(ctx, 17), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), s0 = Ps2GprU64(ctx, 16), s2 = Ps2GprU64(ctx, 18);
     bool df_s1 = false;
@@ -15661,6 +15663,7 @@ L_14307b4:
 void unsetEventLineAttr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1432A38u, 0)) { unsetEventLineAttr_0x1432a38(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x1169DE0u, lift_d1::getLineData) && A14_HOLDS(0x1432710u, lift_d1::getPathInfo) && A5_JAL(0x1432AACu, 0x1169DE0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_6 = Ps2GprU64(ctx, 6); A14_CHK(unsetEventLineAttr, a2_2, a2_4, a2_5, a2_6); A14_IN(103); const uint64_t a2_r = typed::unsetEventLineAttr(rdram, runtime, a2_2, a2_4, a2_5, a2_6); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t s0 = Ps2GprU32(ctx, 16), s3 = Ps2GprU32(ctx, 19), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s6 = Ps2GprU64(ctx, 22), s7 = Ps2GprU64(ctx, 23);
     bool df_s0 = false, df_s3 = false;
@@ -15777,6 +15780,7 @@ L_1432ae0:
 void allResetLineAttr(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1432C08u, 0)) { allResetLineAttr_0x1432c08(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x1169DE0u, lift_d1::getLineData) && A14_HOLDS(0x1432710u, lift_d1::getPathInfo) && A5_JAL(0x1432C64u, 0x1169DE0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint32_t a2_4 = Ps2GprU32(ctx, 4); A14_CHK(allResetLineAttr, a2_2, a2_4); uint64_t a3_xo[1] = {Ps2GprU64(ctx, 4)}; A14_IN(105); const uint64_t a2_r = typed::allResetLineAttr(rdram, runtime, a2_2, a2_4, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 4, a3_xo[0]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), s0 = Ps2GprU32(ctx, 16), s2 = Ps2GprU32(ctx, 18), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a1 = Ps2GprU64(ctx, 5), s1 = Ps2GprU64(ctx, 17), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20);
     bool df_a0 = false, df_s0 = false, df_s2 = false;
@@ -18685,6 +18689,7 @@ L_144eb30:
 void SCRFuncLineConnect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x144F948u, 0)) { SCRFuncLineConnect_0x144f948(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A14_HOLDS(0x1169DE0u, lift_d1::getLineData) && A14_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A14_HOLDS(0x1432710u, lift_d1::getPathInfo) && A14_HOLDS(0x1432A38u, lift_d1::unsetEventLineAttr) && A14_HOLDS(0x1455F80u, ::decomp_scriptvm2::getSCRDataCtrlWork) && A5_JAL(0x13CFAF0u, 0x110CB28u) && A5_JAL(0x1432AACu, 0x1169DE0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(SCRFuncLineConnect, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A14_IN(163); const uint64_t a2_r = typed::SCRFuncLineConnect(rdram, runtime, a2_2, a2_4, a2_5, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t a2 = Ps2GprU32(ctx, 6), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16);
     sp = sp - 0x10u;
@@ -18715,6 +18720,7 @@ void SCRFuncLineConnect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void SCRFuncLineAllReset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x144FA08u, 0)) { SCRFuncLineAllReset_0x144fa08(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x110CB28u, ::decomp_scriptvm3::getScriptCharacterClass) && A14_HOLDS(0x1169DE0u, lift_d1::getLineData) && A14_HOLDS(0x13CFAE8u, ::decomp_scriptvm2::getSCRCharaAIWorkPtr) && A14_HOLDS(0x1432710u, lift_d1::getPathInfo) && A14_HOLDS(0x1432C08u, lift_d1::allResetLineAttr) && A14_HOLDS(0x1455F80u, ::decomp_scriptvm2::getSCRDataCtrlWork) && A5_JAL(0x13CFAF0u, 0x110CB28u) && A5_JAL(0x1432C64u, 0x1169DE0u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_4 = Ps2GprU64(ctx, 4); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(SCRFuncLineAllReset, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_h2 = a4::hi64(ctx->r[2]); A14_IN(167); const uint64_t a2_r = typed::SCRFuncLineAllReset(rdram, runtime, a2_2, a2_4, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_h2); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), a0 = Ps2GprU64(ctx, 4);
     sp = sp - 0x10u;

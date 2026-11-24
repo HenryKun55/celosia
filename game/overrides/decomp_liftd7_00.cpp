@@ -11,6 +11,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -5560,6 +5561,7 @@ L_1014f4:
 // sub_00101AF0 (0x101af0-0x101b20)
 void sub_00101AF0(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_28 = Ps2GprU64(ctx, 28); A14_CHK(sub_00101AF0, a2_4, a2_28); A14_IN(1); const uint64_t a2_r = typed::sub_00101AF0(rdram, runtime, a2_4, a2_28); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), gp = Ps2GprU64(ctx, 28), ra = Ps2GprU64(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
@@ -12476,6 +12478,7 @@ void _sceMcpReadUserClust(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime
 void _sceMcpIsSpeckOutClust(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x120D58u, 0)) { _sceMcpIsSpeckOutClust_0x120d58(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x120D10u, lift_d1::_sceMcpIsSpeckOutBlock), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); A14_CHK(_sceMcpIsSpeckOutClust, a2_4, a2_5, a2_29); A14_IN(57); const uint64_t a2_r = typed::_sceMcpIsSpeckOutClust(rdram, runtime, a2_4, a2_5, a2_29); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
@@ -12516,6 +12519,7 @@ void _sceMcpIsSpeckOutClust(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runti
 void ps2___umoddi3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x124628u, 0)) { ps2___umoddi3_0x124628(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_11 = Ps2GprU64(ctx, 11); const uint64_t a2_29 = Ps2GprU64(ctx, 29); A14_CHK(ps2___umoddi3, a2_4, a2_5, a2_11, a2_29); uint64_t a4_h3 = a4::hi64(ctx->r[3]); uint64_t a4_h4 = a4::hi64(ctx->r[4]); uint64_t a4_h5 = a4::hi64(ctx->r[5]); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a3_xo[7] = {Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11), Ps2GprU64(ctx, 14), Ps2GprU64(ctx, 24)}; A14_IN(8); const uint64_t a2_r = typed::ps2___umoddi3(rdram, runtime, a2_4, a2_5, a2_11, a2_29, a4_h3, a4_h4, a4_h5, a4_h6, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); Ps2SetGpr64(ctx, 7, a3_xo[0]); Ps2SetGpr64(ctx, 8, a3_xo[1]); Ps2SetGpr64(ctx, 9, a3_xo[2]); Ps2SetGpr64(ctx, 10, a3_xo[3]); Ps2SetGpr64(ctx, 11, a3_xo[4]); Ps2SetGpr64(ctx, 14, a3_xo[5]); Ps2SetGpr64(ctx, 24, a3_xo[6]); ctx->r[4] = a4::mk128(a4_h4, Ps2GprU64(ctx, 4)); ctx->r[5] = a4::mk128(a4_h5, Ps2GprU64(ctx, 5)); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10), t3 = Ps2GprU64(ctx, 11), t4 = Ps2GprU64(ctx, 12), t5 = Ps2GprU64(ctx, 13), t6 = Ps2GprU64(ctx, 14), t7 = Ps2GprU64(ctx, 15), t8 = Ps2GprU64(ctx, 24), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     uint64_t hi = ctx->hi;
     uint64_t lo = ctx->lo;
@@ -14511,6 +14515,7 @@ L_1ad7f8:
 // kernel_sub_001AD850 (0x1ad850-0x1ad888)
 void kernel_sub_001AD850(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A14_GO(), 1)) { A14_CHK(kernel_sub_001AD850); uint32_t a4_c0st = ctx->cop0_status; A14_IN(11); const uint64_t a2_r = typed::kernel_sub_001AD850(rdram, runtime, a4_c0st); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r); ctx->cop0_status = a4_c0st; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), ra = Ps2GprU64(ctx, 31);
     (a0 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)32 << 16))));
     (a2 = (uint64_t)((int64_t)(int32_t)((int32_t)((uint32_t)1 << 16))));

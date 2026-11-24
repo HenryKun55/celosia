@@ -12,6 +12,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a9.h" // a9
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -8799,6 +8800,7 @@ L_1365c80:
 void SetStageManagerAreaPreloadWithAreaOffset(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x13661F0u, 0)) { SetStageManagerAreaPreloadWithAreaOffset_0x13661f0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x134A7C0u, lift_d1::PauseCamFinalizer) && A14_HOLDS(0x134A7D0u, lift_d1::SetCamFinalizerGeometry), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint64_t a2_29 = Ps2GprU64(ctx, 29); A14_CHK(SetStageManagerAreaPreloadWithAreaOffset, a2_4, a2_5, a2_29); a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; uint64_t a4_h2 = a4::hi64(ctx->r[2]); uint64_t a4_h6 = a4::hi64(ctx->r[6]); uint64_t a3_xo[5] = {(uint64_t)a1_bits(ctx->f[2]), (uint64_t)a1_bits(ctx->f[3]), (uint64_t)a1_bits(ctx->f[4]), (uint64_t)a1_bits(ctx->f[5]), (uint64_t)a1_bits(ctx->f[6])}; A14_IN(98); const a1::RetVF a2_r = typed::SetStageManagerAreaPreloadWithAreaOffset(rdram, runtime, a2_4, a2_5, a2_29, a4_vf5, a4_vf6, a4_h2, a4_h6, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->f[2] = a1_flt((uint32_t)a3_xo[0]); ctx->f[3] = a1_flt((uint32_t)a3_xo[1]); ctx->f[4] = a1_flt((uint32_t)a3_xo[2]); ctx->f[5] = a1_flt((uint32_t)a3_xo[3]); ctx->f[6] = a1_flt((uint32_t)a3_xo[4]); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->r[2] = a4::mk128(a4_h2, Ps2GprU64(ctx, 2)); ctx->r[6] = a4::mk128(a4_h6, Ps2GprU64(ctx, 6)); A6_BRKS(); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint64_t at = Ps2GprU64(ctx, 1), v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), sp = Ps2GprU64(ctx, 29), ra = Ps2GprU64(ctx, 31);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f6 = ctx->f[6];
     __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];

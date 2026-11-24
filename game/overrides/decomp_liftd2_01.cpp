@@ -9,6 +9,7 @@
 #include "typed_a4.h" // a4
 #include "typed_a5.h" // a5
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -3371,6 +3372,7 @@ L_1359388:
 void SeamlessStageLoadComplete(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x135B578u, 0)) { SeamlessStageLoadComplete_0x135b578(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO(), 1)) { A14_CHK(SeamlessStageLoadComplete); uint64_t a3_xo[8] = {Ps2GprU64(ctx, 4), Ps2GprU64(ctx, 5), Ps2GprU64(ctx, 6), Ps2GprU64(ctx, 7), Ps2GprU64(ctx, 8), Ps2GprU64(ctx, 9), Ps2GprU64(ctx, 10), Ps2GprU64(ctx, 11)}; A14_IN(39); const uint32_t a2_r = typed::SeamlessStageLoadComplete(rdram, runtime, a3_xo); A14_OUT(); Ps2SetGpr64(ctx, 2, sx64(a2_r)); Ps2SetGpr64(ctx, 4, a3_xo[0]); Ps2SetGpr64(ctx, 5, a3_xo[1]); Ps2SetGpr64(ctx, 6, a3_xo[2]); Ps2SetGpr64(ctx, 7, a3_xo[3]); Ps2SetGpr64(ctx, 8, a3_xo[4]); Ps2SetGpr64(ctx, 9, a3_xo[5]); Ps2SetGpr64(ctx, 10, a3_xo[6]); Ps2SetGpr64(ctx, 11, a3_xo[7]); ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), a0 = Ps2GprU32(ctx, 4), a1 = Ps2GprU32(ctx, 5), a2 = Ps2GprU32(ctx, 6), a3 = Ps2GprU32(ctx, 7), t0 = Ps2GprU32(ctx, 8), t1 = Ps2GprU32(ctx, 9), t2 = Ps2GprU32(ctx, 10), t4 = Ps2GprU32(ctx, 12), t5 = Ps2GprU32(ctx, 13), t6 = Ps2GprU32(ctx, 14), t7 = Ps2GprU32(ctx, 15), s1 = Ps2GprU32(ctx, 17), t8 = Ps2GprU32(ctx, 24), t9 = Ps2GprU32(ctx, 25), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t t3 = Ps2GprU64(ctx, 11), s0 = Ps2GprU64(ctx, 16), s2 = Ps2GprU64(ctx, 18);
     uint64_t hi = ctx->hi;

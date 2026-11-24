@@ -12,6 +12,7 @@
 #include "typed_a8.h" // a8
 #include "typed_a10.h" // a10
 #include "typed_a12.h" // a12
+#include "typed_a14.h" // a14
 
 #include "ps2_runtime_macros.h"
 #include "ps2_runtime.h"
@@ -2252,6 +2253,7 @@ L_100558:
 // iosGetRandomVector (0x1be838-0x1be858)
 void iosGetRandomVector(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
+    if (PS2_EXPECT(A14_GO(), 1)) { const uint32_t a2_4 = Ps2GprU32(ctx, 4); A14_CHK(iosGetRandomVector, a2_4); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vrr = ctx->vu0_r; A14_IN(13); typed::iosGetRandomVector(rdram, runtime, a2_4, a4_vf0, a4_vf5, a4_vrr); A14_OUT(); ctx->vu0_vf[5] = a4_vf5; ctx->vu0_r = a4_vrr; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t a0 = Ps2GprU32(ctx, 4), ra = Ps2GprU32(ctx, 31);
     __m128 vf0 = ctx->vu0_vf[0], vf5 = ctx->vu0_vf[5];
      // vrnext.x    $vf5, $R: the runtime reads the context
@@ -5433,6 +5435,7 @@ L_113b198:
 void manager_sub_0113B1D8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x113B1D8u, 0)) { manager_sub_0113B1D8_0x113b1d8(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x1087260u, lift_d1::clipBySphere) && A14_HOLDS(0x1087300u, lift_d1::clipByMinMaxCube) && A14_HOLDS(0x108F518u, ::decomp_leaves::gluCameraContext) && A14_HOLDS(0x1160F68u, ::decomp_leaves::curCameraContext), 1)) { const uint64_t a2_4 = Ps2GprU64(ctx, 4); const uint64_t a2_5 = Ps2GprU64(ctx, 5); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(manager_sub_0113B1D8, a2_4, a2_5, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); a4::vec4 a4_vf0 = ctx->vu0_vf[0]; a4::vec4 a4_vf1 = ctx->vu0_vf[1]; a4::vec4 a4_vf2 = ctx->vu0_vf[2]; a4::vec4 a4_vf4 = ctx->vu0_vf[4]; a4::vec4 a4_vf5 = ctx->vu0_vf[5]; a4::vec4 a4_vf6 = ctx->vu0_vf[6]; a4::vec4 a4_vf7 = ctx->vu0_vf[7]; a4::vec4 a4_vf10 = ctx->vu0_vf[10]; a4::vec4 a4_vf11 = ctx->vu0_vf[11]; a4::vec4 a4_vf12 = ctx->vu0_vf[12]; a4::vec4 a4_vf13 = ctx->vu0_vf[13]; a4::vec4 a4_vf14 = ctx->vu0_vf[14]; a4::vec4 a4_vf15 = ctx->vu0_vf[15]; a4::vec4 a4_vf16 = ctx->vu0_vf[16]; a4::vec4 a4_vf17 = ctx->vu0_vf[17]; a4::vec4 a4_vf20 = ctx->vu0_vf[20]; a4::vec4 a4_vf21 = ctx->vu0_vf[21]; a4::vec4 a4_vf24 = ctx->vu0_vf[24]; a4::vec4 a4_vf25 = ctx->vu0_vf[25]; a4::vec4 a4_vf26 = ctx->vu0_vf[26]; a4::vec4 a4_vf27 = ctx->vu0_vf[27]; a4::vec4 a4_vf28 = ctx->vu0_vf[28]; a4::vec4 a4_vf29 = ctx->vu0_vf[29]; a4::vec4 a4_vf30 = ctx->vu0_vf[30]; a4::vec4 a4_vf31 = ctx->vu0_vf[31]; a4::vec4 a4_vacc = ctx->vu0_acc; uint32_t a4_vclip = ctx->vu0_clip_flags; uint64_t a4_h2 = a4::hi64(ctx->r[2]); A14_IN(143); const a1::RetVF a2_r = typed::manager_sub_0113B1D8(rdram, runtime, a2_4, a2_5, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_vf0, a4_vf1, a4_vf2, a4_vf4, a4_vf5, a4_vf6, a4_vf7, a4_vf10, a4_vf11, a4_vf12, a4_vf13, a4_vf14, a4_vf15, a4_vf16, a4_vf17, a4_vf20, a4_vf21, a4_vf24, a4_vf25, a4_vf26, a4_vf27, a4_vf28, a4_vf29, a4_vf30, a4_vf31, a4_vacc, a4_vclip, a4_h2); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->vu0_vf[1] = a4_vf1; ctx->vu0_vf[2] = a4_vf2; ctx->vu0_vf[4] = a4_vf4; ctx->vu0_vf[5] = a4_vf5; ctx->vu0_vf[6] = a4_vf6; ctx->vu0_vf[7] = a4_vf7; ctx->vu0_vf[10] = a4_vf10; ctx->vu0_vf[11] = a4_vf11; ctx->vu0_vf[12] = a4_vf12; ctx->vu0_vf[13] = a4_vf13; ctx->vu0_vf[14] = a4_vf14; ctx->vu0_vf[15] = a4_vf15; ctx->vu0_vf[16] = a4_vf16; ctx->vu0_vf[17] = a4_vf17; ctx->vu0_vf[20] = a4_vf20; ctx->vu0_vf[21] = a4_vf21; ctx->vu0_vf[24] = a4_vf24; ctx->vu0_vf[25] = a4_vf25; ctx->vu0_vf[26] = a4_vf26; ctx->vu0_vf[27] = a4_vf27; ctx->vu0_vf[28] = a4_vf28; ctx->vu0_vf[29] = a4_vf29; ctx->vu0_vf[30] = a4_vf30; ctx->vu0_vf[31] = a4_vf31; ctx->vu0_acc = a4_vacc; ctx->vu0_clip_flags = a4_vclip; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t at = Ps2GprU32(ctx, 1), a3 = Ps2GprU32(ctx, 7), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), s0 = Ps2GprU64(ctx, 16);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f4 = ctx->f[4], f5 = ctx->f[5], f6 = ctx->f[6];

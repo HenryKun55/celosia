@@ -11,6 +11,7 @@
 #include "typed_a6.h" // a6
 #include "typed_a7.h" // a7
 #include "typed_a9.h" // a9
+#include "typed_a14.h" // a14
 #include "typed_a11.h" // a11
 
 #include "ps2_runtime_macros.h"
@@ -8301,6 +8302,7 @@ void getFrameRateMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 void setFrameRateMode(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x1345EE0u, 0)) { setFrameRateMode_0x1345ee0(rdram, ctx, runtime); return; }
+    if (PS2_EXPECT(A14_GO() && A14_HOLDS(0x126F28u, lift_d1::ps2___muldi3) && A14_HOLDS(0x1AD510u, lift_d1::iosGetTCount) && A14_HOLDS(0x1346090u, ::a14ad::gamecore_sub_01346090) && A5_JAL(0x1345EECu, 0x1AD510u) && A5_JAL(0x13460D8u, 0x126F28u), 1)) { const uint64_t a2_2 = Ps2GprU64(ctx, 2); const uint64_t a2_9 = Ps2GprU64(ctx, 9); const uint32_t a2_29 = Ps2GprU32(ctx, 29); const float a2_f12 = ctx->f[12]; const float a2_f13 = ctx->f[13]; const float a2_f14 = ctx->f[14]; const float a2_f15 = ctx->f[15]; const float a2_f16 = ctx->f[16]; const float a2_f17 = ctx->f[17]; const float a2_f18 = ctx->f[18]; const float a2_f19 = ctx->f[19]; A14_CHK(setFrameRateMode, a2_2, a2_9, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19); uint64_t a4_hi1 = ctx->hi1; uint64_t a4_lo1 = ctx->lo1; A14_IN(132); const a1::RetVF a2_r = typed::setFrameRateMode(rdram, runtime, a2_2, a2_9, a2_29, a2_f12, a2_f13, a2_f14, a2_f15, a2_f16, a2_f17, a2_f18, a2_f19, a4_hi1, a4_lo1); A14_OUT(); Ps2SetGpr64(ctx, 2, a2_r.v0); ctx->f[0] = a2_r.f0; ctx->hi1 = a4_hi1; ctx->lo1 = a4_lo1; ctx->pc = Ps2GprU32(ctx, 31); return; } // a14
     uint32_t v0 = Ps2GprU32(ctx, 2), v1 = Ps2GprU32(ctx, 3), s0 = Ps2GprU32(ctx, 16), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     sp = sp - 0x10u;
     WRITE64(sp, Ps2GprU64(ctx, 16));

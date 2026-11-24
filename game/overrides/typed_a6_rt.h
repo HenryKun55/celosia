@@ -34,6 +34,7 @@ extern bool g_a6Typed; // the switch a6typed (sotc_decomp::kA6Typed, SOTC_A6TYPE
 struct A6Brk
 {
     uint32_t n, first, last;
+    uint32_t slot; // round A14 (BRK14): the last break in a likely branch's delay slot (site | 1), 0 if none
 };
 extern A6Brk g_a6Brk;
 namespace a6
@@ -43,6 +44,8 @@ namespace a6
         if (g_a6Brk.n++ == 0u)
             g_a6Brk.first = site;
         g_a6Brk.last = site;
+        if (site & 1u) // round A14 (BRK14): a delay-slot break
+            g_a6Brk.slot = site;
     }
     void applyBrks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // typed_a1_rt.cpp
 }

@@ -45,7 +45,7 @@ bool g_a6Typed = true; // round A6 (typed_a6_rt.h): the switch a6typed, likewise
 #if PS2X_A6_CHECK
 A3Stats g_a6s; // round A6's check build: its adapters' test and deferred checkpoints (A3's counters)
 #endif
-A6Brk g_a6Brk = {0u, 0u, 0u};
+A6Brk g_a6Brk = {0u, 0u, 0u, 0u};
 bool g_a7Typed = true; // round A7 (typed_a7_rt.h): the switch a7typed, likewise
 #include "typed_a7_rt.h"
 #if PS2X_A7_CHECK
@@ -80,14 +80,27 @@ namespace a6
     void applyBrks(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const A6Brk b = g_a6Brk;
-        g_a6Brk = {0u, 0u, 0u};
-        ctx->pc = b.first;
-        runtime->handleBreak(rdram, ctx);
-        if (b.n > 1u)
-        {
-            ctx->pc = b.last;
+        g_a6Brk = {0u, 0u, 0u, 0u};
+        // round A14 (BRK14): a site with bit 0 set is a break in a likely branch's delay slot (site & ~1; the branch 4 bytes
+        // before): lift_d1's text there sets pc, in_delay_slot and branch_pc before handleBreak (EPC = the branch, Cause.BD)
+        const auto one = [&](uint32_t site) {
+            if (site & 1u)
+            {
+                ctx->pc = site & ~1u;
+                ctx->in_delay_slot = true;
+                ctx->branch_pc = (site & ~1u) - 4u;
+                runtime->handleBreak(rdram, ctx);
+                ctx->in_delay_slot = false;
+                return;
+            }
+            ctx->pc = site;
             runtime->handleBreak(rdram, ctx);
-        }
+        };
+        one(b.first);
+        if (b.n > 1u)
+            one(b.last);
+        if (b.slot) // the last slot break's branch_pc stays (a plain break after it does not set branch_pc)
+            ctx->branch_pc = (b.slot & ~1u) - 4u;
     }
 }
 
