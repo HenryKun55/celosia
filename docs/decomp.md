@@ -24125,3 +24125,26 @@ off. Console package `build/agent-scratch/b8/celosia-b8.vpk` + `env-ab.txt` (all
   difference.
 - **What is left of the PS2 scheduler**: run()'s loop and thread records (the delivery still takes the loop's push / run / pop
   turns), the cycle charges, the id-keyed semaphore / event records, the hand-back path, the boot threads (decomp_b8.md section 6).
+
+## Decomp A13: hi / lo as a callee's extra outputs; A12's ride7 freeze shown not to be A12's (a12typed on again) (2026-11-24)
+
+docs/decomp_a13.md. Scripts, runs and logs: `build/agent-scratch/a13/`. Switch `SOTC_A13TYPED` (A/B `a13typed`, `kA13Typed`), on by
+default and only where a12typed is on; `SOTC_A13AD=0` leaves stage 13's four never-lifted adapters out. **a12typed is on by default
+again** (`SOTC_A12TYPED=0` off). New: `SOTC_A13_WATCH=<steps>` (the ride watchdog: dumps Agro and Wander when their places stop while
+mounted, then turns A12's code off in two steps; `SOTC_A13_WATCH_ACT=0` only reports), `SOTC_CK_EVERY=<n>` (a check build checks one
+frame in n).
+
+- **Worker shell floor** (A13b): a guest worker's runtime shell left `m_noCheckFloor` 0, so every `A*_GO` / NOCHK test passed there;
+  now `UINTPTR_MAX`, the A6-A8 "never on a worker shell" notes corrected.
+- **Stage 13** (tools/typed_lift2.py, `Emit(a13=True)`): hi / lo taken back as a callee's extra outputs (HL13), a callee's hi / lo
+  read before written as the caller's input (XIN13), self-recursive variants (REC13). 18 more functions (4 never lifted), 26 variants;
+  "field input hi,lo" refusals 10 -> 0. Stages 2-12 byte-identical.
+- **The freeze**: reproduced (fA7b, a12typed A/B, host at load 35) and **reproduced with a12typed off all run** (xoff7, 111 MHz), both at
+  x = -149 like A12's; it stayed after the watchdog forced a12typed off. The horse's motion state keeps changing, its place does not;
+  cause inside the game not found. 5 a12typed-on ride7 runs at 222 MHz rode clean.
+- **Exact**: in-run A3-A13 0 differences, now past the mount: the light check build with SOTC_CK_EVERY=8 rode 21 300 / 32 700 frames
+  (chkT / chkS2: A12 1.34 M / 1.66 M checks on 35 / 38 functions, A13 1 900 / 5 132); the full check build (walking, attract, lake6)
+  0 in all of A3-A13. Offline harness 0 in 30 runs (660 000 checks), A3-A12 harnesses 0. spalign 0.
+- **Measured**: a13typed off - on pooled -0.13 +- 0.22 ms (5 A/Bs); a12typed -0.04 +- 0.11 ms. Count (d) 4 269 functions (47.31%),
+  20.42% of the bytes, 12.48% of the console game thread (A12: 4 251 / 47.11% / 20.19% / 12.40%).
+- **Ships**: build/agent-scratch/a13/celosia-a13.vpk + env-ab.txt (SOTC_AB_FLAG=a12typed), not installed.
