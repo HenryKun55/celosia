@@ -136,6 +136,8 @@ and 540 s (riding into the stone colonnade, ground texture, Agro's ground shadow
 **spalign**: `python3 ../tools/spalign.py p2.elf`: 0 sp-based :128/:256 NEON accesses (of 1 064 with a hint). ELF room unchanged
 (122 880 bytes).
 
+**89 MB boot of the merged build** (pm10 = B10 rebased on A14 main 4c48813 as d0ba499, b10switch / a14typed off by default, default switches; SOTC_VITA_EAT_USER_MB=89, ride7 600 s, muted; ELF room 120 KB unchanged, spalign 0 of 1 128): booted on the first try, field at frame 2 000, mounted at frame 3 915 and rode the rest of the run to frame 17 177 (600 s); no FREEZE, 0 watchdog lines. Screenshots at 300 / 420 / 540 s: galloping on Agro along the colonnade on the plain, riding along the tall stone wall, then by the temple ruins and stairs; Wander, Agro, ground, Agro's ground shadow and sky normal.
+
 **Default**: off (`SOTC_B10SWITCH` must be 1-3; it acts only while b9loop is in effect). **Console A/B package**:
 `build/agent-scratch/b10/celosia-b10.vpk` (= p2, byte-identical; built from this round's code commit's sources) + `env-ab.txt`
 (B9's console env + `SOTC_B10SWITCH=1`, `SOTC_AB_FLAG=b10switch SOTC_AB_PERIOD=300`, `SOTC_B10_LOG=600`). Not installed.
