@@ -139,9 +139,7 @@ inline bool a12HoldsAt(uint32_t addr, PS2Runtime::RecompiledFunction got, bool h
 #define A12_IN(id) a3InOn(g_a12s, runtime, (id))
 #define A12_OUT() a3Out(runtime)
 #elif defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE
-// round A13: on a guest worker's runtime shell (m_noCheckFloor 0 there, not UINTPTR_MAX) counted per adapter, and false while
-// a13diag::g_shellOff (a13_watch.h)
-#define A12_GO() (g_a12Typed && PS2_N4_SP() >= runtime->m_noCheckFloor && (PS2_EXPECT(!ps2_worker::isShell(runtime), 1) || a13diag::shellTyped(__func__)))
+#define A12_GO() (g_a12Typed && PS2_N4_SP() >= runtime->m_noCheckFloor) // never on a worker shell (round A13: its floor is UINTPTR_MAX)
 #define A12_HOLDS(addr, known) a12Is(PS2_GUEST_FN(addr), &known)
 #define A12_HOLDSX(addr, known) (PS2_GUEST_FN(addr) == &known)
 #define A12_IN(id) ((void)0)

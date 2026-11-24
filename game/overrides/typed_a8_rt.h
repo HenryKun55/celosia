@@ -6,7 +6,7 @@
 //     function while the slot holds the native (A8_HOLDS), each native checks itself against it in a check build (A8_NCHK);
 //   - manager_sub_01114C70 (A7's native): spin_filter's taint made flow-sensitive in stage 8 (its loops exit on a counter).
 //
-// A8_GO: A7's condition with the switch a8typed (never on a worker shell: its runtime has no NOCHK floor).
+// A8_GO: A7's condition with the switch a8typed (never on a worker shell: sotc_worker.cpp sets its NOCHK floor to UINTPTR_MAX; before round A13 it was 0 there, so this passed).
 #pragma once
 
 #include "typed_a7_rt.h"

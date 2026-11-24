@@ -14,7 +14,8 @@
 //     after the call (A6_BRKS): the first and the last site, which leave the context as every break in order would.
 //
 // A6_GO: every A6 adapter (leaves too) needs A5's condition (the switch, n5sched + NOCHK in effect, the host stack above
-// the floor): never on a worker shell (its runtime has no NOCHK floor), so a typed break or GetThreadId runs only on the
+// the floor): never on a worker shell (sotc_worker.cpp sets its NOCHK floor to
+// UINTPTR_MAX; before round A13 the zeroed shell left it 0 and this passed there), so a typed break or GetThreadId runs only on the
 // game thread's runtime, after boot.
 #pragma once
 

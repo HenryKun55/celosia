@@ -2,11 +2,9 @@
 // runtime shell (ps2_worker, sotc_worker.cpp), and the ride watchdog (sotc_replay's horse step: Agro and Wander still while
 // mounted after they moved).
 //
-// a13diag::shellTyped(fn): an A12 adapter's test reached on a worker shell. The shell is zeroed storage (sotc_worker.cpp), so
-// its m_noCheckFloor is 0, not UINTPTR_MAX: every A*_GO (and PS2_N4_FAST, callGuestKnownNoCheck) passes there, and the typed
-// body runs beside the game thread without the worker's admit / park (its typed callees are C++ calls, not hookCall's). The
-// count per adapter (the lifted function's __func__) is kept; the answer is false while g_shellOff (SOTC_A13_WSHELL=0, or the
-// watchdog's first step).
+// a13diag::shellTyped(fn): the measuring probe of the first A13 pass (an A12 adapter's test reached on a worker shell, whose
+// zeroed storage left m_noCheckFloor 0, so every A*_GO, PS2_N4_FAST and callGuestKnownNoCheck passed there). Round A13b set the
+// shell's floor to UINTPTR_MAX in sotc_worker.cpp, so A12_GO no longer calls it; kept for the [a13w] line (counts stay 0).
 #pragma once
 
 #include <cstdint>

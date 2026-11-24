@@ -11,7 +11,7 @@
 //   - more hand natives typed from their MIPS (docs/a7_natives.txt), A6's rule: no adapter, a typed caller calls the typed
 //     function while the slot holds the native (A7_HOLDS), each native checks itself against it in a check build (A7_NCHK).
 //
-// A7_GO: A6's condition with the switch a7typed (never on a worker shell: its runtime has no NOCHK floor).
+// A7_GO: A6's condition with the switch a7typed (never on a worker shell: sotc_worker.cpp sets its NOCHK floor to UINTPTR_MAX; before round A13 it was 0 there, so this passed).
 #pragma once
 
 #include "typed_a6_rt.h"
