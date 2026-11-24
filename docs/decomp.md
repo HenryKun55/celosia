@@ -24176,3 +24176,27 @@ Console package `build/agent-scratch/b9/celosia-b9.vpk` + `env-ab.txt` (all eigh
 - **What is left of the PS2 scheduler**: run()'s loop and thread records (a delivery that wakes another thread and every wait /
   wakeup still go through the loop's top for the pick), the cycle charges and slow checkpoints, the id-keyed semaphore / event
   records, the hand-back path, the boot threads (decomp_b9.md section 6).
+
+## Decomp A14: the runtime state lift_d1 left opaque, the divide-by-zero break slot, bounded searches (a14typed off by default) (2026-11-24)
+
+docs/decomp_a14.md. Scripts, runs and logs: `build/agent-scratch/a14/`. Code commit cfe415f (rebased on B9 b189f29; 4b838c3 before). Switch `SOTC_A14TYPED` (A/B `a14typed`,
+`kA14Typed`), **off by default**, acts only where a13typed's flag is on (so only with `SOTC_A12TYPED=1`); `SOTC_A14AD=0` leaves stage
+14's 94 never-lifted adapters out.
+
+- **Stage 14** (tools/typed_lift2.py, `Emit(a14=True)`): RT14 names hi1 / lo1, SA, COP0 Status, VU0's clip flags and R in stage 14's
+  lifters and carries them as VU0-interface slots (nothing dropped; Status is read by the runtime only in an exception's vector, so
+  EIntr / DIntr type exactly); BRK14 records a likely branch's `break 7` slot as `A6_BREAK(site | 1)` (applyBrks: bit 0 = a delay-slot
+  break, branch_pc kept as the last one set it); SRCH14 lets a search's hit exit through when a counted exit dominates the back edge and
+  the hit test reads a walked element (a poll still refuses); CSR14 refuses a callee-saved register read before written (the harness's
+  first run found five Sg2Slot* / Sg2SepStop functions typed with the caller's s0 / s1 as 0). 173 more functions (95 never lifted), 27
+  variants; one step off at a time: RT14 98, BRK14 51, SRCH14 32 of them. Stages 2-13 byte-identical.
+- **Exact**: offline harness 0 in 30 runs (3.00 M checks, 163 679 typed breaks, 0 break differences; A13's and A12's rebuilt: 0);
+  in-run on the light check build (A3 / A12 / A13 / A14): attract 279 389, lake6 311 148, ride7 mounted and galloping to frame 13 200
+  (SOTC_CK_EVERY=8) 261 495 A14 checks, 0 differences in every category. spalign 0 (p1 1 124, pg 47 356).
+- **Measured**: a14typed off - on pooled +0.71 +- 0.32 ms (4 A/Bs, loaded host; on not slower). Count (d) 4 439 functions (49.19%),
+  21.85% of the bytes, 13.11% of the console game thread (A13: 4 269 / 47.31% / 20.42% / 12.48%); 3 541 functions still wait.
+- **The ride7 freeze** (A12 / A13's): 2 of 5 mounted 89 MB rides with a12 + a14 on froze (boot14d at x = -148.76, A12's line), 0 of 2
+  controls with a14 off; A12's rate, a host at load 25-35, too few runs to tell stage 14 apart; cause still open. 89 MB boot14c (a14 on)
+  rode 900 s, pictures normal.
+- **Ships**: a12typed / a13typed / a14typed off by default. build/agent-scratch/a14/celosia-a14.vpk + env-ab.txt (SOTC_A12TYPED=1,
+  SOTC_AB_FLAG=a14typed), not installed.
