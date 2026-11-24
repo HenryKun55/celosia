@@ -6,7 +6,7 @@ typed code** (it is older than A12), the game mechanism that can hold the pair s
 opt-in switch, but the freeze **did not recur in 14 A15 rides**, so the fix is unproven and **no default changed**. A separate,
 new failure class was seen once: a whole-process hang (section 4).
 
-Commits: bf2429a (diagnostic + fix behind a switch), 3e10a2d (ELF room 128 KB), and this round's close (fix made opt-in, docs).
+Commits: bf2429a (diagnostic + fix behind a switch), 3e10a2d (ELF room 128 KB, reverted at the merge: 5d17847), and this round's close (fix made opt-in, docs). Rebased on D1 main de2fc67 as 665c8a1.
 Scratch: build/agent-scratch/a15 (pf.vpk = diagnostic + fix on by default, pr.vpk = the commit's build, fix opt-in).
 
 ## 1. The freeze is older than A12
@@ -84,9 +84,10 @@ Seen once in 14 rides; cause not found. Counted apart from the ride freeze.
 ## 5. What was not done
 
 - No Vita3K A/B of the typed stages in this round (A12-A14's own A/Bs stand: pooled about +0.0 .. +0.7 ms, not slower).
-- No 89 MB boot: during the round the console memory card build/agent-scratch/avion/console/Mcd001-console.ps2 disappeared
-  (hA4 / hB4 logged `cp: ... No such file or directory` and ran on the card the trees still held); the scratch route scripts need
-  it back before more ride7 / 89 MB runs.
+- 89 MB boot of the merged build (pmA15 = A15 rebased on D1 main de2fc67 as 665c8a1, default switches, ELF room back to
+  120 KB): mounted at frame 3 491, rode to frame 8 213 where Wander came off Agro (the route's steering; d1/chkC dismounted the
+  same way), then on foot to frame 9 793 (605 s); 0 FREEZE / watchdog lines, pictures at 300 / 540 s normal (Agro by the wall;
+  Wander running on the plain). The console memory card was restored from the vita3k-celosia-avion tree's identical copy.
 - Defaults: a12typed / a13typed / a14typed stay **off**; SOTC_A15_LOADCENTER stays off.
 
 ## 6. Next

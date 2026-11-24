@@ -24261,4 +24261,5 @@ the camera's window leaves the pair's subcell out). 14 of 14 mounted ride7 rides
 frame) had **0 ride freezes**; every crossing of x = -150 found the subcell wanted / loaded and the fix never acted, so cause and
 fix stay unproven. One new failure class: hA1, a whole-process hang at t = 705 s (all guest threads parked in Vita3K semaphore
 waits; evidence in build/agent-scratch/a15/hang-hA1). Defaults unchanged (a12typed / a13typed / a14typed / the fix off); ELF room
-128 KB. Not done: A/B, 89 MB boot (the console memory card vanished from build/agent-scratch/avion/console during the round).
+120 KB (the merged build fits; 3e10a2d's 128 KB reverted). Not done: A/B. 89 MB boot of the merged build (665c8a1 on de2fc67,
+default switches): mounted at 3 491, rode to 8 213 (a dismount on the route), on foot to 9 793 (605 s), 0 FREEZE lines, pictures normal.
