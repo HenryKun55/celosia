@@ -43,6 +43,7 @@
 // in check mode. SOTC_DC1MOT_LOG=<n>: every n game frames a [dc1mot] line (calls by function, checks, differences).
 #include "sotc_decomp.h"
 #include "chara_types.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -900,12 +901,252 @@ namespace dc1mot
     }
 }
 
+namespace dc1mot
+{
+    // Round D1 (d1native): the dispatchers (the D1 bodies at the end of this file).
+    void entryBasePosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryOptionNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
 SOTC_DECOMP_FUNCTION(0x010B28E0u, getBlendLastMotion, dc1mot::entryBlendLast);
 SOTC_DECOMP_FUNCTION(0x010B3810u, GetMotionOptionNodePhysicalId, dc1mot::entryPhysicalId);
 SOTC_DECOMP_FUNCTION(0x010B39B0u, GetMotionVersion, dc1mot::entryVersion);
-SOTC_DECOMP_FUNCTION(0x010B6E80u, GetMotionNodeBasePos, dc1mot::entryBasePos);
+SOTC_DECOMP_FUNCTION(0x010B6E80u, GetMotionNodeBasePos, dc1mot::entryBasePosSw);
+D1_ALIAS(0x010B6E80u, GetMotionNodeBasePos, dc1mot::entryBasePosSw, dc1mot::entryBasePos);
 SOTC_DECOMP_FUNCTION(0x010B6F60u, GetMotionNodeBaseQuaternion, dc1mot::entryBaseQuat);
 SOTC_DECOMP_FUNCTION(0x010B36C8u, GetMotionNbOptionNodes, dc1mot::entryNbOptionNodes);
 SOTC_DECOMP_FUNCTION(0x010C6710u, GetOptionNodePhysicalNodeId, dc1mot::entryOptionNodeId);
 SOTC_DECOMP_FUNCTION(0x010C6798u, AddCharacterClassOptionNodeSubGeometries, dc1mot::entrySubGeometries);
-SOTC_DECOMP_FUNCTION(0x010BC4F0u, manager_sub_010BC4F0, dc1mot::entryOptionNodes);
+SOTC_DECOMP_FUNCTION(0x010BC4F0u, manager_sub_010BC4F0, dc1mot::entryOptionNodesSw);
+D1_ALIAS(0x010BC4F0u, manager_sub_010BC4F0, dc1mot::entryOptionNodesSw, dc1mot::entryOptionNodes);
+
+// ---- Round D1 (d1native, d1_native.h): GetMotionNodeBasePos and the option nodes as native C++ -----------------------
+// GetMotionNodeBasePos: the adapter reads the four arguments and the decoded starting qword, the core basePosD1 is plain
+// vec4 math on typed guest memory (the VU0 ops as d1::v* NEON ops, the operand clamps of the old body dropped: finite
+// data; the result clamps kept). The old body leaves no register but pc (DC1's entries): neither does this one.
+// manager_sub_010BC4F0 (partial): the same walk on typed memory, the scale product a d1::vmul; its guest calls
+// (GetMotionOptionNodeFloatFrame, AddCharacterClassOptionNodeSubGeometry, ...) as the old body makes them.
+namespace dc1mot
+{
+    D1_COUNTER(c_d1BasePos, "GetMotionNodeBasePos");
+    D1_COUNTER(c_d1OptionNodes, "manager_sub_010BC4F0");
+
+    // A qword at a 16-byte aligned address (the original's lqc2 / sqc2 drop the low four bits).
+    PS2_FORCE_INLINE __m128 d1q(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void d1putq(const d1::Mem m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+    // Lane moves (vopmula / vmr32's operand orders): a NEON permute, no arithmetic.
+    template <int A, int B, int C, int D>
+    PS2_FORCE_INLINE __m128 d1perm(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+        typedef int d1v4i __attribute__((vector_size(16)));
+        return __builtin_shuffle(v, d1v4i{A, B, C, D});
+#endif
+    }
+    PS2_FORCE_INLINE __m128 d1yzx(__m128 v) { return d1perm<1, 2, 0, 3>(v); }
+    PS2_FORCE_INLINE __m128 d1zxy(__m128 v) { return d1perm<2, 0, 1, 3>(v); }
+
+    // turnPoint as d1 vec4 ops, in the same order (the same NEON operations on the same lanes).
+    PS2_FORCE_INLINE __m128 d1TurnPoint(__m128 q, __m128 p)
+    {
+        const __m128 z = d1::vf0();
+        const __m128 mXyz = d1::mask(1, 1, 1, 0), mW = d1::mask(0, 0, 0, 1), mY = d1::mask(0, 1, 0, 0), mZ = d1::mask(0, 0, 1, 0);
+        const __m128 one = d1::vadd(z, d1::bc<3>(z));
+        __m128 acc = d1::vmul(d1yzx(q), d1zxy(one));
+        const __m128 qq = d1::vsel(q, d1::vadd(acc, d1::vmul(z, z)), mXyz);
+        const __m128 d2 = d1::vadd(acc, d1::vmul(qq, one));
+        const __m128 sq = d1::vmul(qq, d2);
+        acc = d1::vmul(d1yzx(qq), d1zxy(d2));
+        __m128 r15 = d1::vadd(acc, d1::vmul(d2, d1::bc<3>(qq)));
+        __m128 r16 = d1::vsub(acc, d1::vmul(d2, d1::bc<3>(qq)));
+        acc = d1::vmul(d1yzx(sq), d1zxy(one));
+        __m128 r17 = d1::vadd(acc, d1::vmul(sq, one));
+        acc = d1::vmul(d1yzx(r15), d1zxy(one));
+        r15 = d1::vadd(acc, d1::vmul(z, z));
+        __m128 r14 = d1::vsub(one, r17);
+        const __m128 zero = d1::zero4();
+        r14 = d1::vsel(r14, zero, mW);
+        r15 = d1::vsel(r15, zero, mW);
+        r16 = d1::vsel(r16, zero, mW);
+        r17 = d1::vsel(r17, r14, d1::mask(0, 1, 1, 0));
+        r14 = d1::vsel(r14, r16, mY);
+        r16 = d1::vsel(r16, r15, mY);
+        r15 = d1::vsel(r15, r17, mY);
+        r14 = d1::vsel(r14, r15, mZ);
+        r15 = d1::vsel(r15, r16, mZ);
+        r16 = d1::vsel(r16, r17, mZ);
+        acc = d1::vmul(r14, d1::bc<0>(p));
+        acc = d1::vadd(acc, d1::vmul(r15, d1::bc<1>(p)));
+        acc = d1::vadd(acc, d1::vmul(r16, d1::bc<2>(p)));
+        return d1::vadd(acc, d1::vmul(z, d1::bc<3>(p)));
+    }
+
+    // GetMotionNodeBasePos(out, skel, quats, node): start = the starting qword's address (0x1e0fd0, relocated).
+    void basePosD1(const d1::Mem m, uint32_t start, uint32_t out, uint32_t skel, uint32_t quats, uint64_t node64)
+    {
+        __m128 p = d1q(m, start);
+        if (node64 != ~0ull)
+        {
+            const uint32_t bones = m.at<chara::Skeleton>(skel)->bones;
+            uint32_t node = static_cast<uint32_t>(node64);
+            do
+            {
+                const uint32_t bone = bones + (node << 6);
+                const __m128 t = d1TurnPoint(d1q(m, quats + (node << 4)), p);
+                p = d1::vsel(t, d1::vadd(t, d1q(m, bone + offsetof(chara::Bone, offset))), d1::mask(1, 1, 1, 0));
+                node = *m.at<u32>(bone + offsetof(chara::Bone, parent));
+            } while (node != 0xFFFFFFFFu);
+        }
+        d1putq(m, out, p);
+    }
+
+    void entryBasePosD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!on() || checking(), 0))
+            return entryBasePos(rdram, ctx, runtime);
+        const Links &k = links(rdram, runtime);
+        if (__builtin_expect(!k.ok || !sotc_decomp::motionOn(), 0))
+            return entryBasePos(rdram, ctx, runtime);
+        ++c_d1BasePos.n;
+        ++g_st.calls[kFBasePos];
+        basePosD1(d1::Mem{rdram}, k.base, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U64(ctx, 7));
+        ret(ctx);
+    }
+    void entryBasePosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryBasePosD1(rdram, ctx, runtime);
+        else
+            entryBasePos(rdram, ctx, runtime);
+    }
+
+    // optionNodes on typed memory; the guest calls as the old body makes them (g: the context for those only).
+    bool optionNodesD1(const d1::Mem m, const Links &k, const Guest &g, uint32_t chara, uint32_t sp0)
+    {
+        const uint32_t sp = sp0 - 0x70u;
+        const Ram r{m.base};
+        uint32_t list = *m.at<u32>(chara + cls::kSkeleton);
+        const int32_t count = list != 0u ? *m.at<s32>(list + kSkelOptionCount) : 0;
+        uint32_t quat = *m.at<u32>(chara + cls::kOptionQuats), pos = *m.at<u32>(chara + cls::kOptionPositions);
+        uint32_t flags = *m.at<u32>(chara + cls::kOptionFlags);
+        for (int32_t i = 0; i < count; ++i, pos += 0x10u, quat += 0x10u, flags += 3u)
+        {
+            if (i > 0)
+                list = *m.at<u32>(chara + cls::kSkeleton);
+            const uint32_t node = m.at<chara::Skeleton>(list)->optionNodes + static_cast<uint32_t>(i) * sizeof(OptionNode);
+            const uint32_t motion = *m.at<u32>(chara + cls::kMotion);
+            const uint32_t motionH = motion + 0x50u;
+            int64_t id = -1;
+            if (motion != 0u && motionH != 0u)
+            {
+                if (!optionNodeId(r, k, list, motionH, static_cast<uint64_t>(i), id))
+                {
+                    if (i == 0)
+                        return false;
+                    g.a(4, list);
+                    g.a(5, motionH);
+                    g.s(6, i);
+                    g.call(0x010C6710u, 0x010BC590u, sp);
+                    id = static_cast<int64_t>(GPR_U64(g.ctx, 2));
+                }
+            }
+            if (id >= 0)
+            {
+                g.a(4, quat);
+                g.a(5, pos);
+                g.a(6, sp);
+                g.a(7, motionH);
+                g.a64(8, static_cast<uint64_t>(id));
+                g.ctx->f[12] = *m.at<f32>(chara + cls::kFrameF);
+                g.call(kOptionFloatFrame, 0x010BC5B0u, sp);
+            }
+            else
+            {
+                d1putq(m, quat, d1q(m, node + offsetof(OptionNode, rotation)));
+                d1putq(m, pos, d1q(m, node + offsetof(OptionNode, position)));
+                d1putq(m, sp, d1q(m, k.optionConst));
+            }
+            if (*m.at<chara::u8>(chara + cls::kSubGeo) != 0u)
+            {
+                subGeometries(r, g, quat, pos, chara, static_cast<uint64_t>(i), sp);
+                if (*m.at<u8>(chara + cls::kSubGeoMode) == 2u &&
+                    (*m.at<u32>(chara + cls::kSubGeoD20) != 0u || d1::lt(*m.at<f32>(chara + cls::kSubGeoBlend), 1.0f)))
+                {
+                    g.a(4, quat);
+                    g.a(5, pos);
+                    g.a(6, chara);
+                    g.a(7, chara + cls::kSubGeoD20);
+                    g.s(8, i);
+                    g.call(kSubGeometry, 0x010BC640u, sp);
+                }
+            }
+            // The position x the class scale (xyz).
+            const __m128 p = d1q(m, pos);
+            d1putq(m, pos, d1::vsel(p, d1::vmul(p, d1q(m, chara + cls::kScale)), d1::mask(1, 1, 1, 0)));
+            const uint32_t m1 = *m.at<u32>(chara + cls::kMotion);
+            const uint32_t mo = m1 != 0u ? m1 + 0x50u : 0u;
+            const uint32_t list2 = *m.at<u32>(chara + cls::kSkeleton);
+            *m.at<u8>(flags + 2u) = 0u;
+            *m.at<u8>(flags + 1u) = 0u;
+            *m.at<u8>(flags) = 0u;
+            if (mo != 0u && *m.at<s32>(list2) > 0)
+            {
+                bool missing = false;
+                int32_t version = motionVersion(r, k, mo, missing);
+                int32_t pid = -1;
+                if (!missing && version >= 5)
+                    pid = physicalId(r, k, mo, static_cast<uint64_t>(i), missing);
+                if (missing)
+                {
+                    g.a(4, mo);
+                    g.call(0x010B39B0u, 0x010BC68Cu, sp);
+                    version = static_cast<int32_t>(GPR_U32(g.ctx, 2));
+                    pid = -1;
+                    if (version >= 5)
+                    {
+                        g.a(4, mo);
+                        g.s(5, i);
+                        g.call(0x010B3810u, 0x010BC6A4u, sp);
+                        pid = static_cast<int32_t>(GPR_U32(g.ctx, 2));
+                    }
+                }
+                if (version >= 5 && pid >= 0)
+                {
+                    g.a(4, flags);
+                    g.a(5, mo);
+                    g.s(6, pid);
+                    g.ctx->f[12] = *m.at<f32>(chara + cls::kFrameF);
+                    g.ctx->f[13] = *m.at<f32>(chara + cls::kFrameF2);
+                    g.call(kOptionBoolean, 0x010BC6C0u, sp);
+                }
+            }
+        }
+        return true;
+    }
+
+    void entryOptionNodesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!on() || checking(), 0))
+            return entryOptionNodes(rdram, ctx, runtime);
+        const Links &k = links(rdram, runtime);
+        if (__builtin_expect(!k.ok || !sotc_decomp::motionOn(), 0))
+            return entryOptionNodes(rdram, ctx, runtime);
+        ++c_d1OptionNodes.n;
+        ++g_st.calls[kFOptionNodes];
+        const uint32_t chara = GPR_U32(ctx, 4), ra = GPR_U32(ctx, 31), sp0 = GPR_U32(ctx, 29);
+        if (!optionNodesD1(d1::Mem{rdram}, k, Guest{rdram, ctx, runtime}, chara, sp0))
+            return sotc_decomp::recompiled(0x010BC4F0u)(rdram, ctx, runtime);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra);
+        ret(ctx);
+    }
+    void entryOptionNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryOptionNodesD1(rdram, ctx, runtime);
+        else
+            entryOptionNodes(rdram, ctx, runtime);
+    }
+} // namespace dc1mot

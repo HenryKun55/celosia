@@ -26,6 +26,7 @@
 // recompiled code has at that call (its return label may resume there
 // after a blocking WaitSema).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "s11rt.h"
 #include "runtime/ps2_diag.h"
 
@@ -463,11 +464,137 @@ namespace decomp_isys
         returnTo(ctx);
     }
 
+    void forFirstSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void forExitSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     SOTC_DECOMP_FUNCTION(kAdd, isysAddGroupWithLinkParam, addGroup);
     SOTC_DECOMP_FUNCTION(kAddNoWait, isysAddGroupWithLinkParamNoWait, addGroupNoWait);
     SOTC_DECOMP_FUNCTION(kInsert, kernel_sub_001C6180, insert);
     SOTC_DECOMP_FUNCTION(kRemove, kernel_sub_001C6408, remove);
-    SOTC_DECOMP_FUNCTION(kForFirst, isysGroupForFirst, forFirst);
-    SOTC_DECOMP_FUNCTION(kForExit, isysGroupForExit, forExit);
+    SOTC_DECOMP_FUNCTION(kForFirst, isysGroupForFirst, forFirstSw);
+    D1_ALIAS(kForFirst, isysGroupForFirst, forFirstSw, forFirst);
+    SOTC_DECOMP_FUNCTION(kForExit, isysGroupForExit, forExitSw);
+    D1_ALIAS(kForExit, isysGroupForExit, forExitSw, forExit);
     SOTC_DECOMP_FUNCTION(kLockObj, iosDlLockObj, lockObj);
+}
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE=1): isysGroupForFirst / isysGroupForExit ------------------------------------------
+// The group walk and the walk-count byte as typed cores on d1::Mem; the lock (GetThreadId / PollSema / SignalSema, the
+// scheduler's: a SignalSema can hand the CPU to a woken thread) stays the old helpers' calls, in the old order, with
+// the same frame and registers.
+namespace decomp_isys
+{
+    D1_COUNTER(c_d1ForFirst, "isysGroupForFirst");
+    D1_COUNTER(c_d1ForExit, "isysGroupForExit");
+
+    inline bool d1IsysOk(uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE - n; }
+    inline uint32_t d1LinkAt(uint32_t index) { return index == 0u ? 0u : kBase + index * 0x18u; }
+    inline bool d1Sane(uint32_t link) { return link >= kBase && link < kBase + 0x10000u * 0x18u && d1IsysOk(link, 0x18u); }
+
+    // The group's first link not being removed (+0xc) whose object's +0xa bit 0 is clear (0: none). Reads only; false:
+    // a link or object out of range (the old fn then).
+    bool forFirstFind(const d1::Mem m, uint32_t group, uint32_t &found)
+    {
+        found = 0u;
+        if (!d1IsysOk(group, 2u))
+            return false;
+        uint32_t steps = 0;
+        for (uint32_t link = d1LinkAt(m.get<uint16_t>(group)); link != 0u; link = d1LinkAt(m.get<uint16_t>(link + 0xEu)))
+        {
+            if (!d1Sane(link) || ++steps > 0x10000u)
+                return false;
+            if (m.get<uint8_t>(link + 0xCu) != 0u)
+                continue;
+            const uint32_t object = m.get<uint32_t>(link);
+            if (!d1IsysOk(object, 0x10u))
+                return false;
+            if ((m.get<uint16_t>(object + 0xAu) & 1u) != 0u)
+                continue;
+            found = link;
+            return true;
+        }
+        return true;
+    }
+    // The walk count (+9) of the found link's object up by one.
+    inline void forFirstCount(const d1::Mem m, uint32_t found)
+    {
+        uint8_t *const n = m.at<uint8_t>(m.get<uint32_t>(found) + 9u);
+        *n = static_cast<uint8_t>(*n + 1u);
+    }
+    // The object's walk count down by one; v0 the old byte + 0xff (addiu, not wrapped).
+    inline uint32_t forExitCount(const d1::Mem m, uint32_t object)
+    {
+        uint8_t *const n = m.at<uint8_t>(object + 9u);
+        const uint32_t b = *n;
+        *n = static_cast<uint8_t>(b - 1u);
+        return b + 0xFFu;
+    }
+
+    void forFirstD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1ForFirst.n;
+        const d1::Mem dm{rdram};
+        const M m{rdram};
+        const uint32_t group = GPR_U32(ctx, 4), spIn = GPR_U32(ctx, 29), ra = GPR_U32(ctx, 31);
+        uint32_t found;
+        if (!forFirstFind(dm, group, found))
+            return forFirst(rdram, ctx, runtime);
+        if (acquire(m, rdram, ctx, runtime) == Lock::No)
+        {
+            ctx->pc = kForFirst;
+            SET_GPR_U32(ctx, 4, group);
+            return sotc_decomp::recompiled(kForFirst)(rdram, ctx, runtime);
+        }
+        if (found != 0u)
+            forFirstCount(dm, found);
+        if (release(m))
+        {
+            // The frame (sp - 0x30: s0..s3, ra at 0x20), s0 the result.
+            const uint32_t frame = spIn - 0x30u;
+            saveFrame(rdram, ctx, frame, 4, 0x20u);
+            const uint64_t s0 = GPR_U64(ctx, 16);
+            SET_GPR_U32(ctx, 16, found);
+            signal(m, rdram, ctx, runtime, 0x001C723Cu, frame);
+            SET_GPR_U64(ctx, 16, s0);
+            SET_GPR_U32(ctx, 29, spIn);
+            SET_GPR_U32(ctx, 31, ra);
+        }
+        SET_GPR_U64(ctx, 2, found);
+        returnTo(ctx);
+    }
+
+    void forExitD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1ForExit.n;
+        const M m{rdram};
+        const uint32_t object = GPR_U32(ctx, 4), spIn = GPR_U32(ctx, 29), ra = GPR_U32(ctx, 31);
+        if (!d1IsysOk(object, 0x10u))
+            return forExit(rdram, ctx, runtime);
+        if (acquire(m, rdram, ctx, runtime) == Lock::No)
+        {
+            ctx->pc = kForExit;
+            SET_GPR_U32(ctx, 4, object);
+            return sotc_decomp::recompiled(kForExit)(rdram, ctx, runtime);
+        }
+        SET_GPR_U64(ctx, 2, forExitCount(d1::Mem{rdram}, object));
+        if (release(m))
+            signal(m, rdram, ctx, runtime, ra, spIn); // the original's tail jump (j SignalSema)
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U32(ctx, 31, ra);
+        returnTo(ctx);
+    }
+
+    void forFirstSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            forFirstD1(rdram, ctx, runtime);
+        else
+            forFirst(rdram, ctx, runtime);
+    }
+    void forExitSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            forExitD1(rdram, ctx, runtime);
+        else
+            forExit(rdram, ctx, runtime);
+    }
 }

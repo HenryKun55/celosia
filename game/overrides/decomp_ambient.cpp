@@ -42,6 +42,7 @@
 // SOTC_S19AMB_CHECK=1: each call run the old way first, then the host way from the same state, compared (the colour,
 // v0, f0 / f1, fcr31, vf5..vf7, the cell call's outputs); SOTC_S19AMB_LOG=<frames>: "[s19amb]" counts.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "s11rt.h"
 
 #include "ps2_runtime_macros.h"
@@ -570,4 +571,293 @@ namespace decomp_ambient
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01091E30u, getAmbientColorC, decomp_ambient::getAmbientColorC);
+namespace decomp_ambient
+{
+    void getAmbientColorCSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01091E30u, getAmbientColorC, decomp_ambient::getAmbientColorCSw);
+D1_ALIAS(0x01091E30u, getAmbientColorC, decomp_ambient::getAmbientColorCSw, decomp_ambient::getAmbientColorC);
+
+// ---- Round D1 (d1native): getAmbientColorC's D1 body ----------------------------------------------------------------
+// Partial (the default path, s19amb off; s19amb on or the old entry's checks failing: the old body): the guest calls
+// (GetAmbientLightObjGroup, the cell call, the group walks, floorf) stay as the old body makes them, with the same
+// registers, ra and frame; the bilinear blend's scalar math in d1 float ops (d1::add / sub / mul / lt / le), the colour
+// sums as d1 vec4 ops, guest RAM through d1::Mem; the fcr31 condition bit and f0 held in locals, given to the context
+// before each guest call and taken back after it (what the old body's per-compare writes leave a callee and the exit).
+namespace decomp_ambient
+{
+    D1_COUNTER(c_d1Ambient, "getAmbientColorC");
+
+    // The 4-bit sample (x, y) of a grid.
+    inline uint32_t d1AmbSample(const d1::Mem m, uint32_t grid, int32_t x, int32_t y)
+    {
+        const uint32_t h = (m.get<uint16_t>(grid + 0x1Eu) & 0xFu) - 1u;
+        const uint32_t at = grid + static_cast<uint32_t>(x >> 1) + ((static_cast<uint32_t>(y) << (h & 0x1Fu)) + m.get<uint32_t>(grid + 0x14u));
+        const uint8_t b = m.get<uint8_t>(at);
+        return (x & 1) ? static_cast<uint32_t>(b >> 4) : static_cast<uint32_t>(b & 0xFu);
+    }
+    // A palette colour as four floats (cvt.s.w of each byte); f0 its w.
+    inline __m128 d1AmbColour(const d1::Mem m, uint32_t palette, uint32_t index, float &f0)
+    {
+        const uint32_t p = index * 4u + palette;
+        const float c0 = static_cast<float>(static_cast<int32_t>(m.get<uint8_t>(p))), c1 = static_cast<float>(static_cast<int32_t>(m.get<uint8_t>(p + 1u))),
+                    c2 = static_cast<float>(static_cast<int32_t>(m.get<uint8_t>(p + 2u))), c3 = static_cast<float>(static_cast<int32_t>(m.get<uint8_t>(p + 3u)));
+        f0 = c3;
+        return d1::make(c0, c1, c2, c3);
+    }
+    PS2_FORCE_INLINE __m128 d1AmbLd(const d1::Mem m, uint32_t a) { return m.get<__m128>(a & ~0xFu); }
+    PS2_FORCE_INLINE void d1AmbSt(const d1::Mem m, uint32_t a, __m128 v) { m.set<__m128>(a & ~0xFu, v); }
+
+    // The guest side: calls with f0 and the condition bit carried through the context.
+    struct D1AmbGuest
+    {
+        uint8_t *rdram;
+        R5900Context *ctx;
+        PS2Runtime *runtime;
+        uint32_t sp;
+        d1::Mem m;
+        bool cc;
+
+        void d1Call(uint32_t target, uint32_t site, float &f0)
+        {
+            ctx->f[0] = f0;
+            cond(ctx, cc);
+            sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, sp);
+            f0 = ctx->f[0];
+            cc = (ctx->fcr31 & 0x800000u) != 0u;
+        }
+        // The group walk (the old G::walk's guest form): the grid of the cell (x, y), 0 if none.
+        uint32_t d1Walk(uint32_t group, int32_t x, int32_t y, const uint32_t (&sites)[4], float &f0)
+        {
+            ++g_s19.walksGuest;
+            uint32_t obj = 0u, grid = 0u;
+            SET_GPR_U32(ctx, 4, group);
+            SET_GPR_U64(ctx, 5, 0u);
+            d1Call(jalTarget(rdram, sites[0]), sites[0], f0);
+            uint32_t it = GPR_U32(ctx, 2);
+            while (it != 0u)
+            {
+                obj = m.get<uint32_t>(it);
+                SET_GPR_U32(ctx, 4, obj);
+                d1Call(kLightClass, sites[2], f0);
+                const uint32_t cls = GPR_U32(ctx, 2);
+                if (m.get<int32_t>(cls + 4u) == x && m.get<int32_t>(cls + 8u) == y)
+                {
+                    grid = m.get<uint32_t>(m.get<uint32_t>(cls) + 0x20u);
+                    break;
+                }
+                SET_GPR_U32(ctx, 4, it);
+                SET_GPR_U64(ctx, 5, 0u);
+                d1Call(jalTarget(rdram, sites[1]), sites[1], f0);
+                it = GPR_U32(ctx, 2);
+            }
+            if (obj != 0u)
+            {
+                SET_GPR_U32(ctx, 4, obj);
+                SET_GPR_U64(ctx, 5, 0u);
+                d1Call(jalTarget(rdram, sites[3]), sites[3], f0);
+            }
+            return grid;
+        }
+        // floorf(f12) into f0 through the jal at `site`.
+        void d1Floor(uint32_t site, float f12, float &f0)
+        {
+            ctx->f[12] = f12;
+            d1Call(jalTarget(rdram, site), site, f0);
+        }
+    };
+
+    void getAmbientColorCD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::motionOn() || !sitesOk(rdram) || sotc_decomp::switchOn(sotc_decomp::kS19Amb))
+            return getAmbientColorC(rdram, ctx, runtime);
+        ++c_d1Ambient.n;
+        // The old entry's bookkeeping (host path off: s19amb is off).
+        s19Init();
+        ++g_s19.calls;
+        s19Report();
+
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0xF0u;
+        const uint32_t out = GPR_U32(ctx, 4);
+        const uint64_t point = GPR_U64(ctx, 5);
+        const d1::Mem m{rdram};
+        D1AmbGuest g{rdram, ctx, runtime, sp, m, (ctx->fcr31 & 0x800000u) != 0u};
+        float f0 = ctx->f[0];
+
+        g.d1Call(kObjGroup, 0x01091E80u, f0);
+        const uint32_t group = GPR_U32(ctx, 2);
+        f0 = 0.0f;
+        m.set<float>(out + 0u, f0);
+        m.set<float>(out + 0xCu, f0);
+        m.set<float>(out + 8u, f0);
+        m.set<float>(out + 4u, f0);
+        SET_GPR_U64(ctx, 4, point);
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(sp + 0x30u));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(sp + 0x34u));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(sp + 0x38u));
+        SET_GPR_S32(ctx, 8, static_cast<int32_t>(sp + 0x3Cu));
+        g.d1Call(jalTarget(rdram, 0x01091EB4u), 0x01091EB4u, f0);
+        const int32_t cx = m.get<int32_t>(sp + 0x30u), cy = m.get<int32_t>(sp + 0x34u);
+        const float px = m.get<float>(sp + 0x38u), py = m.get<float>(sp + 0x3Cu);
+        static constexpr uint32_t kWalk1[4] = {0x01091EC8u, 0x01091ED8u, 0x01091EF0u, 0x01091F2Cu};
+        static constexpr uint32_t kWalk2[4] = {0x010921F0u, 0x01092200u, 0x01092218u, 0x01092250u};
+        const uint32_t grid = g.d1Walk(group, cx, cy, kWalk1, f0);
+
+        int32_t flag = 0;
+        bool cc = g.cc;
+        if (grid == 0u)
+        {
+            // The default colour x 128, w 128.
+            const float k128 = 128.0f;
+            f0 = d1::mul(m.get<float>(kDefault), k128);
+            m.set<float>(out + 0u, f0);
+            const float f1 = d1::mul(m.get<float>(kDefault + 4u), k128);
+            m.set<float>(out + 4u, f1);
+            f0 = m.get<float>(kDefault + 8u);
+            m.set<float>(out + 0xCu, k128);
+            f0 = d1::mul(f0, k128);
+            m.set<float>(out + 8u, f0);
+            SET_GPR_S32(ctx, 2, 0);
+        }
+        else
+        {
+            const uint32_t w = m.get<uint32_t>(grid + 0x1Cu);
+            const float f23 = static_cast<float>(static_cast<int32_t>(1u << ((w >> 20) & 0xFu)));
+            const float f22 = static_cast<float>(static_cast<int32_t>(1u << ((w >> 16) & 0xFu)));
+            f0 = d1::mul(f23, py);
+            const int32_t ix = ps2FpuConvertToWord(d1::mul(f22, px));
+            const int32_t iy = ps2FpuConvertToWord(f0);
+            // vsub vf7, vf5, vf6 (both the colour so far)
+            __m128 v5 = d1AmbLd(m, out), v6 = v5;
+            __m128 v7 = d1::vsub(v5, v6);
+            d1AmbSt(m, out, v7);
+            const __m128 base = d1AmbColour(m, m.get<uint32_t>(m.get<uint32_t>(grid + 0xCu) + 0xCu), d1AmbSample(m, grid, ix, iy), f0);
+            const float f26 = 0.5f, f24 = 1.0f, f25 = 0.0f;
+            uint32_t offsets = kOffsets;
+            for (int32_t n = 3; n >= 0; --n, offsets += 8u)
+            {
+                float f12 = d1::mul(f22, px);
+                f0 = d1::mul(f23, py);
+                f12 = d1::add(f12, m.get<float>(offsets));
+                float f20 = d1::add(f0, m.get<float>(offsets + 4u));
+                g.cc = cc;
+                g.d1Floor(0x01092090u, f12, f0);
+                int32_t s1 = ps2FpuConvertToWord(f0);
+                g.d1Floor(0x010920A0u, f20, f0);
+                cc = g.cc;
+                int32_t s3 = ps2FpuConvertToWord(f0);
+                float f1 = d1::mul(f22, px);
+                const float f2 = static_cast<float>(s1);
+                f0 = d1::add(f2, f26);
+                f0 = d1::sub(f0, f1);
+                bool c = d1::lt(f0, f25);
+                cc = c;
+                const float f21 = c ? d1::add(f0, f24) : d1::sub(f24, f0);
+                const float f3 = static_cast<float>(s3);
+                f0 = d1::mul(f23, py);
+                f1 = d1::add(f3, f26);
+                f0 = d1::sub(f1, f0);
+                c = d1::lt(f0, f25);
+                cc = c;
+                f20 = c ? d1::add(f0, f24) : d1::sub(f24, f0);
+                if (s1 == ix && s3 == iy)
+                {
+                    // The point's own sample.
+                    f0 = d1::mul(f21, f20);
+                    v5 = d1::vmul(base, d1::splat(f0));
+                    v6 = v5; // the frame's qword, read back
+                    v5 = d1AmbLd(m, out);
+                    v7 = d1::vadd(v5, v6);
+                    d1AmbSt(m, out, v7);
+                    flag = 1;
+                    continue;
+                }
+                int32_t s6 = cx, s4 = cy;
+                uint32_t from = grid; // the grid the sample comes from (0: none)
+                bool here = false;
+                if (s1 < 0)
+                    goto l148;
+                c = d1::le(f22, f2);
+                cc = c;
+                if (!(c || s3 < 0))
+                {
+                    c = d1::le(f23, f3);
+                    cc = c;
+                    if (!c)
+                        here = true;
+                }
+                if (here)
+                    goto sampled;
+                if (s1 >= 0)
+                    goto l168;
+            l148:
+                s6 -= 1;
+                s1 += static_cast<int32_t>(1u << (m.get<uint16_t>(grid + 0x1Eu) & 0xFu));
+                goto l18c;
+            l168:
+                c = d1::le(f22, f2);
+                cc = c;
+                if (c)
+                {
+                    s6 += 1;
+                    s1 -= static_cast<int32_t>(1u << (m.get<uint16_t>(grid + 0x1Eu) & 0xFu));
+                }
+            l18c:
+                if (s3 < 0)
+                {
+                    s4 -= 1;
+                    s3 += static_cast<int32_t>(1u << ((m.get<uint32_t>(grid + 0x1Cu) >> 20) & 0xFu));
+                }
+                else
+                {
+                    c = d1::le(f22, f3);
+                    cc = c;
+                    if (c)
+                    {
+                        s4 += 1;
+                        s3 -= static_cast<int32_t>(1u << ((m.get<uint32_t>(grid + 0x1Cu) >> 20) & 0xFu));
+                    }
+                }
+                g.cc = cc;
+                from = g.d1Walk(group, s6, s4, kWalk2, f0);
+                cc = g.cc;
+                if (from == 0u)
+                    continue;
+            sampled:
+                {
+                    const uint32_t index = d1AmbSample(m, from, s1, s3);
+                    f1 = d1::mul(f21, f20);
+                    const __m128 col = d1AmbColour(m, m.get<uint32_t>(m.get<uint32_t>(from + 0xCu) + 0xCu), index, f0);
+                    v5 = d1::vmul(col, d1::splat(f1));
+                    v6 = v5;
+                    v5 = d1AmbLd(m, out);
+                    v7 = d1::vadd(v5, v6);
+                    d1AmbSt(m, out, v7);
+                    flag = 1;
+                }
+            }
+            if (flag == 0)
+            {
+                SET_GPR_VEC(ctx, 2, _mm_castps_si128(base));
+                d1AmbSt(m, out, base);
+            }
+            SET_GPR_S32(ctx, 2, flag);
+            ctx->vu0_vf[5] = v5;
+            ctx->vu0_vf[6] = v6;
+            ctx->vu0_vf[7] = v7;
+        }
+        cond(ctx, cc);
+        ctx->f[0] = f0;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void getAmbientColorCSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            getAmbientColorCD1(rdram, ctx, runtime);
+        else
+            getAmbientColorC(rdram, ctx, runtime);
+    }
+}

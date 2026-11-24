@@ -76,6 +76,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "d1_native.h"
 
 #include <cstring>
 
@@ -1298,4 +1299,175 @@ SOTC_DECOMP_FUNCTION(0x01082FF0u, GAMEUTIL_get_spring_interpolate_value3D_extend
 SOTC_DECOMP_FUNCTION(0x01115D00u, manager_sub_01115D00, decomp_hot48c::treeNode);
 SOTC_DECOMP_FUNCTION(0x010C4CA8u, AddCharacterClassSubGeometries, decomp_hot48c::addSubGeometries);
 SOTC_DECOMP_FUNCTION(0x001BC2D0u, CopyMultiQuaternion, decomp_hot48c::copyQuats);
-SOTC_DECOMP_FUNCTION(0x01146A50u, GetWindVector, decomp_hot48c::windVector);
+namespace decomp_hot48c { void windVectorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
+SOTC_DECOMP_FUNCTION(0x01146A50u, GetWindVector, decomp_hot48c::windVectorSw);
+D1_ALIAS(0x01146A50u, GetWindVector, decomp_hot48c::windVectorSw, decomp_hot48c::windVector);
+
+// ---- Round D1 (switch d1native, d1_native.h): GetWindVector as native C++ (partial) -----------------------------------------
+// The wind sum's VU0 ops as NEON vec4 (d1::), the group weights' FPU ops as d1:: / the FPU compare's integer key, the
+// globals and the frame's source slot through typed memory, the weights (f20 / f21) and the loop's registers as C++ locals.
+// manager_sub_01145F78 is called straight (sotc_decomp::callNative: its D1 dispatcher while the table holds it); the source
+// function manager_sub_01146DA8 stays a guest call, with the registers the old body gives it (a0-a3, f12 / f13, s0-s6, ra,
+// sp); vf5 / vf6 / f0 / the C bit go to the context where the old body has them before that call. The callee-saved
+// registers' frame saves (below the entry sp, dead at the exit) are left out: the exit restores them from the entry values.
+namespace decomp_wind
+{
+    void windZonesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_hot48c
+{
+    D1_COUNTER(c_d1WindVector, "GetWindVector");
+
+    namespace d1h
+    {
+        PS2_FORCE_INLINE uint32_t key(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            if ((b & 0x7F800000u) == 0u)
+                b = 0u;
+            return (b & 0x80000000u) != 0u ? ~b : b ^ 0x80000000u;
+        }
+        PS2_FORCE_INLINE bool olt(float a, float b) { return key(a) < key(b); }
+    }
+
+    void windVectorD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1WindVector.n;
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t sp = entrySp - 0x60u;
+        const uint32_t outAt = GPR_U32(ctx, 4);
+        if (!sotc_decomp::hotList48On() || (sp & 0xFu) != 0u || sp >= PS2_RAM_SIZE - 0x60u || (outAt != 0u && outAt >= PS2_RAM_SIZE - 4u))
+            return windVector(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint64_t out = GPR_U64(ctx, 4); // s5
+        const uint64_t e16 = GPR_U64(ctx, 16), e17 = GPR_U64(ctx, 17), e18 = GPR_U64(ctx, 18), e19 = GPR_U64(ctx, 19), e20 = GPR_U64(ctx, 20),
+                       e21 = GPR_U64(ctx, 21), e22 = GPR_U64(ctx, 22), e31 = GPR_U64(ctx, 31);
+        const float f20e = ctx->f[20], f21e = ctx->f[21];
+        SET_GPR_U64(ctx, 21, out);
+        SET_GPR_U64(ctx, 4, GPR_U64(ctx, 5));
+        SET_GPR_U64(ctx, 17, 0u);
+        SET_GPR_S32(ctx, 19, static_cast<int32_t>(0x01210000u));
+        // manager_sub_01145F78(a1): the sources' count.
+        sotc_decomp::callNative(rdram, ctx, runtime, kWindFind, &decomp_wind::windZonesSw, 0x01146A90u, sp);
+        const uint64_t s2 = GPR_U64(ctx, 2);
+        SET_GPR_U64(ctx, 18, s2);
+        const uint32_t zero = sotc_decomp::relocated(rdram, kWindZeroHi, kWindZeroLo);
+        m.putq(kWindSum, m.q(zero & ~0xFu));
+        float f21 = 1.0f; // the weight left
+        float f20 = 0.0f; // the group's weight
+        uint64_t a3 = 0xFFFFFFFFFFFFFFFFull; // the previous source's group
+        if (static_cast<int32_t>(static_cast<uint32_t>(s2)) > 0)
+        {
+            SET_GPR_S32(ctx, 20, static_cast<int32_t>(0x01210000u));
+            SET_GPR_S32(ctx, 22, static_cast<int32_t>(0x01210000u));
+            uint32_t s1 = 0u;
+            uint32_t a2 = kWindList;
+            uint32_t a1 = m.u32(kWindTable + (m.u32(a2) << 2));
+            uint64_t s0 = sx(m.u32(m.u32(a1 + 4u)));
+            SET_GPR_U64(ctx, 16, s0);
+            bool newGroup = s0 != a3;
+            float f12 = 0.0f;
+            if (!newGroup)
+                f12 = m.f32(a2 + 4u);
+            for (;;)
+            {
+                if (newGroup)
+                {
+                    f20 = m.f32(a2 + 4u);
+                    f12 = f20;
+                }
+                else
+                {
+                    const bool c = d1h::olt(f12, f20);
+                    setC(ctx, c);
+                    if (c)
+                        f20 = f12;
+                }
+                // manager_sub_01146DA8(sp, source, next, previous group; f12, f13)
+                const float f13 = m.f32(a2 + 8u);
+                a2 += 0x10u;
+                SET_GPR_U64(ctx, 4, sx(sp));
+                setS(ctx, 5, a1);
+                setS(ctx, 6, a2);
+                SET_GPR_U64(ctx, 7, a3);
+                ctx->f[12] = f12;
+                ctx->f[13] = f13;
+                callGuest(rdram, ctx, runtime, kWindSource, 0x01146B0Cu, sp);
+                SET_GPR_U32(ctx, 2, bitsOf(f21));
+                // The source scaled by the weight left, added to the sum (vmulx.xyz; vadd.xyz).
+                const __m128 w = _mm_castsi128_ps(GPR_VEC(ctx, 2));
+                __m128 v5 = m.q(sp);
+                v5 = d1::vsel(v5, d1::vmul(v5, d1::bc<0>(w)), d1::mask(1, 1, 1, 0));
+                m.putq(sp, v5);
+                const __m128 v6 = v5;
+                __m128 sum = m.q(kWindSum);
+                sum = d1::vsel(sum, d1::vadd(sum, v6), d1::mask(1, 1, 1, 0));
+                m.putq(kWindSum, sum);
+                ctx->vu0_vf[5] = sum;
+                ctx->vu0_vf[6] = v6;
+                s1 += 1u;
+                setS(ctx, 17, s1);
+                a3 = s0;
+                if (!(static_cast<int64_t>(sx(s1)) < static_cast<int64_t>(s2)))
+                    break;
+                a2 = (s1 << 5) + kWindList;
+                a1 = m.u32((m.u32(a2) << 2) + kWindTable);
+                s0 = sx(m.u32(m.u32(a1 + 4u)));
+                SET_GPR_U64(ctx, 16, s0);
+                if (s0 == a3)
+                {
+                    f12 = m.f32(a2 + 4u);
+                    newGroup = false;
+                    continue;
+                }
+                // A new group: the weight left goes down by the last group's.
+                f21 = d1::sub(f21, f20);
+                const float lim = fromBits(0x3A83126Eu);
+                ctx->f[0] = lim;
+                const bool c = d1h::olt(f21, lim);
+                setC(ctx, c);
+                if (c)
+                    break;
+                newGroup = true;
+            }
+        }
+        if (out != 0u)
+        {
+            // The sum's length to *a0 (vmul.xyz; vmulax.w / vmadday.w / vmaddz.w with vf0; vsqrt).
+            const __m128 v0w = d1::vf0();
+            __m128 v7 = m.q(kWindSum);
+            v7 = d1::vsel(v7, d1::vmul(v7, v7), d1::mask(1, 1, 1, 0));
+            __m128 acc = d1::vsel(ctx->vu0_acc, d1::vmul(v0w, d1::bc<0>(v7)), d1::mask(0, 0, 0, 1));
+            acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(v0w, d1::bc<1>(v7))), d1::mask(0, 0, 0, 1));
+            v7 = d1::vsel(v7, d1::vadd(acc, d1::vmul(v0w, d1::bc<2>(v7))), d1::mask(0, 0, 0, 1));
+            ctx->vu0_acc = acc;
+            ctx->vu0_vf[7] = v7;
+            ctx->vu0_q = ps2VuSqrt(ctx->vu0_status, d1::lane<3>(v7));
+            const uint32_t bits = bitsOf(ctx->vu0_q);
+            ctx->f[0] = fromBits(bits);
+            m.set<uint32_t>(static_cast<uint32_t>(out), bits);
+        }
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(kWindSum));
+        SET_GPR_U64(ctx, 16, e16);
+        SET_GPR_U64(ctx, 17, e17);
+        SET_GPR_U64(ctx, 18, e18);
+        SET_GPR_U64(ctx, 19, e19);
+        SET_GPR_U64(ctx, 20, e20);
+        SET_GPR_U64(ctx, 21, e21);
+        SET_GPR_U64(ctx, 22, e22);
+        SET_GPR_U64(ctx, 31, e31);
+        ctx->f[21] = f21e;
+        ctx->f[20] = f20e;
+        SET_GPR_U64(ctx, 29, sx(entrySp));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void windVectorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            windVectorD1(rdram, ctx, runtime);
+        else
+            windVector(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot48c

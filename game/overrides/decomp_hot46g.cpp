@@ -64,6 +64,7 @@
 // and restore them; they come back from the frame at the return), and the
 // loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1009,5 +1010,35 @@ namespace decomp_hot46g
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x0112E180u, ClipCollisionDirectCallBackObjAry, decomp_hot46g::objAry);
+namespace decomp_hot46g
+{
+    void objArySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1's dispatcher (end of the file)
+}
+SOTC_DECOMP_FUNCTION(0x0112E180u, ClipCollisionDirectCallBackObjAry, decomp_hot46g::objArySw);
+D1_ALIAS(0x0112E180u, ClipCollisionDirectCallBackObjAry, decomp_hot46g::objArySw, decomp_hot46g::objAry);
 SOTC_DECOMP_FUNCTION(0x0111EF10u, ClipCollisionFinderWithKeep4DSlopeLimitCB, decomp_hot46g::finderSlopeCB);
+
+// ---- Round D1 (SOTC_D1NATIVE): ClipCollisionDirectCallBackObjAry ---------------------------------------------------
+// objAry's default path is obj125's loop (decomp_collision::objAry125 -> obj125Run<true>); its D1 body is that loop's
+// D1 form (decomp_collision::obj125RunD1<true>: d1 vec4 / scalar math, clipDBD1). Otherwise (hotlist46 / obj125 /
+// fastnative off, the worker lane, obj125's check mode) the old body.
+namespace decomp_collision
+{
+    bool objAry125D1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_hot46g
+{
+    void objAryD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (sotc_decomp::hotList46On() && decomp_collision::objAry125D1(rdram, ctx, runtime))
+            return;
+        objAry(rdram, ctx, runtime);
+    }
+    void objArySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            objAryD1(rdram, ctx, runtime);
+        else
+            objAry(rdram, ctx, runtime);
+    }
+}

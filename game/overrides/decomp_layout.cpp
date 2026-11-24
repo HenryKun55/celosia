@@ -18,6 +18,8 @@
 // code). A negative bone count goes to the recompiled code.
 #include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "sotc_decomp.h"
+#include "d1_native.h"
+#include "pose82_math.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -503,7 +505,12 @@ namespace decomp_layout
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010F26D0u, UpdateLayoutClassGeometry, decomp_layout::updateLayoutClassGeometry);
+namespace decomp_layout
+{
+    void updateLayoutClassGeometrySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010F26D0u, UpdateLayoutClassGeometry, decomp_layout::updateLayoutClassGeometrySw);
+D1_ALIAS(0x010F26D0u, UpdateLayoutClassGeometry, decomp_layout::updateLayoutClassGeometrySw, decomp_layout::updateLayoutClassGeometry);
 
 // GetLayoutClass (0x10f1a20): an object's layout class by its type (byte
 // +8, 9..22, through the table at 0x1194070): +0x20, +0x90 or none
@@ -649,4 +656,254 @@ namespace decomp_layoutclass
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010F1A20u, GetLayoutClass, decomp_layoutclass::getLayoutClass);
+namespace decomp_layoutclass
+{
+    void getLayoutClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010F1A20u, GetLayoutClass, decomp_layoutclass::getLayoutClassSw);
+D1_ALIAS(0x010F1A20u, GetLayoutClass, decomp_layoutclass::getLayoutClassSw, decomp_layoutclass::getLayoutClass);
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE=1): UpdateLayoutClassGeometry and GetLayoutClass as typed cores ---------------
+// UpdateLayoutClassGeometry's default path is round 82's A9 form (pose82::layout, pose82 on, its check off): the D1
+// core is that body on d1::Mem (the same NEON operations in the same order: the same bits), the object's fields read
+// once, every range checked before anything is written (false: the old fn, which takes its own path from the start).
+// GetLayoutClass: the case table as a typed lookup; v0 / v1 (and a0 / a1 for the call-out cases) as the fast path
+// (round 49, fastnative on) leaves them.
+namespace decomp_layout
+{
+    D1_COUNTER(c_d1Update, "UpdateLayoutClassGeometry");
+
+    namespace d1lay
+    {
+        // A whole range inside main RAM, 16-aligned (pose82's inRam).
+        inline bool d1InRam(uint32_t a, uint32_t bytes) { return (a & 0xFu) == 0u && a >= 0x1000u && a + bytes <= 0x02000000u && a + bytes > a; }
+        inline float32x4_t d1Ld(const d1::Mem &m, uint32_t a) { return vld1q_f32(m.at<const float>(a & ~0xFu)); }
+        // a x c (the rows weighted by c's lanes), pose82's lay::mul.
+        inline float32x4_t d1Weigh(const float32x4_t *a, float32x4_t c)
+        {
+            float32x4_t v = vmulq_lane_f32(a[0], vget_low_f32(c), 0);
+            v = vmlaq_lane_f32(v, a[1], vget_low_f32(c), 1);
+            v = vmlaq_lane_f32(v, a[2], vget_high_f32(c), 0);
+            return vmlaq_lane_f32(v, a[3], vget_high_f32(c), 1);
+        }
+        // The rigid inverse: the 3x3 transposed, -R^T t, w 1 (pose82's lay::inverse).
+        inline void d1Rigid(const float *mm, float32x4_t *r)
+        {
+            const float32x4_t c0 = vld1q_f32(mm), c1 = vld1q_f32(mm + 4), c2 = vld1q_f32(mm + 8), c3 = vld1q_f32(mm + 12);
+            const float32x4x2_t a = vzipq_f32(c0, c1);
+            const float32x4x2_t b = vzipq_f32(c2, vdupq_n_f32(0.0f));
+            r[0] = vcombine_f32(vget_low_f32(a.val[0]), vget_low_f32(b.val[0]));
+            r[1] = vcombine_f32(vget_high_f32(a.val[0]), vget_high_f32(b.val[0]));
+            r[2] = vcombine_f32(vget_low_f32(a.val[1]), vget_low_f32(b.val[1]));
+            float32x4_t t = vmulq_lane_f32(r[0], vget_low_f32(c3), 0);
+            t = vmlaq_lane_f32(t, r[1], vget_low_f32(c3), 1);
+            t = vmlaq_lane_f32(t, r[2], vget_high_f32(c3), 0);
+            r[3] = vsetq_lane_f32(1.0f, vnegq_f32(t), 3);
+        }
+        inline void d1Store4(float *p, const float32x4_t *v)
+        {
+            vst1q_f32(p, v[0]);
+            vst1q_f32(p + 4, v[1]);
+            vst1q_f32(p + 8, v[2]);
+            vst1q_f32(p + 12, v[3]);
+        }
+        inline float32x4_t d1W1(float32x4_t s) { return vsetq_lane_f32(1.0f, s, 3); }
+    }
+
+    // The object o's bone passes; sp1 the original's frame (sp - 0x170: only v0 names it). False: a range outside main
+    // RAM or overlapping, a bad count (nothing written).
+    bool updateLayoutCore(const d1::Mem m, uint32_t o, uint32_t sp1, uint64_t &v0)
+    {
+        using namespace d1lay;
+        if (o < 0x1000u || o >= 0x01FFFE00u)
+            return false;
+        const int count = m.get<int16_t>(o + 0x1B4u);
+        if (count < 0 || count > 1024)
+            return false;
+        const uint8_t f = m.get<uint8_t>(o + 0x1BCu);
+        v0 = 0;
+        const uint32_t bytes = static_cast<uint32_t>(count) * 0x40u;
+        const uint32_t bones = m.get<uint32_t>(o + 0x158u), inv = m.get<uint32_t>(o + 0x164u), scaled = m.get<uint32_t>(o + 0x15Cu);
+        const uint32_t out40 = m.get<uint32_t>(o + 0x16Cu), local = m.get<uint32_t>(o + 0x168u), out80 = m.get<uint32_t>(o + 0x170u);
+        auto ok = [&](uint32_t a) { return count == 0 || d1InRam(a, bytes); };
+        auto apart = [&](uint32_t x, uint32_t y) { return count == 0 || x >= y + bytes || y >= x + bytes; };
+        if (!(f & 0x02u))
+            return true;
+        const bool i10 = f & 0x10u, s04 = f & 0x04u, m40 = s04 && (f & 0x40u), m80 = s04 && (f & 0x80u);
+        if (!ok(bones) || (i10 && (!ok(inv) || !apart(inv, bones))) || (s04 && (!ok(scaled) || !apart(scaled, bones))) ||
+            (m40 && (!ok(out40) || !ok(local) || !apart(out40, scaled) || !apart(out40, local))) ||
+            (m80 && (!ok(out80) || !ok(local) || !ok(inv) || !apart(out80, local) || !apart(out80, inv))))
+            return false;
+        const float *pb = m.at<const float>(bones);
+        if (i10)
+        {
+            float *po = m.at<float>(inv);
+            for (int i = 0; i < count; ++i)
+            {
+                float32x4_t r[4];
+                d1Rigid(pb + 16 * i, r);
+                d1Store4(po + 16 * i, r);
+            }
+        }
+        if (!s04)
+            return true;
+        {
+            const float32x4_t s = d1Ld(m, o + 0x90u);
+            float *po = m.at<float>(scaled);
+            for (int i = 0; i < count; ++i)
+            {
+                const float *mm = pb + 16 * i;
+                float *d = po + 16 * i;
+                vst1q_f32(d, vmulq_lane_f32(vld1q_f32(mm), vget_low_f32(s), 0));
+                vst1q_f32(d + 4, vmulq_lane_f32(vld1q_f32(mm + 4), vget_low_f32(s), 1));
+                vst1q_f32(d + 8, vmulq_lane_f32(vld1q_f32(mm + 8), vget_high_f32(s), 0));
+                vst1q_f32(d + 12, vld1q_f32(mm + 12));
+            }
+        }
+        if (m40)
+        {
+            // scaled x diag(+0xb0's x, y, z, 1) x local
+            const float32x4_t d = d1W1(d1Ld(m, o + 0xB0u));
+            const float *ps = m.at<const float>(scaled), *pl = m.at<const float>(local);
+            float *pd = m.at<float>(out40);
+            for (int i = 0; i < count; ++i)
+            {
+                const float32x4_t a[4] = {vld1q_f32(ps + 16 * i), vld1q_f32(ps + 16 * i + 4), vld1q_f32(ps + 16 * i + 8), vld1q_f32(ps + 16 * i + 12)};
+                for (int k = 0; k < 4; ++k)
+                    vst1q_f32(pd + 16 * i + 4 * k, d1Weigh(a, vmulq_f32(d, vld1q_f32(pl + 16 * i + 4 * k))));
+            }
+        }
+        if (m80)
+        {
+            // inverse(local) x diag(1 / +0xb0 x +0xa0 (x, y, z), 1) x inverses
+            const float32x4_t b = d1Ld(m, o + 0xB0u), a0 = d1Ld(m, o + 0xA0u);
+            const float32x4_t d = d1W1(vmulq_f32(pose82::vdivq_f32_compat(b), a0));
+            const float *pl = m.at<const float>(local), *pv = m.at<const float>(inv);
+            float *pd = m.at<float>(out80);
+            for (int i = 0; i < count; ++i)
+            {
+                float32x4_t a[4];
+                d1Rigid(pl + 16 * i, a);
+                for (int k = 0; k < 4; ++k)
+                    vst1q_f32(pd + 16 * i + 4 * k, d1Weigh(a, vmulq_f32(d, vld1q_f32(pv + 16 * i + 4 * k))));
+            }
+            v0 = count == 0 ? ~0ull : static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(sp1 + 0xE0u)));
+        }
+        return true;
+    }
+
+    void updateLayoutClassGeometryD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1Update.n;
+        // pose82 off or its check on: the old fn's other paths.
+        if (!sotc_decomp::pose82On() || pose82::checkOn())
+            return updateLayoutClassGeometry(rdram, ctx, runtime);
+        uint64_t v0;
+        if (!updateLayoutCore(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 29) - 0x170u, v0))
+            return updateLayoutClassGeometry(rdram, ctx, runtime);
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
+    }
+
+    void updateLayoutClassGeometrySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            updateLayoutClassGeometryD1(rdram, ctx, runtime);
+        else
+            updateLayoutClassGeometry(rdram, ctx, runtime);
+    }
+}
+
+namespace decomp_layoutclass
+{
+    D1_COUNTER(c_d1Class, "GetLayoutClass");
+
+    // GetLayoutClass's answer: v0 the class, v1 as the code leaves it, a0 / a1 when a call-out case sets them.
+    struct D1Class
+    {
+        uint32_t v0, v1;
+        bool setA0, setA1;
+    };
+    enum D1ClassKind
+    {
+        kD1Plain,   // a table case (or none): v0 / v1
+        kD1CallOut, // the script / camera / light objects (round 42's cases: leaves + callsOk needed)
+        kD1Other    // anything else: the recompiled code
+    };
+
+    // The object a0's layout class by its type byte (+8, 9..22) through the table at 0x1194070.
+    inline D1ClassKind layoutClassCore(const d1::Mem m, uint32_t a0, D1Class &r)
+    {
+        r.setA0 = r.setA1 = false;
+        const uint32_t index = static_cast<uint32_t>(m.get<uint8_t>(a0 + 8u)) - 9u;
+        if (__builtin_expect(index >= 0xEu, 0))
+        {
+            r.v0 = r.v1 = 0u;
+            return kD1Plain;
+        }
+        const uint32_t target = m.get<uint32_t>(0x01194070u + index * 4u);
+        const uint32_t d = target - 0x010F1A58u;
+        r.v1 = target;
+        switch ((d >> 3) | (d << 29))
+        {
+        case 0: // 0x10f1a58
+            r.v0 = a0 + 0x20u;
+            return kD1Plain;
+        case 8: // 0x10f1a98
+            r.v0 = a0 + 0x90u;
+            return kD1Plain;
+        case 9: // 0x10f1aa0
+            r.v0 = 0u;
+            return kD1Plain;
+        case 1: // 0x10f1a60: GetScriptLayoutClass
+            r.v0 = a0 + 0x90u;
+            r.v1 = 0xBu;
+            r.setA1 = true; // a1 = 0xb
+            return kD1CallOut;
+        case 3: // 0x10f1a70: the camera object
+            r.v0 = a0 + 0x20u;
+            r.v1 = 0x11u;
+            return kD1CallOut;
+        case 6: // 0x10f1a88: GetLightClass
+            r.v0 = a0 + 0x20u;
+            r.v1 = 0u;
+            r.setA0 = true; // a0 = 0x13
+            return kD1CallOut;
+        default:
+            return kD1Other;
+        }
+    }
+
+    void getLayoutClassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1Class.n;
+        if (!sotc_decomp::fastNativeOn())
+            return getLayoutClass(rdram, ctx, runtime);
+        D1Class r;
+        const D1ClassKind k = layoutClassCore(d1::Mem{rdram}, GPR_U32(ctx, 4), r);
+        if (__builtin_expect(k != kD1Plain, 0))
+        {
+            if (k == kD1Other || !sotc_decomp::leavesOn())
+                return getLayoutClass(rdram, ctx, runtime);
+            if (__builtin_expect(g_callsOk < 0, 0))
+                g_callsOk = callsOk(rdram) ? 1 : 0;
+            if (!g_callsOk)
+                return getLayoutClass(rdram, ctx, runtime);
+            if (r.setA1)
+                SET_GPR_U64(ctx, 5, 0xBu);
+            if (r.setA0)
+                SET_GPR_U64(ctx, 4, 0x13u);
+        }
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+        returnTo(ctx);
+    }
+
+    void getLayoutClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            getLayoutClassD1(rdram, ctx, runtime);
+        else
+            getLayoutClass(rdram, ctx, runtime);
+    }
+}

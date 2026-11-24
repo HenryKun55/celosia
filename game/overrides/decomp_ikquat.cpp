@@ -36,6 +36,7 @@
 // A negative record count (the original's loop would run ~2^32 times):
 // the recompiled code.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -592,4 +593,119 @@ namespace decomp_ikquat
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010BBA60u, CalcNodeQuaternionWithIK, decomp_ikquat::calcNodeQuaternionWithIK);
+namespace decomp_ikquat
+{
+    void calcNodeQuaternionWithIKSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1 (below)
+}
+
+SOTC_DECOMP_FUNCTION(0x010BBA60u, CalcNodeQuaternionWithIK, decomp_ikquat::calcNodeQuaternionWithIKSw);
+D1_ALIAS(0x010BBA60u, CalcNodeQuaternionWithIK, decomp_ikquat::calcNodeQuaternionWithIKSw, decomp_ikquat::calcNodeQuaternionWithIK);
+
+// ---- Round D1 (d1native, d1_native.h): CalcNodeQuaternionWithIK's no-IK path as native C++ ----------------------------
+// Partial: the record / weight resets (the old body's no-IK path) as a typed core on guest memory; the closing
+// manager_sub_010C32E8 stays a guest call (no host core), made with the old body's registers (a0, f20 = f12, the frame
+// sp - 0x180, ra 0x10BC198). The IK step (an IK set with c + 0x52c set) and a negative record count go to the old body
+// (decided before anything is written).
+namespace decomp_ikquat
+{
+    D1_COUNTER(c_d1IkQuat, "CalcNodeQuaternionWithIK");
+
+    PS2_FORCE_INLINE uint32_t d1Chara(const d1::Mem m, uint32_t obj)
+    {
+        const uint8_t t = *m.at<uint8_t>(obj + 8u);
+        return t == 9u || t == 0x16u ? obj + 0x90u : 0u;
+    }
+    PS2_FORCE_INLINE void d1CopyQ(const d1::Mem m, uint32_t dst, uint32_t src) { m.putq(dst & ~0xFu, m.q(src & ~0xFu)); }
+
+    // The no-IK resets. unit: the unit quaternion's address (0x1e0f40, relocated). True: the record flags' loop ran
+    // (the original leaves f1 = 1.0, f0 = 100.0 then).
+    bool ikResetD1Core(const d1::Mem m, uint32_t obj, uint32_t c, uint32_t unit)
+    {
+        bool flagsRan = false;
+        uint32_t skel = m.u32(c + 0x358u);
+        if (skel != 0u)
+        {
+            int32_t n = m.s32(skel + 0x20u);
+            if (n > 0)
+            {
+                flagsRan = true;
+                uint32_t rec = m.u32(c + 0x31Cu);
+                for (; n > 0; --n, rec += 0xD0u)
+                {
+                    m.set<uint8_t>(rec + 0xC4u, 0u);
+                    m.set<uint32_t>(rec + 0xB0u, 0u);
+                    m.set<uint32_t>(rec + 0xB8u, 0x3F800000u);
+                    m.set<uint32_t>(rec + 0xB4u, 0u);
+                    m.set<uint8_t>(rec + 0xC5u, 0u);
+                    m.set<uint32_t>(rec + 0xBCu, 0x42C80000u);
+                    m.set<uint32_t>(rec + 0xC0u, 0u);
+                }
+            }
+        }
+        {
+            const uint32_t c2 = d1Chara(m, obj);
+            int32_t n = m.s32(m.u32(c2 + 0x358u) + 0x20u);
+            if (n > 0)
+            {
+                for (uint32_t off = 0u; n != 0; --n, off += 0xD0u)
+                {
+                    const uint32_t rec = m.u32(c2 + 0x31Cu) + off;
+                    d1CopyQ(m, rec + 0x40u, c2 + 0x460u);
+                    d1CopyQ(m, rec + 0xA0u, unit);
+                }
+            }
+        }
+        skel = m.u32(c + 0x358u);
+        if (skel != 0u)
+        {
+            const int32_t n = m.s32(skel + 4u);
+            for (int32_t i = 0; i < n; ++i)
+            {
+                m.set<uint32_t>(m.u32(c + 0x320u) + 4u * static_cast<uint32_t>(i), 0u);
+                m.set<uint32_t>(m.u32(c + 0x324u) + 4u * static_cast<uint32_t>(i), 0u);
+            }
+        }
+        return flagsRan;
+    }
+
+    void calcNodeQuaternionWithIKD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!sotc_decomp::motionOn() || sotc_decomp::jalTarget(rdram, 0x010BC190u) != kPost, 0))
+            return calcNodeQuaternionWithIK(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t obj = GPR_U32(ctx, 4), slot = GPR_U32(ctx, 5) + 0x30u;
+        const uint32_t c = d1Chara(m, obj);
+        bool ik = false;
+        {
+            const uint32_t off = m.u32(slot) & 0x3FFFFu;
+            const uint32_t t = off ? m.u32(slot - off) : 0u;
+            ik = t != 0u && t != m.u32(relocated(rdram, 0x010BBAF8u, 0x010BBAFCu)) && m.u32(t + 0x10u) != 0u;
+        }
+        const uint32_t skel = m.u32(c + 0x358u);
+        if ((ik && *m.at<uint8_t>(c + 0x52Cu) != 0u) || (skel != 0u && m.s32(skel + 0x20u) < 0))
+            return calcNodeQuaternionWithIK(rdram, ctx, runtime);
+        ++c_d1IkQuat.n;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x180u;
+        const float f12 = ctx->f[12];
+        if (ikResetD1Core(m, obj, c, relocated(rdram, 0x010BC114u, 0x010BC11Cu)))
+        {
+            ctx->f[1] = 1.0f;
+            ctx->f[0] = 100.0f;
+        }
+        const float f20 = ctx->f[20];
+        ctx->f[20] = f12;
+        SET_GPR_U32(ctx, 4, obj);
+        sotc_decomp::callGuest(rdram, ctx, runtime, kPost, 0x010BC198u, sp);
+        ctx->f[20] = f20;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+    void calcNodeQuaternionWithIKSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            calcNodeQuaternionWithIKD1(rdram, ctx, runtime);
+        else
+            calcNodeQuaternionWithIK(rdram, ctx, runtime);
+    }
+} // namespace decomp_ikquat

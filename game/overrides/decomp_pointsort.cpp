@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "a9sweep.h"
+#include "d1_native.h"
 
 namespace decomp_pointdata
 {
@@ -404,7 +405,9 @@ namespace decomp_pointsort
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x0142DA48u, execPointListSort, decomp_pointsort::sort);
+namespace decomp_pointsort { void sortSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
+SOTC_DECOMP_FUNCTION(0x0142DA48u, execPointListSort, decomp_pointsort::sortSw);
+D1_ALIAS(0x0142DA48u, execPointListSort, decomp_pointsort::sortSw, decomp_pointsort::sort);
 
 // getPointDataByAreaIdx (0x1433450, round 11): the path's point table of
 // an area (a2: its id, searched in the current area set's list at
@@ -452,3 +455,263 @@ namespace decomp_pointdata
     }
 }
 SOTC_DECOMP_FUNCTION(0x01433450u, getPointDataByAreaIdx, decomp_pointdata::pointDataByArea);
+
+// ---- Round D1 (switch d1native, d1_native.h): execPointListSort as native C++ --------------------------------------------
+// The default configuration's body (sortFast with getPointDataByAreaIdx read inline and round 97's hoist): the walk and
+// the selection sort on typed guest memory, the VU0 distance as NEON vec4 ops (d1::), the FPU square and compares as d1::
+// (the sort's order as the FPU compare's integer key); the adapter reads the arguments once and writes v0 / f0 / a0-a2 /
+// sp / ra at the exit. Any other configuration (fastnative or path97 off, a checker / probe in getPointDataByAreaIdx's
+// slot) goes to the old body before anything is written.
+namespace decomp_pointsort
+{
+    D1_COUNTER(c_d1Sort, "execPointListSort");
+
+    namespace d1s
+    {
+        // ps2FpuCompareKeyRef (integer): the FPU compare's order on a float's bits (a zero exponent reads as +0).
+        PS2_FORCE_INLINE uint32_t key(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            if ((b & 0x7F800000u) == 0u)
+                b = 0u;
+            return (b & 0x80000000u) != 0u ? ~b : b ^ 0x80000000u;
+        }
+        PS2_FORCE_INLINE uint64_t sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+        // getPointDataByAreaIdx (decomp_pointdata::pointDataByArea's v0): point `index` of the area whose id is `id`.
+        inline uint32_t pointData(const d1::Mem m, uint32_t walker, uint32_t index, uint32_t id)
+        {
+            const uint64_t a2 = sx(id);
+            const uint32_t set = 0x012010C8u + m.u32(walker + 0x3C50u) * 0x98u;
+            const int32_t count = m.s32(set + 0x90u);
+            uint32_t found = 0u;
+            for (int32_t i = 0; i < count; ++i)
+            {
+                const uint32_t entry = set + static_cast<uint32_t>(i) * 0x24u;
+                if (a2 == sx(m.u32(m.u32(entry) + 0x1Cu)))
+                {
+                    found = entry;
+                    break;
+                }
+            }
+            if (found == 0u)
+                return 0u;
+            const uint32_t table = m.u32(found + 4u);
+            const int64_t i = static_cast<int64_t>(static_cast<int32_t>(index));
+            if (table != 0u && i >= 0 && static_cast<uint64_t>(i) < sx(m.u32(table)))
+                return table + static_cast<uint32_t>(i) * 0x30u + 0x10u;
+            return 0u;
+        }
+
+        struct SortResult
+        {
+            uint64_t v0;
+            float f0;
+            bool called;
+            uint32_t lastI, lastId;
+        };
+
+        // The walk (the points within the walker's radius of pos, nearest first) and the sort. sp: the frame (the
+        // difference qword and the swap slot the original stores there).
+        void sortCore(const d1::Mem m, uint32_t walker, uint32_t list, uint32_t pos, uint32_t sp, SortResult &r)
+        {
+            const uint32_t entries = list + 4u;
+            const uint32_t set = m.u32(walker + 0x3C50u);
+            float f0 = m.f32(walker + 0x3B8u);
+            const float r2 = d1::mul(f0, f0);
+            m.set<uint32_t>(list, 0u);
+            uint64_t v0 = sx(set);
+            const uint32_t s7 = 0x012010C8u + set * 0x98u;
+            uint32_t count = 0;
+            const __m128 vf0 = d1::vf0();
+            const __m128 one = d1::vadd(vf0, d1::bc<3>(vf0));
+            bool called = false;
+            uint32_t lastI = 0u, lastId = 0u;
+            if (m.s32(s7 + 0x90u) > 0)
+            {
+                for (int32_t area = 0; area < m.s32(s7 + 0x90u); ++area)
+                {
+                    const uint32_t points = m.u32(s7 + 4u + area * 0x24u);
+                    const uint32_t id = m.u32(m.u32(s7 + area * 0x24u) + 0x1Cu);
+                    if (points == 0u || m.u32(points) == 0u)
+                        continue;
+                    uint32_t out = entries + count * 8u;
+                    // Round 97: the area's table found once when nothing this loop writes (the entries from `out`, 16
+                    // bytes at sp) holds what the search reads.
+                    const uint32_t pointsN = m.u32(points);
+                    bool hoisted = false;
+                    uint32_t hTable = 0u, hCount = 0u;
+                    {
+                        const uint32_t setA = 0x012010C8u + m.u32(walker + 0x3C50u) * 0x98u;
+                        const int32_t areas = m.s32(setA + 0x90u);
+                        const uint64_t a2 = sx(id);
+                        uint32_t found = 0u;
+                        const uint32_t span = areas > 4 ? static_cast<uint32_t>(areas) * 0x24u : 0x98u;
+                        bool clean = areas >= 0 && areas <= 256 && plain(setA, span);
+                        for (int32_t k = 0; clean && k < areas; ++k)
+                        {
+                            const uint32_t entry = setA + static_cast<uint32_t>(k) * 0x24u;
+                            const uint32_t idAt = m.u32(entry) + 0x1Cu;
+                            clean = plain(idAt, 4u);
+                            if (clean && a2 == sx(m.u32(idAt)))
+                            {
+                                found = entry;
+                                break;
+                            }
+                        }
+                        if (clean && found)
+                        {
+                            hTable = m.u32(found + 4u);
+                            clean = hTable == 0u || plain(hTable, 4u);
+                            hCount = clean && hTable ? m.u32(hTable) : 0u;
+                        }
+                        auto apart = [&](uint32_t a, uint32_t n)
+                        {
+                            const uint64_t lo = a, hi = uint64_t{a} + n;
+                            const uint64_t l0 = out, l1 = uint64_t{out} + uint64_t{pointsN} * 8u, q0 = sp, q1 = uint64_t{sp} + 16u;
+                            return (hi <= l0 || l1 <= lo) && (hi <= q0 || q1 <= lo);
+                        };
+                        if (clean && apart(setA, span) && apart(walker + 0x3C50u, 4u))
+                        {
+                            bool ok = true;
+                            for (int32_t k = 0; ok && k < areas && setA + static_cast<uint32_t>(k) * 0x24u <= found; ++k)
+                                ok = apart(m.u32(setA + static_cast<uint32_t>(k) * 0x24u) + 0x1Cu, 4u);
+                            if (ok && hTable)
+                                ok = apart(hTable, 4u);
+                            hoisted = ok;
+                            if (!found)
+                                hTable = 0u;
+                        }
+                    }
+                    for (uint32_t i = 0; i < m.u32(points); ++i)
+                    {
+                        uint32_t point;
+                        if (hoisted)
+                        {
+                            const int64_t si = static_cast<int64_t>(static_cast<int32_t>(i));
+                            point = hTable != 0u && si >= 0 && static_cast<uint64_t>(si) < sx(hCount) ? hTable + i * 0x30u + 0x10u : 0u;
+                        }
+                        else
+                            point = pointData(m, walker, i, id);
+                        called = true;
+                        lastI = i;
+                        lastId = id;
+                        // vsub; vmul.xyz; vaddax.x / vmadday.x / vmaddz.x (x 1)
+                        const __m128 d = d1::vsub(m.q(pos & ~0xFu), m.q(point & ~0xFu));
+                        m.putq(sp & ~0xFu, d);
+                        const __m128 prod = d1::vmul(d, d);
+                        __m128 acc = d1::vadd(vf0, d1::bc<0>(prod));
+                        acc = d1::vadd(acc, d1::vmul(one, d1::bc<1>(prod)));
+                        const __m128 dist = d1::vadd(acc, d1::vmul(one, d1::bc<2>(prod)));
+                        f0 = d1::lane<0>(dist);
+                        if (key(f0) <= key(r2))
+                        {
+                            m.set<float>(out + 4u, f0);
+                            m.set<uint16_t>(out, static_cast<uint16_t>(i));
+                            m.set<uint16_t>(out + 2u, static_cast<uint16_t>(id));
+                            out += 8u;
+                            ++count;
+                        }
+                    }
+                }
+                v0 = 0u; // slt at the areas' loop end
+            }
+            // The sort: on a local copy when it all is plain and apart from the swap slot.
+            const uint32_t end = entries + count * 8u;
+            if (count != 0u && count <= kLocal && plain(entries, count * 8u) && plain(sp, 8u) && (sp + 8u <= list || end <= sp))
+            {
+                uint64_t e[kLocal];
+                uint32_t keys[kLocal];
+                std::memcpy(e, m.at<uint8_t>(entries), count * 8u);
+                for (uint32_t j = 0; j < count; ++j)
+                    keys[j] = key(bitsToFloat(static_cast<uint32_t>(e[j] >> 32)));
+                for (uint32_t i = 0; i + 1u < count; ++i)
+                {
+                    uint32_t least = i, kl = keys[i];
+                    if (i + 2u == count)
+                        f0 = bitsToFloat(static_cast<uint32_t>(e[i] >> 32)); // the last comparison's f0 (least is i there)
+                    for (uint32_t j = i + 1u; j < count; ++j)
+                        if (keys[j] < kl)
+                        {
+                            least = j;
+                            kl = keys[j];
+                        }
+                    const uint64_t a = e[i];
+                    e[i] = e[least];
+                    e[least] = a;
+                    keys[least] = keys[i];
+                    keys[i] = kl;
+                }
+                std::memcpy(m.at<uint8_t>(entries), e, count * 8u);
+                m.set<uint64_t>(sp, e[count - 1u]); // the last swap's a (entry count - 1 with itself)
+                const uint32_t n = m.u32(list) + count;
+                m.set<uint32_t>(list, n);
+                v0 = sx(n);
+            }
+            else
+                // Selection sort in place: the nearest of the rest swapped into place, the count kept in the list.
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    uint32_t least = i;
+                    for (uint32_t j = i + 1u; j < count; ++j)
+                    {
+                        const float k = m.f32(entries + j * 8u + 4u);
+                        f0 = m.f32(entries + least * 8u + 4u);
+                        if (key(k) < key(f0))
+                            least = j;
+                    }
+                    const uint64_t a = m.get<uint64_t>(entries + i * 8u), b = m.get<uint64_t>(entries + least * 8u);
+                    m.set<uint64_t>(sp, a);
+                    m.set<uint64_t>(entries + i * 8u, b);
+                    m.set<uint64_t>(entries + least * 8u, a);
+                    const uint32_t n = m.u32(list) + 1u;
+                    m.set<uint32_t>(list, n);
+                    v0 = sx(n);
+                }
+            r.v0 = v0;
+            r.f0 = f0;
+            r.called = called;
+            r.lastI = lastI;
+            r.lastId = lastId;
+        }
+    } // namespace d1s
+
+    void sortD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1Sort.n;
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xB0u;
+        const uint32_t walker = GPR_U32(ctx, 4), list = GPR_U32(ctx, 5), pos = GPR_U32(ctx, 6);
+#if !defined(__vita__)
+        const bool inlineData = sotc_decomp::guestFunction(runtime, kPointData) == &decomp_pointdata::pointDataByArea && !sotc_decomp::g_callGuestStats;
+#else
+        const bool inlineData = sotc_decomp::guestFunction(runtime, kPointData) == &decomp_pointdata::pointDataByArea;
+#endif
+        // Other configurations and the old body's own fallback cases: the old body.
+        if (!sotc_decomp::fastNativeOn() || !sotc_decomp::path97On() || !inlineData || !plain(walker + 0x3C50u, 4u) || !plain(list, 8u) ||
+            !plain(pos & ~0xFu, 16u) || !plain(sp & ~0xFu, 16u))
+            return sort(rdram, ctx, runtime);
+        d1s::SortResult r;
+        d1s::sortCore(d1::Mem{rdram}, walker, list, pos, sp, r);
+        if (r.called)
+        {
+            // getPointDataByAreaIdx's last arguments, as the old body leaves them.
+            SET_GPR_U32(ctx, 4, walker);
+            SET_GPR_U32(ctx, 5, r.lastI);
+            SET_GPR_U32(ctx, 6, r.lastId);
+        }
+        ctx->f[0] = r.f0;
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, r.v0);
+        returnTo(ctx);
+    }
+
+    void sortSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            sortD1(rdram, ctx, runtime);
+        else
+            sort(rdram, ctx, runtime);
+    }
+} // namespace decomp_pointsort

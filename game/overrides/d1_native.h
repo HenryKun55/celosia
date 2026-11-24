@@ -31,6 +31,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "sotc_decomp.h"
+#include "d1_alias.h"
 
 #include <cmath>
 #include <cstdint>

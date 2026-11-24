@@ -282,7 +282,13 @@ def body_closure(path, fn, depth=3):
         body = defs[n]
         text.append(body)
         if d < depth:
-            for callee in set(re.findall(r'\b([A-Za-z_]\w*)\s*(?:<[^<>;]*>)?\s*\(', body)):
+            # round D1: a d1::name(...) call is d1_native.h's helper, not a same-file function of that name
+            # and a member call of d1::Mem's names (m.u32(...)) is d1::Mem's, not a same-file Ram struct's
+            mem_calls = set(re.findall(r'(?:\.|->)\s*(at|get|set|u32|s32|f32|q|putq)\s*(?:<[^<>;]*>)?\s*\(', body))
+            free_calls = set(re.findall(r'(?<![.>:])\b(at|get|set|u32|s32|f32|q|putq)\s*(?:<[^<>;]*>)?\s*\(', body))
+            for callee in set(re.findall(r'(?<!d1::)\b([A-Za-z_]\w*)\s*(?:<[^<>;]*>)?\s*\(', body)):
+                if callee in mem_calls and callee not in free_calls and 'd1::Mem' in body:
+                    continue
                 if callee in defs and callee not in seen:
                     todo.append((callee, d + 1))
     return '\n'.join(text), name in defs

@@ -20,6 +20,7 @@
 #pragma once
 
 #include "typed_a5_rt.h"
+#include "d1_alias.h" // round D1: dispatchers as their old functions in a6Is
 
 #ifndef PS2X_A6_CHECK
 #define PS2X_A6_CHECK 0
@@ -138,10 +139,18 @@ inline bool a10Holds(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledF
            (known == &::lift_d1::GetCollisionDBPlane && got == &::decomp_collision::collisionPlane && (m & A10H_PLANE)) ||
            (known == &::lift_d1::GetCollisionDBAttributeAdr && got == &::decomp_collision::attributeAdr && (m & A10H_ATTR));
 }
-inline bool a6Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
+inline bool a6IsBase(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
 {
     return got == known || (known == &::decomp_characlass::getCharacterClass && got == &::dc2::entryCharacterClass) ||
            (known == &::lift_d1::GetLayoutClass && got == &::decomp_layoutclass::getLayoutClass) || (g_a10Typed && a10Holds(got, known));
+}
+// Round D1 (d1_alias.h): a D1 native's dispatcher stands for its old function.
+inline bool a6Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunction known)
+{
+    if (a6IsBase(got, known))
+        return true;
+    const PS2Runtime::RecompiledFunction old = d1::aliasOf(got);
+    return old && a6IsBase(old, known);
 }
 
 #if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && PS2X_A6_CHECK

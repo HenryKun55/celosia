@@ -46,6 +46,8 @@
 // clothVelocity since an earlier round (its type-1 path hands over to the
 // recompiled code at 0x1137728: that is the profile's lean copy).
 #include "sotc_decomp.h"
+#include "d1_native.h"
+#include "typed_a9_core.h" // round D1: round 122's host cores
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -588,7 +590,216 @@ namespace decomp_hot44b
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x001BCB10u, GetQuaternionByEulerYXZ, decomp_hot44b::eulerYXZ);
+// Round D1 (switch d1native): the dispatcher (defined at the end of the file).
+namespace decomp_hot44b
+{
+    void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001BCB10u, GetQuaternionByEulerYXZ, decomp_hot44b::eulerYXZSw);
+D1_ALIAS(0x001BCB10u, GetQuaternionByEulerYXZ, decomp_hot44b::eulerYXZSw, decomp_hot44b::eulerYXZ);
 SOTC_DECOMP_FUNCTION(0x01125F90u, ClipCollisionFinderWithKeep, decomp_hot44b::finderWithKeep);
 SOTC_DECOMP_FUNCTION(0x01455AA0u, execCondition, decomp_hot44b::execCondition);
 SOTC_DECOMP_FUNCTION(0x01129988u, manager_sub_01129988, decomp_hot44b::keepThenSlope);
+
+// =====================================================================================================================
+// Round D1 (switch d1native, docs/decomp_d1.md): GetQuaternionByEulerYXZ as native C++ for the default configuration
+// (hotlist44 and quat122 on, the table's 0x1bbda8 slot holding decomp_quat's dispatcher): the angles and the VU0 product /
+// normalisation as d1:: NEON ops on locals, SetQuaternionByAxisRotateVWithNoRegularize as round 122's host core called
+// directly (what the slot's native computes; its frame slot store is below sp, dead), the frame (below sp) not written.
+// The registers the old body leaves: v0, v1-free; a0 / a1 / a2 / at as the last axis set them, f0 / f1, fcr31,
+// vf11-vf16, ACC, Q and the status, written by the adapter at the exit.
+// =====================================================================================================================
+namespace decomp_quat
+{
+    void axisRotateSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace char122::quat
+{
+    bool on();
+}
+namespace decomp_hot44b
+{
+    namespace d1e
+    {
+        D1_COUNTER(c_d1EulerYXZ, "hot44b.eulerYXZ");
+
+        using V4 = __m128;
+        PS2_FORCE_INLINE V4 d1ld16(const d1::Mem m, uint32_t a) { return m.get<V4>(a & ~0xFu); }
+        PS2_FORCE_INLINE void d1st16(const d1::Mem m, uint32_t a, V4 v) { m.set<V4>(a & ~0xFu, v); }
+        // (y, z, x, w) and (z, x, y, w): the opmula / opmsub operand rotations.
+        PS2_FORCE_INLINE V4 d1yzx(V4 v)
+        {
+#if defined(__clang__)
+            return __builtin_shufflevector(v, v, 1, 2, 0, 3);
+#else
+            return __builtin_shuffle(v, (int32x4_t){1, 2, 0, 3});
+#endif
+        }
+        PS2_FORCE_INLINE V4 d1zxy(V4 v)
+        {
+#if defined(__clang__)
+            return __builtin_shufflevector(v, v, 2, 0, 1, 3);
+#else
+            return __builtin_shuffle(v, (int32x4_t){2, 0, 1, 3});
+#endif
+        }
+        PS2_FORCE_INLINE void d1cond(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+        // The axis-rotation slot holds decomp_quat's native or its D1 dispatcher (both: round 122's core in this configuration).
+        inline bool d1rotHolder(PS2Runtime::RecompiledFunction fn)
+        {
+            return fn == &decomp_quat::axisRotateSw || fn == &decomp_quat::axisRotate || d1::aliasOf(fn) == &decomp_quat::axisRotate;
+        }
+
+        struct EulerRegs
+        {
+            V4 v11, v12, v13, v14, v15, v16, acc;
+            float f0, f1, q;
+            uint32_t fcr31, g4, g5, g6;
+            uint16_t status;
+            bool used; // an axis turned (v0 1; at, a1, f0, f1 set)
+        };
+        // *s0 = *s0 x q (0x1bcb90-0x1bcbc0).
+        PS2_FORCE_INLINE void d1quatMul(const d1::Mem m, uint32_t s0, V4 q, EulerRegs &s)
+        {
+            const V4 x = d1::mask(1, 0, 0, 0), w = d1::mask(0, 0, 0, 1), xyz = d1::mask(1, 1, 1, 0);
+            const V4 v11 = d1ld16(m, s0), v12 = q;
+            V4 v13 = d1::vmul(v11, v12);
+            v13 = d1::vsel(v13, d1::vadd(v13, d1::bc<1>(v13)), x);
+            v13 = d1::vsel(v13, d1::vadd(v13, d1::bc<2>(v13)), x);
+            v13 = d1::vsel(v13, d1::vsub(v13, d1::bc<0>(v13)), w);
+            s.v14 = d1::vsel(s.v14, d1::vmul(v12, d1::bc<3>(v11)), xyz);
+            s.v15 = d1::vsel(s.v15, d1::vmul(v11, d1::bc<3>(v12)), xyz);
+            s.acc = d1::vsel(s.acc, d1::vmul(d1yzx(v12), d1zxy(v11)), xyz);
+            s.v16 = d1::vsel(s.v16, d1::vsub(s.acc, d1::vmul(d1yzx(v11), d1zxy(v12))), xyz);
+            v13 = d1::vsel(v13, d1::vadd(s.v14, s.v15), xyz);
+            v13 = d1::vsel(v13, d1::vadd(v13, s.v16), xyz);
+            d1st16(m, s0, v13);
+            s.v11 = v11;
+            s.v12 = v12;
+            s.v13 = v13;
+        }
+        // One axis: the angle in 16-bit units, its quaternion (the slot's native), *s0 *= it.
+        PS2_FORCE_INLINE void d1axis(const d1::Mem m, uint32_t s0, float angle, uint32_t slot, uint32_t axis, EulerRegs &s)
+        {
+            s.g4 = slot;
+            s.g6 = axis;
+            float f0 = d1::mul(angle, fb(0x47000000u)); // 32768
+            f0 = ps2FpuDivide(s.fcr31, f0, fb(0x40490FDAu)); // pi as the code has it
+            const int32_t wi = ps2FpuConvertToWord(f0);
+            std::memcpy(&s.f1, &wi, 4);
+            const uint32_t a1 = 0u - (static_cast<uint32_t>(wi) << 16);
+            const int32_t a1s = static_cast<int32_t>(a1) >> 16;
+            s.g5 = static_cast<uint32_t>(a1s);
+            const V4 q = char122::quat::axisRotateCore(m.base, static_cast<uint32_t>(a1s), d1ld16(m, axis));
+            s.f0 = vgetq_lane_f32(q, 3);
+            s.used = true;
+            d1quatMul(m, s0, q, s);
+        }
+        // GetQuaternionByEulerYXZ(s0, f12 x, f13 y, f14 z); sp1 the original's frame (entry sp - 0x60). v0 returned.
+        uint32_t eulerYXZD1Core(const d1::Mem m, uint32_t s0, float fx, float fy, float fz, uint32_t sp1, EulerRegs &s)
+        {
+            d1st16(m, s0, d1::vf0());
+            s.g6 = 0x001E0FB0u;
+            uint32_t v0 = 0u;
+            auto zero = [&](float a)
+            {
+                const bool eq = d1::eq(a, 0.0f);
+                d1cond(s.fcr31, eq);
+                return eq;
+            };
+            const bool skipY = zero(fy);
+            s.g4 = sp1;
+            if (!skipY)
+            {
+                d1axis(m, s0, fy, sp1, 0x001E0FB0u, s);
+                v0 = 1u;
+            }
+            const bool skipX = zero(fx);
+            s.g6 = 0x001E0000u;
+            if (!skipX)
+            {
+                d1axis(m, s0, fx, sp1 + 0x10u, 0x001E0FA0u, s);
+                v0 = 1u;
+            }
+            const bool skipZ = zero(fz);
+            s.g6 = 0x001E0000u;
+            if (!skipZ)
+            {
+                d1axis(m, s0, fz, sp1 + 0x20u, 0x001E0FC0u, s);
+                v0 = 1u;
+            }
+            if (v0 != 0u)
+            {
+                // The normalisation (0x1bcce8-0x1bcd08).
+                const V4 x = d1::mask(1, 0, 0, 0);
+                const V4 v14 = d1ld16(m, s0);
+                V4 v15 = d1::vmul(v14, v14);
+                v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<1>(v15)), x);
+                v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<2>(v15)), x);
+                v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<3>(v15)), x);
+                s.q = ps2VuRsqrt(s.status, 1.0f, vgetq_lane_f32(v15, 0)); // vf0w / vf15x
+                v15 = d1::vmul(v14, d1::splat(s.q));
+                d1st16(m, s0, v15);
+                s.v14 = v14;
+                s.v15 = v15;
+            }
+            return v0;
+        }
+    } // namespace d1e
+
+    void eulerYXZD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t s0 = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), sp1 = sp0 - 0x60u;
+        // The cases the direct core does not cover: the old body (hotlist44 off, quat122 off or another holder of the
+        // axis-rotation slot, the quaternion outside main RAM, a frame the slot's native would not take).
+        if (!sotc_decomp::hotList44On() || !char122::quat::on() || !d1e::d1rotHolder(sotc_decomp::guestFunction(runtime, kAxisRotate)) ||
+            s0 >= PS2_RAM_SIZE || sp1 < 0x1000u || sp0 > PS2_RAM_SIZE)
+            return eulerYXZ(rdram, ctx, runtime);
+        ++d1e::c_d1EulerYXZ.n;
+        d1e::EulerRegs s;
+        s.v11 = ctx->vu0_vf[11];
+        s.v12 = ctx->vu0_vf[12];
+        s.v13 = ctx->vu0_vf[13];
+        s.v14 = ctx->vu0_vf[14];
+        s.v15 = ctx->vu0_vf[15];
+        s.v16 = ctx->vu0_vf[16];
+        s.acc = ctx->vu0_acc;
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        s.fcr31 = ctx->fcr31;
+        s.g4 = s.g5 = s.g6 = 0u;
+        s.used = false;
+        const uint32_t v0 = d1e::eulerYXZD1Core(d1::Mem{rdram}, s0, ctx->f[12], ctx->f[13], ctx->f[14], sp1, s);
+        SET_GPR_U64(ctx, 2, v0);
+        SET_GPR_U32(ctx, 4, s.g4);
+        SET_GPR_U32(ctx, 6, s.g6);
+        if (s.used)
+        {
+            SET_GPR_U64(ctx, 1, sx(0x40490FDAu));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(s.g5));
+            ctx->f[0] = s.f0;
+            ctx->f[1] = s.f1;
+        }
+        ctx->fcr31 = s.fcr31;
+        ctx->vu0_vf[11] = s.v11;
+        ctx->vu0_vf[12] = s.v12;
+        ctx->vu0_vf[13] = s.v13;
+        ctx->vu0_vf[14] = s.v14;
+        ctx->vu0_vf[15] = s.v15;
+        ctx->vu0_vf[16] = s.v16;
+        ctx->vu0_acc = s.acc;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        SET_GPR_U32(ctx, 29, sp0);
+        returnTo(ctx);
+    }
+    void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            eulerYXZD1(rdram, ctx, runtime);
+        else
+            eulerYXZ(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot44b

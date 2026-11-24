@@ -43,6 +43,7 @@
 //   |x| > 1 (its 0 / 0) and the tiny path's impossible "huge + x <= 1": the
 //   recompiled code from the start.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_prof.h"
 
@@ -865,6 +866,243 @@ namespace sotc_decomp
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010F4D48u, CalcLightLayoutObj, decomp_hot43b::calcLightLayoutObj);
+namespace decomp_hot43b
+{
+    void calcLightLayoutObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010F4D48u, CalcLightLayoutObj, decomp_hot43b::calcLightLayoutObjSw);
+D1_ALIAS(0x010F4D48u, CalcLightLayoutObj, decomp_hot43b::calcLightLayoutObjSw, decomp_hot43b::calcLightLayoutObj);
 SOTC_DECOMP_FUNCTION(0x010D1A10u, manager_sub_010D1A10, decomp_hot43b::motionStep);
 SOTC_DECOMP_FLOAT_FUNCTION(0x001DE1A0u, __ieee754_asinf, decomp_hot43b::asinF);
+
+// ---- Round D1 (d1native): CalcLightLayoutObj's D1 body ------------------------------------------------------------
+// Partial: the guest calls (GetLayoutClass, GetGeometryPointerObject, GetCharacterClass, the colour manager through
+// colMan83, the relocated matrix helpers, glSetLight*) stay as the old body makes them, with the same registers, ra and
+// frame; guest RAM through a typed accessor (main RAM, its mirrors and the scratchpad as READ* / WRITE* reach them), the
+// light point's transform as d1 vec4 ops (a clean core), the intensity product d1::mul.
+namespace decomp_hot43b
+{
+    D1_COUNTER(c_d1CalcLight, "CalcLightLayoutObj");
+
+    // Guest memory as the guest READ / WRITE macros reach it: the scratchpad, else main RAM (masked: its mirrors).
+    struct D1Ram43
+    {
+        uint8_t *base, *spr;
+        PS2_FORCE_INLINE uint8_t *d1at(uint32_t a) const
+        {
+            const uint32_t o = a - PS2_SCRATCHPAD_BASE;
+            return o < PS2_SCRATCHPAD_SIZE ? spr + o : base + (a & PS2_RAM_MASK);
+        }
+        template <class T>
+        PS2_FORCE_INLINE T d1get(uint32_t a) const
+        {
+            T v;
+            std::memcpy(&v, d1at(a), sizeof(T));
+            return v;
+        }
+        template <class T>
+        PS2_FORCE_INLINE void d1set(uint32_t a, T v) const { std::memcpy(d1at(a), &v, sizeof(T)); }
+        PS2_FORCE_INLINE __m128 d1q(uint32_t a) const { return d1get<__m128>(a & ~0xFu); }
+        PS2_FORCE_INLINE void d1putq(uint32_t a, __m128 v) const { d1set<__m128>(a & ~0xFu, v); }
+    };
+
+    // The VU0 registers the light point's transform leaves.
+    struct D1LightXform
+    {
+        __m128 vf8, vf14, vf15, vf16, vf17, acc, vf10;
+    };
+    // vf10 = matrix x (point.xyz, vf0.w): vmulax / vmadday / vmaddaz / vmaddw (ACC left after the third step).
+    inline void d1LightPointXform(const D1Ram43 &m, uint32_t point, uint32_t matrix, __m128 vf0, D1LightXform &x)
+    {
+        x.vf8 = m.d1q(point);
+        x.vf14 = m.d1q(matrix);
+        x.vf15 = m.d1q(matrix + 0x10u);
+        x.vf16 = m.d1q(matrix + 0x20u);
+        x.vf17 = m.d1q(matrix + 0x30u);
+        __m128 acc = d1::vmul(x.vf14, d1::bc<0>(x.vf8));
+        acc = d1::vadd(acc, d1::vmul(x.vf15, d1::bc<1>(x.vf8)));
+        acc = d1::vadd(acc, d1::vmul(x.vf16, d1::bc<2>(x.vf8)));
+        x.acc = acc;
+        x.vf10 = d1::vadd(acc, d1::vmul(x.vf17, d1::bc<3>(vf0)));
+    }
+
+    void calcLightLayoutObjD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotListOn())
+            return calcLightLayoutObj(rdram, ctx, runtime);
+        ++c_d1CalcLight.n;
+        const D1Ram43 m{rdram, runtime->memory().getScratchpad()};
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        const uint32_t sp = static_cast<uint32_t>(entrySp) - 0x60u;
+        const uint64_t obj = GPR_U64(ctx, 4);
+        auto finish = [&]()
+        {
+            SET_GPR_U64(ctx, 31, ra);
+            SET_GPR_U64(ctx, 29, entrySp);
+            ctx->pc = static_cast<uint32_t>(ra);
+        };
+        auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
+
+        call(kGetLayoutClass, 0x010F4D7Cu);
+        const uint32_t s3 = GPR_U32(ctx, 2);
+        const uint32_t light = m.d1get<uint32_t>(s3 + 0x144u);
+        SET_GPR_S32(ctx, 3, light);
+        if ((m.d1get<uint64_t>(light + 0x260u) & 2u) == 0u)
+        {
+            SET_GPR_U64(ctx, 2, 0u);
+            return finish();
+        }
+        const uint32_t block = m.d1get<uint32_t>(s3 + 0x140u);
+        SET_GPR_S32(ctx, 2, block);
+        m.d1set<uint32_t>(sp, block);
+        SET_GPR_U64(ctx, 4, obj);
+        call(kGetLayoutClass, 0x010F4DA8u);
+
+        // The attachment walk.
+        const uint32_t s5 = GPR_U32(ctx, 2);
+        uint64_t current = obj, attachment = 0u, cls = GPR_U64(ctx, 2);
+        uint64_t geometry = sx(m.d1get<uint32_t>(s5 + 0x124u));
+        if (geometry == 0u)
+            m.d1set<uint32_t>(s5 + 0x198u, 0u);
+        else
+        {
+            for (;;)
+            {
+                if (geometry == 0u)
+                {
+                    m.d1set<uint32_t>(s5 + 0x198u, static_cast<uint32_t>(attachment));
+                    break;
+                }
+                SET_GPR_S32(ctx, 4, static_cast<uint32_t>(cls) + 0xC0u);
+                call(kGetGeometryPointerObject, 0x010F4DECu);
+                const uint64_t parent = GPR_U64(ctx, 2);
+                SET_GPR_U64(ctx, 4, current);
+                call(kGetCharacterClass, 0x010F4DF8u);
+                const uint64_t currentChara = GPR_U64(ctx, 2);
+                SET_GPR_U64(ctx, 4, parent);
+                call(kGetCharacterClass, 0x010F4E04u);
+                const uint64_t parentChara = GPR_U64(ctx, 2);
+                SET_GPR_U64(ctx, 4, parent);
+                call(kGetLayoutClass, 0x010F4E10u);
+                cls = GPR_U64(ctx, 2);
+                if (parentChara == 0u || cls == 0u)
+                {
+                    m.d1set<uint32_t>(s5 + 0x198u, static_cast<uint32_t>(attachment));
+                    break;
+                }
+                const bool climb = currentChara == 0u || m.d1get<int16_t>(static_cast<uint32_t>(parentChara) + 0x370u) == 3 ||
+                                   m.d1get<int16_t>(static_cast<uint32_t>(currentChara) + 0x370u) != 2;
+                if (!climb)
+                {
+                    m.d1set<uint32_t>(s5 + 0x198u, static_cast<uint32_t>(attachment));
+                    break;
+                }
+                if (m.d1get<uint32_t>(static_cast<uint32_t>(cls) + 0x144u) != 0u)
+                {
+                    attachment = parent;
+                    current = parent;
+                }
+                geometry = sx(m.d1get<uint32_t>(static_cast<uint32_t>(cls) + 0x124u));
+            }
+        }
+
+        const uint32_t attached = m.d1get<uint32_t>(s3 + 0x198u);
+        SET_GPR_S32(ctx, 2, attached);
+        if (attached != 0u)
+            return finish();
+
+        // The light's position into its block (+0x10): the point through the matrix.
+        {
+            const uint32_t lightNow = m.d1get<uint32_t>(s3 + 0x144u);
+            const uint32_t out = m.d1get<uint32_t>(s3 + 0x140u) + 0x10u;
+            const uint32_t record = m.d1get<uint32_t>(lightNow);
+            const uint32_t matrix = m.d1get<uint32_t>(s3 + 0x15Cu);
+            const uint32_t point = m.d1get<uint32_t>(record + 0x20u) + 0x20u;
+            D1LightXform x;
+            d1LightPointXform(m, point, matrix, ctx->vu0_vf[0], x);
+            m.d1putq(out, x.vf10);
+            __m128 *vf = ctx->vu0_vf;
+            vf[8] = x.vf8;
+            vf[14] = x.vf14;
+            vf[15] = x.vf15;
+            vf[16] = x.vf16;
+            vf[17] = x.vf17;
+            vf[10] = x.vf10;
+            ctx->vu0_acc = x.acc;
+        }
+
+        // The intensity, the flag bit into the block's +0xc0.
+        const uint32_t frame0 = m.d1get<uint32_t>(sp);
+        {
+            const uint32_t lightNow = m.d1get<uint32_t>(s3 + 0x144u), blockNow = m.d1get<uint32_t>(s3 + 0x140u);
+            const uint32_t record = m.d1get<uint32_t>(lightNow);
+            const float f0 = m.d1get<float>(lightNow + 0x250u);
+            const uint32_t recordData = m.d1get<uint32_t>(record + 0x20u);
+            const float f1 = m.d1get<float>(recordData + 0x2Cu);
+            const float product = d1::mul(f0, f1);
+            ctx->f[1] = f1;
+            ctx->f[0] = product;
+            m.d1set<float>(blockNow + 0x1Cu, product);
+        }
+        const uint32_t a1 = m.d1get<uint32_t>(s3 + 0x144u), a2 = m.d1get<uint32_t>(s3 + 0x140u);
+        {
+            const uint64_t bit = ((m.d1get<uint64_t>(a1 + 0x260u) >> 2) & 0xFFFFu) & 1u;
+            m.d1set<uint64_t>(a2 + 0xC0u, (m.d1get<uint64_t>(a2 + 0xC0u) & ~1ull) | bit);
+        }
+        const uint32_t colMan = m.d1get<uint32_t>(s3 + 0x130u);
+        m.d1set<uint32_t>(frame0 + 0xECu, colMan);
+        SET_GPR_S32(ctx, 2, colMan);
+        SET_GPR_S32(ctx, 3, frame0);
+        SET_GPR_S32(ctx, 4, frame0);
+        SET_GPR_S32(ctx, 5, a1);
+        SET_GPR_S32(ctx, 6, a2);
+        SET_GPR_S32(ctx, 7, 0xFFFFFFFEu);
+        colMan83(rdram, ctx, runtime, frame0, sp, 0x010F4EFCu);
+
+        // The normal light matrix (frame0 + 0x40, in place).
+        const uint32_t normal = frame0 + 0x40u;
+        SET_GPR_S32(ctx, 4, normal);
+        SET_GPR_S32(ctx, 5, normal);
+        SET_GPR_S32(ctx, 6, s3 + 0x90u);
+        call(jalTarget(rdram, kScaleNormalSite), 0x010F4F0Cu);
+
+        // The block's flag bit 1 back into the light's +0x260 bit 3.
+        const uint32_t a3 = m.d1get<uint32_t>(s3 + 0x144u);
+        const uint32_t colour = m.d1get<uint32_t>(sp) + 0x80u;
+        {
+            const uint32_t blockNow = m.d1get<uint32_t>(s3 + 0x140u);
+            const uint64_t flags = m.d1get<uint64_t>(a3 + 0x260u), blockFlags = m.d1get<uint64_t>(blockNow + 0xC0u);
+            const uint64_t v1 = (flags & ~8ull) | ((((blockFlags >> 1) & 0xFFu) & 1u) << 3);
+            SET_GPR_U64(ctx, 3, v1);
+            m.d1set<uint64_t>(a3 + 0x260u, v1);
+        }
+        // v0: s3 +0x144 before each of the last four calls (they leave v0 alone: the function returns it).
+        auto lightDisplay = [&](uint32_t offset)
+        {
+            const uint32_t l = m.d1get<uint32_t>(s3 + 0x144u);
+            SET_GPR_S32(ctx, 2, l);
+            SET_GPR_S32(ctx, 4, m.d1get<uint32_t>(l + 0xCu) + offset);
+        };
+        lightDisplay(0x50u);
+        SET_GPR_S32(ctx, 5, colour);
+        SET_GPR_S32(ctx, 6, 0xFFFFFFF7u);
+        SET_GPR_S32(ctx, 7, a3);
+        call(jalTarget(rdram, kCopyMatrixSite1), 0x010F4F54u);
+        lightDisplay(0x10u);
+        SET_GPR_S32(ctx, 5, normal);
+        call(jalTarget(rdram, kCopyMatrixSite2), 0x010F4F68u);
+        lightDisplay(0x50u);
+        call(kGlSetLightColor, 0x010F4F78u);
+        lightDisplay(0x10u);
+        call(kGlSetLightVector, 0x010F4F88u);
+        finish();
+    }
+
+    void calcLightLayoutObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            calcLightLayoutObjD1(rdram, ctx, runtime);
+        else
+            calcLightLayoutObj(rdram, ctx, runtime);
+    }
+}

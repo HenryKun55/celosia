@@ -36,6 +36,7 @@
 // registers, fcr31 and VU0's vf1 it leaves are then the original's), and the last node's two other keys are stored where
 // curveEval would have put them. SOTC_P1CHARA_CHECK=1 runs every call both ways from the same state and compares.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "p1_chara.h"
 
 #include "ps2_runtime_macros.h"
@@ -809,4 +810,304 @@ namespace p1chara
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010C6238u, manager_sub_010C6238, decomp_gaze::gaze);
+namespace decomp_gaze
+{
+    void gazeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1 (below)
+}
+
+SOTC_DECOMP_FUNCTION(0x010C6238u, manager_sub_010C6238, decomp_gaze::gazeSw);
+D1_ALIAS(0x010C6238u, manager_sub_010C6238, decomp_gaze::gazeSw, decomp_gaze::gaze);
+
+// ---- Round D1 (d1native, d1_native.h): manager_sub_010C6238 (the gaze) with native math ------------------------------
+// Partial: gazeImpl's default path (P1 off: every key the real curveEval call) with its FPU statements as d1:: scalar
+// ops (the direction's clamps, the angle, the length's ps2FpuSqrt and the key's ps2FpuDivide kept as the old body
+// calls them: they round to nearest), the VU0 blocks (quaternion product, dot, negation, blend, normalisation) as d1
+// vec4 ops on a local register set, Q by the old body's ps2VuRsqrt with its status; guest memory through d1::Mem. The
+// guest calls (iosGetATan2fExact, curveEval per key) and the registers they read stay as the old body makes them; the
+// VU0 registers, Q, the status, v0 / v1 / f0 written at the exit as the old body does. P1 on: the old body.
+namespace decomp_gaze
+{
+    D1_COUNTER(c_d1Gaze, "manager_sub_010C6238");
+
+    template <int A, int B, int C, int D>
+    PS2_FORCE_INLINE __m128 d1perm(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+        typedef int d1v4i __attribute__((vector_size(16)));
+        return __builtin_shuffle(v, d1v4i{A, B, C, D});
+#endif
+    }
+
+    struct D1Vu
+    {
+        __m128 v0, v5, v6, v7, v8, v9, v11, v12, v13, v14, v15, v16, acc;
+        float q;
+        uint16_t status;
+    };
+    // v13 = v11 x v12 (Vu::qmul's ops in its order).
+    PS2_FORCE_INLINE void d1Qmul(D1Vu &u)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1), mXyz = d1::mask(1, 1, 1, 0);
+        u.v13 = d1::vmul(u.v11, u.v12);
+        u.v13 = d1::vsel(u.v13, d1::vadd(u.v13, d1::bc<1>(u.v13)), mX);
+        u.v13 = d1::vsel(u.v13, d1::vadd(u.v13, d1::bc<2>(u.v13)), mX);
+        u.v13 = d1::vsel(u.v13, d1::vsub(u.v13, d1::bc<0>(u.v13)), mW);
+        u.v14 = d1::vsel(u.v14, d1::vmul(u.v12, d1::bc<3>(u.v11)), mXyz);
+        u.v15 = d1::vsel(u.v15, d1::vmul(u.v11, d1::bc<3>(u.v12)), mXyz);
+        u.acc = d1::vsel(u.acc, d1::vmul(d1perm<1, 2, 0, 3>(u.v12), d1perm<2, 0, 1, 3>(u.v11)), mXyz);
+        u.v16 = d1::vsel(u.v16, d1::vsub(u.acc, d1::vmul(d1perm<1, 2, 0, 3>(u.v11), d1perm<2, 0, 1, 3>(u.v12))), mXyz);
+        u.v13 = d1::vsel(u.v13, d1::vadd(u.v14, u.v15), mXyz);
+        u.v13 = d1::vsel(u.v13, d1::vadd(u.v13, u.v16), mXyz);
+    }
+    // v15.x = v14 . v15.
+    PS2_FORCE_INLINE void d1Dot(D1Vu &u)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0);
+        u.v15 = d1::vmul(u.v14, u.v15);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<1>(u.v15)), mX);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<2>(u.v15)), mX);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<3>(u.v15)), mX);
+    }
+    PS2_FORCE_INLINE void d1Negate5(D1Vu &u) { u.v5 = d1::vmul(u.v5, d1::bc<0>(u.v6)); }
+    PS2_FORCE_INLINE void d1Blend(D1Vu &u)
+    {
+        u.v8 = d1::vsel(u.v8, d1::vsub(u.v0, d1::bc<0>(u.v7)), d1::mask(0, 0, 0, 1));
+        u.acc = d1::vmul(u.v5, d1::bc<0>(u.v7));
+        u.v9 = d1::vmadd(u.acc, u.v6, d1::bc<3>(u.v8));
+    }
+    PS2_FORCE_INLINE void d1Normalise(D1Vu &u)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0);
+        u.v15 = d1::vmul(u.v14, u.v14);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<1>(u.v15)), mX);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<2>(u.v15)), mX);
+        u.v15 = d1::vsel(u.v15, d1::vadd(u.v15, d1::bc<3>(u.v15)), mX);
+        u.q = ps2VuRsqrt(u.status, d1::lane<3>(u.v0), d1::lane<0>(u.v15));
+        u.v15 = d1::vmul(u.v14, d1::splat(u.q));
+    }
+    // A component clamped to [-1, 1] (c.lt.s twice as the original; c: the last compare's condition).
+    PS2_FORCE_INLINE float d1Clamp1(float v, bool &c)
+    {
+        const float minus1 = fromBits(0xBF800000u), one = fromBits(0x3F800000u);
+        c = d1::lt(v, minus1);
+        if (c)
+            return minus1;
+        c = d1::lt(one, v);
+        return c ? one : v;
+    }
+
+    void gazeD1Body(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const d1::Mem m{rdram};
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x110u;
+        const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6);
+
+        const float f1 = m.f32(a2 + 4u), f2 = m.f32(a2 + 0u);
+        int32_t s1 = m.s32(a1 + 4u);
+        const uint32_t res = m.u32(a2 + 8u);
+        uint32_t s4 = a0 + (static_cast<uint32_t>(s1) << 4) - 0x10u;
+        bool c;
+        const float f21 = d1Clamp1(f1, c);
+        const float f20 = d1Clamp1(f2, c);
+        setCond(ctx, c);
+        ctx->f[12] = f20;
+        ctx->f[13] = f21;
+        sotc_decomp::callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x010C62F0u), 0x010C62F8u, sp);
+
+        const float ang = ctx->f[0];
+        c = d1::lt(ang, 0.0f);
+        setCond(ctx, c);
+        const float f3 = c ? d1::add(ang, fromBits(0x40C90FDAu)) : d1::add(ang, fromBits(0u));
+        uint32_t fcr = 0u; // (the flags these two can raise need a negative root / a zero divisor: neither happens)
+        const float len = ps2FpuSqrt(fcr, d1::add(d1::mul(f21, f21), d1::mul(f20, f20)));
+        const float fk = ps2FpuDivide(fcr, d1::mul(f3, fromBits(0x41000000u)), fromBits(0x40C90FDAu));
+        const int32_t k = ps2FpuConvertToWord(fk);
+        const float fkw = static_cast<float>(k);
+        const float frac = d1::sub(fk, fkw);
+        s1 -= 1;
+        if (s1 == -1)
+        {
+            SET_GPR_S32(ctx, 2, k);
+            ctx->f[0] = fkw;
+            SET_GPR_U32(ctx, 29, sp0);
+            SET_GPR_U32(ctx, 31, ra0);
+            returnTo(ctx);
+            return;
+        }
+        const uint32_t keyA = (static_cast<uint32_t>(k) & 7u) + 1u, keyB = ((static_cast<uint32_t>(k) + 1u) & 7u) + 1u;
+        const uint32_t identity = sotc_decomp::relocated(rdram, 0x010C646Cu, 0x010C6470u);
+        const uint32_t identity2 = sotc_decomp::relocated(rdram, 0x010C6508u, 0x010C650Cu);
+
+        D1Vu u;
+        u.v0 = ctx->vu0_vf[0];
+        u.v5 = ctx->vu0_vf[5];
+        u.v6 = ctx->vu0_vf[6];
+        u.v7 = ctx->vu0_vf[7];
+        u.v8 = ctx->vu0_vf[8];
+        u.v9 = ctx->vu0_vf[9];
+        u.v11 = ctx->vu0_vf[11];
+        u.v12 = ctx->vu0_vf[12];
+        u.v13 = ctx->vu0_vf[13];
+        u.v14 = ctx->vu0_vf[14];
+        u.v15 = ctx->vu0_vf[15];
+        u.v16 = ctx->vu0_vf[16];
+        u.acc = ctx->vu0_acc;
+        u.q = ctx->vu0_q;
+        u.status = ctx->vu0_status;
+        const uint64_t s5low = 0xFFFFFFFFBF800000ull;
+        uint32_t lastDot = 0u;
+        __m128 lastDotVec = d1::zero4();
+
+        // GetMotionNodeIntFrameDirectResource's loads, then curveEval as its tail jump (the guest call).
+        auto key = [&](uint32_t out, uint32_t site, uint32_t keyIndex) -> __m128
+        {
+            const uint32_t node = static_cast<uint32_t>(s1);
+            const uint32_t t0 = m.u32(res + 0x10u), v1 = m.u32(res + 8u) + node, v0 = (node << 2) + t0;
+            SET_GPR_S32(ctx, 8, static_cast<int32_t>(t0));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(v1));
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(out));
+            SET_GPR_U64(ctx, 5, *m.at<uint8_t>(v1));
+            SET_GPR_S32(ctx, 6, m.s32(v0));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(keyIndex));
+            sotc_decomp::callGuest(rdram, ctx, runtime, kCurveEval, site + 8u, sp);
+            return m.q(out & ~0xFu);
+        };
+        auto dotSign = [&]() -> bool
+        {
+            lastDotVec = u.v15;
+            lastDot = bitsOf(d1::lane<0>(u.v15));
+            return static_cast<int32_t>(lastDot) < 0;
+        };
+        auto t0Vec = [&](float f)
+        {
+            SET_GPR_U32(ctx, 8, bitsOf(f));
+            return _mm_castsi128_ps(GPR_VEC(ctx, 8));
+        };
+
+        do
+        {
+            const __m128 k0 = key(sp, 0x010C63C4u, 0u);
+            const __m128 kA = key(sp + 0x10u, 0x010C63D8u, keyA);
+            const __m128 kB = key(sp + 0x20u, 0x010C63ECu, keyB);
+            u.v11 = k0;
+            u.v5 = d1::vsel(u.v5, d1::vsub(u.v0, d1::bc<3>(u.v0)), d1::mask(1, 0, 0, 0));
+            u.v11 = d1::vsel(u.v11, d1::vmul(u.v11, d1::bc<0>(u.v5)), d1::mask(1, 1, 1, 0));
+            const __m128 conj = u.v11;
+            u.v12 = kA;
+            d1Qmul(u);
+            const __m128 relA = u.v13;
+            u.v11 = conj;
+            u.v12 = kB;
+            d1Qmul(u);
+            const __m128 relB = u.v13;
+
+            __m128 id = m.q(identity & ~0xFu);
+            u.v14 = relA;
+            u.v15 = id;
+            d1Dot(u);
+            if (dotSign())
+            {
+                u.v5 = id;
+                u.v6 = vecWithLow(ctx, 21, s5low);
+                d1Negate5(u);
+                id = u.v5;
+            }
+            u.v7 = t0Vec(len);
+            u.v5 = relA;
+            u.v6 = id;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            const __m128 nA = u.v15;
+
+            __m128 id2 = m.q(identity2 & ~0xFu);
+            u.v14 = relB;
+            u.v15 = id2;
+            d1Dot(u);
+            u.v5 = id2;
+            if (dotSign())
+            {
+                u.v6 = vecWithLow(ctx, 21, s5low);
+                d1Negate5(u);
+                id2 = u.v5;
+            }
+            u.v7 = t0Vec(len);
+            u.v5 = relB;
+            u.v6 = id2;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            const __m128 nB = u.v15;
+
+            __m128 a = nA;
+            u.v14 = nB;
+            u.v15 = a;
+            d1Dot(u);
+            u.v5 = a;
+            if (dotSign())
+            {
+                u.v6 = vecWithLow(ctx, 21, s5low);
+                d1Negate5(u);
+                a = u.v5;
+            }
+            u.v7 = t0Vec(frac);
+            u.v5 = nB;
+            u.v6 = a;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            u.v14 = u.v15;
+            d1Normalise(u);
+
+            u.v11 = m.q(s4 & ~0xFu);
+            u.v12 = u.v15;
+            d1Qmul(u);
+            m.putq(s4 & ~0xFu, u.v13);
+            s1 -= 1;
+            s4 -= 0x10u;
+        } while (s1 != -1);
+
+        SET_GPR_VEC(ctx, 2, _mm_castps_si128(lastDotVec));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(lastDot));
+        SET_GPR_S32(ctx, 3, -1);
+        ctx->f[0] = fromBits(lastDot);
+        ctx->vu0_vf[5] = u.v5;
+        ctx->vu0_vf[6] = u.v6;
+        ctx->vu0_vf[7] = u.v7;
+        ctx->vu0_vf[8] = u.v8;
+        ctx->vu0_vf[9] = u.v9;
+        ctx->vu0_vf[11] = u.v11;
+        ctx->vu0_vf[12] = u.v12;
+        ctx->vu0_vf[13] = u.v13;
+        ctx->vu0_vf[14] = u.v14;
+        ctx->vu0_vf[15] = u.v15;
+        ctx->vu0_vf[16] = u.v16;
+        ctx->vu0_acc = u.acc;
+        ctx->vu0_q = u.q;
+        ctx->vu0_status = u.status;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void gazeD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!sotc_decomp::motionOn() || sotc_decomp::p1charaOn() || jalTarget(rdram, 0x010C62F0u) != kAtan2 ||
+                                 jalTarget(rdram, 0x010C63C4u) != kWrapper || jalTarget(rdram, 0x010C63D8u) != kWrapper ||
+                                 jalTarget(rdram, 0x010C63ECu) != kWrapper || jalTarget(rdram, 0x010B64E8u) != kCurveEval,
+                             0))
+            return gaze(rdram, ctx, runtime);
+        ++c_d1Gaze.n;
+        gazeD1Body(rdram, ctx, runtime);
+    }
+    void gazeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            gazeD1(rdram, ctx, runtime);
+        else
+            gaze(rdram, ctx, runtime);
+    }
+} // namespace decomp_gaze

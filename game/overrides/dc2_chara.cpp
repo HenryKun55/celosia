@@ -48,6 +48,7 @@
 #include "sotc_decomp.h"
 #include "chara_types.h"
 #include "sotc_pf141.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1287,13 +1288,820 @@ namespace dc2
     }
 }
 
+// Round D1 (switch d1native): the dispatchers (defined at the end of the file).
+namespace dc2
+{
+    void entryStepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryVelocitySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryTensionSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryCharacterClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryFindRecordSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryIntFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryDynamicsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
 // The function table's entries (the old natives' registrations moved here; SOTC_DC2CHARA=0: they call the old natives).
-SOTC_DECOMP_FUNCTION(0x011370E8u, clothStep, dc2::entryStep);
+SOTC_DECOMP_FUNCTION(0x011370E8u, clothStep, dc2::entryStepSw);
+D1_ALIAS(0x011370E8u, clothStep, dc2::entryStepSw, dc2::entryStep);
 SOTC_DECOMP_FUNCTION(0x01137858u, clothConstrain, dc2::entryConstrain);
-SOTC_DECOMP_FUNCTION(0x01137640u, clothVelocity, dc2::entryVelocity);
-SOTC_DECOMP_FUNCTION(0x01139B30u, clothmath_doubleTensionMove, dc2::entryTension);
-SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, dc2::entryDynamics);
-SOTC_DECOMP_FUNCTION(0x010C0A70u, GetCharacterClass, dc2::entryCharacterClass);
+SOTC_DECOMP_FUNCTION(0x01137640u, clothVelocity, dc2::entryVelocitySw);
+D1_ALIAS(0x01137640u, clothVelocity, dc2::entryVelocitySw, dc2::entryVelocity);
+SOTC_DECOMP_FUNCTION(0x01139B30u, clothmath_doubleTensionMove, dc2::entryTensionSw);
+D1_ALIAS(0x01139B30u, clothmath_doubleTensionMove, dc2::entryTensionSw, dc2::entryTension);
+SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, dc2::entryDynamicsSw);
+D1_ALIAS(0x011399E0u, getClothDynamics, dc2::entryDynamicsSw, dc2::entryDynamics);
+SOTC_DECOMP_FUNCTION(0x010C0A70u, GetCharacterClass, dc2::entryCharacterClassSw);
+D1_ALIAS(0x010C0A70u, GetCharacterClass, dc2::entryCharacterClassSw, dc2::entryCharacterClass);
 SOTC_DECOMP_FUNCTION(0x010BA7A8u, GetAnimationClass, dc2::entryAnimationClass);
-SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, dc2::entryFindRecord);
-SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, dc2::entryIntFrame);
+SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, dc2::entryFindRecordSw);
+D1_ALIAS(0x010CDD10u, findRecord, dc2::entryFindRecordSw, dc2::entryFindRecord);
+SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, dc2::entryIntFrameSw);
+D1_ALIAS(0x010B3E98u, GetMotionIntFrame, dc2::entryIntFrameSw, dc2::entryIntFrame);
+
+// =====================================================================================================================
+// Round D1 (switch d1native, docs/decomp_d1.md): new bodies of the entries above for the default configuration
+// (SOTC_DC2CHARA off: each entry runs its old native, so each D1 body is that old native rewritten as native C++:
+// typed guest memory through d1::Mem, the VU0 lanes as d1:: NEON ops without the operand clamps, the FPU's
+// add / sub / mul as d1::add / sub / mul; the VU0 rsqrt and the FPU's nearest-rounding sqrt / divide through the old
+// bodies' own helpers). ctx is read at the adapters' entry and written at their exit only. dc2chara on: the entries.
+// =====================================================================================================================
+namespace dc2
+{
+    namespace d1b
+    {
+        D1_COUNTER(c_d1Step, "dc2.clothStep");
+        D1_COUNTER(c_d1Velocity, "dc2.clothVelocity");
+        D1_COUNTER(c_d1Tension, "dc2.tensionMove");
+        D1_COUNTER(c_d1CharClass, "dc2.characterClass");
+        D1_COUNTER(c_d1FindRecord, "dc2.findRecord");
+
+        using V4 = __m128;
+        constexpr uint32_t kM16 = PS2_RAM_MASK & ~0xFu;
+        // A qword as lq / lqc2 / sq / sqc2 address it (aligned down).
+        PS2_FORCE_INLINE V4 d1q(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+        PS2_FORCE_INLINE void d1putq(const d1::Mem m, uint32_t a, V4 v) { m.putq(a & ~0xFu, v); }
+        PS2_FORCE_INLINE V4 d1ld(const uint8_t *p)
+        {
+            V4 v;
+            std::memcpy(&v, p, 16);
+            return v;
+        }
+        PS2_FORCE_INLINE void d1st(uint8_t *p, V4 v) { std::memcpy(p, &v, 16); }
+        PS2_FORCE_INLINE uint32_t d1bits(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d1float(uint32_t b)
+        {
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f;
+        }
+        // A VRNEXT step of VU0's R.
+        PS2_FORCE_INLINE uint32_t d1rnext(uint32_t r) { return (((r << 1) ^ ((r >> 4) & 1u) ^ ((r >> 22) & 1u)) & 0x007FFFFFu) | 0x3F800000u; }
+        // n qwords from a (masked as an aligned-down qword load) without wrapping the 32 MB mask.
+        PS2_FORCE_INLINE bool d1linear(uint32_t a, int64_t n) { return n >= 0 && static_cast<int64_t>(a & kM16) + n * 16 <= static_cast<int64_t>(PS2_RAM_SIZE); }
+        // fcr31's condition bit.
+        PS2_FORCE_INLINE void d1cond(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+        // A GPR after mfc1 + qmtc2 (SET_GPR_U32: the low word, its sign in the second, the upper 64 bits `hi`'s).
+        PS2_FORCE_INLINE V4 d1gpr(V4 hi, uint32_t bits)
+        {
+            uint32x4_t v = vreinterpretq_u32_f32(hi);
+            v = vsetq_lane_u32(bits, v, 0);
+            v = vsetq_lane_u32(static_cast<uint32_t>(static_cast<int32_t>(bits) >> 31), v, 1);
+            return vreinterpretq_f32_u32(v);
+        }
+
+        // ---- manager_sub_011370E8 (the cloth step; decomp_clothstep::clothStepT<true>) ------------------------------
+        struct StepRegs
+        {
+            V4 vf2, vf10, vf11, vf12, vf13, vf18, vf20, vf21, vf22, acc;
+            float f0, f1, f2, f3, f4, f12, f2a; // f2a: the first f2 (GPR t1 / vf6)
+            uint32_t r, v0;
+            bool rTouched;
+        };
+        // vmulax / vmadday / vmaddaz / vmaddw: the bone matrix at mtx applied to v (ACC after the third).
+        PS2_FORCE_INLINE V4 d1apply(const d1::Mem m, uint32_t mtx, V4 v, V4 &acc)
+        {
+            V4 t = d1::vmul(d1q(m, mtx), d1::bc<0>(v));
+            t = d1::vmadd(t, d1q(m, mtx + 0x10u), d1::bc<1>(v));
+            t = d1::vmadd(t, d1q(m, mtx + 0x20u), d1::bc<2>(v));
+            acc = t;
+            return d1::vmadd(t, d1q(m, mtx + 0x30u), d1::bc<3>(v));
+        }
+        // A pin: the sum of bone matrix x offset over its list (count +0, entries +4: bone, offset +16, 32 bytes each).
+        PS2_FORCE_INLINE V4 d1pin(const d1::Mem m, uint32_t list, uint32_t bones, V4 &acc, V4 &vf13)
+        {
+            int32_t n = m.s32(list);
+            uint32_t e = m.u32(list + 4u);
+            vf13 = d1q(m, e + 16u);
+            V4 sum = d1apply(m, bones + m.u32(e) * 64u, vf13, acc);
+            if (n == 1)
+                return sum;
+            n -= 2;
+            e += 32u;
+            if (n == -1)
+                return sum;
+            do
+            {
+                vf13 = d1apply(m, bones + m.u32(e) * 64u, d1q(m, e + 16u), acc);
+                sum = d1::vadd(sum, vf13);
+                --n;
+                e += 32u;
+            } while (n != -1);
+            return sum;
+        }
+        void clothStepD1Core(const d1::Mem m, uint32_t a0, uint32_t owner, bool full, StepRegs &s)
+        {
+            const V4 xyz = d1::mask(1, 1, 1, 0), yOnly = d1::mask(0, 1, 0, 0);
+            const uint32_t cloth = m.u32(a0);
+            const int32_t rows = m.s32(cloth + 4u), cols = m.s32(cloth + 8u);
+            float f12 = s.f12;
+            float f0 = m.f32(cloth + 0x18u);
+            float f1 = d1::sub(1.0f, f0);
+            const float f3 = full ? d1::mul(f1, f12) : d1::mul(d1::mul(f1, 0.5f), f12);
+            const uint32_t wind = m.u32(owner + 0x19Cu);
+            float f2 = m.f32(cloth + 0x20u);
+            f0 = d1::mul(m.f32(wind + 0x84u), f2);
+            f1 = d1float(0x3E999999u);
+            const float f4 = d1::mul(f0, f1);
+            if (full)
+            {
+                f1 = m.f32(cloth + 0x14u);
+                f0 = d1::mul(d1::mul(f12, d1float(0xC16B3332u)), f1);
+            }
+            else
+                f0 = 0.0f;
+            s.f2a = f2;
+            V4 vf2 = d1q(m, wind + 0x70u);
+            vf2 = d1::vsel(vf2, d1::vmul(vf2, d1::splat(f2)), xyz);
+            uint32_t r = s.r;
+            bool rTouched = false;
+            V4 vf10 = s.vf10, vf11 = s.vf11, vf12 = s.vf12, vf20 = s.vf20;
+            uint32_t v0 = m.u32(a0 + 12u);
+            const uint32_t rows0 = v0;
+            if (rows != 0)
+            {
+                const V4 c3 = d1::splat(f0), c0w = d1::splat(1.0f), c5 = d1::splat(f4), c4 = d1::splat(f3);
+                V4 s4 = vf11, mv = vf12;
+                auto point = [&](uint8_t *pv, const uint8_t *pp, uint8_t *po)
+                {
+                    const V4 v = d1ld(pv), p = d1ld(pp);
+                    const V4 u = d1::vadd(d1::vsel(v, d1::vadd(v, c3), yOnly), vf2);
+                    const uint32_t r1 = d1rnext(r), r2 = d1rnext(r1);
+                    r = d1rnext(r2);
+                    const uint32x4_t rv = {r1, r2, r, r};
+                    const V4 s2 = d1::vsub(vreinterpretq_f32_u32(rv), c0w);
+                    s4 = d1::vmul(d1::vsub(d1::vadd(s2, s2), c0w), c5);
+                    const V4 u2 = d1::vadd(u, s4);
+                    mv = d1::vmul(u2, c4);
+                    vf10 = d1::vsel(v, u2, xyz);
+                    vf20 = d1::vsel(p, d1::vadd(p, mv), xyz);
+                    d1st(pv, vf10);
+                    d1st(po, vf20);
+                };
+                uint32_t row = rows0;
+                for (int32_t i = rows - 1; i != -1; --i, row += 24u)
+                {
+                    uint32_t vel = m.u32(row + 8u), pos = m.u32(row + 20u), out = m.u32(row + 16u);
+                    if (__builtin_expect(d1linear(vel, cols) && d1linear(pos, cols) && d1linear(out, cols), 1))
+                    {
+                        uint8_t *pv = m.base + (vel & kM16), *pp = m.base + (pos & kM16), *po = m.base + (out & kM16);
+                        for (int32_t k = cols; k != 0; --k, pv += 16, pp += 16, po += 16)
+                            point(pv, pp, po);
+                        rTouched |= cols != 0;
+                    }
+                    else
+                    {
+                        for (int32_t k = cols - 1; k != -1; --k, vel += 16u, pos += 16u, out += 16u)
+                        {
+                            point(m.base + (vel & kM16), m.base + (pos & kM16), m.base + (out & kM16));
+                            rTouched = true;
+                        }
+                    }
+                }
+                if (rTouched)
+                {
+                    vf11 = d1::vsel(vf11, s4, xyz);
+                    vf12 = d1::vsel(vf12, mv, xyz);
+                }
+                v0 = m.u32(a0 + 12u);
+            }
+
+            // The pins.
+            f0 = d1float(0x41D7FFFFu);
+            f2 = m.f32(cloth + 12u);
+            f12 = d1::mul(f12, f0);
+            f0 = m.f32(cloth + 28u);
+            if (!full)
+            {
+                f1 = 0.5f;
+                f0 = d1::mul(f0, f1);
+            }
+            f0 = d1::mul(f0, f12);
+            V4 acc = s.acc, vf13 = s.vf13, vf18 = s.vf18, vf21 = s.vf21, vf22 = s.vf22;
+            if (rows != 0)
+            {
+                const V4 c3 = d1::splat(f2), c4 = d1::splat(f0);
+                uint32_t row = v0, pins = m.u32(cloth + 40u);
+                const uint32_t bones = m.u32(owner + 348u);
+                for (int32_t i = rows - 1; i != -1; --i, pins += 36u, row += 24u)
+                {
+                    const V4 a = d1pin(m, pins + 20u, bones, acc, vf13);
+                    const uint32_t out = m.u32(row + 16u);
+                    const V4 b = d1pin(m, pins + 12u, m.u32(owner + 348u), acc, vf13);
+                    vf18 = b;
+                    d1putq(m, out, b);
+                    vf20 = a;
+                    vf21 = b;
+                    const V4 d = d1::vsub(a, b);
+                    vf22 = d1::vsel(d, d1::vmul(d, c3), xyz);
+                    v0 = m.u32(row + 16u) + 16u;
+                    const int32_t n = cols - 1;
+                    if (__builtin_expect(d1linear(v0, n), 1))
+                    {
+                        uint8_t *pq = m.base + (v0 & kM16);
+                        for (int32_t k = n; k != 0; --k, pq += 16)
+                        {
+                            vf22 = d1::vsel(vf22, d1::vmul(vf22, c4), xyz);
+                            const V4 q = d1ld(pq);
+                            vf20 = d1::vsel(q, d1::vadd(q, vf22), xyz);
+                            d1st(pq, vf20);
+                        }
+                        v0 += static_cast<uint32_t>(n) * 16u;
+                    }
+                    else
+                    {
+                        for (int32_t k = cols - 2; k != -1; --k, v0 += 16u)
+                        {
+                            vf22 = d1::vsel(vf22, d1::vmul(vf22, c4), xyz);
+                            const V4 q = d1q(m, v0);
+                            vf20 = d1::vsel(q, d1::vadd(q, vf22), xyz);
+                            d1putq(m, v0, vf20);
+                        }
+                    }
+                }
+            }
+            s.vf2 = vf2;
+            s.vf10 = vf10;
+            s.vf11 = vf11;
+            s.vf12 = vf12;
+            s.vf13 = vf13;
+            s.vf18 = vf18;
+            s.vf20 = vf20;
+            s.vf21 = vf21;
+            s.vf22 = vf22;
+            s.acc = acc;
+            s.f0 = f0;
+            s.f1 = f1;
+            s.f2 = f2;
+            s.f3 = f3;
+            s.f4 = f4;
+            s.f12 = f12;
+            s.r = r;
+            s.rTouched = rTouched;
+            s.v0 = v0;
+        }
+
+        // ---- manager_sub_01137640 (the velocities; decomp_clothdyn::velocity, a type-0 cloth) -------------------------
+        // vf5 / vf6 as the last point leaves them (true: any point).
+        bool velocityD1Core(const d1::Mem m, uint32_t t3, int32_t rows, int32_t cols, V4 scale, V4 &vf5, V4 &vf6)
+        {
+            const V4 xyz = d1::mask(1, 1, 1, 0);
+            const V4 k = d1::bc<0>(scale);
+            bool touched = false;
+            uint32_t row = m.u32(t3 + 0xCu);
+            for (int32_t r = rows - 1; r != -1; --r, row += 0x18u)
+            {
+                uint32_t pos = m.u32(row + 0x10u), before = m.u32(row + 0x14u), out = m.u32(row + 8u);
+                for (int32_t c = cols - 1; c != -1; --c, pos += 0x10u, before += 0x10u, out += 0x10u)
+                {
+                    const V4 p = d1q(m, pos);
+                    V4 v = d1::vsel(p, d1::vsub(p, d1q(m, before)), xyz);
+                    v = d1::vsel(v, d1::vmul(v, k), xyz);
+                    d1putq(m, out, v);
+                    m.set<uint32_t>(out + 0xCu, 0u);
+                    vf5 = v;
+                    touched = true;
+                }
+            }
+            if (touched)
+                vf6 = scale;
+            return touched;
+        }
+
+        // ---- clothmath_doubleTensionMove (decomp_clothtension::tensionMove) -------------------------------------------
+        struct TensionRegs
+        {
+            V4 v5, v6, v7, v8, p;
+            V4 hi8, hi5; // GPR t0 / a1 at the entry (the upper words of the qmtc2 sources)
+            float f0, f1, f2, q;
+            uint32_t fcr31, g8, g5;
+            uint16_t status;
+            bool set8, set5;
+        };
+        void tensionD1Core(const d1::Mem m, uint32_t a0, uint32_t a1, uint32_t a2, float f12, float f13, float f14, TensionRegs &s)
+        {
+            const V4 xyz = d1::mask(1, 1, 1, 0), xOnly = d1::mask(1, 0, 0, 0);
+            V4 v5 = s.v5, v6 = s.v6, v7 = s.v7, v8 = s.v8;
+            float f0 = s.f0, f1 = s.f1, f2 = s.f2;
+            uint32_t fcr31 = s.fcr31;
+            // Step 1 against a2: d = p - a2, Q = 1 / |d|; true when Q < f14.
+            auto clampTo = [&](V4 p, V4 &d) -> bool
+            {
+                v5 = p;
+                v6 = d1q(m, a2);
+                v8 = d1::vsub(v5, v6);
+                v7 = d1::vsel(v7, d1::vmul(v8, v8), xyz);
+                v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<1>(v7)), xOnly);
+                v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<2>(v7)), xOnly);
+                s.q = ps2VuRsqrt(s.status, 1.0f, d1::lane<0>(v7)); // vrsqrt Q, vf0w, vf7x
+                d = v8;
+                f0 = s.q;
+                const bool c = d1::lt(f0, f14);
+                d1cond(fcr31, c);
+                return c;
+            };
+            // p = a2 + d.xyz x (f13 x Q) (w: a2's).
+            auto onSphere = [&](V4 d) -> V4
+            {
+                f0 = d1::mul(f13, f0);
+                v7 = d1q(m, a2);
+                v5 = d;
+                s.g8 = d1bits(f0);
+                s.set8 = true;
+                v6 = d1gpr(s.hi8, s.g8);
+                v5 = d1::vsel(v5, d1::vmul(v5, d1::splat(f0)), xyz);
+                v7 = d1::vsel(v7, d1::vadd(v7, v5), xyz);
+                return v7;
+            };
+            V4 d;
+            V4 p = d1q(m, a0);
+            if (clampTo(p, d))
+                p = onSphere(d);
+            // Step 2: e = a1 - p (xyz; w a1's).
+            v5 = d1q(m, a1);
+            v6 = p;
+            v5 = d1::vsel(v5, d1::vsub(v5, v6), xyz);
+            const V4 e = v5;
+            v7 = d1::vsel(e, d1::vmul(e, e), xyz);
+            v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<1>(v7)), xOnly);
+            v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<2>(v7)), xOnly);
+            f0 = d1::lane<0>(v7);
+            const bool c = d1::lt(f12, f0);
+            d1cond(fcr31, c);
+            if (c)
+            {
+                f2 = ps2FpuSqrt(fcr31, f0);
+                f1 = 1.0f;
+                f0 = d1::sub(f2, f13);
+                f0 = ps2FpuDivide(fcr31, f0, f2);
+                f0 = d1::sub(f1, f0);
+                f0 = d1::mul(f0, f0);
+                f1 = d1::sub(f1, f0);
+                s.g5 = d1bits(f1);
+                s.set5 = true;
+                v6 = d1gpr(s.hi5, s.g5);
+                v5 = d1::vmul(e, d1::splat(f1));
+                v6 = v5;
+                v5 = d1::vsel(p, d1::vadd(p, v6), xyz);
+                p = v5;
+                if (clampTo(p, d))
+                    p = onSphere(d);
+            }
+            d1putq(m, a0, p);
+            s.p = p;
+            s.v5 = v5;
+            s.v6 = v6;
+            s.v7 = v7;
+            s.v8 = v8;
+            s.f0 = f0;
+            s.f1 = f1;
+            s.f2 = f2;
+            s.fcr31 = fcr31;
+        }
+
+        // ---- GetCharacterClass (decomp_characlass::getCharacterClass): the object + 0x90 for types 9 / 0x16 ----------
+        PS2_FORCE_INLINE uint32_t characterClassD1Core(const d1::Mem m, uint32_t object)
+        {
+            const uint8_t type = m.get<uint8_t>(object + 8u);
+            return (type == 9u || type == 0x16u) ? object + 0x90u : 0u;
+        }
+
+        // ---- manager_sub_010CDD10 (decomp_chara::findRecord) --------------------------------------------------------
+        // lui at hi + the signed immediate at lo (the module's relocated pairs, read from the code).
+        PS2_FORCE_INLINE uint32_t d1reloc(const d1::Mem m, uint32_t hi, uint32_t lo)
+        {
+            return (m.u32(hi) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(m.u32(lo) & 0xFFFFu)));
+        }
+        // The table a handle at h belongs to (0: none).
+        PS2_FORCE_INLINE uint32_t d1table(const d1::Mem m, uint32_t h)
+        {
+            const uint32_t off = m.u32(h) & 0x3FFFFu;
+            return off ? m.u32(h - off) : 0u;
+        }
+        PS2_FORCE_INLINE uint32_t d1resolve(const d1::Mem m, uint32_t h, uint32_t noTableWord)
+        {
+            const uint32_t v = m.u32(h), t = d1table(m, h);
+            if (t == 0u || t == noTableWord)
+                return 0u;
+            return m.u32(t + 0x10u) + ((v >> 18) & 0xFFFu) * m.u32(m.u32(t + 8u) + 0xCu);
+        }
+        uint32_t findRecordD1Core(const d1::Mem m, uint32_t h, uint32_t key, uint32_t index)
+        {
+            const uint32_t t = d1table(m, h);
+            const uint32_t base = t != 0u && t != m.u32(d1reloc(m, 0x010CDD40u, 0x010CDD44u)) ? m.u32(t + 0x10u) : 0u;
+            if (base == 0u)
+                return 0u;
+            const uint32_t count = t != 0u && t != m.u32(d1reloc(m, 0x010CDD90u, 0x010CDD94u)) ? m.u32(t + 0xCu) : 0u;
+            if (key == 0u)
+            {
+                const uint32_t last = base + count * 76u - 0x4Cu;
+                if (d1resolve(m, last, m.u32(d1reloc(m, 0x010CDEB0u, 0x010CDEB4u))) == m.u32(d1reloc(m, 0x010CDEE4u, 0x010CDEE8u)))
+                    return last + index * 8u + 4u;
+                return 0u;
+            }
+            if (count == 0u)
+                return 0u;
+            const uint32_t noTableWord = m.u32(d1reloc(m, 0x010CDDC8u, 0x010CDDD0u)), selfWord = m.u32(d1reloc(m, 0x010CDDCCu, 0x010CDDD4u));
+            uint32_t e = base, slot = base + index * 8u + 4u;
+            for (int32_t n = static_cast<int32_t>(count) - 1;; --n, e += 0x4Cu, slot += 0x4Cu)
+            {
+                const uint32_t r = d1resolve(m, e, noTableWord);
+                if (r == selfWord || r == key)
+                    return slot;
+                if (n - 1 == -1)
+                    return 0u;
+            }
+        }
+    } // namespace d1b
+
+    // ---- the adapters (ctx at the entry and the exit) and the dispatchers ---------------------------------------------
+    void entryStepD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (on() || !sotc_decomp::fastNativeOn())
+            return entryStep(rdram, ctx, runtime);
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x011370E8u);
+        ++d1b::c_d1Step.n;
+        const uint32_t a0 = GPR_U32(ctx, 4), owner = GPR_U32(ctx, 5);
+        const bool full = GPR_U64(ctx, 6) != 0u;
+        d1b::StepRegs s;
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf11 = ctx->vu0_vf[11];
+        s.vf12 = ctx->vu0_vf[12];
+        s.vf13 = ctx->vu0_vf[13];
+        s.vf18 = ctx->vu0_vf[18];
+        s.vf20 = ctx->vu0_vf[20];
+        s.vf21 = ctx->vu0_vf[21];
+        s.vf22 = ctx->vu0_vf[22];
+        s.acc = ctx->vu0_acc;
+        s.f12 = ctx->f[12];
+        std::memcpy(&s.r, &ctx->vu0_r, 4);
+        d1b::clothStepD1Core(d1::Mem{rdram}, a0, owner, full, s);
+        // The GPRs the original's mfc1 / qmtc2 pairs leave (t1 -> vf6, a3, t0 -> vf5, then v1 -> vf3 and a0 -> vf4 of the pins).
+        SET_GPR_U32(ctx, 9, d1b::d1bits(s.f2a));
+        ctx->vu0_vf[6] = _mm_castsi128_ps(GPR_VEC(ctx, 9));
+        SET_GPR_U32(ctx, 7, d1b::d1bits(s.f3));
+        SET_GPR_U32(ctx, 8, d1b::d1bits(s.f4));
+        ctx->vu0_vf[5] = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+        SET_GPR_U32(ctx, 3, d1b::d1bits(s.f2));
+        ctx->vu0_vf[3] = _mm_castsi128_ps(GPR_VEC(ctx, 3));
+        SET_GPR_U32(ctx, 4, d1b::d1bits(s.f0));
+        ctx->vu0_vf[4] = _mm_castsi128_ps(GPR_VEC(ctx, 4));
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->f[3] = s.f3;
+        ctx->f[4] = s.f4;
+        ctx->f[12] = s.f12;
+        ctx->vu0_vf[2] = s.vf2;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[11] = s.vf11;
+        ctx->vu0_vf[12] = s.vf12;
+        ctx->vu0_vf[13] = s.vf13;
+        ctx->vu0_vf[18] = s.vf18;
+        ctx->vu0_vf[20] = s.vf20;
+        ctx->vu0_vf[21] = s.vf21;
+        ctx->vu0_vf[22] = s.vf22;
+        ctx->vu0_acc = s.acc;
+        if (s.rTouched)
+            setR(ctx, s.r);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(s.v0));
+        returnTo(ctx);
+    }
+    void entryStepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryStepD1(rdram, ctx, runtime);
+        else
+            entryStep(rdram, ctx, runtime);
+    }
+
+    void entryVelocityD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (on())
+            return entryVelocity(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t t3 = GPR_U32(ctx, 4);
+        const uint32_t grid = m.u32(t3);
+        const int32_t rows = m.s32(grid + 4u), cols = m.s32(grid + 8u);
+        // A type-1 cloth (the string's objects: guest calls) or counts the loops cannot walk: the old native.
+        if (m.get<int16_t>(grid) == 1 || rows < 0 || rows > 4096 || cols < 0 || cols > 4096)
+            return entryVelocity(rdram, ctx, runtime);
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01137640u);
+        ++d1b::c_d1Velocity.n;
+        uint32_t t1;
+        std::memcpy(&t1, &ctx->f[13], 4);
+        SET_GPR_U32(ctx, 9, t1);
+        const __m128 scale = _mm_castsi128_ps(GPR_VEC(ctx, 9)); // qmtc2 t1
+        __m128 vf5, vf6;
+        if (d1b::velocityD1Core(m, t3, rows, cols, scale, vf5, vf6))
+        {
+            ctx->vu0_vf[5] = vf5;
+            ctx->vu0_vf[6] = vf6;
+        }
+        SET_GPR_U32(ctx, 2, 1u);
+        returnTo(ctx);
+    }
+    void entryVelocitySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryVelocityD1(rdram, ctx, runtime);
+        else
+            entryVelocity(rdram, ctx, runtime);
+    }
+
+    void entryTensionD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (on() || !sotc_decomp::motionOn())
+            return entryTension(rdram, ctx, runtime);
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x01139B30u);
+        ++d1b::c_d1Tension.n;
+        d1b::TensionRegs s;
+        s.v5 = ctx->vu0_vf[5];
+        s.v6 = ctx->vu0_vf[6];
+        s.v7 = ctx->vu0_vf[7];
+        s.v8 = ctx->vu0_vf[8];
+        s.hi8 = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+        s.hi5 = _mm_castsi128_ps(GPR_VEC(ctx, 5));
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        s.fcr31 = ctx->fcr31;
+        s.set8 = s.set5 = false;
+        s.g8 = s.g5 = 0u;
+        d1b::tensionD1Core(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), ctx->f[12], ctx->f[13], ctx->f[14], s);
+        if (s.set8)
+            SET_GPR_U32(ctx, 8, s.g8);
+        if (s.set5)
+            SET_GPR_U32(ctx, 5, s.g5);
+        SET_GPR_VEC(ctx, 2, _mm_castps_si128(s.p));
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->fcr31 = s.fcr31;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        ctx->vu0_vf[5] = s.v5;
+        ctx->vu0_vf[6] = s.v6;
+        ctx->vu0_vf[7] = s.v7;
+        ctx->vu0_vf[8] = s.v8;
+        returnTo(ctx);
+    }
+    void entryTensionSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryTensionD1(rdram, ctx, runtime);
+        else
+            entryTension(rdram, ctx, runtime);
+    }
+
+    void entryCharacterClassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4);
+        if (on() || object + 8u >= PS2_RAM_SIZE)
+            return entryCharacterClass(rdram, ctx, runtime);
+        ++d1b::c_d1CharClass.n;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d1b::characterClassD1Core(d1::Mem{rdram}, object)));
+        returnTo(ctx);
+    }
+    void entryCharacterClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryCharacterClassD1(rdram, ctx, runtime);
+        else
+            entryCharacterClass(rdram, ctx, runtime);
+    }
+
+    void entryFindRecordD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (on())
+            return entryFindRecord(rdram, ctx, runtime);
+        ++d1b::c_d1FindRecord.n;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d1b::findRecordD1Core(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6))));
+        returnTo(ctx);
+    }
+    void entryFindRecordSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryFindRecordD1(rdram, ctx, runtime);
+        else
+            entryFindRecord(rdram, ctx, runtime);
+    }
+} // namespace dc2
+
+// Round D1: GetMotionIntFrame (the default path of decomp_motionframe::intFrame: a plain motion's integer-frame keys through
+// round C1's host rows / round 122's decodeKey, char122::keys::intKeysC1, called directly).
+namespace dc2
+{
+    namespace d1b
+    {
+        D1_COUNTER(c_d1IntFrame, "dc2.intFrame");
+
+        enum class D1IntFrame
+        {
+            Fallback, // the old native (nothing written)
+            V0,       // v0 only
+            V0V1      // the keys written, v0, v1 = 0
+        };
+        // The handle's table (0: none or the empty one at `empty`).
+        PS2_FORCE_INLINE uint32_t d1tableOf(const d1::Mem m, uint32_t h, uint32_t empty)
+        {
+            const uint32_t off = m.u32(h) & 0x3FFFFu;
+            const uint32_t t = off ? m.u32(h - off) : 0u;
+            return t != 0u && t != m.u32(empty) ? t : 0u;
+        }
+        D1IntFrame intFrameD1Core(const d1::Mem m, const PS2Runtime *rt, uint32_t out, uint32_t h, uint64_t frame, int64_t a3, uint64_t &v0)
+        {
+            const uint32_t plain = d1reloc(m, 0x010B3F04u, 0x010B3F0Cu);
+            if (m.u32(d1tableOf(m, h, d1reloc(m, 0x010B3EF0u, 0x010B3EF4u)) + 8u) != plain)
+            {
+                v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(plain)));
+                return D1IntFrame::V0;
+            }
+            uint32_t e = 0u;
+            {
+                const uint32_t t = d1tableOf(m, h, d1reloc(m, 0x010B3F40u, 0x010B3F44u));
+                if (t != 0u)
+                    e = m.u32(t + 0x10u) + ((m.u32(h) >> 18) & 0xFFFu) * m.u32(m.u32(t + 8u) + 0xCu);
+            }
+            const uint32_t resource = m.u32(e + 0xCu);
+            if (resource == 0u)
+                return D1IntFrame::Fallback; // iosJumpRecoverPoint
+            const uint32_t header = m.u32(resource + 0x20u);
+            const uint32_t formats = m.u32(header + 8u);
+            if (formats == 0u)
+                return D1IntFrame::Fallback; // the object animation
+            const int64_t nodes = m.s32(header + 0x14u);
+            int64_t s2 = a3;
+            const bool less = nodes < s2;
+            if (s2 != nodes && less)
+                s2 = nodes;
+            if (static_cast<int32_t>(s2) <= 0)
+            {
+                v0 = less ? 1u : 0u;
+                return D1IntFrame::V0;
+            }
+            if (!(s2 <= 256 && (out & 0xFu) == 0u && out >= 0x1000u && out + static_cast<uint32_t>(s2) * 16u <= PS2_RAM_SIZE))
+                return D1IntFrame::Fallback;
+            float tmp[256 * 4];
+            if (!char122::keys::intKeysC1(m.base, rt, header, formats, m.u32(header + 0x10u), static_cast<int32_t>(s2), static_cast<uint32_t>(frame), tmp, v0))
+                return D1IntFrame::Fallback; // a key format decodeKey does not know: the old native's curveEval loop
+            std::memcpy(m.at<uint8_t>(out), tmp, static_cast<size_t>(s2) * 16u);
+            return D1IntFrame::V0V1;
+        }
+    } // namespace d1b
+
+    void entryIntFrameD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const int64_t a3 = GPR_S64(ctx, 7);
+        if (on() || !sotc_decomp::motionOn() || a3 > 4096 || sotc_decomp::jalTarget(rdram, 0x010B3FF0u) != 0x010AC6C8u ||
+            !sotc_decomp::switchOn(sotc_decomp::kKey136))
+            return entryIntFrame(rdram, ctx, runtime);
+        uint64_t v0 = 0u;
+        const d1b::D1IntFrame res = d1b::intFrameD1Core(d1::Mem{rdram}, runtime, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U64(ctx, 6), a3, v0);
+        if (res == d1b::D1IntFrame::Fallback)
+            return entryIntFrame(rdram, ctx, runtime);
+        ++d1b::c_d1IntFrame.n;
+        SET_GPR_U64(ctx, 2, v0);
+        if (res == d1b::D1IntFrame::V0V1)
+            SET_GPR_U64(ctx, 3, 0u);
+        returnTo(ctx);
+    }
+    void entryIntFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryIntFrameD1(rdram, ctx, runtime);
+        else
+            entryIntFrame(rdram, ctx, runtime);
+    }
+} // namespace dc2
+
+// Round D1: getClothDynamics (0x11399e0; the default path of decomp_hot47j::clothStep), partial: the arguments read once,
+// the frame's saves and the buffers' flip through typed guest memory (no READ / WRITE macros), the zero test as a host
+// compare; the step / constraint (or the guest callback) / velocity stay guest calls with the old body's registers.
+namespace dc2
+{
+    namespace d1b
+    {
+        D1_COUNTER(c_d1Dynamics, "dc2.clothDynamics");
+
+        // The points' current pair into the previous one (swapped on the odd frame); the flip byte toggled.
+        void clothFlipD1Core(const d1::Mem m, uint32_t cloth)
+        {
+            const uint8_t toggle = static_cast<uint8_t>((m.get<uint8_t>(cloth + 0x80u) + 1u) & 1u);
+            uint32_t points = m.u32(cloth + 0xCu);
+            uint32_t n = m.u32(m.u32(cloth) + 4u);
+            m.set<uint8_t>(cloth + 0x80u, toggle);
+            for (n -= 1u; n != 0xFFFFFFFFu; n -= 1u, points += 0x18u)
+            {
+                const uint32_t a = m.u32(points), b = m.u32(points + 4u);
+                m.set<uint32_t>(points + 0x10u, toggle != 0u ? b : a);
+                m.set<uint32_t>(points + 0x14u, toggle != 0u ? a : b);
+            }
+        }
+    } // namespace d1b
+
+    void entryDynamicsD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        const uint32_t sp = static_cast<uint32_t>(entrySp) - 0x40u, cloth = GPR_U32(ctx, 4);
+        if (on() || !sotc_decomp::hotList47On() || sp >= PS2_RAM_SIZE - 0x40u || cloth >= PS2_RAM_SIZE - 0x100u)
+            return entryDynamics(rdram, ctx, runtime);
+        if (__builtin_expect(s8cloth::g_open, 0)) // round S8: the queued cloth calls first
+            s8cloth::clothEntry(runtime, 0x011399E0u);
+        ++d1b::c_d1Dynamics.n;
+        const d1::Mem m{rdram};
+        float *f = ctx->f;
+        const float dt = f[12], invDt = f[13];
+        const uint64_t cloth64 = GPR_U64(ctx, 4), user = GPR_U64(ctx, 5), callback = GPR_U64(ctx, 7), word = GPR_U64(ctx, 8);
+        // The prologue: s0-s3, ra, f20 / f21 into the frame; f20 / f21 = dt / 1/dt; s0-s3 the cloth, user, callback, word.
+        m.set<uint32_t>(sp + 0x28u, d1b::d1bits(f[20]));
+        m.set<uint32_t>(sp + 0x30u, d1b::d1bits(f[21]));
+        m.set<uint64_t>(sp + 0u, GPR_U64(ctx, 16));
+        m.set<uint64_t>(sp + 8u, GPR_U64(ctx, 17));
+        m.set<uint64_t>(sp + 0x10u, GPR_U64(ctx, 18));
+        m.set<uint64_t>(sp + 0x18u, GPR_U64(ctx, 19));
+        m.set<uint64_t>(sp + 0x20u, ra);
+        f[0] = 0.0f;
+        f[20] = dt;
+        f[21] = invDt;
+        const bool zero = d1::eq(dt, 0.0f);
+        ctx->fcr31 = zero ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        SET_GPR_U64(ctx, 16, cloth64);
+        SET_GPR_U64(ctx, 17, user);
+        SET_GPR_U64(ctx, 18, callback);
+        SET_GPR_U64(ctx, 19, word);
+        if (!zero)
+        {
+            if (!ps2_worker::isShell(runtime)) // (round S8: not from the guest worker: the notes are the game thread's)
+                pf141::noteCloth(rdram, cloth); // round 141 (prefetch only)
+            d1b::clothFlipD1Core(m, cloth);
+            SET_GPR_U64(ctx, 4, cloth64);
+            SET_GPR_U64(ctx, 5, user);
+            f[12] = f[20];
+            f[13] = f[21];
+            sotc_decomp::callGuest(rdram, ctx, runtime, 0x011370E8u, 0x01139AC0u, sp);
+            SET_GPR_U64(ctx, 6, word);
+            SET_GPR_U64(ctx, 4, cloth64);
+            SET_GPR_U64(ctx, 5, user);
+            if (callback != 0u)
+                sotc_decomp::callGuest(rdram, ctx, runtime, static_cast<uint32_t>(callback), 0x01139AD4u, sp); // jalr s2 (cloth, user, word)
+            else
+            {
+                SET_GPR_U64(ctx, 6, 0u);
+                sotc_decomp::callGuest(rdram, ctx, runtime, 0x01137858u, 0x01139AF0u, sp);
+            }
+            SET_GPR_U64(ctx, 4, cloth64);
+            SET_GPR_U64(ctx, 5, user);
+            f[12] = f[20];
+            f[13] = f[21];
+            sotc_decomp::callGuest(rdram, ctx, runtime, 0x01137640u, 0x01139B04u, sp);
+        }
+        // The epilogue: s0-s3, ra, f20 / f21 from the frame, v0 1.
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0u));
+        SET_GPR_U64(ctx, 2, 1u);
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 8u));
+        SET_GPR_U64(ctx, 18, m.get<uint64_t>(sp + 0x10u));
+        SET_GPR_U64(ctx, 19, m.get<uint64_t>(sp + 0x18u));
+        const uint64_t back = m.get<uint64_t>(sp + 0x20u);
+        f[21] = d1b::d1float(m.u32(sp + 0x30u));
+        f[20] = d1b::d1float(m.u32(sp + 0x28u));
+        SET_GPR_U64(ctx, 31, back);
+        SET_GPR_U64(ctx, 29, entrySp);
+        ctx->pc = static_cast<uint32_t>(back);
+    }
+    void entryDynamicsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryDynamicsD1(rdram, ctx, runtime);
+        else
+            entryDynamics(rdram, ctx, runtime);
+    }
+} // namespace dc2

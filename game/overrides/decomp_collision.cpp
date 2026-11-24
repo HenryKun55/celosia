@@ -31,6 +31,7 @@
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a10_nchk.h" // a10: A10_NCHK (the slot holders round A10 takes as their typed functions)
 #include "typed_a7_nchk.h" // a7: A7_NCHK
@@ -6812,23 +6813,41 @@ namespace decomp_finderwalk
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01128F38u, collisionFinderWalk, decomp_finderwalk::finderWalk);
-SOTC_DECOMP_FUNCTION(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision::directCallBack);
-SOTC_DECOMP_FUNCTION(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDB);
+// Round D1's dispatchers (defined at the end of the file): d1native on, the D1 body; off, the old one.
+namespace decomp_collision
+{
+    void directCallBackSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void clipCollisionDBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void finderLeafSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void clipKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void waterSurfaceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_finderwalk
+{
+    void finderWalkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01128F38u, collisionFinderWalk, decomp_finderwalk::finderWalkSw);
+D1_ALIAS(0x01128F38u, collisionFinderWalk, decomp_finderwalk::finderWalkSw, decomp_finderwalk::finderWalk);
+SOTC_DECOMP_FUNCTION(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision::directCallBackSw);
+D1_ALIAS(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision::directCallBackSw, decomp_collision::directCallBack);
+SOTC_DECOMP_FUNCTION(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDBSw);
+D1_ALIAS(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDBSw, decomp_collision::clipCollisionDB);
 SOTC_DECOMP_FUNCTION(0x01119248u, getLayoutClassCollisionIndepSurfBoundary, decomp_collision::indepSurfBoundary);
 SOTC_DECOMP_FUNCTION(0x0112BE58u, collisionLeaf, decomp_collision::entry<decomp_collision::leaf>);
 SOTC_DECOMP_FUNCTION(0x0112C498u, collisionLow, decomp_collision::entry<decomp_collision::low>);
 SOTC_DECOMP_FUNCTION(0x0112C610u, collisionHigh, decomp_collision::entry<decomp_collision::high>);
 SOTC_DECOMP_FUNCTION(0x01131C80u, collisionNode, decomp_collision::entry<decomp_collision::node>);
 SOTC_DECOMP_FUNCTION(0x0112A478u, CheckCollisionFinderExistData, decomp_collision::checkFinderExistData);
-SOTC_DECOMP_FUNCTION(0x01115798u, collisionFinderLeaf, decomp_collision::finderLeaf<true>);
+SOTC_DECOMP_FUNCTION(0x01115798u, collisionFinderLeaf, decomp_collision::finderLeafSw);
+D1_ALIAS(0x01115798u, collisionFinderLeaf, decomp_collision::finderLeafSw, decomp_collision::finderLeaf<true>);
 SOTC_DECOMP_FUNCTION(0x01115A50u, collisionFinderLeaf16, decomp_collision::finderLeaf<false>);
 SOTC_DECOMP_FUNCTION(0x01123C60u, CollisionPlaneJudgeCallbackCameraLeave, decomp_collision::filterEntry<0>);
 SOTC_DECOMP_FUNCTION(0x010D41E0u, charaSurfaceFilter, decomp_collision::filterEntry<1>);
 SOTC_DECOMP_FUNCTION(0x01434C00u, gamecoreSurfaceFilter, decomp_collision::filterEntry<2>);
 SOTC_DECOMP_FUNCTION(0x011292B0u, collisionNotKind28Filter, decomp_collision::filterEntry<3>);
 SOTC_DECOMP_FUNCTION(0x014336A0u, pathJudgeFunc, decomp_collision::filterEntry<4>);
-SOTC_DECOMP_FUNCTION(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeep);
+SOTC_DECOMP_FUNCTION(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeepSw);
+D1_ALIAS(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeepSw, decomp_collision::clipKeep);
 SOTC_DECOMP_FUNCTION(0x011193C8u, GetCollisionDBSurfBoundary, decomp_collision::surfBoundaryEntry);
 SOTC_DECOMP_FUNCTION(0x01123A58u, CollisionPlaneJudgeCallbackCameraVisibility, decomp_collision::cameraVisibilityEntry);
 SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdr);
@@ -6858,7 +6877,8 @@ SOTC_DECOMP_FUNCTION(0x013D5510u, AI_JudgeColAttrFunc, decomp_collision::filterE
 SOTC_DECOMP_FUNCTION(0x014383F0u, moveCtrlWallJudgeFunc, decomp_collision::filterEntry<13>);
 SOTC_DECOMP_FUNCTION(0x0137D1A0u, SCRGetCollisionCallBack, decomp_collision::scrCollision);
 SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbe);
-SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurface);
+SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw);
+D1_ALIAS(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw, decomp_collision::waterSurface);
 SOTC_DECOMP_FUNCTION(0x01130490u, ClipCollisionDirectCallBackDoubleSide, decomp_collision::directDoubleSide);
 SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);
 // Round 42 (SOTC_LEAVES=0: recompiled).
@@ -6866,3 +6886,1193 @@ SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::f
 SOTC_DECOMP_FUNCTION(0x010DF8F0u, manager_sub_010DF8F0, decomp_collision::filterEntry<15>);
 SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWork);
 SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWork);
+
+// ---- Round D1 (SOTC_D1NATIVE): the collision natives' D1 bodies (d1_native.h) -------------------------------------
+// New bodies behind d1native for: ClipCollisionDB (clipDBD1, also used by the D1 segment loop), clipCollisionKeep,
+// the finder leaf (0x1115798), the finder's tree walk, ClipCollisionDirectCallBack / ...ObjAry (obj125's loop) and
+// the water surface probe. The same guest RAM, f0 / v0 and calls as the old bodies in the default configuration;
+// partial: their guest calls (filters, vertex fetchers, the recompiled fallbacks) stay calls through the context,
+// the math between them is plain NEON vec4 (d1::v*: no operand clamps, the result clamp kept) and PS2-adder scalars
+// (d1::add / sub / mul), f0 kept in a local and stored where a call or the return can see it. A non-default switch
+// state (or a check / log mode) sends the call to the old body at the entry.
+namespace decomp_collision
+{
+    D1_COUNTER(c_d1ClipDB, "collision.clipDB");
+    D1_COUNTER(c_d1Keep, "collision.clipKeep");
+    D1_COUNTER(c_d1Leaf, "collision.finderLeaf");
+    D1_COUNTER(c_d1Direct, "collision.directCallBack");
+    D1_COUNTER(c_d1ObjAry, "collision.objAry");
+    D1_COUNTER(c_d1Water, "collision.waterSurface");
+
+    // dest-field masks
+    inline __m128 d1Xyz() { return d1::mask(1, 1, 1, 0); }
+    inline __m128 d1X() { return d1::mask(1, 0, 0, 0); }
+    inline __m128 d1W() { return d1::mask(0, 0, 0, 1); }
+    // (y, z, x, w) and (z, x, y, w): an outer product's operand orders
+    inline __m128 d1Yzx(__m128 v) { return _mm_shuffle_ps(v, v, _MM_SHUFFLE(3, 0, 2, 1)); }
+    inline __m128 d1Zxy(__m128 v) { return _mm_shuffle_ps(v, v, _MM_SHUFFLE(3, 1, 0, 2)); }
+    inline uint32_t d1Bits(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+
+    // vmulax / vmadday / vmaddaz / vmaddw: v by the four rows at m (16-aligned as lq reads them): transform()'s value
+    // for finite rows (its clamps, or round 119's small-lane form, give the same bits there).
+    inline __attribute__((always_inline)) __m128 d1Xf(const G g, uint32_t m, __m128 v)
+    {
+        __m128 t = d1::vmul(g.q(m), d1::bc<0>(v));
+        t = d1::vmadd(t, g.q(m + 0x10u), d1::bc<1>(v));
+        t = d1::vmadd(t, g.q(m + 0x20u), d1::bc<2>(v));
+        return d1::vmadd(t, g.q(m + 0x30u), d1::bc<3>(v));
+    }
+    // vf0.x + n.x p.x + n.y p.y + n.z p.z + n.w on lane 0 (clipDB's / the leaf's plane distance).
+    inline float d1PlaneDist(__m128 n, __m128 p)
+    {
+        const __m128 prod = d1::vmul(n, p);
+        __m128 acc = d1::vadd(d1::vf0(), d1::bc<0>(prod));
+        acc = d1::vadd(acc, d1::bc<1>(prod));
+        acc = d1::vadd(acc, d1::bc<2>(prod));
+        return d1::lane<0>(d1::vadd(acc, d1::bc<3>(n)));
+    }
+    // vopmula / vopmsub: a x b in xyz, w 0 (clipDB's crossN).
+    inline __m128 d1Cross0(__m128 a, __m128 b)
+    {
+        const __m128 acc = d1::vmul(d1Yzx(a), d1Zxy(b));
+        const __m128 r = d1::vsub(acc, d1::vmul(d1Yzx(b), d1Zxy(a)));
+        return d1::vsel(d1::zero4(), r, d1Xyz());
+    }
+    // vf0.x + a.x b.x + a.y b.y + a.z b.z on lane 0 (clipDB's dot).
+    inline float d1Dot3(__m128 a, __m128 b)
+    {
+        const __m128 prod = d1::vmul(a, b);
+        __m128 acc = d1::vadd(d1::vf0(), d1::bc<0>(prod));
+        acc = d1::vadd(acc, d1::bc<1>(prod));
+        return d1::lane<0>(d1::vadd(acc, d1::bc<2>(prod)));
+    }
+    // cylinder(g, c, r, length, true): x^2 + y^2 < r^2, -r < z < length + r; f0 as it leaves it.
+    inline bool d1Cylinder(const G g, __m128 c, float r, float length)
+    {
+        const float cx = d1::lane<0>(c), cy = d1::lane<1>(c), cz = d1::lane<2>(c);
+        const float r2 = d1::mul(r, r);
+        const float sum = d1::add(d1::mul(cx, cx), d1::mul(cy, cy));
+        float f0 = sum;
+        bool inside = false;
+        if (d1::lt(sum, r2))
+        {
+            f0 = -r;
+            if (d1::lt(f0, cz))
+            {
+                f0 = d1::add(length, r);
+                inside = d1::lt(cz, f0);
+            }
+        }
+        g.f0(f0);
+        return inside;
+    }
+
+    // f0 as a local, stored into the context before a call and at the return.
+    struct D1F0
+    {
+        R5900Context *ctx;
+        float v = 0.0f;
+        bool dirty = false;
+        PS2_FORCE_INLINE void set(float f)
+        {
+            v = f;
+            dirty = true;
+        }
+        PS2_FORCE_INLINE void flush()
+        {
+            if (dirty)
+                ctx->f[0] = v;
+            dirty = false;
+        }
+    };
+
+    // ---- ClipCollisionDB (clipDBT<true>'s values) -------------------------------------------------------------------
+    uint64_t clipDBD1(const G g, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t ra, uint32_t spIn)
+    {
+        R5900Context *ctx = g.ctx;
+        const uint32_t sp = spIn - 0xF0u;
+        const uint32_t w1 = g.u32(a3 + 4u), w0 = g.u32(a3);
+        uint32_t cls;
+        if (!layoutClass(g, w0, cls))
+        {
+            SET_GPR_U32(ctx, 4, a0);
+            SET_GPR_U32(ctx, 5, a1);
+            SET_GPR_U32(ctx, 6, a2);
+            SET_GPR_U32(ctx, 7, a3);
+            recompiledCall(g.rdram, ctx, g.runtime, kClipDB, ra, spIn);
+            return GPR_U64(ctx, 2);
+        }
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        uint32_t normal;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t s2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            normal = g.u32(s2 + 0x14u) + s3 * 16u;
+            if (g.u8(g.u32(s2 + 8u) + s3) == 0u)
+            {
+                verticesIndep(g, sp, sp + 0x10u, cls, s1, s3, 0x0111BAA8u, sp);
+                plane(g, sp, normal);
+                entryModified(g, s2, s3, 0x0111BC58u, sp);
+            }
+        }
+        else
+        {
+            const uint32_t t2 = g.u32(g.u32(cls + 0x184u) + 0x20u);
+            const uint32_t s2 = g.u32(cls + 0x174u) + 0x58u;
+            const uint32_t index = g.u32(g.u32(s1 * 0x90u + g.u32(t2 + 8u) + 0x54u) + s3 * 4u);
+            normal = g.u32(s2 + 0x14u) + index * 16u;
+            if (g.u8(g.u32(s2 + 8u) + index) == 0u)
+            {
+                const uint32_t a2c = g.u32(cls + 0x174u);
+                call(g, kVertices, 0x0111BBC0u, sp,
+                     {sp + 0x20u, sp + 0x30u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t2 + 8u), g.u32(t2 + 0x14u),
+                      g.u32(t2 + 0x18u) + index * 0x40u});
+                plane(g, sp + 0x20u, normal);
+                entryModified(g, s2, index, 0x0111BC58u, sp);
+            }
+        }
+        D1F0 f0{ctx};
+        auto ret = [&](uint64_t v) -> uint64_t
+        {
+            f0.flush();
+            return v;
+        };
+        const float zero = 0.0f;
+        const __m128 n = g.q(normal);
+        const float d0 = d1PlaneDist(n, g.q(a1)), d1v = d1PlaneDist(n, g.q(a2));
+        f0.set(zero);
+        if (d1::lt(d0, zero) || d1::lt(zero, d1v))
+            return ret(0u);
+        // The crossing point (sp): p0 itself when the two distances are within 0.0005.
+        const float span = d1::sub(d1v, d0);
+        bool atStart;
+        if (d1::lt(span, zero))
+        {
+            const float e = -0.0004999999f; // 0xba03126d
+            f0.set(e);
+            atStart = d1::lt(e, span);
+        }
+        else
+        {
+            const float e = 0.0004999999f; // 0x3a03126d
+            f0.set(e);
+            atStart = d1::lt(span, e);
+        }
+        if (atStart)
+            g.put(sp, g.q(a1));
+        else
+        {
+            const float t = ps2FpuDivide(ctx->fcr31, d1v, span);
+            f0.set(t);
+            const __m128 vt = d1::splat(t);
+            const __m128 p0 = g.q(a1), p1 = g.q(a2);
+            const __m128 oneMinus = d1::vsub(d1::vf0(), vt);
+            const __m128 acc = d1::vmul(p0, vt);
+            g.put(sp, d1::vsel(p0, d1::vadd(acc, d1::vmul(p1, d1::bc<3>(oneMinus))), d1Xyz()));
+        }
+        // The boundary sphere.
+        f0.flush();
+        surfBoundary(g, sp + 0x10u, a3, 0x0111BD64u, sp);
+        {
+            __m128 dv = d1::vsub(g.q(sp + 0x10u), g.q(sp));
+            dv = d1::vsel(dv, d1::vmul(dv, dv), d1Xyz());
+            dv = d1::vsel(dv, d1::vadd(dv, d1::bc<1>(dv)), d1X());
+            const float dist2 = d1::lane<0>(d1::vadd(dv, d1::bc<2>(dv)));
+            const float r2 = g.f32(sp + 0x1Cu);
+            f0.set(r2);
+            if (d1::lt(r2, dist2))
+                return ret(0u);
+        }
+        // The triangle: barycentric u / v of the crossing point.
+        const uint32_t w1b = g.u32(a3 + 4u);
+        const uint32_t surface = w1b & 0x00FFFFFFu, index = (w1b >> 24) & 0x7Fu;
+        f0.flush();
+        if (static_cast<int32_t>(w1b) < 0)
+            verticesIndep(g, sp + 0x80u, 0u, cls, index, surface, 0x0111BDE8u, sp);
+        else
+        {
+            const uint32_t t4 = g.u32(g.u32(cls + 0x184u) + 0x20u);
+            const uint32_t a2c = g.u32(cls + 0x174u);
+            const uint32_t idx = g.u32(g.u32(index * 0x90u + g.u32(t4 + 8u) + 0x54u) + surface * 4u);
+            call(g, kVertices, 0x0111BE48u, sp,
+                 {sp + 0x80u, 0u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t4 + 8u), g.u32(t4 + 0x14u), g.u32(t4 + 0x18u) + idx * 0x40u});
+        }
+        const __m128 v0 = g.q(g.u32(sp + 0x80u));
+        g.put(sp + 0x50u, d1::vsub(g.q(g.u32(sp + 0x84u)), v0));
+        g.put(sp + 0x60u, d1::vsub(g.q(g.u32(sp + 0x88u)), v0));
+        g.put(sp + 0x70u, d1::vsub(g.q(sp), g.q(g.u32(sp + 0x80u))));
+        const __m128 e1 = g.q(sp + 0x50u), e2 = g.q(sp + 0x60u), w = g.q(sp + 0x70u);
+        __m128 nrm = d1Cross0(e1, e2); // vf8 (w: x - x, 0)
+        nrm = d1::vsel(nrm, d1::vsub(nrm, nrm), d1W());
+        const __m128 c2 = d1Cross0(nrm, e2);
+        const float u = ps2FpuDivide(ctx->fcr31, d1Dot3(c2, w), d1Dot3(c2, e1));
+        const __m128 c1 = d1Cross0(nrm, e1);
+        const float v = ps2FpuDivide(ctx->fcr31, d1Dot3(c1, w), d1Dot3(c1, e2));
+        const uint32_t ub = d1Bits(u), vb = d1Bits(v);
+        g.put32(sp + 0x90u, ub);
+        g.put32(sp + 0x94u, vb);
+        f0.set(u);
+        const float lo = -2e-05f; // 0xb7a7c5ac
+        if (d1::lt(u, lo) || d1::lt(v, lo))
+            return ret(0u);
+        const float one = 1.0f, hi = 2e-05f; // 0x37a7c5ac
+        const float sum = d1::sub(d1::add(u, v), one);
+        f0.set(sum);
+        if (d1::lt(hi, sum))
+            return ret(0u);
+        g.put(a0 + 0x40u, g.q(sp));
+        f0.set(u);
+        g.put32(a0 + 8u, ub);
+        g.put32(a0 + 0xCu, vb);
+        g.put32(a0, g.u32(a3));
+        g.put32(a0 + 4u, g.u32(a3 + 4u));
+        if (static_cast<int32_t>(g.u32(a3 + 4u)) >= 0)
+        {
+            g.put32(a0 + 0x30u, 3u);
+            return ret(1u);
+        }
+        uint32_t cls2 = cls;
+        layoutClass(g, g.u32(a3), cls2);
+        g.put32(a0 + 0x30u, 2u);
+        const uint32_t m = (static_cast<uint32_t>(g.u8(a3 + 7u)) & 0x7Fu) * 0x40u + g.u32(cls2 + 0x164u);
+        g.put(a0 + 0x10u, d1Xf(g, m, g.q(a0 + 0x40u)));
+        const __m128 local = g.q(a0 + 0x10u);
+        g.put(a0 + 0x10u, d1::vsel(local, d1::vmul(local, g.q(cls2 + 0xA0u)), d1Xyz()));
+        return ret(1u);
+    }
+
+    void clipCollisionDBD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return clipCollisionDB(rdram, ctx, runtime);
+        ++c_d1ClipDB.n;
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+        const uint64_t v0 = clipDBD1(g, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), ra, sp);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
+    }
+    void clipCollisionDBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            clipCollisionDBD1(rdram, ctx, runtime);
+        else
+            clipCollisionDB(rdram, ctx, runtime);
+    }
+
+    // ---- clipCollisionKeep ----------------------------------------------------------------------------------------------
+    void clipKeepD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return clipKeep(rdram, ctx, runtime);
+        ++c_d1Keep.n;
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xD0u;
+        const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), a3 = GPR_U32(ctx, 7), id = GPR_U32(ctx, 8);
+        const float keep = ctx->f[12];
+        auto rest = [&]()
+        {
+            SET_GPR_U32(ctx, 4, a0);
+            SET_GPR_U32(ctx, 5, a1);
+            SET_GPR_U32(ctx, 6, a2);
+            SET_GPR_U32(ctx, 7, a3);
+            SET_GPR_U32(ctx, 8, id);
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            ctx->f[12] = keep;
+            ctx->pc = kClipKeep;
+            return decomp_hot44a::clipKeepTest(rdram, ctx, runtime);
+        };
+        const uint32_t w1 = g.u32(id + 4u);
+        uint32_t cls;
+        if (!layoutClass(g, g.u32(id), cls))
+            return rest();
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        uint32_t normal;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t s2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            normal = g.u32(s2 + 0x14u) + s3 * 16u;
+            if (g.u8(g.u32(s2 + 8u) + s3) == 0u)
+            {
+                verticesIndep(g, sp, sp + 0x10u, cls, s1, s3, 0x0111C13Cu, sp);
+                plane(g, sp, normal);
+                entryModified(g, s2, s3, 0x0111C2E8u, sp);
+            }
+        }
+        else
+        {
+            const uint32_t t2 = g.u32(g.u32(cls + 0x184u) + 0x20u);
+            const uint32_t s2 = g.u32(cls + 0x174u) + 0x58u;
+            const uint32_t index = g.u32(g.u32(s1 * 0x90u + g.u32(t2 + 8u) + 0x54u) + s3 * 4u);
+            normal = g.u32(s2 + 0x14u) + index * 16u;
+            if (g.u8(g.u32(s2 + 8u) + index) == 0u)
+            {
+                const uint32_t a2c = g.u32(cls + 0x174u);
+                call(g, kVertices, 0x0111C250u, sp,
+                     {sp + 0x20u, sp + 0x30u, a2c + 0x28u, g.u32(a2c + 0x24u), g.u32(cls + 0x15Cu), g.u32(t2 + 8u), g.u32(t2 + 0x14u),
+                      g.u32(t2 + 0x18u) + index * 0x40u});
+                plane(g, sp + 0x20u, normal);
+                entryModified(g, s2, index, 0x0111C2E8u, sp);
+            }
+        }
+        const float d = d1PlaneDist(g.q(normal), g.q(a3));
+        const float ahead = d1::sub(d, keep), zero = 0.0f;
+        if (!d1::le(zero, ahead))
+            return rest();
+        g.f0(zero);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, 2u);
+        returnTo(ctx);
+    }
+    void clipKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            clipKeepD1(rdram, ctx, runtime);
+        else
+            clipKeep(rdram, ctx, runtime);
+    }
+
+    // ---- the finder leaf, 0x1115798 (byte count) -------------------------------------------------------------------------
+    // finderLeaf<true>'s surfaces in one loop (round 49's scan folded in: the boundary record read from the class's table
+    // while its flag byte says it is made, else boundary()'s guest path; the table's words read again after any call).
+    void finderLeafD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+#if PS2X_VU_NEON_A32
+        if (!sotc_decomp::fastNativeOn() || !sotc_decomp::coll71On() || g_statsOn || fast::checkOn() || fast::check49())
+#else
+        if (!sotc_decomp::fastNativeOn() || !sotc_decomp::coll71On() || g_statsOn)
+#endif
+            return finderLeaf<true>(rdram, ctx, runtime);
+        ++c_d1Leaf.n;
+        const FinderSites &site = kFinderA;
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x70u;
+        const uint32_t p = GPR_U32(ctx, 4), tree = GPR_U32(ctx, 5), leafIndex = GPR_U32(ctx, 6);
+        const uint32_t entry = g.u32(tree + 4u) + leafIndex * 4u;
+        uint32_t count = g.u8(entry);
+        const uint32_t firstOffset = (g.u32(entry) >> 8) << 1;
+        const uint32_t cls = g.u32(p + 8u);
+        uint32_t ids = g.u32(tree) + firstOffset;
+        const uint32_t planes = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x30u;
+        if (count == 0u)
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(firstOffset));
+            return returnTo(ctx);
+        }
+        const uint32_t center = g.u32(p + 0x20u);
+        const float radius = g.f32(p + 0x18u);
+        const float zero = 0.0f;
+        D1F0 f0{ctx};
+        bool chain = false;
+        uint32_t flags = 0u, table = 0u;
+        for (; count != 0u; --count, ids += 2u)
+        {
+            const uint32_t surface = g.u16(ids);
+            if (!chain)
+            {
+                const uint32_t t2 = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x48u;
+                flags = g.u32(t2 + 8u);
+                table = g.u32(t2 + 0x14u);
+                chain = true;
+            }
+            uint32_t bnd;
+            if (__builtin_expect(g.u8(flags + surface) != 0u, 1))
+                bnd = table + surface * 16u;
+            else
+            {
+                f0.flush();
+                bnd = boundary(g, cls, 0u, surface, site.boundary, sp);
+                chain = false;
+            }
+            float reach = d1::add(g.f32(bnd + 0xCu), radius);
+            reach = d1::mul(reach, reach);
+            const __m128 c = g.q(center);
+            f0.set(reach);
+            {
+                __m128 sq = d1::vsub(g.q(bnd), c);
+                sq = d1::vmul(sq, sq);
+                const float de = d1::lane<0>(d1::vadd(d1::vadd(sq, d1::bc<1>(sq)), d1::bc<2>(sq)));
+                if (!d1::lt(de, reach))
+                    continue;
+            }
+            if (const uint32_t filter = g.u32(p + 0x28u); filter != 0u)
+            {
+                SET_GPR_U32(ctx, 4, bnd);
+                SET_GPR_U32(ctx, 5, g.u32(p + 0xCu));
+                SET_GPR_U32(ctx, 6, g.u32(p + 0x30u));
+                f0.flush();
+                guestCall(rdram, ctx, runtime, filter, site.filter, sp);
+                chain = false;
+                if (GPR_U64(ctx, 2) == 0u)
+                    continue;
+            }
+            const uint32_t slot = g.u32(planes + 0x14u) + surface * 16u;
+            if (g.u8(g.u32(planes + 8u) + surface) == 0u)
+            {
+                f0.flush();
+                verticesIndep(g, sp, sp + 0x10u, cls, 0u, surface, site.vertices, sp);
+                plane(g, sp, slot);
+                entryModified(g, planes, surface, site.modified, sp);
+                chain = false;
+            }
+            const float dist = d1PlaneDist(g.q(slot), c);
+            f0.set(zero);
+            if (d1::lt(dist, zero))
+            {
+                const float neg = -dist;
+                f0.set(neg);
+                if (!d1::lt(neg, radius))
+                    continue;
+            }
+            else if (!d1::lt(dist, radius))
+                continue;
+            const uint64_t id = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(surface | 0x80000000u)));
+            if (const uint32_t filter = g.u32(p + 0x2Cu); filter != 0u)
+            {
+                g.put32(sp, g.u32(p + 4u));
+                g.put32(sp + 4u, static_cast<uint32_t>(id));
+                f0.flush();
+                chain = false;
+                uint64_t pass;
+                if (idFilter(g, filter, sp, g.u32(p + 0x30u), pass, sp))
+                {
+                    if (pass == 0u)
+                        continue;
+                }
+                else
+                {
+                    SET_GPR_U32(ctx, 4, sp);
+                    SET_GPR_U32(ctx, 5, g.u32(p + 0x30u));
+                    guestCall(rdram, ctx, runtime, filter, site.idFilter, sp);
+                    if (GPR_U64(ctx, 2) == 0u)
+                        continue;
+                }
+            }
+            if (finderHas(g, g.u32(p), static_cast<int32_t>(g.u32(p + 0x34u)), surface) != 0u)
+            {
+                if (__builtin_expect(ground85::g_cap.on, 0) && !sotc_decomp::onWorkerLane(g.runtime) && g.u32(p + 4u) == ground85::g_cap.obj)
+                    capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), true);
+                continue;
+            }
+            if (__builtin_expect(ground85::g_cap.on, 0) && !sotc_decomp::onWorkerLane(g.runtime) && g.u32(p + 4u) == ground85::g_cap.obj)
+                capture85(g, center, radius, bnd, slot, static_cast<uint32_t>(id), false);
+            SET_GPR_U32(ctx, 4, g.u32(p));
+            SET_GPR_U32(ctx, 5, g.u32(p + 4u));
+            SET_GPR_U64(ctx, 6, id);
+            f0.flush();
+            guestCall(rdram, ctx, runtime, 0x0112A250u, site.entry, sp);
+            chain = false;
+        }
+        f0.flush();
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_S64(ctx, 2, -1);
+        returnTo(ctx);
+    }
+    void finderLeafSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            finderLeafD1(rdram, ctx, runtime);
+        else
+            finderLeaf<true>(rdram, ctx, runtime);
+    }
+
+    // ---- ClipCollisionDirectCallBack / ...ObjAry: obj125's loop (obj125Run) --------------------------------------------
+    // obj125Run<Array> with its math as d1 (the transforms d1Xf, the skinned cylinder d1Cylinder, the segment's
+    // difference and radii), clipDBD1 for its one-by-one and skinned surfaces; its plain-float cylinder tests (cyl125,
+    // the skinned spheres) as they are (they are the old body's own values); its counters left out.
+
+    template <bool Array>
+    void obj125RunD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const G g{rdram, ctx, runtime};
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x270u;
+        const uint32_t s5 = GPR_U32(ctx, 4), start = GPR_U32(ctx, 5), end = GPR_U32(ctx, 6), group = GPR_U32(ctx, 7);
+        const uint32_t count = GPR_U32(ctx, 8);
+        const uint32_t objFilter = Array ? GPR_U32(ctx, 9) : GPR_U32(ctx, 8), partFilter = Array ? GPR_U32(ctx, 10) : GPR_U32(ctx, 9),
+                       surfFilter = Array ? GPR_U32(ctx, 11) : GPR_U32(ctx, 10), idFilt = Array ? g.u32(spIn) : GPR_U32(ctx, 11);
+        const uint32_t user = Array ? g.u32(spIn + 8u) : g.u32(spIn);
+        call(g, 0x01133548u, Array ? 0x0112E1ECu : 0x0112D5FCu, sp, {sp + 0x40u, sp, start, end}); // GetArbitraryDirectionInverseMatrix
+        const float length = ctx->f[0];
+        auto finish = [&](uint64_t v0)
+        {
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            SET_GPR_U64(ctx, 2, v0);
+            returnTo(ctx);
+        };
+        if (length < 0.0f)
+            return finish(0u);
+        const __m128 qStart = g.q(start);
+        __m128 endObj = g.q(end); // the original's sp + 0x80: the segment's end, the last object hit's point
+        bool anyHit = false;
+        auto doObject = [&](uint32_t object)
+        {
+            bool objectHit = false;
+            bool tested = true;
+            if (objFilter != 0u)
+            {
+                uint64_t pass;
+                if (objectFilter(g, objFilter, object, user, pass))
+                    tested = pass != 0u;
+                else
+                {
+                    call(g, objFilter, 0x0112D654u, sp, {object, user});
+                    tested = GPR_U64(ctx, 2) != 0u;
+                }
+            }
+            if (tested)
+            {
+                const uint32_t cls = layoutClassAny(g, object, 0x0112D668u, sp);
+                if (static_cast<int8_t>(g.u8(cls + 0x1B8u)) != 0 && static_cast<int8_t>(g.u8(cls + 0x1BBu)) != 0)
+                {
+                    const uint32_t db = g.u32(g.u32(cls + 0x184u) + 0x20u);
+                    const float radius = g.f32(db + 0x2Cu), scale = g.f32(cls + 0x90u);
+                    bool near = true;
+                    if (radius != 0.0f)
+                        near = cyl125(d1Xf(g, sp + 0x40u, g.q(g.u32(cls + 0x134u))), d1::mul(radius, scale), length);
+                    if (near)
+                    {
+                        const uint32_t base = g.u32(cls + 0x174u);
+                        uint32_t m0 = g.u32(cls + 0x158u), m1 = g.u32(cls + 0x15Cu), m2 = g.u32(cls + 0x164u);
+                        uint32_t s7 = g.u32(db + 8u);
+                        const int32_t nParts = static_cast<int32_t>(g.u32(db + 4u));
+                        const uint32_t tree = g.u32(db + 0x1Cu);
+                        __m128 endCur = endObj; // the original's sp + 0xA0
+                        bool objPartHit = false;
+                        const bool pf135 = sotc_decomp::pf135On();
+                        for (int32_t part = 0; part < nParts; ++part, s7 += 0x90u, m0 += 0x40u, m1 += 0x40u, m2 += 0x40u)
+                        {
+                            // Round 135 (pf135): the next part's record (+4 / +0x10 / +0x1c / +0x20 / +0x50..+0x60) and its
+                            // m1 matrix asked for while this one is tested (reads nothing, changes nothing).
+                            if (pf135 && part + 1 < nParts && G::plain(s7 + 0x90u, 0x90u) && G::plain(m1 + 0x40u, 0x40u))
+                            {
+                                for (uint32_t off = 0x90u; off < 0x120u; off += 0x20u)
+                                    __builtin_prefetch(g.rdram + s7 + off);
+                                __builtin_prefetch(g.rdram + m1 + 0x40u);
+                                __builtin_prefetch(g.rdram + m1 + 0x40u + 0x20u);
+                                pf141::noteColl(g.rdram, s7 + 0x90u, 0x90u); // round 141 (pfc141)
+                                pf141::noteColl(g.rdram, m1 + 0x40u, 0x40u);
+                            }
+                            if (g.u32(s7 + 4u) == 0u)
+                                continue;
+                            bool partHit = false;
+                            const uint32_t nSurf = g.u32(s7 + 0x10u), nSkin = g.u32(s7 + 0x50u);
+                            bool spilled = false;
+                            // the loop's frame words the original's one-by-one / skinned code reads
+                            auto spill = [&]()
+                            {
+                                if (spilled)
+                                    return;
+                                spilled = true;
+                                g.put32(sp + 0x1A0u, start);
+                                g.put32(sp + 0x1A4u, objFilter);
+                                g.put32(sp + 0x1A8u, partFilter);
+                                g.put32(sp + 0x1ACu, surfFilter);
+                                g.put32(sp + 0x1B0u, idFilt);
+                                g.put32(sp + 0x1B8u, object);
+                                g.put32(sp + 0x1C0u, cls);
+                                g.put32(sp + 0x1C4u, db);
+                                g.put32(sp + 0x1C8u, g.u32(base + 0x24u));
+                                g.put32(sp + 0x1CCu, base + 0x28u);
+                                g.put32(sp + 0x1D0u, m0);
+                                g.put32(sp + 0x1D4u, m1);
+                                g.put32(sp + 0x1D8u, m2);
+                                g.put32(sp + 0x1DCu, static_cast<uint32_t>(part));
+                                g.put(sp + 0xA0u, endCur);
+                            };
+                            if (nSurf != 0u)
+                            {
+                                const __m128 wc = d1Xf(g, m1, g.q(s7 + 0x20u));
+                                bool go = cyl125(d1Xf(g, sp + 0x40u, wc), d1::mul(g.f32(s7 + 0x1Cu), scale), length);
+                                if (go && partFilter != 0u)
+                                {
+                                    g.put(sp + 0xB0u, wc);
+                                    call(g, partFilter, 0x0112D880u, sp, {sp + 0xB0u, sp, sp + 0x40u, user});
+                                    go = GPR_U64(ctx, 2) != 0u;
+                                }
+                                if (go && tree != 0u)
+                                {
+                                    g.put32(sp + 0xD0u, object);
+                                    g.put32(sp + 0xD4u, cls);
+                                    putf(g, sp + 0xD8u, length);
+                                    g.put32(sp + 0xDCu, m0);
+                                    g.put32(sp + 0xE0u, sp + 0x40u);
+                                    putf(g, sp + 0xE4u, scale);
+                                    g.put32(sp + 0xE8u, 0u);
+                                    g.put32(sp + 0xECu, surfFilter);
+                                    g.put32(sp + 0xF0u, idFilt);
+                                    g.put32(sp + 0xF4u, user);
+                                    const uint32_t s3 = sp + 0x130u, s2 = sp + 0x140u;
+                                    const __m128 v3 = d1Xf(g, m2, qStart), v2 = d1Xf(g, m2, endCur);
+                                    g.put(s3, v3);
+                                    g.put(s2, v2);
+                                    g.put(sp + 0x100u, v3);
+                                    const __m128 dv = d1::vsub(v2, v3);
+                                    g.put(sp + 0x120u, dv);
+                                    g.put(sp + 0x110u, abs125(dv)); // iosAbsVector
+                                    uint64_t r2;
+                                    if (g.u32(tree + 0x10u) != 0u)
+                                    {
+                                        call(g, 0x0112ACD0u, 0x0112D9A4u, sp, {s5, s3, s2, tree, g.u32(tree + 8u) + g.u32(tree + 0xCu) * 16u, sp + 0xD0u});
+                                        r2 = GPR_U64(ctx, 2);
+                                    }
+                                    else if (static_cast<int32_t>(g.u32(g.u32(g.u32(cls + 0x184u) + 0x20u))) < 3)
+                                    {
+                                        call(g, 0x0112B890u, 0x0112DACCu, sp, {s5, s3, s2, tree, g.u32(tree + 8u) + g.u32(tree + 0xCu) * 8u, sp + 0xD0u});
+                                        r2 = GPR_U64(ctx, 2);
+                                    }
+                                    else
+                                    {
+                                        const uint32_t root = g.u32(tree + 8u) + g.u32(tree + 0xCu) * 8u;
+                                        const uint32_t axis = (g.u32(root + 4u) & 3u) * 4u;
+                                        g.f0(g.f32(s2 + axis));
+                                        const Seg seg{s5, tree, sp + 0xD0u};
+                                        const bool log115 = coll115::params().log;
+                                        const uint64_t tw = log115 ? coll115::nowUs() : 0u;
+                                        if (coll115::active(runtime) && coll115::walkChecked(g, seg, s3, s2, root, sp, -1, r2, 0, [&] { return rootF(g, seg, s3, s2, root, sp); }))
+                                            ;
+                                        else
+                                            r2 = rootF(g, seg, s3, s2, root, sp);
+                                        if (log115)
+                                        {
+                                            coll115::g_st.usW[1] += coll115::nowUs() - tw;
+                                            ++coll115::g_st.nW[1];
+                                        }
+                                    }
+                                    partHit = r2 != 0u;
+                                }
+                                else if (go)
+                                {
+                                    // one surface at a time: the original's code on the spilled words
+                                    spill();
+                                    uint64_t hit = 0u;
+                                    const float one = 1.0f;
+                                    const uint32_t s4 = layoutClassAny(g, object, 0x0112DAECu, sp);
+                                    g.put(sp + 0xD0u, g.q(sp + 0xA0u));
+                                    for (int32_t surface = 0; surface < static_cast<int32_t>(g.u32(s7 + 0x10u)); ++surface)
+                                    {
+                                        const uint32_t b = boundary(g, s4, g.u32(sp + 0x1DCu), static_cast<uint32_t>(surface), 0x0112DB1Cu, sp);
+                                        g.put(sp + 0xE0u, g.q(b));
+                                        putf(g, sp + 0xECu, one);
+                                        const float rb = g.f32(b + 0xCu);
+                                        const __m128 cb = d1Xf(g, sp + 0x40u, g.q(sp + 0xE0u));
+                                        g.put(sp + 0xF0u, cb);
+                                        if (!cyl125(cb, rb, length))
+                                            continue;
+                                        if (surfFilter != 0u)
+                                        {
+                                            call(g, surfFilter, 0x0112DBC8u, sp, {sp + 0xE0u, sp + 0x40u, user});
+                                            if (GPR_U64(ctx, 2) == 0u)
+                                                continue;
+                                        }
+                                        g.put32(sp + 0x104u, (static_cast<uint32_t>(part) << 24) | static_cast<uint32_t>(surface) | 0x80000000u);
+                                        g.put32(sp + 0x100u, object);
+                                        if (idFilt != 0u && !directFilter(g, idFilt, sp + 0x100u, user, 0x0112DC08u, sp))
+                                            continue;
+                                        if (clipDBD1(g, s5, start, sp + 0xD0u, sp + 0x100u, 0x0112DC24u, sp) != 0u)
+                                        {
+                                            hit = 1u;
+                                            const uint32_t lo = g.u32(sp + 0x100u), hi = g.u32(sp + 0x104u);
+                                            const __m128 point = g.q(s5 + 0x40u);
+                                            g.put32(s5, lo);
+                                            g.put32(s5 + 4u, hi);
+                                            g.put(sp + 0xD0u, point);
+                                        }
+                                    }
+                                    partHit = hit != 0u;
+                                }
+                            }
+                            if (nSkin != 0u)
+                            {
+                                // the skinned surfaces: the original's code (its frame words written here)
+                                const float zero = 0.0f, one = 1.0f;
+                                const float r = d1::mul(g.f32(s7 + 0x5Cu), scale);
+                                ctx->f[12] = r;
+                                g.put(sp + 0xC0u, d1Xf(g, m1, g.q(s7 + 0x60u)));
+                                const __m128 c = d1Xf(g, sp + 0x40u, g.q(sp + 0xC0u));
+                                g.put(sp + 0xD0u, c);
+                                if (d1Cylinder(g, c, r, length))
+                                {
+                                    bool go = true;
+                                    if (partFilter != 0u)
+                                    {
+                                        call(g, partFilter, 0x0112DD3Cu, sp, {sp + 0xC0u, sp, sp + 0x40u, user});
+                                        go = GPR_U64(ctx, 2) != 0u;
+                                    }
+                                    if (go)
+                                    {
+                                        matrixProduct(g, sp + 0xE0u, sp + 0x40u, m1);
+                                        const uint32_t count = g.u32(s7 + 0x50u);
+                                        g.put32(sp + 0x1F4u, count);
+                                        g.put32(sp + 0x1F8u, g.u32(cls + 0x15Cu));
+                                        const uint32_t s3 = base + 0x28u + 0x48u;
+                                        g.put(sp + 0x150u, endCur);
+                                        uint32_t s2 = g.u32(s7 + 0x58u);
+                                        bool skinHit = false;
+                                        g.put32(sp + 0x1ECu, g.u32(db + 8u));
+                                        uint32_t s4 = g.u32(s7 + 0x54u);
+                                        g.put32(sp + 0x1F0u, g.u32(db + 0x14u));
+                                        for (int32_t s8 = 0; s8 < static_cast<int32_t>(count); ++s8, s2 += 0x10u, s4 += 4u)
+                                        {
+                                            const uint32_t s0 = g.u32(s4);
+                                            const uint32_t t3 = g.u32(db + 0x18u) + s0 * 64u;
+                                            const uint32_t s1 = g.u32(s3 + 0x14u) + s0 * 16u;
+                                            if (g.u8(g.u32(s3 + 8u) + s0) == 0u)
+                                            {
+                                                g.put(sp + 0x160u, g.q(s2));
+                                                putf(g, sp + 0x16Cu, one);
+                                                const float rs = d1::mul(g.f32(s2 + 0xCu), scale);
+                                                const __m128 cs = d1Xf(g, sp + 0xE0u, g.q(sp + 0x160u));
+                                                g.put(sp + 0x170u, cs);
+                                                if (!cyl125(cs, rs, length))
+                                                    continue;
+                                                call(g, 0x01124368u, 0x0112DF00u, sp,
+                                                     {s1, s3, base + 0x28u, g.u32(base + 0x24u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
+                                                entryModified(g, s3, s0, 0x0112DF0Cu, sp);
+                                            }
+                                            g.put(sp + 0x170u, g.q(s1));
+                                            putf(g, sp + 0x17Cu, one);
+                                            const float r2 = g.f32(s1 + 0xCu);
+                                            const __m128 cs = d1Xf(g, sp + 0x40u, g.q(sp + 0x170u));
+                                            g.put(sp + 0x180u, cs);
+                                            float v[4];
+                                            std::memcpy(v, &cs, 16);
+                                            if (!(v[0] * v[0] + v[1] * v[1] < r2))
+                                                continue;
+                                            if (v[2] < zero && !(v[2] * v[2] < r2))
+                                                continue;
+                                            if (v[2] > length && !((v[2] - length) * (v[2] - length) < r2))
+                                                continue;
+                                            if (surfFilter != 0u)
+                                            {
+                                                call(g, surfFilter, 0x0112DFCCu, sp, {s1, 0u, user});
+                                                if (GPR_U64(ctx, 2) == 0u)
+                                                    continue;
+                                            }
+                                            g.put32(sp + 0x190u, object);
+                                            g.put32(sp + 0x194u, (static_cast<uint32_t>(part) << 24) | static_cast<uint32_t>(s8));
+                                            if (idFilt != 0u && !directFilter(g, idFilt, sp + 0x190u, user, 0x0112E004u, sp))
+                                                continue;
+                                            if (clipDBD1(g, s5, start, sp + 0x150u, sp + 0x190u, 0x0112E020u, sp) != 0u)
+                                            {
+                                                skinHit = true;
+                                                const uint32_t lo = g.u32(sp + 0x190u), hi = g.u32(sp + 0x194u);
+                                                const __m128 point = g.q(s5 + 0x40u);
+                                                g.put32(s5, lo);
+                                                g.put32(s5 + 4u, hi);
+                                                g.put(sp + 0x150u, point);
+                                            }
+                                        }
+                                        if (skinHit)
+                                            partHit = true;
+                                    }
+                                }
+                            }
+                            if (partHit)
+                            {
+                                objPartHit = true;
+                                endCur = g.q(s5 + 0x40u);
+                            }
+                        }
+                        if (objPartHit)
+                        {
+                            g.put(s5 + 0x40u, endCur);
+                            objectHit = true;
+                        }
+                    }
+                }
+            }
+            if (objectHit)
+            {
+                anyHit = true;
+                endObj = g.q(s5 + 0x40u);
+            }
+        };
+        const bool pf = sotc_decomp::pf134On();
+        if constexpr (Array)
+        {
+            if (pf && count != 0u)
+                pf134Object(g, g.u32(group));
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                if (pf && i + 1u < count)
+                    pf134Object(g, g.u32(group + 4u * (i + 1u)));
+                doObject(g.u32(group + 4u * i));
+            }
+            return finish(anyHit ? 1u : 0u);
+        }
+        call(g, 0x001C7110u, 0x0112D628u, sp, {group, 0u}); // isysGroupForFirst
+        uint32_t entry = GPR_U32(ctx, 2), last = 0u;
+        while (entry != 0u)
+        {
+            const uint32_t object = g.u32(entry);
+            last = object;
+            if (pf && entry < PS2_RAM_SIZE - 0x10u)
+            {
+                // The next link's object (groupNext below walks from it; a deleted one is only a wasted line).
+                if (const uint32_t index = g.u16(entry + 0xEu); index != 0u)
+                {
+                    const uint32_t link = 0x0021B900u + index * 24u;
+                    if (link < PS2_RAM_SIZE - 0x10u)
+                        pf134Object(g, g.u32(link));
+                }
+            }
+            doObject(object);
+            uint32_t nextEntry;
+            if (groupNext(g, entry, nextEntry))
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(nextEntry));
+            else
+            {
+                call(g, 0x001C76D0u, 0x0112E11Cu, sp, {entry, 0u}); // isysGroupForNext
+                nextEntry = GPR_U32(ctx, 2);
+            }
+            entry = nextEntry;
+        }
+        if (last != 0u)
+            call(g, 0x001C77B8u, 0x0112E140u, sp, {last, 0u}); // isysGroupForExit
+        finish(anyHit ? 1u : 0u);
+    }
+
+
+    // SOTC_SEG80 set to 1-9 (segMemo's seg80Asked): read once, as switchOn reads its variables (idempotent).
+    inline signed char g_d1Seg80Asked = -1;
+    inline bool d1Seg80Asked()
+    {
+        if (__builtin_expect(g_d1Seg80Asked < 0, 0))
+        {
+            const char *e = std::getenv("SOTC_SEG80");
+            g_d1Seg80Asked = (e && e[0] >= '1' && e[0] <= '9') ? 1 : 0;
+        }
+        return g_d1Seg80Asked != 0;
+    }
+    // directCallBack's default path is segMemo -> directCallBackBody -> obj125Run<false>; anything else (a check or log
+    // mode, seg123, seg80's memo for this caller, the camera's tuning memo, the census, obj125 or fastnative off, the
+    // worker lane) goes to the old body.
+    void directCallBackD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31);
+        if (obj125Check() != 0 || coll115::params().log || (coll115::params().check == 1 && coll115::on(runtime)) || sotc_decomp::switchOn(sotc_decomp::kSeg123) ||
+            g_queryNote != nullptr || !sotc_decomp::fastNativeOn() || !obj125On(runtime) || (native_renderer::tuning().sacCamColl && ra == 0x0140F2ACu) ||
+            (sotc_decomp::seg80On() && (d1Seg80Asked() || !coll115::on(runtime) || (sotc_decomp::probe84On() && seg80::pathCaller(ra)))))
+            return directCallBack(rdram, ctx, runtime);
+        ++c_d1Direct.n;
+        obj125RunD1<false>(rdram, ctx, runtime);
+    }
+    void directCallBackSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            directCallBackD1(rdram, ctx, runtime);
+        else
+            directCallBack(rdram, ctx, runtime);
+    }
+    // decomp_hot46g's objAry D1 body: true when obj125's loop ran here (objAry125's own conditions, no check mode).
+    bool objAry125D1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!obj125On(runtime) || !sotc_decomp::fastNativeOn() || obj125Check() != 0)
+            return false;
+        ++c_d1ObjAry.n;
+        obj125RunD1<true>(rdram, ctx, runtime);
+        return true;
+    }
+
+    // ---- manager_sub_01117340 (the water surface): waterSurfaceBody's S2 / S6 path ---------------------------------------
+    // vopmula / vopmsub (outer, the old body's operands unclamped).
+    inline __m128 d1Outer(__m128 a, __m128 b) { return d1::vsub(d1::vmul(d1Yzx(a), d1Zxy(b)), d1::vmul(d1Yzx(b), d1Zxy(a))); }
+    // dotX: 0 + m.x, + 1 x m.y, + 1 x m.z on lane 0 (1 x a NEON result is that result: the products by one left out).
+    inline float d1DotX(__m128 a, __m128 b)
+    {
+        const __m128 m = d1::vmul(a, b);
+        __m128 acc = d1::vadd(d1::zero4(), d1::bc<0>(m));
+        acc = d1::vadd(acc, d1::bc<1>(m));
+        return d1::lane<0>(d1::vadd(acc, d1::bc<2>(m)));
+    }
+    void waterSurfaceD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // the old body for a log / check mode, a triangle filter (guest calls per triangle) and every non-S2 case
+        if (s6coll::logOn() || s2water::logOn() || s2water::checkOn() || s6coll::checkOn() || !sotc_decomp::collProbeOn() ||
+            sotc_decomp::jalTarget(rdram, 0x01117394u) != kGetLayoutClass || GPR_U32(ctx, 9) != 0u || !s2water::on(runtime))
+            return waterSurface(rdram, ctx, runtime);
+        const G g{rdram, ctx, runtime};
+        uint32_t cls;
+        if (!layoutClass(g, GPR_U32(ctx, 7), cls))
+            return waterSurface(rdram, ctx, runtime);
+        const uint32_t work = sotc_decomp::relocated(rdram, 0x011173ACu, 0x011173B4u), cross = sotc_decomp::relocated(rdram, 0x011173A0u, 0x011173A4u);
+        const uint32_t rec = g.u32(g.u32(cls + 0x184u) + 0x20u);
+        const int32_t count = static_cast<int32_t>(g.u32(rec + 0x38u));
+        const uint32_t t0 = g.u32(rec + 0x3Cu);
+        if (!(count > 0 && G::plain(t0, 0x20u * static_cast<uint32_t>(count)) && G::plain(work, 0x40u) && G::plain(cross, 0x10u)))
+            return waterSurface(rdram, ctx, runtime);
+        ++c_d1Water.n;
+        const uint32_t m = g.u32(cls + 0x164u);
+        const __m128 p0 = d1Xf(g, m, g.q(GPR_U32(ctx, 5))), p1 = d1Xf(g, m, g.q(GPR_U32(ctx, 6)));
+        const float p0x = d1::lane<0>(p0), p0y = d1::lane<1>(p0), p0z = d1::lane<2>(p0);
+        const float p1x = d1::lane<0>(p1), p1y = d1::lane<1>(p1), p1z = d1::lane<2>(p1);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
+        const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
+        uint32_t &fcr31 = ctx->fcr31;
+        // one triangle: its words into the work block, then the crossing's barycentric (true: inside, the old body's case)
+        auto tri = [&](uint32_t t, float &f0) -> bool
+        {
+            const float vx = g.f32(t + 8u), vz = g.f32(t + 0xCu), h = g.f32(t + 4u);
+            g.put32(work + 0x10u, floatBits(d1::sub(g.f32(t + 0x10u), vx)));
+            g.put32(work + 0x18u, floatBits(d1::sub(g.f32(t + 0x14u), vz)));
+            g.put32(work + 0x20u, floatBits(d1::sub(g.f32(t + 0x18u), vx)));
+            g.put32(work, floatBits(vx));
+            g.put32(work + 8u, floatBits(vz));
+            g.put32(work + 0x28u, floatBits(d1::sub(g.f32(t + 0x1Cu), vz)));
+            g.put32(work + 0x30u, floatBits(h));
+            f0 = h;
+            if (!d1::lt(p1y, h))
+                return false;
+            f0 = p0y;
+            if (!d1::lt(h, p0y))
+                return false;
+            const float k = ps2FpuDivide(fcr31, d1::sub(h, p0y), d1::sub(p1y, p0y));
+            const __m128 kx = d1::splat(k);
+            const __m128 w = d1::vsub(d1::vf0(), kx); // vsubx.w vf8, vf0, vf7 (lane w)
+            const __m128 q = d1::vadd(d1::vmul(p1, kx), d1::vmul(p0, d1::bc<3>(w)));
+            g.put32(cross, floatBits(d1::sub(d1::lane<0>(q), vx)));
+            g.put32(cross + 8u, floatBits(d1::sub(d1::lane<2>(q), vz)));
+            const __m128 a = g.q(work + 0x10u), b = g.q(work + 0x20u), c = g.q(cross);
+            const __m128 n = d1Outer(a, b);
+            const __m128 nb = d1Outer(n, b);
+            const float u = ps2FpuDivide(fcr31, d1DotX(nb, c), d1DotX(nb, a));
+            const __m128 na = d1Outer(n, a);
+            const float v = ps2FpuDivide(fcr31, d1DotX(na, c), d1DotX(na, b));
+            f0 = u;
+            if (d1::lt(u, lowLimit) || d1::lt(v, lowLimit))
+                return false;
+            f0 = d1::sub(d1::add(u, v), one);
+            if (d1::lt(highLimit, f0))
+                return false;
+            return true;
+        };
+        float f0n = ctx->f[0];
+        bool slow;
+        s6coll::Index *ix = s6coll::active(runtime) ? const_cast<s6coll::Index *>(s6coll::find(g.rdram, t0, count)) : nullptr;
+        std::vector<uint16_t> &cands = s6coll::scratch();
+        const float bx0 = p0x < p1x ? p0x : p1x, bx1 = p0x > p1x ? p0x : p1x, bz0 = p0z < p1z ? p0z : p1z, bz1 = p0z > p1z ? p0z : p1z;
+        const int32_t lastB = ix ? s6coll::lastBetween(*ix, p1y, p0y) : -1;
+        bool byIndex = ix != nullptr;
+        if (byIndex)
+        {
+            cands.clear();
+            if (lastB >= 0)
+                byIndex = s6coll::boxCands(*ix, bx0, bx1, bz0, bz1, cands);
+        }
+        if (byIndex)
+        {
+            uint32_t visited = 0;
+            bool done = false;
+            slow = false;
+            auto visit = [&](int32_t i)
+            {
+                const uint32_t t = t0 + 0x20u * static_cast<uint32_t>(i);
+                const float h = g.f32(t + 4u);
+                if (!(d1::lt(p1y, h) && d1::lt(h, p0y)))
+                    return;
+                if (i != lastB && s2water::outsideBox(g.rdram, t, bx0, bx1, bz0, bz1))
+                    return;
+                ++visited;
+                if (tri(t, f0n))
+                    slow = done = true;
+            };
+            bool lastSeen = false;
+            for (const uint16_t i : cands)
+            {
+                const int32_t k = static_cast<int32_t>(i);
+                if (k + 1 >= count || k > lastB)
+                    break;
+                lastSeen = lastSeen || k == lastB;
+                visit(k);
+                if (done)
+                    break;
+            }
+            if (!done && !lastSeen && lastB >= 0 && lastB + 1 < count)
+                visit(lastB);
+            if (!done)
+            {
+                ++visited;
+                slow = tri(t0 + 0x20u * static_cast<uint32_t>(count - 1), f0n);
+            }
+            s6coll::noteProbe(1, true, visited);
+        }
+        else
+            slow = s2water::surface(g.rdram, t0, count, p0x, p0y, p0z, p1x, p1y, p1z, [&](uint32_t t) { return tri(t, f0n); });
+        if (slow)
+            return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        ctx->f[0] = f0n;
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+    void waterSurfaceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            waterSurfaceD1(rdram, ctx, runtime);
+        else
+            waterSurface(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D1: the finder's tree walk (decomp_finderwalk::W with d1 scalars) ----------------------------------------------
+// The same walk; the split tests as d1::add / sub / mul and d1::le; v0 and f0 as locals stored before each leaf callback
+// (whose v0 / f0 then stand until the walk sets them again) and at the return. The leaf 0x1115798 called as the table's
+// native when the table holds it (the D1 dispatcher: its D1 body straight), anything else as before.
+namespace decomp_finderwalk
+{
+    struct WD1
+    {
+        uint8_t *rdram;
+        R5900Context *ctx;
+        PS2Runtime *runtime;
+        uint32_t box, tree, callback, query;
+        // the walk's v0 / f0 not yet stored into the context
+        uint32_t *v0;
+        float *f0;
+        bool *v0Dirty, *f0Dirty;
+        uint32_t u32(uint32_t a) const { return d1::Mem{rdram}.u32(a); }
+        float f32(uint32_t a) const { return d1::Mem{rdram}.f32(a); }
+        void setV0(uint32_t v) const
+        {
+            *v0 = v;
+            *v0Dirty = true;
+        }
+        void setF0(float v) const
+        {
+            *f0 = v;
+            *f0Dirty = true;
+        }
+        void flush() const
+        {
+            if (*v0Dirty)
+                SET_GPR_U32(ctx, 2, *v0);
+            if (*f0Dirty)
+                ctx->f[0] = *f0;
+            *v0Dirty = *f0Dirty = false;
+        }
+        void leaf(uint32_t index, uint32_t site, uint32_t sp) const
+        {
+            flush();
+            SET_GPR_U32(ctx, 4, query);
+            SET_GPR_U32(ctx, 5, tree);
+            SET_GPR_U32(ctx, 6, index);
+            const PS2Runtime::RecompiledFunction fn = runtime->guestFunctionAt(callback);
+            if ((callback == 0x01115798u && (fn == decomp_collision::finderLeafSw || fn == decomp_collision::finderLeaf<true>)) ||
+                (callback == 0x01115A50u && fn == decomp_collision::finderLeaf<false>))
+            {
+                SET_GPR_U32(ctx, 31, site + 8u);
+                SET_GPR_U32(ctx, 29, sp);
+                ctx->pc = callback;
+                fn(rdram, ctx, runtime);
+                runtime->checkTransfer();
+            }
+            else
+                decomp_collision::guestCall(rdram, ctx, runtime, callback, site + 8u, sp);
+        }
+        void popTo85(int base) const
+        {
+            if (ground85::g_cap.on && !ps2_worker::isShell(runtime))
+                ground85::g_cap.depth = base;
+        }
+        void capBox85(float margin) const
+        {
+            ground85::Capture &k = ground85::g_cap;
+            float b[4] = {f32(box), f32(box + 4u), f32(box + 8u), margin};
+            if (!k.box)
+            {
+                std::memcpy(k.b, b, 16);
+                k.box = true;
+            }
+            else if (!A9_MEMEQ(k.b, b, 16))
+                k.boxDiffers = true;
+        }
+        void walk(uint32_t node, uint32_t spIn) const
+        {
+            const uint32_t sp = spIn - 0x40u;
+            const int base85 = ground85::g_cap.depth;
+            float f2 = f32(query + 0x10u);
+            const float margin = f32(box + 0xCu);
+            for (;;)
+            {
+                const uint32_t n = u32(tree + 8u) + node * 8u;
+                float f1 = f32(n);
+                const uint32_t word = u32(n + 4u);
+                const uint32_t axisAt = box + ((word & 3u) << 2);
+                setV0(axisAt);
+                const float split = d1::mul(f1, f2);
+                const float hiEdge = d1::add(split, margin);
+                const float coord = f32(axisAt);
+                ground85::Capture &k85 = ground85::g_cap;
+                const bool cap85 = __builtin_expect(k85.on, 0) && !ps2_worker::isShell(runtime);
+                if (cap85)
+                    capBox85(margin);
+                if (d1::le(coord, hiEdge))
+                {
+                    if (cap85 && k85.depth < ground85::Capture::kDepth)
+                        k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 1u, split};
+                    if (cap85)
+                        ++k85.depth;
+                    if (((word >> 16) & 1u) == 0u)
+                        walk((word >> 2) & 0x3FFFu, sp); // jal 0x1128f38 at 0x1128fec: the same box, tree, callback, query
+                    else
+                        leaf((word >> 2) & 0x3FFFu, 0x01128FC0u, sp);
+                    if (cap85)
+                        --k85.depth;
+                    f1 = f32(n);
+                    f2 = f32(query + 0x10u);
+                }
+                const float split2 = d1::mul(f1, f2);
+                const float loEdge = d1::sub(split2, margin);
+                setF0(loEdge);
+                if (!d1::le(loEdge, coord))
+                    return popTo85(base85);
+                if (cap85 && k85.depth < ground85::Capture::kDepth)
+                    k85.stack[k85.depth] = {static_cast<uint8_t>(word & 3u), 0u, split2};
+                if (cap85)
+                    ++k85.depth;
+                const uint32_t high = u32(n + 4u);
+                if (static_cast<int32_t>(high) < 0)
+                {
+                    setV0(high);
+                    leaf((high >> 17) & 0x3FFFu, 0x01129028u, sp);
+                    return popTo85(base85);
+                }
+                setV0(high >> 17);
+                node = (high >> 17) & 0x3FFFu;
+            }
+        }
+    };
+
+    void finderWalkD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+        uint32_t v0 = 0u;
+        float f0 = 0.0f;
+        bool v0Dirty = false, f0Dirty = false;
+        const WD1 w{rdram, ctx, runtime, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 7), GPR_U32(ctx, 8), &v0, &f0, &v0Dirty, &f0Dirty};
+        w.walk(GPR_U32(ctx, 6), sp);
+        w.flush();
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        ctx->pc = ra;
+    }
+    void finderWalkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            finderWalkD1(rdram, ctx, runtime);
+        else
+            finderWalk(rdram, ctx, runtime);
+    }
+}

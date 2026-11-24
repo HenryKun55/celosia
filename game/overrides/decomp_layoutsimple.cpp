@@ -22,6 +22,7 @@
 // clamped once). A negative bone count, SOTC_MOTION=0, or a helper jal site
 // that names another function: the recompiled code.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -289,4 +290,314 @@ namespace decomp_layoutsimple
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010EED58u, UpdateLayoutClassSimpleGeometry, decomp_layoutsimple::updateSimple);
+namespace decomp_layoutsimple
+{
+    void updateSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010EED58u, UpdateLayoutClassSimpleGeometry, decomp_layoutsimple::updateSimpleSw);
+D1_ALIAS(0x010EED58u, UpdateLayoutClassSimpleGeometry, decomp_layoutsimple::updateSimpleSw, decomp_layoutsimple::updateSimple);
+
+// ---- Round D1 (d1native): UpdateLayoutClassSimpleGeometry's D1 body ------------------------------------------------
+// Partial: the three relocated helper calls (iosGetScaleMatrixV twice, iosGetScaleInverseVector) stay guest calls on
+// the original's frame with the same registers; the root matrix's VU0 block, the rigid inverses, the bones' scale, the
+// matrix products and the velocity as d1 vec4 ops over typed guest memory (d1::Mem), registers in locals, the ones the
+// old body leaves written at the exit. A helper site naming another function (iosScaleMatrixV included): the old body.
+namespace decomp_layoutsimple
+{
+    D1_COUNTER(c_d1Simple, "UpdateLayoutClassSimpleGeometry");
+
+    // A 4x4 (four rows / columns) in locals.
+    struct D1M4
+    {
+        __m128 r[4];
+    };
+    PS2_FORCE_INLINE __m128 d1Ld(const d1::Mem m, uint32_t a) { return m.get<__m128>(a & ~0xFu); }
+    PS2_FORCE_INLINE void d1St(const d1::Mem m, uint32_t a, __m128 v) { m.set<__m128>(a & ~0xFu, v); }
+    PS2_FORCE_INLINE void d1LdM(const d1::Mem m, uint32_t a, D1M4 &o)
+    {
+        for (int i = 0; i < 4; ++i)
+            o.r[i] = d1Ld(m, a + 0x10u * i);
+    }
+    PS2_FORCE_INLINE void d1StM(const d1::Mem m, uint32_t a, const D1M4 &v)
+    {
+        for (int i = 0; i < 4; ++i)
+            d1St(m, a + 0x10u * i, v.r[i]);
+    }
+    // vu::apply(rows, v): vmulax / vmadday / vmaddaz / vmaddw.
+    PS2_FORCE_INLINE __m128 d1Apply(const D1M4 &a, __m128 v)
+    {
+        __m128 t = d1::vmul(a.r[0], d1::bc<0>(v));
+        t = d1::vadd(t, d1::vmul(a.r[1], d1::bc<1>(v)));
+        t = d1::vadd(t, d1::vmul(a.r[2], d1::bc<2>(v)));
+        return d1::vadd(t, d1::vmul(a.r[3], d1::bc<3>(v)));
+    }
+    // A x B column by column (the old mul).
+    PS2_FORCE_INLINE void d1MulM(const D1M4 &a, const D1M4 &b, D1M4 &o)
+    {
+        for (int i = 0; i < 4; ++i)
+            o.r[i] = d1Apply(a, b.r[i]);
+    }
+    // The old inverseRigid: the 3x3 transposed with vf0 as the fourth row (the PEXTLW / PEXTUW / PCPYLD lanes),
+    // -R^T t, w = (w - w) + vf0.w.
+    PS2_FORCE_INLINE void d1InvRigid(const D1M4 &m, __m128 vf0, D1M4 &r)
+    {
+        const __m128 minusOne = d1::vsub(vf0, d1::bc<3>(vf0));
+        const __m128 xyz = d1::mask(1, 1, 1, 0), w = d1::mask(0, 0, 0, 1);
+        const __m128 t = d1::vsel(d1::zero4(), d1::vmul(m.r[3], d1::bc<0>(minusOne)), xyz);
+        const float32x4x2_t a = vzipq_f32(m.r[0], m.r[1]); // m0x m1x m0y m1y | m0z m1z m0w m1w
+        const float32x4x2_t b = vzipq_f32(m.r[2], vf0);    // m2x vx  m2y vy  | m2z vz  m2w vw
+        r.r[0] = vcombine_f32(vget_low_f32(a.val[0]), vget_low_f32(b.val[0]));
+        r.r[1] = vcombine_f32(vget_high_f32(a.val[0]), vget_high_f32(b.val[0]));
+        r.r[2] = vcombine_f32(vget_low_f32(a.val[1]), vget_low_f32(b.val[1]));
+        const D1M4 rows{{r.r[0], r.r[1], r.r[2], vf0}};
+        __m128 v = d1Apply(rows, t);
+        v = d1::vsel(v, d1::vsub(v, v), w);
+        r.r[3] = d1::vsel(v, d1::vadd(v, vf0), w);
+    }
+    // fs.yzx / ft.zxy (vopmula / vopmsub operands).
+    PS2_FORCE_INLINE __m128 d1Yzx(__m128 v)
+    {
+        const float32x4_t e = vextq_f32(v, v, 1); // y z w x
+        return vcombine_f32(vget_low_f32(e), vrev64_f32(vget_high_f32(e)));
+    }
+    PS2_FORCE_INLINE __m128 d1Zxy(__m128 v) { return d1Yzx(d1Yzx(v)); }
+
+    // The root matrix's VU0 registers (in: the lanes the block keeps; out: as it leaves them).
+    struct D1Root
+    {
+        __m128 v4, v10, v11, v12, v13, v14, v15, v16, v17, acc;
+    };
+    // The quaternion's rotation rows into out .. out + 0x20, the position (w = vf0.w) into out + 0x30.
+    inline void d1SimpleRoot(const d1::Mem m, uint32_t out, uint32_t quat, uint32_t pos, __m128 v0, D1Root &r)
+    {
+        const __m128 xyz = d1::mask(1, 1, 1, 0), lw = d1::mask(0, 0, 0, 1), ly = d1::mask(0, 1, 0, 0), lz = d1::mask(0, 0, 1, 0);
+        __m128 v10 = r.v10, v11, v12 = r.v12, v13 = r.v13, v14 = r.v14, v15 = r.v15, v16 = r.v16, v17 = r.v17, acc = r.acc;
+        v11 = d1Ld(m, quat);
+        v12 = d1::vsel(v12, d1::vadd(v0, d1::bc<3>(v0)), xyz);
+        v14 = d1::vsel(v14, d1::bc<0>(v0), lw); // vmr32's w: vf0.x
+        v15 = d1::vsel(v15, d1::bc<0>(v0), lw);
+        v16 = d1::vsel(v16, d1::bc<0>(v0), lw);
+        acc = d1::vsel(acc, d1::vmul(d1Yzx(v11), d1Zxy(v12)), xyz);
+        v11 = d1::vsel(v11, d1::vadd(acc, d1::vmul(v0, v0)), xyz);
+        v10 = d1::vsel(v10, d1::vadd(acc, d1::vmul(v11, v12)), xyz);
+        v13 = d1::vsel(v13, d1::vmul(v11, v10), xyz);
+        acc = d1::vsel(acc, d1::vmul(d1Yzx(v11), d1Zxy(v10)), xyz);
+        v15 = d1::vsel(v15, d1::vadd(acc, d1::vmul(v10, d1::bc<3>(v11))), xyz);
+        v16 = d1::vsel(v16, d1::vsub(acc, d1::vmul(v10, d1::bc<3>(v11))), xyz);
+        acc = d1::vsel(acc, d1::vmul(d1Yzx(v13), d1Zxy(v12)), xyz);
+        v17 = d1::vsel(v17, d1::vadd(acc, d1::vmul(v13, v12)), xyz);
+        acc = d1::vsel(acc, d1::vmul(d1Yzx(v15), d1Zxy(v12)), xyz);
+        v15 = d1::vsel(v15, d1::vadd(acc, d1::vmul(v0, v0)), xyz);
+        v14 = d1::vsel(v14, d1::vsub(v12, v17), xyz);
+        v17 = d1::vsel(v17, v14, d1::mask(0, 1, 1, 0));
+        v14 = d1::vsel(v14, v16, ly);
+        v16 = d1::vsel(v16, v15, ly);
+        v15 = d1::vsel(v15, v17, ly);
+        v14 = d1::vsel(v14, v15, lz);
+        v15 = d1::vsel(v15, v16, lz);
+        v16 = d1::vsel(v16, v17, lz);
+        d1St(m, out, v14);
+        d1St(m, out + 0x10u, v15);
+        d1St(m, out + 0x20u, v16);
+        __m128 v4 = d1Ld(m, pos);
+        v4 = d1::vsel(v4, v0, lw);
+        d1St(m, out + 0x30u, v4);
+        r.v4 = v4;
+        r.v10 = v10;
+        r.v11 = v11;
+        r.v12 = v12;
+        r.v13 = v13;
+        r.v14 = v14;
+        r.v15 = v15;
+        r.v16 = v16;
+        r.v17 = v17;
+        r.acc = acc;
+    }
+
+    void updateSimpleD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const d1::Mem m{rdram};
+        const uint32_t o = GPR_U32(ctx, 4);
+        const int16_t count16 = m.get<int16_t>(o + 0x1B4u);
+        if (!sotc_decomp::motionOn() || count16 < 0 || !sitesOk(rdram) || sotc_decomp::jalTarget(rdram, 0x010EEF48u) != kScaleMatrix)
+            return updateSimple(rdram, ctx, runtime);
+        ++c_d1Simple.n;
+        const int32_t count = count16;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x180u;
+        const float f12 = ctx->f[12];
+        const __m128 v0 = ctx->vu0_vf[0];
+        auto call = [&](uint32_t site, uint32_t a0, uint32_t a1)
+        {
+            SET_GPR_U32(ctx, 4, a0);
+            SET_GPR_U32(ctx, 5, a1);
+            sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, site), site + 8u, sp);
+        };
+        auto flagsNow = [&] { return m.get<uint8_t>(o + 0x1BCu); };
+
+        uint8_t flags = flagsNow();
+        if (flags & 0x01u)
+        {
+            d1St(m, m.get<uint32_t>(o + 0x154u), d1Ld(m, m.get<uint32_t>(o + 0x13Cu)));
+            flags = flagsNow();
+        }
+        do
+        {
+            if (!(flags & 0x02u))
+                break;
+            {
+                D1Root r;
+                r.v10 = ctx->vu0_vf[10];
+                r.v12 = ctx->vu0_vf[12];
+                r.v13 = ctx->vu0_vf[13];
+                r.v14 = ctx->vu0_vf[14];
+                r.v15 = ctx->vu0_vf[15];
+                r.v16 = ctx->vu0_vf[16];
+                r.v17 = ctx->vu0_vf[17];
+                r.acc = ctx->vu0_acc;
+                d1SimpleRoot(m, m.get<uint32_t>(o + 0x158u), m.get<uint32_t>(o + 0x13Cu), m.get<uint32_t>(o + 0x134u), v0, r);
+                ctx->vu0_vf[4] = r.v4;
+                ctx->vu0_vf[10] = r.v10;
+                ctx->vu0_vf[11] = r.v11;
+                ctx->vu0_vf[12] = r.v12;
+                ctx->vu0_vf[13] = r.v13;
+                ctx->vu0_vf[14] = r.v14;
+                ctx->vu0_vf[15] = r.v15;
+                ctx->vu0_vf[16] = r.v16;
+                ctx->vu0_vf[17] = r.v17;
+                ctx->vu0_acc = r.acc;
+            }
+            flags = flagsNow();
+            if (!(flags & 0x02u))
+                break;
+            const uint32_t bones = m.get<uint32_t>(o + 0x158u);
+            if (flags & 0x10u)
+            {
+                const uint32_t out = m.get<uint32_t>(o + 0x164u);
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    D1M4 a, inv;
+                    d1LdM(m, bones + i * 0x40u, a);
+                    d1InvRigid(a, v0, inv);
+                    d1StM(m, out + i * 0x40u, inv);
+                }
+            }
+            flags = flagsNow();
+            if (!(flags & 0x04u))
+                break;
+            const uint32_t scaled = m.get<uint32_t>(o + 0x15Cu);
+            // iosScaleMatrixV(out, in, +0x90): rows x, y, z times the scale's x, y, z (its registers from the last one).
+            if (count > 0)
+            {
+                __m128 r0, r1, r2, r3, s8;
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    const uint32_t out = scaled + i * 0x40u, in = bones + i * 0x40u;
+                    r0 = d1Ld(m, in);
+                    r1 = d1Ld(m, in + 0x10u);
+                    r2 = d1Ld(m, in + 0x20u);
+                    r3 = d1Ld(m, in + 0x30u);
+                    s8 = d1Ld(m, o + 0x90u);
+                    r0 = d1::vmul(r0, d1::bc<0>(s8));
+                    r1 = d1::vmul(r1, d1::bc<1>(s8));
+                    r2 = d1::vmul(r2, d1::bc<2>(s8));
+                    d1St(m, out, r0);
+                    d1St(m, out + 0x10u, r1);
+                    d1St(m, out + 0x20u, r2);
+                    d1St(m, out + 0x30u, r3);
+                }
+                SET_GPR_U32(ctx, 6, o + 0x90u);
+                SET_GPR_U32(ctx, 4, scaled + (count - 1) * 0x40u);
+                SET_GPR_U32(ctx, 5, bones + (count - 1) * 0x40u);
+                ctx->vu0_vf[14] = r0;
+                ctx->vu0_vf[15] = r1;
+                ctx->vu0_vf[16] = r2;
+                ctx->vu0_vf[17] = r3;
+                ctx->vu0_vf[8] = s8;
+            }
+            flags = flagsNow();
+            if (flags & 0x40u)
+            {
+                const uint32_t out = m.get<uint32_t>(o + 0x16Cu), local = m.get<uint32_t>(o + 0x168u);
+                call(0x010EEF78u, sp, o + 0xB0u); // iosGetScaleMatrixV(sp, +0xb0)
+                D1M4 s;
+                d1LdM(m, sp, s);
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    D1M4 l, t, a, r;
+                    d1LdM(m, local + i * 0x40u, l);
+                    d1MulM(s, l, t);
+                    d1StM(m, sp + 0x40u, t);
+                    d1LdM(m, scaled + i * 0x40u, a);
+                    d1MulM(a, t, r);
+                    d1StM(m, out + i * 0x40u, r);
+                }
+                flags = flagsNow();
+            }
+            if (!(flags & 0x80u))
+                break;
+            const uint32_t out = m.get<uint32_t>(o + 0x170u), local = m.get<uint32_t>(o + 0x168u), inverses = m.get<uint32_t>(o + 0x164u);
+            call(0x010EF0ACu, sp + 0x90u, o + 0xB0u); // iosGetScaleInverseVector(sp + 0x90, +0xb0)
+            {
+                __m128 v5 = d1Ld(m, sp + 0x90u);
+                const __m128 v6 = d1Ld(m, o + 0xA0u);
+                v5 = d1::vsel(v5, d1::vmul(v5, v6), d1::mask(1, 1, 1, 0));
+                d1St(m, sp + 0x80u, v5);
+                ctx->vu0_vf[5] = v5;
+                ctx->vu0_vf[6] = v6;
+            }
+            call(0x010EF0D4u, sp + 0x40u, sp + 0x80u); // iosGetScaleMatrixV(sp + 0x40, sp + 0x80)
+            D1M4 s;
+            d1LdM(m, sp + 0x40u, s);
+            for (int32_t i = 0; i < count; ++i)
+            {
+                D1M4 b, t, l, inv, r;
+                d1LdM(m, inverses + i * 0x40u, b);
+                d1MulM(s, b, t);
+                d1LdM(m, local + i * 0x40u, l);
+                d1InvRigid(l, v0, inv);
+                d1StM(m, sp + 0xA0u, t);
+                d1StM(m, sp + 0xE0u, inv);
+                d1MulM(inv, t, r);
+                d1StM(m, out + i * 0x40u, r);
+            }
+        } while (false);
+
+        // The root's velocity (+0x30).
+        const float zero = 0.0f;
+        ctx->f[0] = zero;
+        const bool eq = d1::eq(f12, zero);
+        ctx->fcr31 = eq ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        if (eq)
+        {
+            const uint32_t c = sotc_decomp::relocated(rdram, 0x010EF2A8u, 0x010EF2ACu);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(c));
+            d1St(m, o + 0x30u, d1Ld(m, c));
+        }
+        else
+        {
+            const __m128 v7 = d1::vsub(d1Ld(m, m.get<uint32_t>(o + 0x134u)), d1Ld(m, m.get<uint32_t>(o + 0x138u)));
+            d1St(m, o + 0x30u, v7);
+            uint32_t bits;
+            std::memcpy(&bits, &f12, 4);
+            SET_GPR_U32(ctx, 2, bits);
+            const __m128 v6 = _mm_castsi128_ps(GPR_VEC(ctx, 2)); // f12's bits, sign-extended, over r2's upper half
+            __m128 v5 = d1Ld(m, o + 0x30u);
+            v5 = d1::vsel(v5, d1::vmul(v5, d1::bc<0>(v6)), d1::mask(1, 1, 1, 0));
+            d1St(m, o + 0x30u, v5);
+            ctx->vu0_vf[5] = v5;
+            ctx->vu0_vf[6] = v6;
+            ctx->vu0_vf[7] = v7;
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void updateSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            updateSimpleD1(rdram, ctx, runtime);
+        else
+            updateSimple(rdram, ctx, runtime);
+    }
+}

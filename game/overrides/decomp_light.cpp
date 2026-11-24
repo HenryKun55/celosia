@@ -20,6 +20,7 @@
 // the callee's own frame on the stack below sp is dead after the return and
 // is not written; v0, f0 and the VU0 registers as the original leaves them.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "c2scene.h"
 
 #include "ps2_runtime_macros.h"
@@ -2036,11 +2037,1041 @@ namespace decomp_light
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010F4A18u, objectLight_010F4A18, decomp_light::objectLight);
-SOTC_DECOMP_FUNCTION(0x010F4FB8u, lightPass_010F4FB8, decomp_light::lightPass);
-SOTC_DECOMP_FUNCTION(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatrices);
-SOTC_DECOMP_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightMan);
+namespace decomp_light
+{
+    void objectLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void lightPassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void lightMatricesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void execGlobalLightManSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010F4A18u, objectLight_010F4A18, decomp_light::objectLightSw);
+D1_ALIAS(0x010F4A18u, objectLight_010F4A18, decomp_light::objectLightSw, decomp_light::objectLight);
+SOTC_DECOMP_FUNCTION(0x010F4FB8u, lightPass_010F4FB8, decomp_light::lightPassSw);
+D1_ALIAS(0x010F4FB8u, lightPass_010F4FB8, decomp_light::lightPassSw, decomp_light::lightPass);
+SOTC_DECOMP_FUNCTION(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatricesSw);
+D1_ALIAS(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatricesSw, decomp_light::lightMatrices);
+SOTC_DECOMP_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw);
+D1_ALIAS(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw, decomp_light::execGlobalLightMan);
 SOTC_DECOMP_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLights);
 SOTC_DECOMP_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLight);
 SOTC_DECOMP_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPos);
 SOTC_DECOMP_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCube);
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE=1): the light natives' D1 bodies ------------------------------------------------
+// The work area lives in the scratchpad, the objects in main RAM: the cores reach both through D1Spr (the same mapping
+// and alignment masks as Mem), named apart from Mem's accessors. VU0 lane math as d1 vec4 ops (operand clamps left
+// out: finite data; the result clamps inside d1::v*), the FPU's as d1 scalar ops, VU0 RSQRT through the same
+// ps2VuRsqrt (its status kept); registers as locals of a state struct the adapter loads at the entry and stores at the
+// exit (the guest calls that remain see the old body's register state).
+namespace decomp_light
+{
+    D1_COUNTER(c_d1LightPass, "lightPass_010F4FB8");
+    D1_COUNTER(c_d1ExecGlobal, "ExecGlobalLightMan");
+    D1_COUNTER(c_d1ObjectLight, "objectLight_010F4A18");
+    D1_COUNTER(c_d1LightMatrices, "lightMatrices_010F5F60");
+
+    // Main RAM or the scratchpad, as the guest address says (Mem's mapping and masks).
+    struct D1Spr
+    {
+        uint8_t *ram, *spr;
+        uint8_t *d1ptr(uint32_t a) const
+        {
+            const uint32_t o = a - PS2_SCRATCHPAD_BASE;
+            return o < PS2_SCRATCHPAD_SIZE ? spr + o : ram + (a & PS2_RAM_MASK);
+        }
+        uint32_t d1u32(uint32_t a) const
+        {
+            uint32_t v;
+            std::memcpy(&v, d1ptr(a & ~3u), 4);
+            return v;
+        }
+        float d1f32(uint32_t a) const
+        {
+            float v;
+            std::memcpy(&v, d1ptr(a & ~3u), 4);
+            return v;
+        }
+        __m128 d1q(uint32_t a) const
+        {
+            __m128 v;
+            std::memcpy(&v, d1ptr(a & ~0xFu), 16);
+            return v;
+        }
+        uint64_t d1u64(uint32_t a) const
+        {
+            uint64_t v;
+            std::memcpy(&v, d1ptr(a & ~7u), 8);
+            return v;
+        }
+        void d1put32(uint32_t a, uint32_t v) const { std::memcpy(d1ptr(a & ~3u), &v, 4); }
+        void d1putf(uint32_t a, float v) const { std::memcpy(d1ptr(a & ~3u), &v, 4); }
+        void d1putq(uint32_t a, __m128 v) const { std::memcpy(d1ptr(a & ~0xFu), &v, 16); }
+        void d1put64(uint32_t a, uint64_t v) const { std::memcpy(d1ptr(a & ~7u), &v, 8); }
+    };
+    inline D1Spr d1Spr(uint8_t *ram, PS2Runtime *runtime) { return D1Spr{ram, runtime->memory().getScratchpad()}; }
+
+    // A 128-bit GPR as a VU0 operand after `SET_GPR_U32(r, lo)`: lo sign-extended in the low doubleword, the upper
+    // doubleword the register's (old).
+    inline __m128 d1GprVec(uint32_t lo, __m128 old)
+    {
+        uint32_t w[4];
+        std::memcpy(w, &old, 16);
+        w[0] = lo;
+        w[1] = static_cast<uint32_t>(static_cast<int32_t>(lo) >> 31);
+        __m128 v;
+        std::memcpy(&v, w, 16);
+        return v;
+    }
+    inline float d1LightBitsF(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    inline uint32_t d1LightFBits(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+
+    // Lane i of a vector (d1::lane's value; named apart from this file's lane<> broadcast).
+    template <int i>
+    inline float d1Lane(__m128 v) { return vgetq_lane_f32(v, i); }
+
+    // vmulax / vmadday / vmaddaz / vmaddw: rows weighted by v's lanes, ACC the first three.
+    inline __m128 d1Xform(const __m128 rows[4], __m128 v, __m128 &acc)
+    {
+        acc = d1::vmul(rows[0], d1::bc<0>(v));
+        acc = d1::vadd(acc, d1::vmul(rows[1], d1::bc<1>(v)));
+        acc = d1::vadd(acc, d1::vmul(rows[2], d1::bc<2>(v)));
+        return d1::vadd(acc, d1::vmul(rows[3], d1::bc<3>(v)));
+    }
+
+    // iosInverseMatrix's result and the registers it leaves (inverseMatrix's, without the context).
+    struct D1Inverse
+    {
+        __m128 vf1, vf2, vf3, vf4, vf8, vf9, acc;
+        __m128 t[8]; // the GPRs t0..t7 (r8..r15) as 128-bit lanes
+    };
+    // m's 3x3 transposed (pextlw / pextuw / pcpyld / pcpyud of the rows with (0, 0, 0, m3.w)), the translation
+    // -(R^T t); acc the ACC before (its w lane stays).
+    inline void d1InverseMatrix(const __m128 m[4], __m128 accIn, D1Inverse &r)
+    {
+        const __m128 xyz = d1::mask(1, 1, 1, 0);
+        __m128 vf1 = m[3];
+        const __m128 vf2 = vf1;
+        vf1 = d1::vsel(vf1, d1::vsub(vf1, vf1), xyz);
+        const __m128 vf9 = vf1;
+        const float32x4x2_t a = vzipq_f32(m[0], m[1]); // t4, t5
+        const float32x4x2_t b = vzipq_f32(m[2], vf1);  // t6, t7
+        const __m128 vf3 = vcombine_f32(vget_low_f32(a.val[0]), vget_low_f32(b.val[0]));
+        const __m128 vf4 = vcombine_f32(vget_high_f32(a.val[0]), vget_high_f32(b.val[0]));
+        const __m128 vf8 = vcombine_f32(vget_low_f32(a.val[1]), vget_low_f32(b.val[1]));
+        __m128 acc = d1::vsel(accIn, d1::vmul(vf3, d1::bc<0>(vf2)), xyz);
+        acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(vf4, d1::bc<1>(vf2))), xyz);
+        vf1 = d1::vsel(vf1, d1::vadd(acc, d1::vmul(vf8, d1::bc<2>(vf2))), xyz);
+        vf1 = d1::vsel(vf1, d1::vsub(vf9, vf1), xyz);
+        r.vf1 = vf1;
+        r.vf2 = vf2;
+        r.vf3 = vf3;
+        r.vf4 = vf4;
+        r.vf8 = vf8;
+        r.vf9 = vf9;
+        r.acc = acc;
+        r.t[0] = vf3;
+        r.t[1] = vf4;
+        r.t[2] = vf8;
+        r.t[3] = vf9;
+        r.t[4] = a.val[0];
+        r.t[5] = a.val[1];
+        r.t[6] = b.val[0];
+        r.t[7] = b.val[1];
+    }
+
+    // ---- manager_sub_010F5F60 (lightMatrices) --------------------------------------------------------------------------
+    // The registers lightMatrices reads or leaves.
+    struct D1LightMatRegs
+    {
+        __m128 vf0, vf5, vf6, vf7, acc;
+        __m128 n[4];  // vf14..vf17
+        __m128 d[4];  // vf24..vf27
+        __m128 r2, r3; // the GPRs' 128 bits at the entry (their upper doublewords stay)
+        float q, f0, f1;
+        uint16_t status;
+        bool c;
+    };
+
+    // iosMakeNormalLightMatrix (normalLightMatrix's steps): four directions negated and normalised (VU0 RSQRT), the
+    // 4x4 transposed into out.
+    void normalLightCore(const D1Spr m, D1LightMatRegs &s, uint32_t out, __m128 d0, __m128 d1v, __m128 d2, __m128 d3)
+    {
+        const __m128 vf0 = s.vf0, xyz = d1::mask(1, 1, 1, 0), mx = d1::mask(1, 0, 0, 0), my = d1::mask(0, 1, 0, 0), mz = d1::mask(0, 0, 1, 0),
+                     mw = d1::mask(0, 0, 0, 1);
+        const float one = d1Lane<3>(vf0);
+        const __m128 neg = d1::bc<0>(d1::vsub(vf0, d1::bc<3>(vf0))); // vf5.x = 0 - 1
+        __m128 vf24 = d1::vsel(d0, d1::vmul(d0, neg), xyz), vf25 = d1::vsel(d1v, d1::vmul(d1v, neg), xyz);
+        __m128 vf26 = d1::vsel(d2, d1::vmul(d2, neg), xyz), vf27 = d1::vsel(d3, d1::vmul(d3, neg), xyz);
+        // |v|^2 in lane x (vmul, vaddy.x, vaddz.x).
+        auto lengthSq = [&](__m128 v)
+        {
+            __m128 r = d1::vmul(v, v);
+            r = d1::vsel(r, d1::vadd(r, d1::bc<1>(r)), mx);
+            return d1Lane<0>(d1::vadd(r, d1::bc<2>(r)));
+        };
+        const float l24 = lengthSq(vf24);
+        float q = ps2VuRsqrt(s.status, one, l24);
+        const float l25 = lengthSq(vf25);
+        vf24 = d1::vsel(vf24, d1::vmul(vf24, d1::splat(q)), xyz);
+        q = ps2VuRsqrt(s.status, one, l25);
+        const float l26 = lengthSq(vf26);
+        vf25 = d1::vsel(vf25, d1::vmul(vf25, d1::splat(q)), xyz);
+        q = ps2VuRsqrt(s.status, one, l26);
+        const float l27 = lengthSq(vf27);
+        vf26 = d1::vsel(vf26, d1::vmul(vf26, d1::splat(q)), xyz);
+        q = ps2VuRsqrt(s.status, one, l27);
+        vf27 = d1::vsel(vf27, d1::vmul(vf27, d1::splat(q)), xyz);
+        __m128 vf14 = vf24, vf15 = vf25, vf16 = vf26, vf17 = vf27;
+        const __m128 vf5 = d1::vsub(vf0, vf0);
+        vf14 = d1::vsel(vf14, d1::vadd(vf5, d1::bc<0>(vf25)), my);
+        vf14 = d1::vsel(vf14, d1::vadd(vf5, d1::bc<0>(vf26)), mz);
+        vf14 = d1::vsel(vf14, d1::vadd(vf5, d1::bc<0>(vf27)), mw);
+        vf15 = d1::vsel(vf15, d1::vadd(vf5, d1::bc<1>(vf24)), mx);
+        vf15 = d1::vsel(vf15, d1::vadd(vf5, d1::bc<1>(vf26)), mz);
+        vf15 = d1::vsel(vf15, d1::vadd(vf5, d1::bc<1>(vf27)), mw);
+        vf16 = d1::vsel(vf16, d1::vadd(vf5, d1::bc<2>(vf24)), mx);
+        vf16 = d1::vsel(vf16, d1::vadd(vf5, d1::bc<2>(vf25)), my);
+        vf16 = d1::vsel(vf16, d1::vadd(vf5, d1::bc<2>(vf27)), mw);
+        vf17 = d1::vsel(vf17, d1::vadd(vf5, d1::bc<3>(vf24)), mx);
+        vf17 = d1::vsel(vf17, d1::vadd(vf5, d1::bc<3>(vf25)), my);
+        vf17 = d1::vsel(vf17, d1::vadd(vf5, d1::bc<3>(vf26)), mz);
+        m.d1putq(out, vf14);
+        m.d1putq(out + 0x10u, vf15);
+        m.d1putq(out + 0x20u, vf16);
+        m.d1putq(out + 0x30u, vf17);
+        s.vf5 = vf5;
+        s.n[0] = vf14;
+        s.n[1] = vf15;
+        s.n[2] = vf16;
+        s.n[3] = vf17;
+        s.d[0] = vf24;
+        s.d[1] = vf25;
+        s.d[2] = vf26;
+        s.d[3] = vf27;
+        s.q = q;
+    }
+
+    // The object's light matrices from the work area (lightMatrices' steps): the normal matrix at geo + 0x40 and the
+    // colour matrix at geo + 0x80, flag 2 of geo + 0xc0; with flags + 0x18 set, the first work light with flag 4 as the
+    // only colour (or the flag cleared).
+    void lightMatricesCore(const D1Spr m, uint32_t work, uint32_t geo, uint32_t flags, D1LightMatRegs &s)
+    {
+        const __m128 vf0 = s.vf0, xyz = d1::mask(1, 1, 1, 0);
+        const float k = d1LightBitsF(0x3B808080u); // 1 / 255
+        s.f0 = k;
+        s.vf6 = d1GprVec(d1LightFBits(k), s.r3);
+        s.vf5 = d1::vmul(m.d1q(work + 832u), d1::bc<0>(s.vf6));
+        s.f1 = 1.0f;
+        const __m128 ambient = d1::vsel(s.vf5, d1::splat(1.0f), d1::mask(0, 0, 0, 1)); // the ambient x 1/255, w 1
+        if (m.d1u32(flags + 24u) != 0u)
+        {
+            // The first work light with flag 4 (of +0x534's three).
+            int32_t found = -1;
+            uint32_t light = 0u;
+            for (int32_t i = 0; i < 3; ++i)
+            {
+                light = m.d1u32(work + 1332u + static_cast<uint32_t>(i) * 4u);
+                if (m.d1u32(light + 48u) & 4u)
+                {
+                    found = i;
+                    break;
+                }
+            }
+            uint64_t f;
+            std::memcpy(&f, m.d1ptr(geo + 192u), 8);
+            if (found < 0)
+            {
+                f &= ~2ull;
+                std::memcpy(m.d1ptr(geo + 192u), &f, 8);
+                return;
+            }
+            s.f1 = k;
+            m.d1putq(geo + 64u, m.d1q(light));
+            s.f0 = m.d1f32(light + 60u);
+            m.d1putf(geo + 76u, s.f0);
+            s.vf6 = d1GprVec(d1LightFBits(s.f1), s.r2);
+            s.vf5 = d1::vmul(m.d1q(light + 32u), d1::bc<0>(s.vf6));
+            m.d1putq(work + 0x50u, s.vf5);
+            m.d1putq(work + 0x60u, vf0);
+            m.d1putq(work + 0x70u, vf0);
+            // iosMakeLightColorMatrix(geo + 0x80, work + 0x50, + 0x60, + 0x70, the ambient).
+            m.d1putq(geo + 128u, m.d1q(work + 0x50u));
+            m.d1putq(geo + 144u, m.d1q(work + 0x60u));
+            m.d1putq(geo + 160u, m.d1q(work + 0x70u));
+            m.d1putq(geo + 176u, ambient);
+            std::memcpy(&f, m.d1ptr(geo + 192u), 8);
+            f |= 2ull;
+            std::memcpy(m.d1ptr(geo + 192u), &f, 8);
+            return;
+        }
+        // GetDirColorFromWorkLight for the three: direction (+0x10) to +0x80.., colour (+0x20) x 1/255 to +0x50...
+        for (uint32_t i = 0; i < 3u; ++i)
+        {
+            const uint32_t light = m.d1u32(work + 1332u + i * 4u);
+            m.d1putq(work + 0x80u + i * 16u, m.d1q(light + 16u));
+            s.f0 = k;
+            s.vf6 = d1GprVec(d1LightFBits(k), s.r2);
+            const __m128 col = m.d1q(light + 32u);
+            m.d1putq(work + 0x50u + i * 16u, d1::vsel(col, d1::vmul(col, d1::bc<0>(s.vf6)), xyz));
+        }
+        const uint32_t s2 = work + 0x80u;
+        m.d1put32(s2 + 12u, 0u);
+        m.d1put32(s2 + 28u, 0u);
+        m.d1put32(s2 + 44u, 0u);
+        __m128 vf5 = m.d1q(s2);
+        const __m128 mw = d1::mask(0, 0, 0, 1);
+        __m128 vf7 = d1::vsel(s.vf7, d1::vmul(vf5, vf5), xyz);
+        __m128 acc = d1::vsel(s.acc, d1::vmul(vf0, d1::bc<0>(vf7)), mw);
+        acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(vf0, d1::bc<1>(vf7))), mw);
+        vf7 = d1::vsel(vf7, d1::vadd(acc, d1::vmul(vf0, d1::bc<2>(vf7))), mw);
+        const float q = ps2VuRsqrt(s.status, d1Lane<3>(vf0), d1Lane<3>(vf7));
+        vf5 = d1::vsel(vf5, d1::vmul(vf5, d1::splat(q)), xyz);
+        __m128 dir = vf5; // sp + 16
+        s.f0 = d1Lane<1>(vf5);
+        s.f1 = d1LightBitsF(0xBF3504F3u); // -0.70710677
+        s.c = d1::lt(s.f1, s.f0);
+        if (s.c)
+            dir = d1::vsel(dir, d1::splat(s.f1), d1::mask(0, 1, 0, 0));
+        s.vf7 = vf7;
+        s.acc = acc;
+        s.q = q;
+        s.vf5 = vf5;
+        normalLightCore(m, s, geo + 64u, m.d1q(s2), m.d1q(s2 + 16u), m.d1q(s2 + 32u), dir);
+        m.d1putq(geo + 128u, m.d1q(work + 0x50u));
+        m.d1putq(geo + 144u, m.d1q(work + 0x60u));
+        m.d1putq(geo + 160u, m.d1q(work + 0x70u));
+        m.d1putq(geo + 176u, ambient);
+    }
+
+    void lightMatricesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1LightMatrices.n;
+        const Mem mo(rdram, runtime);
+        const uint32_t work = GPR_U32(ctx, 4), geo = GPR_U32(ctx, 5), flags = GPR_U32(ctx, 6);
+        bool sane = Mem::ok(work, 0x540u) && Mem::ok(geo, 0xC8u) && Mem::ok(flags, 0x20u) && sotc_decomp::jalTarget(rdram, 0x010F6078u) == kColorMatrix &&
+                    sotc_decomp::jalTarget(rdram, 0x010F6128u) == kNormalMatrix && sotc_decomp::jalTarget(rdram, 0x010F6140u) == kColorMatrix;
+        for (uint32_t i = 0; sane && i < 3u; ++i)
+            sane = Mem::ok(mo.u32(work + 1332u + i * 4u), 0x40u);
+        if (!sane)
+            return lightMatrices(rdram, ctx, runtime);
+        D1LightMatRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.acc = ctx->vu0_acc;
+        for (int k = 0; k < 4; ++k)
+        {
+            s.n[k] = ctx->vu0_vf[14 + k];
+            s.d[k] = ctx->vu0_vf[24 + k];
+        }
+        s.r2 = _mm_castsi128_ps(ctx->r[2]);
+        s.r3 = _mm_castsi128_ps(ctx->r[3]);
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        s.c = (ctx->fcr31 & 0x800000u) != 0u;
+        lightMatricesCore(D1Spr{mo.rdram, mo.spr}, work, geo, flags, s);
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_acc = s.acc;
+        for (int k = 0; k < 4; ++k)
+        {
+            ctx->vu0_vf[14 + k] = s.n[k];
+            ctx->vu0_vf[24 + k] = s.d[k];
+        }
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        cond(ctx, s.c);
+        SET_GPR_U32(ctx, 3, d1LightFBits(d1LightBitsF(0x3B808080u)));
+        SET_GPR_U64(ctx, 2, 1u);
+        returnTo(ctx);
+    }
+
+    void lightMatricesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            lightMatricesD1(rdram, ctx, runtime);
+        else
+            lightMatrices(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_010F4A18 (objectLight) -----------------------------------------------------------------------------
+    // Flag 4 of the geometry's +0x260: the light position through the inverse of +0x158 (or the lights off), no call: a
+    // core. Otherwise the facing / specular / light-matrix math between the two camera context calls (guest calls with
+    // the old body's registers and frame) as d1 ops.
+    struct D1ObjLightOwn
+    {
+        D1Inverse inv;
+        __m128 vf8, vf10, acc;
+        float f0;
+        uint32_t v0;
+        bool moved; // the +8 branch ran (its registers are set)
+    };
+    void objectLightOwnCore(const D1Spr m, uint32_t lc, uint64_t flags, __m128 vf0, __m128 accIn, D1ObjLightOwn &r)
+    {
+        const uint32_t matrices = m.d1u32(m.d1u32(lc + 324u) + 12u);
+        r.moved = false;
+        if (!(flags & 8u))
+        {
+            m.d1putq(matrices + 80u, vf0);
+            m.d1put32(matrices + 28u, 0u);
+            r.v0 = m.d1u32(m.d1u32(lc + 324u) + 12u);
+            return;
+        }
+        // The light position through the inverse of +0x158 (iosInverseMatrix(frame, frame): the frame below sp is dead
+        // after the return, the inverse stays in registers).
+        const uint32_t src = m.d1u32(lc + 344u);
+        __m128 rows[4];
+        for (int k = 3; k >= 0; --k)
+            rows[k] = m.d1q(src + static_cast<uint32_t>(k) * 16u);
+        d1InverseMatrix(rows, accIn, r.inv);
+        const __m128 inv[4] = {r.inv.vf3, r.inv.vf4, r.inv.vf8, r.inv.vf1};
+        const __m128 vf8 = d1::vsel(m.d1q(matrices + 16u), d1::splat(1.0f), d1::mask(0, 0, 0, 1));
+        __m128 acc;
+        const __m128 vf10 = d1Xform(inv, vf8, acc);
+        m.d1putf(matrices + 16u, d1Lane<0>(vf10));
+        m.d1putf(matrices + 20u, d1Lane<1>(vf10));
+        r.f0 = d1Lane<2>(vf10);
+        m.d1putf(matrices + 24u, r.f0);
+        r.vf8 = vf8;
+        r.vf10 = vf10;
+        r.acc = acc;
+        r.moved = true;
+        r.v0 = m.d1u32(m.d1u32(lc + 324u) + 12u);
+    }
+
+    void objectLightD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1ObjectLight.n;
+        const Mem mo(rdram, runtime);
+        const D1Spr m{mo.rdram, mo.spr};
+        const uint32_t id = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x90u;
+        const uint32_t index = static_cast<uint32_t>(rdram[(id + 8u) & PS2_RAM_MASK]) - 9u;
+        const uint32_t target = index < 0xEu ? m.d1u32(0x01194070u + index * 4u) : 0u;
+        const uint32_t lc = target == 0x010F1A58u ? id + 0x20u : (target == 0x010F1A98u ? id + 0x90u : 0u);
+        if (lc == 0u || !Mem::ok(id, 0x10u) || frame >= PS2_RAM_SIZE || sotc_decomp::jalTarget(rdram, 0x010F4A60u) != kCopyMatrix ||
+            sotc_decomp::jalTarget(rdram, 0x010F4A6Cu) != kInverse || sotc_decomp::jalTarget(rdram, 0x010F4B60u) != kBrightness ||
+            sotc_decomp::jalTarget(rdram, 0x010F4C24u) != kCopyMatrix || sotc_decomp::jalTarget(rdram, 0x010F4C38u) != kTranspose)
+            return objectLight(rdram, ctx, runtime);
+        const __m128 vf0 = ctx->vu0_vf[0];
+        auto matrices = [&] { return m.d1u32(m.d1u32(lc + 324u) + 12u); };
+        uint64_t flags;
+        std::memcpy(&flags, m.d1ptr((m.d1u32(lc + 324u) + 608u) & ~7u), 8);
+        float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
+        if (flags & 4u)
+        {
+            D1ObjLightOwn r;
+            objectLightOwnCore(m, lc, flags, vf0, ctx->vu0_acc, r);
+            if (r.moved)
+            {
+                const D1Inverse &v = r.inv;
+                ctx->vu0_vf[1] = v.vf1;
+                ctx->vu0_vf[2] = v.vf2;
+                ctx->vu0_vf[3] = v.vf3;
+                ctx->vu0_vf[4] = v.vf4;
+                ctx->vu0_vf[9] = v.vf9;
+                for (int k = 0; k < 8; ++k)
+                    ctx->r[8 + k] = _mm_castps_si128(v.t[k]);
+                ctx->vu0_vf[8] = r.vf8;
+                ctx->vu0_vf[10] = r.vf10;
+                ctx->vu0_vf[14] = v.vf3;
+                ctx->vu0_vf[15] = v.vf4;
+                ctx->vu0_vf[16] = v.vf8;
+                ctx->vu0_vf[17] = v.vf1;
+                ctx->vu0_acc = r.acc;
+                f0 = r.f0;
+            }
+            SET_GPR_U32(ctx, 2, r.v0);
+        }
+        else
+        {
+            const float f20 = 1.0f;
+            const uint32_t geo = m.d1u32(lc + 320u);
+            const __m128 facing = d1::make(m.d1f32(geo + 64u), m.d1f32(geo + 80u), m.d1f32(geo + 96u), f20);
+            f0 = m.d1f32(geo + 96u);
+            SET_GPR_U32(ctx, 4, id);
+            sotc_decomp::callGuest(rdram, ctx, runtime, kCameraContext, 0x010F4B4Cu, frame);
+            const uint32_t camera = GPR_U32(ctx, 2);
+            const uint32_t specularity = 0x0118BA60u; // getSpecularity (lui 0x119, addiu -0x45a0)
+            const __m128 white = m.d1q(0x001E2BD0u);
+            // iosCalcFColorToBrightness(geo + 0xb0).
+            const __m128 b = d1::vmul(m.d1q(m.d1u32(lc + 320u) + 176u), white);
+            f0 = d1::add(d1::add(d1Lane<0>(b), d1Lane<1>(b)), d1Lane<2>(b));
+            f2 = d1::mul(m.d1f32(specularity), f0);
+            m.d1putf(matrices() + 212u, f2);
+            const __m128 vf5 = m.d1q(camera + 336u);
+            const __m128 mx = d1::mask(1, 0, 0, 0);
+            const __m128 vf7 = d1::vsel(ctx->vu0_vf[7], d1::vadd(vf0, d1::bc<3>(vf0)), mx);
+            __m128 vf6 = d1::vsel(facing, d1::vmul(vf5, facing), d1::mask(1, 1, 1, 0));
+            __m128 acc = d1::vsel(ctx->vu0_acc, d1::vadd(vf0, d1::bc<0>(vf6)), mx);
+            acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(vf7, d1::bc<1>(vf6))), mx);
+            vf6 = d1::vsel(vf6, d1::vadd(acc, d1::vmul(vf7, d1::bc<2>(vf6))), mx);
+            ctx->r[2] = _mm_castps_si128(vf6);
+            f1 = d1::add(d1Lane<0>(vf6), f20);
+            const float f3 = 0.25f;
+            f2 = 0.5f;
+            f1 = d1::mul(f1, f3);
+            f0 = m.d1f32(matrices() + 212u);
+            f1 = d1::add(f1, f2);
+            f0 = d1::mul(f0, f1);
+            m.d1putf(matrices() + 216u, f0);
+            ctx->vu0_vf[5] = vf5;
+            ctx->vu0_vf[6] = vf6;
+            ctx->vu0_vf[7] = vf7;
+            ctx->f[3] = f3;
+            // GetCharacterClass(id): kind 4 has its light matrix's +0x1c / +0x2c / +0x3c set first.
+            const uint8_t type = rdram[(id + 8u) & PS2_RAM_MASK];
+            const uint32_t character = (type == 9u || type == 22u) ? id + 144u : 0u;
+            if (character != 0u)
+            {
+                int16_t kind;
+                std::memcpy(&kind, m.d1ptr((character + 880u) & ~1u), 2);
+                if (kind == 4)
+                {
+                    m.d1put32(matrices() + 28u, 0u);
+                    m.d1putf(matrices() + 44u, f20);
+                    m.d1put32(matrices() + 60u, 0u);
+                }
+            }
+            sotc_decomp::callGuest(rdram, ctx, runtime, kCameraContext, 0x010F4C20u, frame);
+            const uint32_t camera2 = GPR_U32(ctx, 2);
+            // iosCopyMatrix(frame, camera + 0x1a0), w row 0 0 0 1, iosTransposeMatrix(frame, frame).
+            __m128 rot[4];
+            for (int k = 3; k >= 0; --k)
+                rot[k] = m.d1q(camera2 + 416u + static_cast<uint32_t>(k) * 16u);
+            rot[3] = vf0;
+            const float32x4x2_t z01 = vzipq_f32(rot[0], rot[1]); // t12, t13
+            const float32x4x2_t z23 = vzipq_f32(rot[2], rot[3]); // t14, t15
+            const __m128 cols[4] = {vcombine_f32(vget_low_f32(z01.val[0]), vget_low_f32(z23.val[0])), vcombine_f32(vget_high_f32(z01.val[0]), vget_high_f32(z23.val[0])),
+                                    vcombine_f32(vget_low_f32(z01.val[1]), vget_low_f32(z23.val[1])), vcombine_f32(vget_high_f32(z01.val[1]), vget_high_f32(z23.val[1]))};
+            for (int k = 0; k < 4; ++k)
+                ctx->r[8 + k] = _mm_castps_si128(cols[k]);
+            ctx->r[12] = _mm_castps_si128(z01.val[0]);
+            ctx->r[13] = _mm_castps_si128(z01.val[1]);
+            ctx->r[14] = _mm_castps_si128(z23.val[0]);
+            ctx->r[15] = _mm_castps_si128(z23.val[1]);
+            // The light matrix (+0x10..) times the transposed rotation.
+            const uint32_t lm = matrices() + 16u;
+            const __m128 rows[4] = {m.d1q(lm), m.d1q(lm + 16u), m.d1q(lm + 32u), m.d1q(lm + 48u)};
+            __m128 out[4];
+            for (int k = 0; k < 4; ++k)
+                out[k] = d1Xform(rows, cols[k], acc);
+            for (int k = 0; k < 4; ++k)
+                m.d1putq(lm + static_cast<uint32_t>(k) * 16u, out[k]);
+            for (int k = 0; k < 4; ++k)
+            {
+                ctx->vu0_vf[14 + k] = rows[k];
+                ctx->vu0_vf[24 + k] = out[k];
+            }
+            ctx->vu0_acc = acc;
+            for (uint32_t at : {28u, 44u, 60u})
+            {
+                const uint32_t r = m.d1u32(lc + 324u);
+                f1 = m.d1f32(r + 648u);
+                f2 = m.d1f32(r + 652u);
+                f1 = -f1;
+                const uint32_t mat = m.d1u32(r + 12u);
+                f0 = m.d1f32(mat + at);
+                f1 = d1::mul(f1, f2);
+                f0 = d1::mul(f0, f1);
+                m.d1putf(mat + at, f0);
+            }
+            SET_GPR_U32(ctx, 2, m.d1u32(lc + 324u));
+        }
+        ctx->f[0] = f0;
+        ctx->f[1] = f1;
+        ctx->f[2] = f2;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void objectLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            objectLightD1(rdram, ctx, runtime);
+        else
+            objectLight(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_010F4FB8 (lightPass) --------------------------------------------------------------------------------
+    // The three walks over the sort list with the callbacks as guest calls (the old body's frame, return addresses and
+    // registers); GetLayoutClass's inline cases a typed lookup; the scale of the second walk as d1 math (FPU_C_EQ_S ->
+    // d1::eq, the vmulx -> d1::vmul); f0 / the condition bit as locals stored at the exit. fastnative off, s23light or
+    // c2scene on: the old fn (their host lists / prefetches).
+    inline uint32_t d1InlineLayoutClass(const D1Spr m, uint32_t object)
+    {
+        const uint32_t index = static_cast<uint32_t>(m.ram[(object + 8u) & PS2_RAM_MASK]) - 9u;
+        if (index >= 0xEu)
+            return 0u;
+        const uint32_t target = m.d1u32(0x01194070u + index * 4u);
+        if (target == 0x010F1A58u)
+            return object + 0x20u;
+        if (target == 0x010F1A98u)
+            return object + 0x90u;
+        if (target == 0x010F1AA0u)
+            return 0u;
+        return 1u;
+    }
+    void lightPassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1LightPass.n;
+        if (!sotc_decomp::fastNativeOn() || sotc_decomp::switchOn(sotc_decomp::kS23Light) || sotc_decomp::switchOn(sotc_decomp::kC2Scene))
+            return lightPass(rdram, ctx, runtime);
+        const Mem mo(rdram, runtime);
+        const D1Spr m{mo.rdram, mo.spr};
+        const uint32_t list = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x30u;
+        if (!Mem::ok(list, 0x14u) || frame >= PS2_RAM_SIZE || sotc_decomp::jalTarget(rdram, 0x010F523Cu) != kCopyMatrix ||
+            sotc_decomp::jalTarget(rdram, 0x010F5258u) != kCopyMatrix)
+            return lightPass(rdram, ctx, runtime);
+        const SortList sorted{mo, list, true};
+        auto call = [&](uint32_t target, uint32_t site) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, frame); };
+        // GetLayoutClass (the inline cases; another one as a guest call).
+        auto layoutClass = [&](uint32_t object, uint32_t site) -> uint32_t
+        {
+            const uint32_t lc = d1InlineLayoutClass(m, object);
+            if (lc != 1u)
+                return lc;
+            SET_GPR_U32(ctx, 4, object);
+            call(kGetLayoutClass, site);
+            return GPR_U32(ctx, 2);
+        };
+        auto flags64 = [&](uint32_t a) { return m.d1u64(a); };
+        // A particle / other object's light callback (GetGeoDispClass: type 0x24 -> +0x20).
+        auto otherCallback = [&](uint32_t id, uint32_t obj)
+        {
+            const uint32_t geo = m.ram[(id + 8u) & PS2_RAM_MASK] == 0x24u ? id + 32u : 0u;
+            uint32_t callback;
+            if (geo != 0u && (callback = m.d1u32(geo + 224u)) != 0u)
+            {
+                SET_GPR_U32(ctx, 4, id);
+                SET_GPR_U32(ctx, 5, obj);
+                // Round 83: a particle system's light through the colours' cache.
+                if (!(callback == 0x0113F600u && sotc_decomp::walk83ParticleLight(rdram, ctx, runtime, id, frame, 0x010F5074u + 8u)))
+                    call(callback, 0x010F5074u);
+            }
+        };
+
+        call(kPreLight, 0x010F4FD4u);
+        call(kCameraContext, 0x010F4FDCu);
+        SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2) + 320u);
+        call(kReverb, 0x010F4FE4u);
+        sotc_decomp::walk83LightBegin(rdram, runtime); // round 83: the lights' signature for this pass
+
+        // The objects' light callbacks.
+        for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
+        {
+            const uint32_t id = m.d1u32(obj);
+            const uint32_t lc = layoutClass(id, 0x010F5008u);
+            if (lc != 0u)
+            {
+                const uint32_t geo = m.d1u32(lc + 320u);
+                uint32_t callback = 0u;
+                if ((flags64(m.d1u32(lc + 324u) + 608u) & 2u) != 0u && geo != 0u)
+                    callback = m.d1u32(geo + 224u);
+                if (callback != 0u)
+                {
+                    SET_GPR_U32(ctx, 4, id);
+                    SET_GPR_U32(ctx, 5, obj);
+                    call(callback, 0x010F5044u);
+                }
+            }
+            else
+                otherCallback(id, obj);
+        }
+
+        // Round 95 (join95): the display walk's particle geodisps joined here, then their own callbacks.
+        if (const sotc_decomp::LightMid95 mid = sotc_decomp::g_lightMid95)
+        {
+            sotc_decomp::g_lightMid95 = nullptr;
+            std::vector<uint32_t> nodes;
+            const float fs0 = ctx->f[0], fs1 = ctx->f[1], fs2 = ctx->f[2];
+            const uint32_t fcr = ctx->fcr31;
+            mid(rdram, ctx, runtime, frame, nodes);
+            ctx->f[0] = fs0;
+            ctx->f[1] = fs1;
+            ctx->f[2] = fs2;
+            ctx->fcr31 = fcr;
+            for (const uint32_t obj : nodes)
+                otherCallback(m.d1u32(obj), obj);
+        }
+
+        sotc_decomp::walk83LightEnd();
+
+        // The layout objects' own lights (010F4A18) and their scale.
+        float f0 = ctx->f[0];
+        bool c = (ctx->fcr31 & 0x800000u) != 0u;
+        for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
+        {
+            const uint32_t id = m.d1u32(obj);
+            const uint32_t lc = layoutClass(id, 0x010F50B8u);
+            if (lc == 0u)
+                continue;
+            uint32_t r = m.d1u32(lc + 324u);
+            if ((flags64(r + 608u) & 2u) != 0u)
+            {
+                const uint32_t geo = m.d1u32(lc + 320u);
+                if (geo != 0u && m.d1u32(geo + 224u) != 0u && m.d1u32(lc + 408u) == 0u)
+                {
+                    SET_GPR_U32(ctx, 4, id);
+                    call(kObjLight, 0x010F5100u);
+                    r = m.d1u32(lc + 324u);
+                }
+            }
+            // The scale (the model header's +0x2c) on the matrices' +0x80 unless it is 1: v1 = its bits (mfc1), the
+            // 128-bit register the vmulx operand.
+            const uint32_t header = m.d1u32(r);
+            f0 = m.d1f32(m.d1u32(m.d1u32(header + 32u) + 8u) + 44u);
+            c = d1::eq(f0, 1.0f);
+            if (!c)
+            {
+                const uint32_t at = m.d1u32(r + 12u) + 128u;
+                SET_GPR_U32(ctx, 3, d1LightFBits(f0));
+                const __m128 vf6 = _mm_castsi128_ps(GPR_VEC(ctx, 3));
+                const __m128 vf5 = d1::vmul(m.d1q(at), d1::bc<0>(vf6));
+                m.d1putq(at, vf5);
+                ctx->vu0_vf[5] = vf5;
+                ctx->vu0_vf[6] = vf6;
+            }
+        }
+
+        // The objects with a light parent (+0x198): its lights taken over.
+        for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
+        {
+            const uint32_t id = m.d1u32(obj);
+            const uint32_t lc = layoutClass(id, 0x010F5170u);
+            if (lc == 0u)
+                continue;
+            if ((flags64(m.d1u32(lc + 324u) + 608u) & 2u) == 0u)
+                continue;
+            const uint32_t geo = m.d1u32(lc + 320u);
+            if (geo == 0u || m.d1u32(geo + 224u) == 0u)
+                continue;
+            const uint32_t parent = m.d1u32(lc + 408u);
+            if (parent == 0u)
+                continue;
+            const uint32_t lc2 = layoutClass(parent, 0x010F51B8u);
+            m.d1putq(m.d1u32(lc + 320u) + 16u, m.d1q(m.d1u32(lc2 + 320u) + 16u));
+            {
+                const uint32_t a1 = m.d1u32(lc + 320u), a0 = m.d1u32(lc2 + 320u);
+                const uint64_t v = (flags64(a1 + 192u) & ~1ull) | (static_cast<uint64_t>(m.ram[(a0 + 192u) & PS2_RAM_MASK]) & 1u);
+                m.d1put64(a1 + 192u, v);
+            }
+            {
+                const uint32_t a0 = m.d1u32(lc2 + 324u), a1 = m.d1u32(lc + 324u);
+                const uint64_t v = (flags64(a1 + 608u) & ~8ull) | (((flags64(a0 + 608u) >> 3) & 0xFFFFu & 1u) << 3);
+                m.d1put64(a1 + 608u, v);
+            }
+            for (const uint32_t off : {80u, 16u})
+            {
+                const uint32_t dst = m.d1u32(m.d1u32(lc + 324u) + 12u) + off, src = m.d1u32(m.d1u32(lc2 + 324u) + 12u) + off;
+                for (int k = 3; k >= 0; --k)
+                    m.d1putq(dst + static_cast<uint32_t>(k) * 16u, m.d1q(src + static_cast<uint32_t>(k) * 16u));
+            }
+            f0 = m.d1f32(m.d1u32(m.d1u32(lc2 + 324u) + 12u) + 212u);
+            m.d1putf(m.d1u32(m.d1u32(lc + 324u) + 12u) + 212u, f0);
+            f0 = m.d1f32(m.d1u32(m.d1u32(lc2 + 324u) + 12u) + 216u);
+            m.d1putf(m.d1u32(m.d1u32(lc + 324u) + 12u) + 216u, f0);
+        }
+        ctx->f[0] = f0;
+        cond(ctx, c);
+        // The tail jump: LoopExecAfterLightColMan, returning to our caller.
+        sotc_decomp::callGuest(rdram, ctx, runtime, kAfterLight, ra0, sp0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void lightPassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            lightPassD1(rdram, ctx, runtime);
+        else
+            lightPass(rdram, ctx, runtime);
+    }
+
+    // ---- ExecGlobalLightMan (s21light on, its check off: execImpl's S21 path) ----------------------------------------------
+    // The guest calls (getAmbientColorC, the elliptical volume's rate, the blend) and the S21 inverse-matrix cache keep the
+    // old body's register state; the ambient scale, the brightness, each light's distance test, the rates' products and
+    // the sort's compares as d1 math on D1Spr; f0 / f1 / f2 / the condition bit locals as before.
+    void execGlobalLightManD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1ExecGlobal.n;
+        if (!sotc_decomp::switchOn(sotc_decomp::kS21Light))
+            return execGlobalLightMan(rdram, ctx, runtime);
+        s21Init();
+        if (g_s21Check > 0)
+            return execGlobalLightMan(rdram, ctx, runtime);
+        ++g_s21.calls;
+        s21Report();
+        ++g_s21.host;
+        const Mem mo(rdram, runtime);
+        const D1Spr m{mo.rdram, mo.spr};
+        const uint32_t query = GPR_U32(ctx, 4), work = GPR_U32(ctx, 5);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0xA0u;
+        const int32_t globals = static_cast<int32_t>(m.d1u32(work + 0x510u));
+        bool sane = Mem::ok(query, 0x20u) && Mem::ok(work, 0x5C4u + 0x80u) && frame < PS2_RAM_SIZE && sp0 <= PS2_RAM_SIZE && globals <= 32 &&
+                    sotc_decomp::jalTarget(rdram, 0x010F882Cu) == kBrightness && sotc_decomp::jalTarget(rdram, 0x010F88DCu) == kInvQuatPos &&
+                    sotc_decomp::jalTarget(rdram, 0x010F89DCu) == kMemset;
+        for (int32_t i = 0; sane && i < globals; ++i)
+            sane = Mem::ok(m.d1u32(work + 0x5C4u + static_cast<uint32_t>(i) * 4u), 0x148u);
+        if (!sane)
+            return sotc_decomp::recompiled(kGlobalLights)(rdram, ctx, runtime);
+
+        const __m128 xyz = d1::mask(1, 1, 1, 0), mx = d1::mask(1, 0, 0, 0);
+        int32_t count = 0; // s8
+        float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2];
+        bool c = (ctx->fcr31 & 0x800000u) != 0u;
+        const bool keep = m.d1u32(query + 24u) == 0u;
+        if (keep)
+        {
+            m.d1putq(frame, m.d1q(query));
+            for (uint32_t r = 0; r < 3u; ++r)
+            {
+                const uint32_t rec = work + r * 64u;
+                m.d1putq(rec + 928u, m.d1q(rec + 256u));
+                f0 = m.d1f32(rec + 272u);
+                f1 = m.d1f32(rec + 276u);
+                f2 = m.d1f32(rec + 280u);
+                m.d1putf(rec + 944u, f0);
+                m.d1putf(rec + 948u, f1);
+                m.d1putf(rec + 952u, f2);
+            }
+            // getAmbientColorC(frame + 16, frame): the colour there, v0 0 for none.
+            SET_GPR_U32(ctx, 4, frame + 16u);
+            SET_GPR_U32(ctx, 5, frame);
+            sotc_decomp::callGuest(rdram, ctx, runtime, kAmbientColorC, 0x010F87B8u, frame);
+            __m128 ambient = m.d1q(frame + 16u);
+            if (GPR_U64(ctx, 2) != 0u)
+            {
+                f2 = m.d1f32(frame + 28u);
+                f0 = d1LightBitsF(0x3C000000u); // 1 / 128
+                f2 = d1::mul(f2, f0);
+                __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6];
+                for (uint32_t r = 0; r < 3u; ++r)
+                {
+                    const uint32_t rec = work + r * 64u;
+                    SET_GPR_U32(ctx, 4, d1LightFBits(f2));
+                    vf5 = m.d1q(rec + 256u);
+                    vf6 = _mm_castsi128_ps(GPR_VEC(ctx, 4));
+                    vf5 = d1::vsel(vf5, d1::vmul(vf5, d1::bc<0>(vf6)), xyz);
+                    m.d1putq(rec + 256u, vf5);
+                    f1 = m.d1f32(rec + 272u);
+                    f0 = m.d1f32(rec + 280u);
+                    f1 = d1::mul(f1, f2);
+                    f0 = d1::mul(f0, f2);
+                    m.d1putf(rec + 272u, f1);
+                    m.d1putf(rec + 280u, f0);
+                }
+                ctx->vu0_vf[5] = vf5;
+                ctx->vu0_vf[6] = vf6;
+                ambient = m.d1q(frame + 16u);
+            }
+            // 0x10f8818: the ambient colour into +0x1f0 (w 1), its brightness (iosCalcFColorToBrightness).
+            const uint32_t amb = work + 240u;
+            m.d1putq(work + 496u, ambient);
+            m.d1putf(work + 540u, 1.0f);
+            {
+                const __m128 white = m.d1q(0x001E2BD0u);
+                const __m128 vf5 = d1::vmul(m.d1q(work + 496u), white);
+                f0 = d1::add(d1::add(d1Lane<0>(vf5), d1Lane<1>(vf5)), d1Lane<2>(vf5));
+                ctx->vu0_vf[5] = vf5;
+                ctx->vu0_vf[6] = white;
+            }
+            f1 = m.d1f32(amb + 300u);
+            f2 = f0;
+            f0 = 0.0f;
+            c = d1::lt(f1, f0);
+            m.d1putf(amb + 320u, f2);
+            f0 = c ? d1::mul(-f1, f2) : d1::mul(f1, f2);
+            m.d1putf(amb + 304u, f0);
+
+            // 0x10f885c: the global lights (S21: each through one host pointer when 16-aligned and whole).
+            int32_t total = globals;
+            const float f20 = 0.0f;
+            __m128 vf5 = ctx->vu0_vf[5], vf6 = ctx->vu0_vf[6], vf7 = ctx->vu0_vf[7];
+            for (int32_t i = 0; i < total; ++i)
+            {
+                const uint32_t light = m.d1u32(work + 0x5C4u + static_cast<uint32_t>(i) * 4u);
+                uint8_t *const L = (light & 0xFu) == 0u && Mem::ok(light, 0x148u) ? m.d1ptr(light) : nullptr;
+                auto lu32 = [&](uint32_t o) -> uint32_t
+                {
+                    if (!L)
+                        return m.d1u32(light + o);
+                    uint32_t v;
+                    std::memcpy(&v, L + o, 4);
+                    return v;
+                };
+                auto lf32 = [&](uint32_t o) -> float
+                {
+                    if (!L)
+                        return m.d1f32(light + o);
+                    float v;
+                    std::memcpy(&v, L + o, 4);
+                    return v;
+                };
+                auto lq = [&](uint32_t o) -> __m128
+                {
+                    if (!L)
+                        return m.d1q(light + o);
+                    __m128 v;
+                    std::memcpy(&v, L + o, 16);
+                    return v;
+                };
+                auto lputf = [&](uint32_t o, float v)
+                {
+                    if (!L)
+                        return m.d1putf(light + o, v);
+                    std::memcpy(L + o, &v, 4);
+                };
+                if (lu32(324u) == 0u)
+                    continue;
+                ++g_s21.lights;
+                vf5 = lq(192u);
+                vf6 = m.d1q(frame);
+                // |light - query|^2 in lane x.
+                vf7 = d1::vsub(vf5, vf6);
+                vf7 = d1::vsel(vf7, d1::vmul(vf7, vf7), xyz);
+                vf7 = d1::vsel(vf7, d1::vadd(vf7, d1::bc<1>(vf7)), mx);
+                vf7 = d1::vsel(vf7, d1::vadd(vf7, d1::bc<2>(vf7)), mx);
+                ctx->r[2] = _mm_castps_si128(vf7);
+                f0 = d1Lane<0>(vf7);
+                f1 = lf32(280u);
+                c = d1::lt(f0, f1);
+                lputf(296u, f0);
+                if (!c)
+                {
+                    total = static_cast<int32_t>(m.d1u32(work + 1296u));
+                    continue;
+                }
+                ++g_s21.inRange;
+                m.d1putq(frame + 32u, lq(224u));
+                m.d1putq(frame + 48u, lq(240u));
+                bool hit = false;
+                ctx->vu0_vf[5] = vf5;
+                ctx->vu0_vf[6] = vf6;
+                ctx->vu0_vf[7] = vf7;
+                if (L)
+                    s21InvQuatPos(mo, ctx, work + 176u, light, L, frame, i);
+                else
+                    invQuatPos(mo, ctx, work + 176u, light + 208u, light + 192u, frame);
+                const uint32_t kind = lu32(272u);
+                bool tested = false;
+                if (kind & 1u)
+                {
+                    SET_GPR_U32(ctx, 4, work + 176u);
+                    SET_GPR_U32(ctx, 5, query);
+                    SET_GPR_U32(ctx, 6, frame + 32u);
+                    SET_GPR_U32(ctx, 7, frame + 48u);
+                    sotc_decomp::callGuest(rdram, ctx, runtime, kRateElliptical, 0x010F8904u, frame);
+                    f0 = ctx->f[0];
+                    tested = true;
+                }
+                else if (kind & 2u)
+                {
+                    f0 = rateCube(mo, ctx, work + 176u, query, frame + 32u, frame + 48u, frame);
+                    tested = true;
+                }
+                if (tested)
+                {
+                    c = d1::le(f20, f0);
+                    lputf(284u, f0);
+                    hit = c;
+                }
+                f0 = lf32(284u);
+                f1 = lf32(316u);
+                f0 = d1::mul(f0, f1);
+                lputf(284u, f0);
+                if (hit && count < 32)
+                {
+                    m.d1put32(work + 1344u + static_cast<uint32_t>(count) * 4u, light);
+                    ++count;
+                }
+                total = static_cast<int32_t>(m.d1u32(work + 1296u));
+            }
+            ctx->f[1] = f1;
+            ctx->f[2] = f2;
+        }
+        // 0x10f8978.
+        if (count == 0)
+        {
+            // No light: the ambient record over the three (0x150 bytes).
+            std::memmove(m.d1ptr(work + 576u), m.d1ptr(work + 240u), 0x150u);
+        }
+        else
+        {
+            std::memset(m.d1ptr(work + 576u), 0, 336u);
+            // Insertion sort of the list by +0x134.
+            for (int32_t t1 = 1; t1 < count; ++t1)
+            {
+                const uint32_t a3 = m.d1u32(work + 1344u + static_cast<uint32_t>(t1) * 4u);
+                int32_t j = t1 - 1;
+                while (j >= 0)
+                {
+                    const uint32_t other = m.d1u32(work + 1344u + static_cast<uint32_t>(j) * 4u);
+                    f1 = m.d1f32(a3 + 308u);
+                    f0 = m.d1f32(other + 308u);
+                    c = d1::lt(f1, f0);
+                    if (!c)
+                        break;
+                    m.d1put32(work + 1348u + static_cast<uint32_t>(j) * 4u, other);
+                    --j;
+                }
+                m.d1put32(work + 1348u + static_cast<uint32_t>(j) * 4u, a3);
+            }
+            ctx->f[1] = f1;
+            ctx->f[0] = f0;
+            cond(ctx, c);
+            SET_GPR_U32(ctx, 4, work);
+            SET_GPR_S32(ctx, 5, count);
+            SET_GPR_U32(ctx, 6, frame);
+            // Through the table: native (blendLights) or, when it leaves a case to the recompiled code, run to its return.
+            sotc_decomp::callGuest(rdram, ctx, runtime, kBlend, 0x010F8AA4u, frame);
+            f0 = ctx->f[0];
+            c = (ctx->fcr31 & 0x800000u) != 0u;
+        }
+        if (keep)
+        {
+            for (uint32_t r = 0; r < 3u; ++r)
+            {
+                const uint32_t rec = work + r * 64u;
+                m.d1putq(rec + 256u, m.d1q(rec + 928u));
+                f0 = m.d1f32(rec + 944u);
+                f1 = m.d1f32(rec + 948u);
+                f2 = m.d1f32(rec + 952u);
+                m.d1putf(rec + 272u, f0);
+                m.d1putf(rec + 276u, f1);
+                m.d1putf(rec + 280u, f2);
+            }
+            ctx->f[1] = f1;
+            ctx->f[2] = f2;
+        }
+        ctx->f[0] = f0;
+        cond(ctx, c);
+        SET_GPR_S32(ctx, 2, count);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void execGlobalLightManSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            execGlobalLightManD1(rdram, ctx, runtime);
+        else
+            execGlobalLightMan(rdram, ctx, runtime);
+    }
+}

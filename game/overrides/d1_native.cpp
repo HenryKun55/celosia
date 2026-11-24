@@ -20,3 +20,34 @@ namespace d1
                 std::fprintf(stderr, "[d1]   %s %llu\n", c->name, (unsigned long long)c->n);
     }
 } // namespace d1
+
+#include "d1_alias.h"
+
+namespace d1
+{
+    void syncTable(PS2Runtime *runtime, bool on)
+    {
+        static int state = -1;
+        if (!runtime || state == (on ? 1 : 0))
+            return;
+        state = on ? 1 : 0;
+        int swapped = 0, other = 0;
+        for (uint32_t i = 0; i < g_aliasCount; ++i)
+        {
+            const AliasEntry &e = g_aliasList[i];
+            const GuestFn from = on ? e.old : e.sw, to = on ? e.sw : e.old;
+            const GuestFn now = runtime->lookupFunction(e.address);
+            if (now == from)
+            {
+                runtime->registerFunction(e.address, to);
+                ++swapped;
+            }
+            else if (now != to)
+                ++other;
+        }
+        static uint64_t changes = 0;
+        if (changes++ < 4 || changes % 1000 == 0)
+            std::fprintf(stderr, "[d1] table: d1native %s, %d slots swapped, %d held by something else (change %llu)\n", on ? "on" : "off", swapped, other,
+                         (unsigned long long)changes);
+    }
+} // namespace d1

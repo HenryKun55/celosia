@@ -33,6 +33,7 @@
 // compare the dead stack). A blend list with no entry (the original would
 // count down from -2 and run away) goes to the recompiled code.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -234,4 +235,190 @@ namespace decomp_skinfinder
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01116108u, skinFinderCorners, decomp_skinfinder::corners);
+namespace decomp_skinfinder
+{
+    void cornersSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1's dispatcher (below)
+}
+SOTC_DECOMP_FUNCTION(0x01116108u, skinFinderCorners, decomp_skinfinder::cornersSw);
+D1_ALIAS(0x01116108u, skinFinderCorners, decomp_skinfinder::cornersSw, decomp_skinfinder::corners);
+
+// ---- Round D1 (SOTC_D1NATIVE): corners() as native C++ (d1_native.h) ----------------------------------------------
+// The same corners, frame and VU0 registers as corners() above: the arguments read once by the adapter, the core on
+// typed guest memory (d1::Mem, the old body's 16-aligned qwords) and NEON vec4 math without the operand clamps (finite
+// data), the VU0 state the old body leaves handed back in a plain struct. The SOTC_SKINFINDER_STATS counts are left out
+// (stderr only); a blend list without entries goes to the old body (which runs the recompiled code).
+namespace decomp_skinfinder
+{
+    D1_COUNTER(c_d1Corners, "skinfinder.corners");
+
+    struct D1Corners
+    {
+        uint32_t out, pairsOut, blend, managers, matrices, lists, blendLists, pairs;
+    };
+    // The VU0 registers the old body leaves (vf8 / vf10 / vf14-vf17 / ACC of the last product, vf29-vf31 of the last
+    // sum) and whether the inner loop of a blend with pairs out made a vertex (the frame's t3 slot).
+    struct D1CornersVu
+    {
+        __m128 v, rows[4], out, acc, before, added, sum;
+        bool any, summed, wroteT3;
+    };
+
+    inline __m128 d1q(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+    inline void d1putq(const d1::Mem m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+
+    // EntryModifiedManager(manager, index).
+    inline void d1Entry(const d1::Mem m, uint32_t manager, uint32_t index)
+    {
+        const uint32_t count = m.u32(manager);
+        const int32_t type = m.s32(manager + 0xCu);
+        m.set<uint32_t>(manager, count + 1u);
+        if (type == 2)
+            m.set<uint16_t>(m.u32(manager + 0x10u) + count * 2u, static_cast<uint16_t>(index));
+        else if (type == 4)
+            m.set<uint32_t>(m.u32(manager + 0x10u) + count * 4u, index);
+        else if (type == 1)
+            m.set<uint8_t>(m.u32(manager + 0x10u) + count, static_cast<uint8_t>(index));
+        m.set<uint8_t>(m.u32(manager + 8u) + index, 1u);
+    }
+
+    // The vertex (bone, vertex) made in its manager's cache if not done yet (vmulax / vmadday / vmaddaz / vmaddw);
+    // its cache entry's address.
+    inline uint32_t d1VertexIn(const d1::Mem m, const D1Corners &a, uint32_t bone, uint32_t vertex, D1CornersVu &st)
+    {
+        const uint32_t manager = a.managers + bone * 0x60u;
+        const uint32_t dst = m.u32(manager + 0x14u) + vertex * 16u;
+        if (m.get<uint8_t>(m.u32(manager + 8u) + vertex) == 0u)
+        {
+            const __m128 v = d1q(m, vertex * 16u + m.u32(bone * 0x90u + a.lists + 4u));
+            const uint32_t mt = bone * 0x40u + a.matrices;
+            const __m128 r0 = d1q(m, mt), r1 = d1q(m, mt + 0x10u), r2 = d1q(m, mt + 0x20u), r3 = d1q(m, mt + 0x30u);
+            __m128 t = d1::vmul(r0, d1::bc<0>(v));
+            t = d1::vmadd(t, r1, d1::bc<1>(v));
+            t = d1::vmadd(t, r2, d1::bc<2>(v));
+            const __m128 out = d1::vmadd(t, r3, d1::bc<3>(v));
+            d1putq(m, dst, out);
+            d1Entry(m, manager, vertex);
+            st.v = v;
+            st.rows[0] = r0;
+            st.rows[1] = r1;
+            st.rows[2] = r2;
+            st.rows[3] = r3;
+            st.out = out;
+            st.acc = t;
+            st.any = true;
+        }
+        return dst;
+    }
+
+    // A blend list without entries (the original would count down from -2): the old body (nothing written yet).
+    inline bool d1CornersRare(const d1::Mem m, const D1Corners &a)
+    {
+        for (uint32_t k = 0; k < 3u; ++k)
+            if (m.u32(a.pairs + k * 8u) == 0xFFFFFFFFu)
+            {
+                const uint32_t vertex = m.u32(a.pairs + k * 8u + 4u);
+                if (m.get<uint8_t>(m.u32(a.blend + 8u) + vertex) == 0u && m.s32(m.u32(a.blendLists + vertex * 4u)) < 1)
+                    return true;
+            }
+        return false;
+    }
+
+    // The three corners (st.before / added / sum come in as vf29 / vf30 / vf31).
+    void cornersCore(const d1::Mem m, const D1Corners &a, D1CornersVu &st)
+    {
+        for (uint32_t k = 0; k < 3u; ++k)
+        {
+            const uint32_t pair = a.pairs + k * 8u;
+            if (a.pairsOut)
+                m.set<uint64_t>(a.pairsOut + k * 8u, m.get<uint64_t>(pair));
+            const uint32_t bone = m.u32(pair), vertex = m.u32(pair + 4u);
+            if (bone != 0xFFFFFFFFu)
+            {
+                m.set<uint32_t>(a.out + k * 4u, d1VertexIn(m, a, bone, vertex, st));
+                continue;
+            }
+            const uint32_t dst = m.u32(a.blend + 0x14u) + vertex * 16u;
+            m.set<uint32_t>(a.out + k * 4u, dst);
+            if (m.get<uint8_t>(m.u32(a.blend + 8u) + vertex) != 0u)
+                continue;
+            const uint32_t list = m.u32(a.blendLists + vertex * 4u);
+            const int32_t n = m.s32(list);
+            uint32_t at = list + 4u;
+            st.sum = d1q(m, d1VertexIn(m, a, m.u32(at), m.u32(at + 4u), st));
+            at += 8u;
+            for (int32_t i = 1; i < n; ++i, at += 8u)
+            {
+                st.before = st.sum;
+                const bool was = st.any;
+                st.any = false;
+                st.added = d1q(m, d1VertexIn(m, a, m.u32(at), m.u32(at + 4u), st));
+                if (st.any && a.pairsOut)
+                    st.wroteT3 = true;
+                st.any = st.any || was;
+                st.sum = d1::vadd(st.before, st.added);
+            }
+            st.summed = true;
+            d1putq(m, m.u32(a.out + k * 4u), st.sum);
+            d1Entry(m, a.blend, vertex);
+        }
+    }
+
+    // The adapter: arguments, the frame as the original leaves it (a2, a3, t2, the loop counter, the saved registers;
+    // t3 where the inner loop wrote it), the VU0 registers and v0 / v1 back into the context.
+    void cornersD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const d1::Mem m{rdram};
+        const D1Corners a{GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7),
+                          GPR_U32(ctx, 8), GPR_U32(ctx, 9), GPR_U32(ctx, 10), GPR_U32(ctx, 11)};
+        if (__builtin_expect(d1CornersRare(m, a), 0))
+            return corners(rdram, ctx, runtime);
+        ++c_d1Corners.n;
+        const uint32_t frame = GPR_U32(ctx, 29) - 0x70u;
+        static constexpr int kSaved[10] = {16, 17, 18, 19, 20, 21, 22, 23, 30, 31};
+        for (int i = 0; i < 10; ++i)
+            m.set<uint64_t>(frame + 0x20u + i * 8u, GPR_U64(ctx, kSaved[i]));
+        m.set<uint32_t>(frame, a.blend);
+        m.set<uint32_t>(frame + 4u, a.managers);
+        m.set<uint32_t>(frame + 8u, a.blendLists);
+        m.set<uint32_t>(frame + 0xCu, 0xFFFFFFFFu);
+        D1CornersVu st;
+        st.any = st.summed = st.wroteT3 = false;
+        st.sum = ctx->vu0_vf[31];
+        st.before = ctx->vu0_vf[29];
+        st.added = ctx->vu0_vf[30];
+        cornersCore(m, a, st);
+        if (st.wroteT3)
+        {
+            // sq t3: its low half -1 (addiu), the high half as it came.
+            __m128i t3 = ctx->r[11];
+            const uint64_t low = ~0ull;
+            std::memcpy(&t3, &low, 8);
+            std::memcpy(rdram + ((frame + 0x10u) & PS2_RAM_MASK & ~0xFu), &t3, 16);
+        }
+        if (st.any)
+        {
+            ctx->vu0_vf[8] = st.v;
+            for (int k = 0; k < 4; ++k)
+                ctx->vu0_vf[14 + k] = st.rows[k];
+            ctx->vu0_vf[10] = st.out;
+            ctx->vu0_acc = st.acc;
+        }
+        if (st.summed)
+        {
+            ctx->vu0_vf[29] = st.before;
+            ctx->vu0_vf[30] = st.added;
+            ctx->vu0_vf[31] = st.sum;
+        }
+        SET_GPR_S64(ctx, 2, -1);
+        SET_GPR_S64(ctx, 3, -1);
+        returnTo(ctx);
+    }
+
+    void cornersSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            cornersD1(rdram, ctx, runtime);
+        else
+            corners(rdram, ctx, runtime);
+    }
+}

@@ -6,6 +6,7 @@
 // context (FPU registers and fcr31, VU0 vf15-vf19, Q and status, v0 / at /
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
@@ -299,8 +300,15 @@ namespace decomp_math
     }
 }
 
-SOTC_DECOMP_FLOAT_FUNCTION(0x001BDF00u, iosGetSinf, decomp_math::sinOrCos<false>);
-SOTC_DECOMP_FLOAT_FUNCTION(0x001BE020u, iosGetCosf, decomp_math::sinOrCos<true>);
+namespace decomp_math
+{
+    template <bool Cos>
+    void sinOrCosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1 (d1native): the dispatcher (end of file)
+}
+SOTC_DECOMP_FLOAT_FUNCTION(0x001BDF00u, iosGetSinf, decomp_math::sinOrCosSw<false>);
+D1_ALIAS(0x001BDF00u, iosGetSinf, decomp_math::sinOrCosSw<false>, decomp_math::sinOrCos<false>);
+SOTC_DECOMP_FLOAT_FUNCTION(0x001BE020u, iosGetCosf, decomp_math::sinOrCosSw<true>);
+D1_ALIAS(0x001BE020u, iosGetCosf, decomp_math::sinOrCosSw<true>, decomp_math::sinOrCos<true>);
 
 // iosCopyMatrix (0x1b9148, round 11): a 4x4 matrix copied, a1 to a0, rows
 // 3, 2, 1, 0 in that order (as its lq / sq pairs); outside main RAM: the
@@ -324,7 +332,12 @@ namespace decomp_copymatrix
         sotc_decomp::returnTo(ctx);
     }
 }
-SOTC_DECOMP_FUNCTION(0x001B9148u, iosCopyMatrix, decomp_copymatrix::copyMatrix);
+namespace decomp_copymatrix
+{
+    void copyMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1 (d1native): the dispatcher (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x001B9148u, iosCopyMatrix, decomp_copymatrix::copyMatrixSw);
+D1_ALIAS(0x001B9148u, iosCopyMatrix, decomp_copymatrix::copyMatrixSw, decomp_copymatrix::copyMatrix);
 
 // Round 42 (SOTC_LEAVES=0: recompiled).
 // CopyMultiMatrix (0x1132ec8): a2 matrices copied, a1 to a0, 0x40 bytes
@@ -716,3 +729,204 @@ namespace decomp_libm
     }
 }
 SOTC_DECOMP_FLOAT_FUNCTION(0x001BE388u, iosGetACosfExact, decomp_libm::acosExact);
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE; d1_native.h): iosGetSinf / iosGetCosf / iosCopyMatrix as native C++ ----
+// iosGetSinf / iosGetCosf: the angle reduction in d1:: scalar math (the divide by 2 pi rounds to nearest, as
+// ps2FpuDivide does: its zero-divisor flags never fire for the constant divisor), the polynomial as NEON vec4 ops
+// (d1::v*: no operand clamps, the result clamp kept); the adapter reads the registers the old body reads and writes
+// back what it leaves (f1-f5 / f12 / f0, fcr31's condition bit, at, v0, a3, t0, vf15 / vf16 / vf18 / vf19).
+// iosCopyMatrix: the four rows read and written in the original's order (3, 2, 1, 0) through typed memory.
+namespace decomp_math
+{
+    namespace
+    {
+        D1_COUNTER(c_d1Sin, "iosGetSinf");
+        D1_COUNTER(c_d1Cos, "iosGetCosf");
+
+        struct D1SinCos
+        {
+            __m128 vf15, vf16, vf18, vf19;
+            float f1, f2, f3, f4, f5, f12, result;
+            uint32_t at, t0, t0w2, t0w3;
+            bool plus, cond;
+            uint64_t low;
+        };
+
+        // The angle into -pi..pi (reduce() above, d1 math); true: the "+" side. `cond`: the last compare (fcr31 bit 23).
+        bool d1SinCosReduce(D1SinCos &s)
+        {
+            const float minusPi = bits(0xC0490FDBu), pi = bits(0x40490FDBu), twoPi = bits(0x40C90FDBu);
+            auto wrap = [&](float base, bool addSide)
+            {
+                s.f2 = twoPi;
+                s.at = 0x40C90FDBu;
+                float f4 = addSide ? d1::add(base, s.f12) : d1::sub(base, s.f12);
+                f4 = ps2FpuClamp(ps2FpuDivideNearest(f4, s.f2)); // ps2FpuDivide with a non-zero divisor
+                const int32_t w = ps2FpuConvertToWord(f4);
+                f4 = static_cast<float>(w);
+                f4 = d1::mul(f4, s.f2);
+                s.f4 = f4;
+                s.f12 = addSide ? d1::sub(s.f12, f4) : d1::add(s.f12, f4);
+            };
+            if ((s.cond = d1::lt(s.f12, 0.0f)))
+            {
+                s.f1 = minusPi;
+                s.at = 0xC0490FDBu;
+                if ((s.cond = d1::le(s.f1, s.f12)))
+                    return true;
+                s.f1 = d1::sub(0.0f, s.f1);
+                wrap(s.f1, false);
+                return (s.cond = d1::lt(s.f12, 0.0f));
+            }
+            s.f1 = pi;
+            s.at = 0x40490FDBu;
+            if ((s.cond = d1::lt(s.f12, s.f1)))
+                return false;
+            wrap(s.f1, true);
+            return (s.cond = d1::lt(s.f12, 0.0f));
+        }
+
+        // iosGetSinf (Cos false) / iosGetCosf (Cos true): s holds the registers read (f1-f5, f12, vf18, vf19, t0's
+        // upper words) and gets what the function leaves.
+        template <bool Cos>
+        void sinOrCosCore(d1::Mem m, D1SinCos &s)
+        {
+            if (Cos)
+                s.f3 = bits(0x3FC90FDBu);
+            s.plus = d1SinCosReduce(s);
+            float angle;
+            if (Cos)
+                angle = s.f5 = s.plus ? d1::add(s.f3, s.f12) : d1::sub(s.f3, s.f12);
+            else
+                angle = s.f3 = s.plus ? d1::add(0.0f, s.f12) : d1::sub(0.0f, s.f12);
+            std::memcpy(&s.t0, &angle, 4);
+            // qmtc2 t0, vf16 (t0 sign-extended, its upper words as they were), then vmr32.w (w = x).
+            const uint32_t words[4] = {s.t0, (s.t0 & 0x80000000u) ? 0xFFFFFFFFu : 0u, s.t0w2, s.t0};
+            __m128 vf16;
+            std::memcpy(&vf16, words, 16);
+            const __m128 vf15 = m.q(0x001E2BC0u);
+            const __m128 vf0 = d1::vf0(), mx = d1::mask(1, 0, 0, 0);
+            __m128 vf18 = s.vf18, vf19;
+            vf18 = d1::vsel(vf18, d1::vadd(vf0, d1::bc<0>(vf16)), mx);
+            vf16 = d1::vsel(vf16, d1::vmul(vf16, vf16), mx);
+            vf18 = d1::vsel(vf18, d1::vmul(vf18, d1::bc<0>(vf0)), d1::mask(0, 1, 1, 1));
+            const __m128 t = d1::bc<0>(vf16);
+            vf19 = d1::vmul(vf15, d1::bc<3>(vf16));
+            vf19 = d1::vmul(vf19, t);
+            vf19 = d1::vsel(vf19, d1::vmul(vf19, t), d1::mask(1, 1, 1, 0));
+            vf18 = d1::vsel(vf18, d1::vadd(vf18, d1::bc<3>(vf19)), mx);
+            vf19 = d1::vsel(vf19, d1::vmul(vf19, t), d1::mask(1, 1, 0, 0));
+            vf18 = d1::vsel(vf18, d1::vadd(vf18, d1::bc<2>(vf19)), mx);
+            vf19 = d1::vsel(vf19, d1::vmul(vf19, t), mx);
+            vf18 = d1::vsel(vf18, d1::vadd(vf18, d1::bc<1>(vf19)), mx);
+            vf18 = d1::vsel(vf18, d1::vadd(vf18, d1::bc<0>(vf19)), mx);
+            if (!Cos && !s.plus) // vsubx.xyzw vf18, vf0, vf18x
+                vf18 = d1::vsub(vf0, d1::bc<0>(vf18));
+            s.vf15 = vf15;
+            s.vf16 = vf16;
+            s.vf18 = vf18;
+            s.vf19 = vf19;
+            std::memcpy(&s.low, &vf18, 8); // dmfc2
+            s.result = d1::lane<0>(vf18);
+        }
+
+        template <bool Cos>
+        void sinOrCosD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *)
+        {
+            ++(Cos ? c_d1Cos : c_d1Sin).n;
+            D1SinCos s;
+            s.f1 = ctx->f[1];
+            s.f2 = ctx->f[2];
+            s.f3 = ctx->f[3];
+            s.f4 = ctx->f[4];
+            s.f5 = ctx->f[5];
+            s.f12 = ctx->f[12];
+            s.at = GPR_U32(ctx, 1);
+            uint32_t r8[4];
+            std::memcpy(r8, &ctx->r[8], 16);
+            s.t0w2 = r8[2];
+            s.t0w3 = r8[3];
+            s.vf18 = ctx->vu0_vf[18];
+            s.vf19 = ctx->vu0_vf[19];
+            sinOrCosCore<Cos>(d1::Mem{rdram}, s);
+            ctx->vu0_vf[15] = s.vf15;
+            ctx->vu0_vf[16] = s.vf16;
+            ctx->vu0_vf[18] = s.vf18;
+            ctx->vu0_vf[19] = s.vf19;
+            ctx->f[0] = s.result;
+            ctx->f[1] = s.f1;
+            ctx->f[2] = s.f2;
+            ctx->f[3] = s.f3;
+            ctx->f[4] = s.f4;
+            ctx->f[5] = s.f5;
+            ctx->f[12] = s.result;
+            ctx->fcr31 = s.cond ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+            SET_GPR_S32(ctx, 2, 0x001E2BC0);
+            SET_GPR_S32(ctx, 1, static_cast<int32_t>(s.at));
+            if (Cos)
+            {
+                SET_GPR_U32(ctx, 8, s.t0);
+                SET_GPR_U64(ctx, 7, s.low);
+            }
+            else
+            {
+                SET_GPR_U64(ctx, 7, s.plus ? 1u : 0u);
+                SET_GPR_U64(ctx, 8, s.low);
+            }
+            returnTo(ctx);
+        }
+    }
+
+    template <bool Cos>
+    void sinOrCosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            sinOrCosD1<Cos>(rdram, ctx, runtime);
+        else
+            sinOrCos<Cos>(rdram, ctx, runtime);
+    }
+    template void sinOrCosSw<false>(uint8_t *, R5900Context *, PS2Runtime *);
+    template void sinOrCosSw<true>(uint8_t *, R5900Context *, PS2Runtime *);
+}
+
+namespace decomp_copymatrix
+{
+    namespace
+    {
+        D1_COUNTER(c_d1CopyMatrix, "iosCopyMatrix");
+    }
+
+    // The rows 3, 2, 1, 0: each read, then written (to and from may overlap: the original's lq / sq order); rows[] gets
+    // them (the adapter puts them in a2, a3, t0, t1 as the original leaves them).
+    void copyMatrixCore(d1::Mem m, uint32_t to, uint32_t from, __m128 rows[4])
+    {
+        for (int row = 3; row >= 0; --row)
+        {
+            rows[row] = m.q(from + static_cast<uint32_t>(row) * 16u);
+            m.putq(to + static_cast<uint32_t>(row) * 16u, rows[row]);
+        }
+    }
+
+    void copyMatrixD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t to = GPR_U32(ctx, 4) & ~0xFu, from = GPR_U32(ctx, 5) & ~0xFu;
+        if (to >= PS2_RAM_SIZE - 0x40u || from >= PS2_RAM_SIZE - 0x40u)
+            return sotc_decomp::recompiled(0x001B9148u)(rdram, ctx, runtime);
+        ++c_d1CopyMatrix.n;
+        __m128 rows[4];
+        copyMatrixCore(d1::Mem{rdram}, to, from, rows);
+        SET_GPR_VEC(ctx, 6, _mm_castps_si128(rows[0]));
+        SET_GPR_VEC(ctx, 7, _mm_castps_si128(rows[1]));
+        SET_GPR_VEC(ctx, 8, _mm_castps_si128(rows[2]));
+        SET_GPR_VEC(ctx, 9, _mm_castps_si128(rows[3]));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void copyMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            copyMatrixD1(rdram, ctx, runtime);
+        else
+            copyMatrix(rdram, ctx, runtime);
+    }
+}

@@ -102,6 +102,9 @@ inline bool a12Is(PS2Runtime::RecompiledFunction got, PS2Runtime::RecompiledFunc
 #if PS2X_A12_CHECK
     got = a12nchk::unwrap(got);
 #endif
+    if (got != known)
+        if (const PS2Runtime::RecompiledFunction old = d1::aliasOf(got)) // round D1: a dispatcher as its old function
+            got = old;
     if (got == known)
     {
         const uint32_t b = a12HolderBit(known);

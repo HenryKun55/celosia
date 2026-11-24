@@ -20,6 +20,7 @@
 // The VU0 arithmetic of the pose itself is the recompiled code's own, on
 // locals, written back to the context. Recursion is native.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1666,4 +1667,93 @@ namespace decomp_skeleton
         returnTo(ctx);
     }
 }
-SOTC_DECOMP_FUNCTION(0x010C1A98u, regularizeMatAry, decomp_skeleton::regularizeMatAry);
+namespace decomp_skeleton
+{
+    void regularizeMatArySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D1 (below)
+}
+SOTC_DECOMP_FUNCTION(0x010C1A98u, regularizeMatAry, decomp_skeleton::regularizeMatArySw);
+D1_ALIAS(0x010C1A98u, regularizeMatAry, decomp_skeleton::regularizeMatArySw, decomp_skeleton::regularizeMatAry);
+
+// ---- Round D1 (d1native, d1_native.h): regularizeMatAry as native C++ ------------------------------------------------
+// The default path of the old body (round 49's: fastNativeOn, vf0.w == 1.0, n > 0) as a typed core: each quaternion's
+// dot with itself (d1 vec4 ops: vmul, then the y / z / w lanes added to every lane, as normalised()'s VU0 block), its
+// rsqrt as the old body computes it (the same scalar expression, the Q clamp), the quaternion times Q written back. The
+// adapter leaves what the old body leaves: vf14 / vf15 the last quaternion and result, Q, the status (D / DS as Rsq
+// derives them), v1 = v0 = -1, a0 past the array. Any other case (a count out of range, round 49 off, vf0.w not 1.0,
+// no quaternion): the old body.
+namespace decomp_skeleton
+{
+    D1_COUNTER(c_d1Regularize, "regularizeMatAry");
+
+    struct D1RegOut
+    {
+        __m128 v, r, q;   // the last quaternion read, its result, Q (lane 0)
+        uint32_t end;     // a0 past the array
+        bool anyZero;     // a squared length with a zero exponent since the entry (DS)
+        bool lastNonZero; // the last one's exponent was not zero (D clear)
+    };
+
+    void regularizeMatAryD1Core(const d1::Mem m, uint32_t a, int32_t n, D1RegOut &o)
+    {
+        __m128 v = d1::zero4(), r = d1::zero4(), qv = d1::zero4();
+        bool anyZero = false, lastNonZero = true;
+        for (int32_t i = 0; i < n; ++i, a += 16u)
+        {
+            const uint32_t at = a & ~0xFu;
+            v = m.q(at);
+            const __m128 s = d1::vmul(v, v);
+            const __m128 t1 = d1::vadd(s, d1::bc<1>(s));
+            const __m128 t2 = d1::vadd(t1, d1::bc<2>(s));
+            const __m128 t3 = d1::vadd(t2, d1::bc<3>(s));
+            const float x = d1::lane<0>(t3);
+            uint32_t xb;
+            std::memcpy(&xb, &x, 4);
+            const bool nz = (xb & 0x7F800000u) != 0u;
+            anyZero = anyZero || !nz;
+            lastNonZero = nz;
+            const float d = 1.0f / std::sqrt(std::fabs(x));
+            qv = ps2VuClampNF(d1::splat(d));
+            r = d1::vmul(v, qv);
+            m.putq(at, r);
+        }
+        o.v = v;
+        o.r = r;
+        o.q = qv;
+        o.end = a;
+        o.anyZero = anyZero;
+        o.lastNonZero = lastNonZero;
+    }
+
+    void regularizeMatAryD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const int32_t n = static_cast<int32_t>(GPR_U32(ctx, 5));
+        const uint32_t a = GPR_U32(ctx, 4);
+        uint32_t w;
+        std::memcpy(&w, reinterpret_cast<const uint8_t *>(&ctx->vu0_vf[0]) + 12, 4);
+        if (__builtin_expect(n <= 0 || n > 0x10000 || a >= PS2_RAM_SIZE - 16u * static_cast<uint32_t>(n) || w != 0x3F800000u || !sotc_decomp::fastNativeOn(), 0))
+            return regularizeMatAry(rdram, ctx, runtime);
+        ++c_d1Regularize.n;
+        D1RegOut o;
+        regularizeMatAryD1Core(d1::Mem{rdram}, a, n, o);
+        uint16_t s = static_cast<uint16_t>(ctx->vu0_status & ~(PS2_VU_STATUS_I | PS2_VU_STATUS_D));
+        if (o.anyZero)
+            s = static_cast<uint16_t>(s | PS2_VU_STATUS_DS);
+        if (!o.lastNonZero)
+            s = static_cast<uint16_t>(s | PS2_VU_STATUS_D);
+        ctx->vu0_vf[14] = o.v;
+        ctx->vu0_vf[15] = o.r;
+        ctx->vu0_q = d1::lane<0>(o.q);
+        ctx->vu0_status = s;
+        SET_GPR_S32(ctx, 3, -1);
+        SET_GPR_U32(ctx, 4, o.end);
+        SET_GPR_S32(ctx, 2, -1);
+        returnTo(ctx);
+    }
+    void regularizeMatArySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            regularizeMatAryD1(rdram, ctx, runtime);
+        else
+            regularizeMatAry(rdram, ctx, runtime);
+    }
+} // namespace decomp_skeleton

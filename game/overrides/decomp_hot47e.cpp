@@ -63,6 +63,7 @@
 
 #include <cstring>
 #include "a9sweep.h"
+#include "d1_native.h"
 
 namespace decomp_hot47e
 {
@@ -1911,4 +1912,134 @@ namespace sotc_decomp
 
 SOTC_DECOMP_FUNCTION(0x0113A340u, doit_particle_manager, decomp_hot47e::manager);
 SOTC_DECOMP_FUNCTION(0x0141D280u, doit_cameraman_manager_early95, decomp_hot47e::cameraEarly95);
-SOTC_DECOMP_FUNCTION(0x01144F68u, get_particle_parameter_blend_doit, decomp_hot47e::blend);
+namespace decomp_hot47e { void blendSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
+SOTC_DECOMP_FUNCTION(0x01144F68u, get_particle_parameter_blend_doit, decomp_hot47e::blendSw);
+D1_ALIAS(0x01144F68u, get_particle_parameter_blend_doit, decomp_hot47e::blendSw, decomp_hot47e::blend);
+
+// ---- Round D1 (switch d1native, d1_native.h): get_particle_parameter_blend_doit as native C++ ------------------------------
+// The default configuration's body (round 123's host copy / host blend, already plain host float math): the record copy
+// and the weighted blend on typed memory (may_alias host pointers, the same reads and writes in the same order), the
+// arguments read once by the adapter, f0 / f1 / f3-f7 / v0 written at the exit. hotlist47 or blend123 off, the stats /
+// check diagnostics, a record outside main RAM: the old body (before anything is written).
+namespace decomp_hot47e
+{
+    D1_COUNTER(c_d1Blend, "get_particle_parameter_blend_doit");
+
+    namespace d1b
+    {
+        using au = uint32_t __attribute__((may_alias));
+        using af = float __attribute__((may_alias));
+
+        struct BlendOut
+        {
+            float f0, f1;
+            uint32_t v0;
+        };
+        PS2_FORCE_INLINE bool ok(uint32_t a, uint32_t n) { return a != 0u && a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a && (a & 3u) == 0u; }
+
+        // No other set: the record's 85 fields copied (+0, +4 from the set, +8 the record's count word). False: a record
+        // outside main RAM (nothing written).
+        inline bool copyCore(const d1::Mem m, uint32_t out, uint32_t set, uint32_t idx, BlendOut &r)
+        {
+            const uint32_t rec = m.u32(set + 0xD4u) + idx * 0x1BCu;
+            if (!ok(rec, 0x1BCu))
+                return false;
+            const au *src = m.at<au>(rec);
+            au *o = m.at<au>(out);
+            const au *st = m.at<au>(set);
+            o[0] = st[0x78 / 4];
+            o[1] = st[0xAC / 4];
+            o[2] = src[1];
+            for (int i = 0; i < 85; ++i)
+                o[3 + i] = src[kSrc[i] / 4u];
+            r.f0 = fb(o[3 + 84]);
+            r.f1 = fb(o[3 + 83]);
+            r.v0 = src[1];
+            return true;
+        }
+
+        // Two sets: w0 a + w1 b per field (t the blend: t < 0 -> (t + 1, 0), else (1 - t or 0, t)), the three fields
+        // blended only when both sides are above 0, +8 through floats and truncated. False: a record outside main RAM.
+        inline bool blendCore(const d1::Mem m, uint32_t out, uint32_t set, uint32_t other, uint32_t idx, float t, float &w0, float &w1, uint32_t &rec2Out)
+        {
+            const uint32_t rec1 = m.u32(set + 0xD4u) + idx * 0x1BCu;
+            const uint32_t cnt = m.u32(other + 0xD0u);
+            const bool past = static_cast<int32_t>(cnt - 1u) < static_cast<int32_t>(idx);
+            const uint32_t rec2 = m.u32(other + 0xD4u) + (past ? cnt * 0x1BCu - 0x1BCu : idx * 0x1BCu);
+            if (!ok(rec1, 0x1BCu) || !ok(rec2, 0x1BCu))
+                return false;
+            if (t < 0.0f)
+            {
+                w0 = t + 1.0f;
+                w1 = 0.0f;
+            }
+            else
+            {
+                w0 = t < 1.0f ? 1.0f - t : 0.0f;
+                w1 = t;
+            }
+            const af *a = m.at<af>(rec1), *b = m.at<af>(rec2);
+            af *o = m.at<af>(out);
+            o[0] = w0 * m.f32(set + 0x78u) + w1 * m.f32(other + 0x78u);
+            o[1] = w0 * m.f32(set + 0xACu) + w1 * m.f32(other + 0xACu);
+            const float c = w0 * static_cast<float>(m.s32(rec1 + 4u)) + w1 * static_cast<float>(m.s32(rec2 + 4u));
+            const int32_t ci = static_cast<int32_t>(c);
+            m.set<uint32_t>(out + 8u, static_cast<uint32_t>(ci));
+            for (int i = 0; i < 85; ++i)
+            {
+                const uint32_t k = kSrc[i] / 4u;
+                const float x = a[k], y = b[k];
+                float v;
+                if (i == 13 || i == 24 || i == 56)
+                    v = (0.0f < x && 0.0f < y) ? w0 * x + w1 * y : x;
+                else
+                    v = w0 * x + w1 * y;
+                o[3 + i] = v;
+            }
+            rec2Out = rec2;
+            return true;
+        }
+    } // namespace d1b
+
+    void blendD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1Blend.n;
+        const bool statsOn = A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_statsOn_1162, bool, ps2_diag::env("SOTC_PTCL_STATS") != nullptr);
+        const bool check = A9S_VAL(::a9sweep::on(), a9s_decomp_hot47e_check_1234, bool, [] { const char *e = ps2_diag::env("SOTC_BLEND123_CHECK"); return e && e[0] == '1'; }());
+        if (!sotc_decomp::hotList47On() || !sotc_decomp::switchOn(sotc_decomp::kBlend123) || statsOn || check)
+            return blend(rdram, ctx, runtime);
+        const uint32_t out = GPR_U32(ctx, 4), set = GPR_U32(ctx, 5), other = GPR_U32(ctx, 6), idx = GPR_U32(ctx, 7);
+        const d1::Mem m{rdram};
+        if (other == 0u)
+        {
+            d1b::BlendOut r;
+            if (!d1b::ok(out, 0x160u) || !d1b::ok(set, 0x100u) || !d1b::copyCore(m, out, set, idx, r))
+                return blend(rdram, ctx, runtime);
+            ctx->f[0] = r.f0;
+            ctx->f[1] = r.f1;
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+        }
+        else
+        {
+            float w0, w1;
+            uint32_t rec2;
+            if (!d1b::ok(out, 0x160u) || !d1b::ok(set, 0x100u) || !d1b::ok(other, 0x100u) || !d1b::blendCore(m, out, set, other, idx, ctx->f[12], w0, w1, rec2))
+                return blend(rdram, ctx, runtime);
+            ctx->f[0] = w0;
+            ctx->f[1] = w1;
+            ctx->f[3] = ctx->f[5] = w0;
+            ctx->f[4] = ctx->f[6] = w1;
+            ctx->f[7] = 0.0f;
+            SET_GPR_U32(ctx, 2, rec2);
+        }
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void blendSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            blendD1(rdram, ctx, runtime);
+        else
+            blend(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot47e

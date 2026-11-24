@@ -19,6 +19,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_stats.h"
+#include "d1_native.h"
 
 #include <chrono>
 #include <cstdio>
@@ -469,4 +470,287 @@ namespace decomp_wind
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x01145F78u, windZones, decomp_wind::windZones);
+namespace decomp_wind { void windZonesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
+SOTC_DECOMP_AB_FUNCTION(0x01145F78u, windZones, decomp_wind::windZonesSw);
+D1_ALIAS(0x01145F78u, windZones, decomp_wind::windZonesSw, decomp_wind::windZones);
+
+// ---- Round D1 (switch d1native, d1_native.h): manager_sub_01145F78 as native C++ -------------------------------------------
+// The zone walk when every zone it weighs is a sphere (kind 0, manager_sub_01146EB8, as round S7's weighSphere): no guest
+// call left, so the walk, the sphere weight (NEON vec4 for its VU0 ops, d1:: / the FPU compare's integer key for its FPU
+// ones, its divides through the same ps2FpuDivide) and the sorted insert run on typed memory and C++ locals; the registers
+// the last weight leaves (f0-f4, at, v1, vf5-vf7, fcr31) are carried in a struct and written by the adapter at the exit.
+// The live slots are taken once up front (nothing the walk writes, the results and the frame below sp, holds a slot or a
+// zone's words, and no guest code runs in between). A zone of kind 1 / 2 to weigh, a slot or zone outside main RAM, another
+// weight function at the call site, S7's diagnostics, S7 turned off on lane 0: the old body (before anything is written).
+// Runs on the worker lanes too (no static state; the old body's lane-0 slot list is a host cache, the sphere zone's
+// guest function gives the same bits as weighSphere: S7's check).
+namespace decomp_wind
+{
+    D1_COUNTER(c_d1Zones, "windZones");
+
+    namespace d1w
+    {
+        // ps2FpuCompareKeyRef (integer): the FPU compare's order (FPU_C_OLT_S / OLE_S as key < / <=).
+        PS2_FORCE_INLINE uint32_t key(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            if ((b & 0x7F800000u) == 0u)
+                b = 0u;
+            return (b & 0x80000000u) != 0u ? ~b : b ^ 0x80000000u;
+        }
+        PS2_FORCE_INLINE bool olt(float a, float b) { return key(a) < key(b); }
+        PS2_FORCE_INLINE bool ole(float a, float b) { return key(a) <= key(b); }
+        PS2_FORCE_INLINE void d1SetC(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+
+        // The registers the walk leaves (in at the entry, out at the exit).
+        struct Regs
+        {
+            float f0, f1, f2, f3, f4;
+            uint32_t at, v1, fcr31;
+            __m128 vf5, vf6, vf7;
+            bool vf;          // vf5-vf7 written
+            bool weighed;     // a zone weighed (at, v1, f1-f4, a0-a3 written)
+            uint32_t lastZone; // the last zone weighed (a3)
+        };
+
+        // manager_sub_01146EB8 (weighSphere's operations in its order): a0 the distance out, a1 the offset out, a2 the
+        // point, a3 the zone; the weight (f0).
+        inline float sphere(const d1::Mem m, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, Regs &r)
+        {
+            const uint32_t p = m.u32(a3 + 4u);
+            r.at = 0x3F800000u;
+            float f0 = r.f0, f1 = 1.0f, f2, f3, f4;
+            const uint32_t r2 = m.u32(p + 4u);
+            r.v1 = a3 + 176u;
+            if (r2 != 0u)
+            {
+                const __m128 v6 = m.q((a3 + 176u) & ~0xFu);
+                __m128 v5 = m.q(a2 & ~0xFu);
+                v5 = d1::vsel(v5, d1::vsub(v5, v6), d1::mask(1, 1, 1, 0));
+                m.putq(a1 & ~0xFu, v5);
+                __m128 v7 = m.q(a1 & ~0xFu);
+                v7 = d1::vsel(v7, d1::vmul(v7, v7), d1::mask(1, 1, 1, 0));
+                v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<1>(v7)), d1::mask(1, 0, 0, 0));
+                v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<2>(v7)), d1::mask(1, 0, 0, 0));
+                r.vf5 = v5;
+                r.vf6 = v6;
+                r.vf7 = v7;
+                r.vf = true;
+                f0 = d1::lane<0>(v7);
+                r.at = 0xBF800000u;
+                f1 = -1.0f;
+                m.set<float>(a0, f0);
+            }
+            // 0x1146F04
+            f2 = 0.0f;
+            r.f2 = f2;
+            d1SetC(r.fcr31, olt(f1, f2));
+            const bool c0 = olt(f1, f2);
+            f0 = f1;
+            r.f0 = f0;
+            r.f1 = f1;
+            if (!c0)
+                return f0;
+            f0 = m.f32(a3 + 260u);
+            f3 = m.f32(a3 + 256u);
+            r.f3 = f3;
+            const bool inner = ole(f3, f0);
+            d1SetC(r.fcr31, inner);
+            f4 = m.f32(a0);
+            r.f4 = f4;
+            if (!inner)
+            {
+                // 0x1146F70
+                bool c = ole(f3, f4);
+                d1SetC(r.fcr31, c);
+                f1 = f2;
+                if (c)
+                {
+                    r.f0 = f1;
+                    r.f1 = f1;
+                    return f1;
+                }
+                c = ole(f4, f0);
+                d1SetC(r.fcr31, c);
+                if (c)
+                {
+                    r.f0 = f1;
+                    r.f1 = f1;
+                    return f1;
+                }
+                f0 = d1::sub(f3, f0);
+                r.at = 0x3F800000u;
+                f2 = 1.0f;
+                r.f2 = f2;
+                f1 = d1::sub(f3, f4);
+                f1 = ps2FpuDivide(r.fcr31, f1, f0);
+                f1 = d1::sub(f2, f1);
+                r.f0 = f1;
+                r.f1 = f1;
+                return f1;
+            }
+            bool c = ole(f0, f4);
+            d1SetC(r.fcr31, c);
+            f1 = f2;
+            if (c)
+            {
+                r.f0 = f1;
+                r.f1 = f1;
+                return f1;
+            }
+            c = ole(f4, f3);
+            d1SetC(r.fcr31, c);
+            if (c)
+            {
+                // 0x1146F60
+                r.at = 0x3F800000u;
+                r.f1 = 1.0f;
+                r.f0 = 1.0f;
+                return 1.0f;
+            }
+            f1 = d1::sub(f0, f3);
+            f0 = d1::sub(f0, f4);
+            f1 = ps2FpuDivide(r.fcr31, f0, f1);
+            r.f1 = f1;
+            r.f0 = f1;
+            return f1;
+        }
+
+        // The walk over the live slots (ascending) with the sorted insert into the results; the count.
+        int32_t zonesCore(const d1::Mem m, uint32_t point, uint32_t frame, const uint8_t *live, int nLive, Regs &r)
+        {
+            int32_t n = 0;
+            for (int j = 0; j < nLive; ++j)
+            {
+                const uint32_t i = live[j];
+                const uint32_t zone = m.u32(kSlots + i * 4u);
+                if (m.u32(zone + 0xA0u) != 1u)
+                    continue;
+                r.weighed = true;
+                r.lastZone = zone;
+                const float weight = sphere(m, frame + 0x10u, frame, point, zone, r);
+                r.f1 = weight;
+                r.f0 = 0.0f;
+                const bool c = olt(0.0f, weight);
+                d1SetC(r.fcr31, c);
+                if (!c)
+                    continue;
+                const int32_t prio = m.s32(m.u32(zone + 4u));
+                uint8_t out[16];
+                std::memcpy(out, m.at<uint8_t>(frame), 16);
+                const float first = m.f32(frame + 0x10u);
+                if (prio == -100000)
+                {
+                    // Order as the original: the slot, the out, the weight, the first word.
+                    m.set<uint32_t>(kResults, i);
+                    std::memcpy(m.at<uint8_t>(kResults + 0x10u), out, 16);
+                    m.set<float>(kResults + 4u, weight);
+                    m.set<float>(kResults + 8u, first);
+                    r.f0 = first;
+                    n = 1;
+                    break;
+                }
+                int32_t at = -1;
+                for (int32_t t = 0; t < n; ++t)
+                {
+                    const int32_t pt = m.s32(m.u32(m.u32(kSlots + m.u32(kResults + static_cast<uint32_t>(t) * 32u) * 4u) + 4u));
+                    if (pt < prio)
+                    {
+                        at = t;
+                        break;
+                    }
+                }
+                if (at == -1)
+                    at = n;
+                else
+                    // Records at..n-1 up one, from the top.
+                    for (int32_t k = n - 1; k >= at; --k)
+                    {
+                        uint8_t rec[32];
+                        std::memcpy(rec, m.at<uint8_t>(kResults + static_cast<uint32_t>(k) * 32u), 32);
+                        std::memcpy(m.at<uint8_t>(kResults + static_cast<uint32_t>(k + 1) * 32u), rec, 32);
+                    }
+                ++n;
+                const uint32_t rec = kResults + static_cast<uint32_t>(at) * 32u;
+                m.set<float>(rec + 4u, weight);
+                std::memcpy(m.at<uint8_t>(rec + 0x10u), out, 16);
+                m.set<float>(rec + 8u, first);
+                m.set<uint32_t>(rec, i);
+                r.f0 = first;
+            }
+            return n;
+        }
+    } // namespace d1w
+
+    void windZonesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1Zones.n;
+        const bool lane0 = !sotc_decomp::onWorkerLane(runtime);
+        if (lane0 && (!s7::on() || s7::g_check == 1 || s7::g_log == 1))
+            return windZones(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29), frame = sp0 - 0x70u;
+        const uint32_t point = GPR_U32(ctx, 4);
+        auto ok = [](uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE && (a & 3u) == 0u; };
+        if (!ok(frame, 0x70u) || (frame & 0xFu) != 0u || !ok(point & ~0xFu, 16u) || sotc_decomp::jalTarget(rdram, 0x01145FF4u) != 0x01146EB8u)
+            return windZones(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        uint8_t live[kCount];
+        int nLive = 0;
+        const uint32_t *slots = m.at<uint32_t>(kSlots);
+        for (int i = 0; i < kCount; ++i)
+        {
+            const uint32_t zone = slots[i];
+            if (zone == 0u)
+                continue;
+            if (!ok(zone, 0x108u) || !ok(m.u32(zone + 4u), 8u) || (m.u32(zone + 0xA0u) == 1u && m.u32(zone) != 0u))
+                return windZones(rdram, ctx, runtime);
+            live[nLive++] = static_cast<uint8_t>(i);
+        }
+        d1w::Regs r;
+        r.f0 = ctx->f[0];
+        r.f1 = ctx->f[1];
+        r.f2 = ctx->f[2];
+        r.f3 = ctx->f[3];
+        r.f4 = ctx->f[4];
+        r.fcr31 = ctx->fcr31;
+        r.at = 0u;
+        r.v1 = 0u;
+        r.vf = false;
+        r.weighed = false;
+        r.lastZone = 0u;
+        const int32_t n = d1w::zonesCore(m, point, frame, live, nLive, r);
+        if (r.weighed)
+        {
+            ctx->f[1] = r.f1;
+            ctx->f[2] = r.f2;
+            ctx->f[3] = r.f3;
+            ctx->f[4] = r.f4;
+            ctx->fcr31 = r.fcr31;
+            SET_GPR_S32(ctx, 1, static_cast<int32_t>(r.at));
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(frame + 0x10u));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(frame));
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(point));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(r.lastZone));
+            if (r.vf)
+            {
+                ctx->vu0_vf[5] = r.vf5;
+                ctx->vu0_vf[6] = r.vf6;
+                ctx->vu0_vf[7] = r.vf7;
+                SET_GPR_VEC(ctx, 2, _mm_castps_si128(r.vf7)); // qmfc2 v0, vf7: v0's upper half as the old body leaves it
+            }
+        }
+        ctx->f[0] = r.f0;
+        SET_GPR_S32(ctx, 2, n);
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void windZonesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            windZonesD1(rdram, ctx, runtime);
+        else
+            windZones(rdram, ctx, runtime);
+    }
+} // namespace decomp_wind

@@ -65,6 +65,7 @@
 // with the registers it has there, the callbacks from their entry before
 // anything is written.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "s12_draw.h"
 #include "a9cmp.h"
 #include "runtime/ps2_diag.h"
@@ -5832,14 +5833,26 @@ namespace decomp_walk
     }
 }
 
+namespace decomp_walk
+{
+    // Round D1 (d1native): the dispatchers (end of file).
+    void clipLayoutObjModelSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void solidDispSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void quad1142350Sw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void glVertexKickSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
 SOTC_DECOMP_AB_FUNCTION(0x010F52C8u, DispDispObjGroupModel, decomp_walk::dispDispObjGroupModel);
-SOTC_DECOMP_AB_FUNCTION(0x010F4890u, ClipLayoutObjModel, decomp_walk::clipLayoutObjModel);
+SOTC_DECOMP_AB_FUNCTION(0x010F4890u, ClipLayoutObjModel, decomp_walk::clipLayoutObjModelSw);
+D1_ALIAS(0x010F4890u, ClipLayoutObjModel, decomp_walk::clipLayoutObjModelSw, decomp_walk::clipLayoutObjModel);
 SOTC_DECOMP_AB_FUNCTION(0x010F5920u, DispLayoutObjModel, decomp_walk::dispLayoutObjModel);
-SOTC_DECOMP_AB_FUNCTION(0x010F3A08u, solidDisp_010F3A08, decomp_walk::solidDisp);
+SOTC_DECOMP_AB_FUNCTION(0x010F3A08u, solidDisp_010F3A08, decomp_walk::solidDispSw);
+D1_ALIAS(0x010F3A08u, solidDisp_010F3A08, decomp_walk::solidDispSw, decomp_walk::solidDisp);
 SOTC_DECOMP_FLOAT_FUNCTION(0x01098840u, modelClipSolid, decomp_walk::modelClipSolid);
 SOTC_DECOMP_AB_FUNCTION(0x010F3EB8u, hazeStrips_010F3EB8, decomp_walk::strips);
-SOTC_DECOMP_FUNCTION(0x01142350u, particleQuad_01142350, decomp_walk::quad1142350);
-SOTC_DECOMP_AB_FUNCTION(0x0108D730u, glVertexKick_0108D730, decomp_walk::glVertexKick);
+SOTC_DECOMP_FUNCTION(0x01142350u, particleQuad_01142350, decomp_walk::quad1142350Sw);
+D1_ALIAS(0x01142350u, particleQuad_01142350, decomp_walk::quad1142350Sw, decomp_walk::quad1142350);
+SOTC_DECOMP_AB_FUNCTION(0x0108D730u, glVertexKick_0108D730, decomp_walk::glVertexKickSw);
+D1_ALIAS(0x0108D730u, glVertexKick_0108D730, decomp_walk::glVertexKickSw, decomp_walk::glVertexKick);
 SOTC_DECOMP_AB_FUNCTION(0x0108EBC0u, glVertex3fv, decomp_walk::glVertex3fvEntry);
 
 // Round C2 (c2scene.h): the scene's public face.
@@ -5854,4 +5867,962 @@ namespace c2scene
     void lightBegin(const uint8_t *rdram, uint32_t list) { decomp_walk::c2::lightBegin(rdram, list); }
     void lightAhead(const uint8_t *rdram, int walk, uint32_t node) { decomp_walk::c2::lightAhead(rdram, walk, node); }
     void lightEnd() { decomp_walk::c2::lightEnd(); }
+}
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE; d1_native.h): the walk's natives as native C++ ----
+//  - ClipLayoutObjModel: the default path (walk83: clip83::clip, plain float host code) as a typed core (clipD1Core:
+//    d1::Mem, no rdram / Ram / ctx; the same float operations in the same order, lodByDistance's FPU_* as d1::); the
+//    adapter puts f0 / v0. Check mode 2, SOTC_WALK83_CLIP=0, walk83 off, or a case clip83 leaves to the code above: the
+//    old function.
+//  - 0108D730 (glVertexKick): the transformed path as a typed core (glVertexKickCore: the view / screen / clip
+//    products as d1 vec4 chains, Q by ps2VuDivide as before, the CLIP history, the GIF pairs, the clip state, the Z
+//    word; the frame's scratch words are locals: they are below the final sp). The untransformed path, UV texturing
+//    (a guest call), an unknown primitive entry, the ring's wrap (glEnd / glBegin guest calls), a missing camera and
+//    the SOTC_GLV116_LOG diagnostic: the old function from the entry.
+//  - manager_sub_01142350 (partial): its VU0 block (the corners through the rotation, the world matrix and the
+//    position) as d1 vec4 math on locals, the VU0 registers written once after it; the guest calls, glColor4fv and the
+//    quad (prim128) as before.
+//  - 010F3A08 (partial): the parts' matrix products (apply) as d1 vec4 chains, the lens test as d1::eq; the rest
+//    (its guest calls) as before.
+namespace decomp_walk
+{
+    namespace
+    {
+        D1_COUNTER(c_d1Clip, "ClipLayoutObjModel");
+        D1_COUNTER(c_d1Kick, "glVertexKick_0108D730");
+        D1_COUNTER(c_d1Quad, "particleQuad_01142350");
+        D1_COUNTER(c_d1Solid, "solidDisp_010F3A08");
+
+        // Typed guest memory for the D1 cores (the 32 MB block as d1::Mem; no Ram, no lines67 study touch).
+        PS2_FORCE_INLINE uint32_t d1wU32(d1::Mem m, uint32_t a)
+        {
+            uint32_t v;
+            std::memcpy(&v, m.base + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        PS2_FORCE_INLINE uint64_t d1wU64(d1::Mem m, uint32_t a)
+        {
+            uint64_t v;
+            std::memcpy(&v, m.base + (a & PS2_RAM_MASK), 8);
+            return v;
+        }
+        PS2_FORCE_INLINE float d1wF32(d1::Mem m, uint32_t a)
+        {
+            float v;
+            std::memcpy(&v, m.base + (a & PS2_RAM_MASK), 4);
+            return v;
+        }
+        // A quadword at a & ~0xf (lq / lqc2).
+        PS2_FORCE_INLINE __m128 d1wQ(d1::Mem m, uint32_t a)
+        {
+            __m128 v;
+            std::memcpy(&v, m.base + (a & ~0xFu & PS2_RAM_MASK), 16);
+            return v;
+        }
+        PS2_FORCE_INLINE void d1wPut32(d1::Mem m, uint32_t a, uint32_t v) { std::memcpy(m.base + (a & PS2_RAM_MASK), &v, 4); }
+        PS2_FORCE_INLINE void d1wPut64(d1::Mem m, uint32_t a, uint64_t v) { std::memcpy(m.base + (a & PS2_RAM_MASK), &v, 8); }
+        PS2_FORCE_INLINE void d1wPut8(d1::Mem m, uint32_t a, uint8_t v) { m.base[a & PS2_RAM_MASK] = v; }
+        PS2_FORCE_INLINE void d1wPutQ(d1::Mem m, uint32_t a, __m128 v) { std::memcpy(m.base + (a & ~0xFu & PS2_RAM_MASK), &v, 16); }
+        // A host pointer to n bytes at a, or null (clip83's host()).
+        PS2_FORCE_INLINE uint8_t *d1wHost(d1::Mem m, uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a ? m.base + a : nullptr; }
+        // d1:: scalar helpers under other names (this file defines an add(), a lane<>()).
+        constexpr float (*const d1wAdd)(float, float) = &d1::add;
+        constexpr float (*const d1wSub)(float, float) = &d1::sub;
+
+        // vmulax / vmadday / vmaddaz / vmaddw.xyzw (apply() above) as d1 vec4: c0..c3 weighted by v's lanes; acc the
+        // third sum.
+        PS2_FORCE_INLINE __m128 d1wApply(const __m128 c[4], __m128 v, __m128 &acc)
+        {
+            acc = d1::vmul(c[0], d1::bc<0>(v));
+            acc = d1::vmadd(acc, c[1], d1::bc<1>(v));
+            acc = d1::vmadd(acc, c[2], d1::bc<2>(v));
+            return d1::vmadd(acc, c[3], d1::bc<3>(v));
+        }
+        // vftoi0 / vftoi4 (ftoi(v, scale, false) above): truncation, positive overflow 0x7fffffff, negative 0x80000000
+        // (what the generated code's cvttps + xor gives for every non-NaN lane).
+        PS2_FORCE_INLINE __m128 d1wFtoi(__m128 v, float scale)
+        {
+#if defined(__ARM_NEON)
+            return vreinterpretq_f32_s32(vcvtq_s32_f32(vmulq_f32(v, vdupq_n_f32(scale))));
+#else
+            float f[4];
+            std::memcpy(f, &v, 16);
+            int32_t r[4];
+            for (int i = 0; i < 4; ++i)
+            {
+                const float s = f[i] * scale;
+                r[i] = s != s ? (std::signbit(s) ? INT32_MIN : INT32_MAX)
+                       : s >= 2147483648.0f ? INT32_MAX
+                       : s < -2147483648.0f ? INT32_MIN
+                                            : static_cast<int32_t>(s);
+            }
+            __m128 o;
+            std::memcpy(&o, r, 16);
+            return o;
+#endif
+        }
+
+        // lodByDistance (above) on the LOD record's host bytes, d1 math.
+        float d1wLodByDistance(const uint8_t *rec, float d, int32_t current)
+        {
+            const float t1 = clip83::hf(rec, 0x18u), t2 = clip83::hf(rec, 0x1Cu), t3 = clip83::hf(rec, 0x20u), h = clip83::hf(rec, 0x24u);
+            float f12;
+            if (d1::lt(t3, d))
+                f12 = 3.0f;
+            else if (d1::lt(t2, d))
+                f12 = 2.0f;
+            else if (d1::lt(t1, d))
+                f12 = 1.0f;
+            else
+                f12 = 0.0f;
+            if (!d1::lt(0.0f, h) || !d1::le(0.0f, f12))
+                return f12;
+            const float now = static_cast<float>(current);
+            if (d1::lt(now, f12))
+            {
+                if (d1::lt(d1wAdd(t3, h), d))
+                    return 3.0f;
+                if (d1::lt(d1wAdd(t2, h), d))
+                    return 2.0f;
+                if (d1::lt(d1wAdd(t1, h), d))
+                    return 1.0f;
+                return f12;
+            }
+            if (!d1::lt(f12, now))
+                return f12;
+            if (d1::lt(d, d1wSub(t1, h)))
+                return 0.0f;
+            if (d1::lt(d, d1wSub(t2, h)))
+                return 1.0f;
+            if (d1::lt(d, d1wSub(t3, h)))
+                return 2.0f;
+            return f12;
+        }
+    }
+
+    // clip83::clip as a typed core (the same reads, decisions, float operations and writes; no study counters).
+    // True when done (out set); false: nothing written, the old code runs.
+    bool clipD1Core(d1::Mem m, uint32_t object, clip83::Out &out)
+    {
+        using clip83::V4;
+        const uint8_t *ob = d1wHost(m, object, 0x10u);
+        if (!ob)
+            return false;
+        const uint32_t index = static_cast<uint32_t>(ob[8]) - 9u;
+        if (index >= 0xEu)
+            return false;
+        const uint32_t target = d1wU32(m, kClassTable + index * 4u);
+        const uint32_t s0 = target == 0x010F1A58u ? object + 0x20u : target == 0x010F1A98u ? object + 0x90u : 0u;
+        const uint8_t *c0 = s0 ? d1wHost(m, s0, 0x170u) : nullptr;
+        if (!c0)
+            return false;
+        const uint32_t s1 = clip83::hu(c0, 0x140u), geo = clip83::hu(c0, 0x144u);
+        uint8_t *rec = d1wHost(m, s1, 0x40u);
+        if (!rec)
+            return false;
+        if (geo == 0u)
+        {
+            const float m1 = -1.0f;
+            std::memcpy(rec + 0x30u, &m1, 4);
+            out = {object, 0u, -1.0f};
+            return true;
+        }
+        uint8_t *gp = d1wHost(m, geo, 0x260u);
+        if (!gp)
+            return false;
+        const uint8_t *model = d1wHost(m, clip83::hu(gp, 0u), 0x24u);
+        const uint8_t *hd = model ? d1wHost(m, clip83::hu(model, 0x20u), 0x60u) : nullptr;
+        if (!hd || (clip83::hu(hd, 0x18u) & 1u) != 0u || clip83::hu(hd, 0xCu) != 0u)
+            return false; // skinned, or a model that picks its own level
+        const uint8_t *lod = d1wHost(m, clip83::hu(hd, 8u), 0x40u);
+        const uint8_t *mx = d1wHost(m, clip83::hu(c0, 0x15Cu), 0x40u);
+        const uint32_t cam = d1wU32(m, 0x0122A8F0u + (d1wU32(m, 0x0118FE4Cu) << 2));
+        const uint8_t *cp = d1wHost(m, cam, 0x5E0u);
+        if (clip83::hu(hd, 8u) == 0u || !lod || !mx || !cp)
+            return false;
+        const int32_t count = static_cast<int32_t>(clip83::hu(hd, 0x1Cu));
+        if (count <= 0 || count > 8)
+            return false;
+        const uint32_t mode = clip83::hu(lod, 0x14u);
+        uint32_t modeTarget = 0u;
+        if (mode < 5u)
+        {
+            modeTarget = d1wU32(m, kLodModes + mode * 4u);
+            if (modeTarget != 0x01098968u && modeTarget != 0x01098970u && modeTarget != 0x01098978u && modeTarget != 0x01098980u && modeTarget != 0x010989D0u)
+                return false;
+        }
+        // ClipLayoutObjModel.
+        const float m1 = -1.0f;
+        std::memcpy(rec + 0x30u, &m1, 4);
+        const float fade = clip83::hf(gp, 0x244u);
+        std::memcpy(rec + 0x34u, &fade, 4);
+        if (!(fade < 1.0f))
+        {
+            out = {object, geo, fade};
+            return true;
+        }
+        float lens = 1.0f;
+        if (clip83::hu(lod, 0x3Cu) != 0u && cam != 0u)
+            lens = 500.0f / clip83::hf(cp, 0xCu);
+        const float lodScale = clip83::hf(c0, 0x9Cu) * lens;
+        std::memcpy(gp + 0x250u, &lodScale, 4);
+        // modelClipSolid.
+        float level;
+        const V4 eye = clip83::hq(cp, 0x140u);
+        V4 M[4];
+        clip83::load4(mx, 0u, M);
+        auto dist3 = [](float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); };
+        bool done = false;
+        if ((clip83::hu(hd, 0x18u) >> 24) & 1u)
+        {
+            level = -2.0f;
+            done = true;
+        }
+        if (!done && d1wU32(m, kLodOn) != 0u)
+        {
+            const float far = clip83::hf(lod, 0x30u);
+            if (0.0f < far && dist3(M[3].x - eye.x, M[3].y - eye.y, M[3].z - eye.z) < far)
+            {
+                level = -2.0f;
+                done = true;
+            }
+        }
+        if (!done)
+        {
+            const V4 c = clip83::hq(hd, 0x20u);
+            const float r = c.w * lodScale;
+            const V4 world = clip83::rows(M, c.x, c.y, c.z, 1.0f);
+            V4 P[4], VP[4], V[4];
+            clip83::load4(cp, 0x1E0u, P);
+            clip83::load4(cp, 0x5A0u, VP);
+            clip83::load4(cp, 0x1A0u, V);
+            const V4 pr = clip83::rows(P, r, 0.0f, 0.0f, 1.0f);
+            V4 clipP = clip83::rows(VP, world.x, world.y, world.z, 1.0f);
+            clipP.w += pr.x;
+            const bool crosses = clip83::clipBits(clipP) != 0u;
+            const V4 vc = clip83::rows(V, world.x, world.y, world.z, world.w);
+            const float keys[4] = {vc.z + r, vc.z, vc.z - r, vc.w};
+            std::memcpy(gp + 0x230u, keys, 16);
+            const float f21 = crosses ? dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z) : -1.0f;
+            float d = 0.0f;
+            switch (modeTarget)
+            {
+            case 0x01098968u: d = keys[1]; break;
+            case 0x01098970u: d = keys[2]; break;
+            case 0x01098978u: d = keys[0]; break;
+            case 0x01098980u: d = dist3(world.x - eye.x, 0.0f, world.z - eye.z); break;
+            case 0x010989D0u: d = dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z); break;
+            default: d = 0.0f; break;
+            }
+            const bool keepsLast = static_cast<int32_t>(clip83::hu(lod, 0x28u)) == 0;
+            if (native_renderer::tuning().sacLod && keepsLast)
+                d *= 1.6f;
+            if (native_renderer::tuning().sacDrawDist && !keepsLast)
+                d *= 1.5f;
+            uint64_t w250;
+            std::memcpy(&w250, gp + 0x250u, 8);
+            float f12 = d1wLodByDistance(lod, d, static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+            const int32_t lv = static_cast<int32_t>(f12);
+            float f20;
+            if (static_cast<uint64_t>(static_cast<int64_t>(lv)) < static_cast<uint64_t>(static_cast<int64_t>(count)))
+                f20 = f12;
+            else
+                f20 = keepsLast ? static_cast<float>(count - 1) : -1.0f;
+            if (f20 < 0.0f)
+                level = -1.0f;
+            else if (f21 < 0.0f)
+                level = f20;
+            else
+            {
+                const uint32_t table = clip83::hu(hd, 0x30u + static_cast<uint32_t>(static_cast<int32_t>(f20)) * 4u);
+                const uint8_t *tb = d1wHost(m, table, 0x20u);
+                level = f20;
+                if (tb)
+                {
+                    V4 PM[4];
+                    for (int i = 0; i < 4; ++i)
+                        PM[i] = clip83::rows(VP, M[i].x, M[i].y, M[i].z, M[i].w);
+                    if (clip83::boxOut(PM, clip83::hq(tb, 0u), clip83::hq(tb, 0x10u)))
+                        level = -2.0f;
+                }
+            }
+        }
+        uint64_t w250;
+        std::memcpy(&w250, gp + 0x250u, 8);
+        const int32_t lvl = static_cast<int32_t>(level);
+        w250 = (w250 & 0xFFFFF8FFFFFFFFFFull) | (static_cast<uint64_t>(static_cast<uint32_t>(lvl) & 7u) << 40);
+        std::memcpy(gp + 0x250u, &w250, 8);
+        const float lf = static_cast<float>(static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
+        std::memcpy(rec + 0x30u, &lf, 4);
+        std::memcpy(rec + 0x20u, gp + 0x230u, 4);
+        std::memcpy(rec + 0x28u, gp + 0x238u, 4);
+        std::memcpy(rec + 0x24u, gp + 0x234u, 4);
+        out = {object, geo, clip83::hf(gp, 0x234u)};
+        return true;
+    }
+
+    const bool g_d1ClipPart83 = !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0');
+
+    void clipLayoutObjModelD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!g_d1ClipPart83 || !sotc_decomp::walk83On() || clip83::checkMode() == 2)
+            return clipLayoutObjModel(rdram, ctx, runtime);
+        ++c_d1Clip.n;
+        clip83::Out o;
+        if (!clipD1Core(d1::Mem{rdram}, GPR_U32(ctx, 4), o))
+            return clipLayoutObjModelOld(rdram, ctx, runtime);
+        ctx->f[0] = o.f0;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.geo));
+        returnTo(ctx);
+    }
+
+    void clipLayoutObjModelSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            clipLayoutObjModelD1(rdram, ctx, runtime);
+        else
+            clipLayoutObjModel(rdram, ctx, runtime);
+    }
+
+    // ---- 0108D730's transformed path ----
+    struct D1Kick
+    {
+        __m128 view[4], clip[4], screen[4], vf10, vf23, vf24, vf25, vf26, vf27, acc;
+        float q, f0, f2;
+        int32_t f1;          // the Z word left in f1 (bits)
+        uint32_t clipFlags;  // in: the CLIP register; out: with this vertex's judgement
+        uint16_t status;     // VU0 status (Q's divide flags)
+        uint32_t next;       // the ring index after it (v0)
+    };
+
+    // index: a0 (< 0x100); camera: the gl block's camera (in main RAM); pf: walk67's packet prefetch.
+    // The entry has sent elsewhere: no transform bit, UV texturing, an unknown primitive entry, the ring's wrap.
+    void glVertexKickCore(d1::Mem m, uint32_t index, uint32_t camera, bool pf, D1Kick &k)
+    {
+        const uint32_t a0 = index << 6;
+        const uint32_t t2 = kGl + 0x220u + a0, t1 = kGl + 0x1F0u + a0, t0 = kGl + 0x200u + a0, a3 = kGl + 0x210u + a0;
+        const __m128 vf0 = d1::vf0();
+        for (uint32_t i = 0; i < 4u; ++i)
+            k.clip[i] = d1wQ(m, camera + 0x5E0u + i * 0x10u);
+        const bool perspective = d1wU32(m, kGl + 0x5Cu) != 0u;
+        const uint32_t view = kViewStack + (d1wU32(m, kViewIndex) << 6);
+        for (uint32_t i = 0; i < 4u; ++i)
+            k.view[i] = d1wQ(m, view + i * 0x10u);
+        for (uint32_t i = 0; i < 4u; ++i)
+            k.screen[i] = d1wQ(m, camera + 0x660u + i * 0x10u);
+        k.vf23 = d1wQ(m, t0);
+        __m128 vf24 = d1wQ(m, a3), vf25 = d1wQ(m, t2);
+        k.vf10 = d1wApply(k.view, k.vf23, k.acc);
+        __m128 vf27 = d1wApply(k.screen, k.vf10, k.acc);
+        const __m128 vf26 = d1wApply(k.clip, k.vf10, k.acc);
+        float w27;
+        std::memcpy(&w27, reinterpret_cast<const char *>(&vf27) + 12, 4);
+        k.q = ps2VuDivide(k.status, 1.0f, w27); // vdiv Q, vf0w, vf27w
+        vf25 = d1wFtoi(vf25, 1.0f);
+        const uint32_t flags = ((k.clipFlags << 6) | ps2VuClipFlags(vf26, vf26)) & 0xFFFFFFu;
+        k.clipFlags = flags;
+        const __m128 q = d1::splat(k.q), xyz = d1::mask(1, 1, 1, 0);
+        vf27 = d1::vsel(vf27, d1::vmul(vf27, q), xyz);
+        vf27 = d1::vsel(vf27, d1::vmul(vf0, q), d1::mask(0, 0, 0, 1));
+        if (perspective)
+            vf24 = d1::vsel(vf24, d1::vmul(vf24, q), xyz);
+        const uint32_t s0 = flags;
+        vf27 = d1::vsel(vf27, d1wFtoi(vf27, 16.0f), xyz);
+        d1wPutQ(m, t1, vf26);
+        k.vf24 = vf24;
+        k.vf25 = vf25;
+        k.vf26 = vf26;
+        k.vf27 = vf27;
+        // The frame's words as the code reads them back: sp + 0x20 vf27 (XYZ ints, w Q), + 0x30 vf25 (RGBA ints),
+        // + 0x40 vf24 (ST).
+        int32_t xyzw[4], rgba[4];
+        uint32_t st[4];
+        std::memcpy(xyzw, &vf27, 16);
+        std::memcpy(rgba, &vf25, 16);
+        std::memcpy(st, &vf24, 16);
+        auto sx = [](int32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(v)); };
+        if (pf)
+        {
+            const uint32_t out = d1wU32(m, kGl + 4u);
+            __builtin_prefetch(m.base + ((out + 0x40u) & PS2_RAM_MASK));
+            __builtin_prefetch(m.base + ((out + 0x60u) & PS2_RAM_MASK));
+        }
+        // A packet pair at *(G + 4): the value, then the register.
+        auto emit = [&](uint64_t value, uint64_t reg)
+        {
+            uint32_t at = d1wU32(m, kGl + 4u);
+            d1wPut64(m, at, value);
+            at += 8u;
+            d1wPut32(m, kGl + 4u, at);
+            d1wPut64(m, at, reg);
+            d1wPut32(m, kGl + 4u, at + 8u);
+        };
+        if (d1wU32(m, kGl + 0x18u) != 0u && d1wU32(m, kGl + 0x2Cu) == 0u)
+            emit(static_cast<uint64_t>(st[0]) | (static_cast<uint64_t>(st[1]) << 32), 2u); // ST
+        {
+            // RGBAQ: r | g << 8 | b << 16 | a << 24 | Q << 32 (Q 1.0 without perspective).
+            const uint64_t q32 = perspective ? (sx(xyzw[3]) << 32) : 0x3F80000000000000ull;
+            const uint64_t value = (sx(rgba[0]) | q32) | ((sx(rgba[2]) << 16) | (sx(rgba[1]) << 8)) | (sx(rgba[3]) << 24);
+            emit(value, 1u);
+        }
+        // The primitive's clip state.
+        uint32_t s2 = 0u, s5 = 0u;
+        const uint32_t prim = d1wU32(m, kGl + 0x10u);
+        const uint32_t target = prim < 7u ? d1wU32(m, 0x01191730u + prim * 4u) : 0x0108DC48u;
+        const int32_t count = static_cast<int32_t>(index);
+        auto anyPair = [&](const uint32_t *masks, int n) -> bool
+        {
+            for (int i = 0; i < n; ++i)
+                if ((s0 & masks[i]) == masks[i])
+                    return true;
+            return false;
+        };
+        static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
+        static const uint32_t three[] = {0x1041u, 0x2082u, 0x4104u, 0x8208u, 0x10410u};
+        switch (target)
+        {
+        case 0x0108DAE0u: // points
+            if (s0 & 0x3Fu)
+                s2 = 1u;
+            break;
+        case 0x0108DAF8u: // lines
+            if (count > 0 && (s0 & 0xFFFu) != 0u)
+            {
+                if (!anyPair(two, 5))
+                    s5 = ((s0 & 0x820u) ^ 0x820u) != 0u ? 1u : 0u;
+                s2 = 1u;
+            }
+            break;
+        case 0x0108DB58u: // line strip
+            if (count > 0 && (s0 & 0xFFFu) != 0u)
+                s2 = 1u;
+            break;
+        case 0x0108DB78u: // triangle strip (the first vertex starts a clipped run)
+        {
+            if (count == 0 && (s0 & 0x3Fu) != 0u)
+            {
+                d1wPut64(m, kGl + 0x1B0u, d1wU64(m, kGl + 0x1B0u) | 0x10u);
+                s2 = 1u;
+            }
+            const bool run = ((d1wU64(m, kGl + 0x1B0u) >> 4) & 1u) != 0u;
+            if (count < 2)
+            {
+                if (run)
+                {
+                    s5 = 1u;
+                    s2 = 1u;
+                }
+            }
+            else if ((s0 & 0xFFFu) == 0u)
+            {
+                if (run)
+                {
+                    s5 = 1u;
+                    s2 = 1u;
+                }
+            }
+            else
+            {
+                if (anyPair(two, 5) || (s0 & 0x820u) == 0x820u)
+                    s5 = run ? 0u : 1u;
+                else
+                    s5 = 1u;
+                s2 = 1u;
+            }
+            break;
+        }
+        default: // 0x0108DC48: triangles / fans (the entry sent every other entry to the old code)
+            if (!(count < 2) && (s0 & 0x3FFFFu) != 0u)
+            {
+                if (!anyPair(three, 5))
+                    s5 = ((s0 & 0x20820u) ^ 0x20820u) != 0u ? 1u : 0u;
+                s2 = 1u;
+            }
+            break;
+        }
+        // XYZ2, or XYZ3 (no kick) while +0x1b4 counts down after a clipped primitive.
+        const int32_t pending = static_cast<int32_t>(d1wU32(m, kGl + 0x1B4u));
+        s2 |= (0 < pending) ? 1u : 0u;
+        uint64_t reg = 4u;
+        if (s2 != 0u)
+        {
+            if (pending > 0)
+                d1wPut32(m, kGl + 0x1B4u, static_cast<uint32_t>(pending - 1));
+            reg = 0xCu;
+        }
+        const float f1 = d1wF32(m, kGl + 0x41F4u), f2 = 2147483648.0f;
+        float f0 = d1::mul(static_cast<float>(xyzw[2] >> 4), f1);
+        uint64_t z;
+        if (d1::le(f2, f0))
+        {
+            f0 = d1wSub(f0, f2);
+            z = static_cast<uint64_t>(static_cast<int64_t>(ps2FpuConvertToWord(f0))) | 0xFFFFFFFF80000000ull;
+        }
+        else
+            z = static_cast<uint64_t>(static_cast<int64_t>(ps2FpuConvertToWord(f0)));
+        k.f1 = static_cast<int32_t>(z);
+        k.f0 = f0;
+        k.f2 = f2;
+        const uint64_t a3v = sx(xyzw[0]) | (static_cast<uint64_t>(d1wU32(m, kGl + 0x60u)) << 56);
+        const uint64_t xyzWord = a3v | ((z << 32) | (sx(xyzw[1]) << 16));
+        emit(xyzWord, reg);
+        d1wPut8(m, kGl + 0x41F8u + index, static_cast<uint8_t>(s5));
+        // The ring (its wrap went to the old code at the entry).
+        const uint32_t next = d1wU32(m, kGl + 0x41F0u) + 1u;
+        d1wPut32(m, kGl + 0x41F0u, next);
+        k.next = next;
+    }
+
+    void glVertexKickD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (A9S_VAL(::a9sweep::on(), a9s_decomp_walk_glv116_2409, bool, ps2_diag::env("SOTC_GLV116_LOG") != nullptr))
+            return glVertexKick(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t sp0 = GPR_U32(ctx, 29), index = GPR_U32(ctx, 4);
+        const uint32_t camera = d1wU32(m, kGl);
+        if (!Ram::ok(sp0 - 0x90u, 0x90u) || camera == 0u || !Ram::ok(camera, 0x6A0u) || index >= 0x100u)
+            return glVertexKick(rdram, ctx, runtime);
+        if (((d1wU64(m, kGl + 0x1B0u) >> 3) & 1u) == 0u || (d1wU32(m, kGl + 0x18u) != 0u && d1wU32(m, kGl + 0x2Cu) == 1u))
+            return glVertexKick(rdram, ctx, runtime);
+        const uint32_t prim = d1wU32(m, kGl + 0x10u);
+        const uint32_t target = prim < 7u ? d1wU32(m, 0x01191730u + prim * 4u) : 0x0108DC48u;
+        if (target != 0x0108DAE0u && target != 0x0108DAF8u && target != 0x0108DB58u && target != 0x0108DB78u && target != 0x0108DC48u)
+            return glVertexKick(rdram, ctx, runtime);
+        if (static_cast<int32_t>(d1wU32(m, kGl + 0x41F0u) + 1u) >= 0x100)
+            return glVertexKick(rdram, ctx, runtime);
+        ++c_d1Kick.n;
+        sotc_decomp::clipNeeded(ctx); // round 61: the whole CLIP register is read
+        D1Kick k;
+        k.clipFlags = ctx->vu0_clip_flags;
+        k.status = ctx->vu0_status;
+        glVertexKickCore(m, index, camera, sotc_decomp::walk67On(), k);
+        __m128 *vf = ctx->vu0_vf;
+        vf[10] = k.vf10;
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[11 + i] = k.view[i];
+            vf[15 + i] = k.clip[i];
+            vf[19 + i] = k.screen[i];
+        }
+        vf[23] = k.vf23;
+        vf[24] = k.vf24;
+        vf[25] = k.vf25;
+        vf[26] = k.vf26;
+        vf[27] = k.vf27;
+        ctx->vu0_acc = k.acc;
+        ctx->vu0_q = k.q;
+        ctx->vu0_status = k.status;
+        ctx->vu0_clip_flags = k.clipFlags;
+        ctx->f[0] = k.f0;
+        std::memcpy(&ctx->f[1], &k.f1, 4);
+        ctx->f[2] = k.f2;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(k.next));
+        returnTo(ctx);
+    }
+
+    void glVertexKickSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            glVertexKickD1(rdram, ctx, runtime);
+        else
+            glVertexKick(rdram, ctx, runtime);
+    }
+
+    // ---- 010F3A08 (partial D1): solidDisp with the matrix products as d1 vec4 chains ----
+    void solidDispD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const lines67::Scope l67(lines67::kDisp, false, GPR_U32(ctx, 29));
+        ++c_d1Solid.n;
+        G g(rdram, ctx, runtime);
+        const Ram m = g.m;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x60u;
+        const uint32_t s1 = GPR_U32(ctx, 5);
+        if (!Ram::ok(sp, 0x60u) || !Ram::ok(s1, 0x1B8u) || !Ram::ok(m.u32(s1 + 0x144u), 0x290u))
+            return fallback(rdram, ctx, runtime, kSolidDisp);
+        const uint64_t in16 = GPR_U64(ctx, 16), in17 = GPR_U64(ctx, 17), in18 = GPR_U64(ctx, 18);
+        m.put64(sp + 0x48u, in17);
+        m.put64(sp + 0x40u, in16);
+        m.put64(sp + 0x50u, in18);
+        m.put64(sp + 0x58u, GPR_U64(ctx, 31));
+        SET_GPR_U64(ctx, 17, GPR_U64(ctx, 5));
+        const uint32_t s0 = m.u32(s1 + 0x194u);
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(s0));
+        __m128 acc = ctx->vu0_acc;
+        bool vuTouched = false;
+        __m128 lastC[4], lastOut[4];
+        // A part's matrix block: word(word(geo + 0xc) + 0x104) + ((i * 4 + (i + 1) / 64) << 4).
+        auto block = [&](int32_t i) -> uint32_t
+        {
+            const uint32_t geo = m.u32(s1 + 0x144u);
+            const uint32_t base = m.u32(m.u32(geo + 0xCu) + 0x104u);
+            const int32_t index = (i << 2) + ((i + 1) >> 6);
+            return static_cast<uint32_t>(index << 4) + base;
+        };
+        // Round 103 (SOTC_SOLID103, A/B `solid103`, `r103all`): with the
+        // native renderer drawing, the parts' matrix blocks (the camera's
+        // +0x1a0 x each part's matrix, into the instance packet's +0x104
+        // block) are the PS2's VU1 input only: the model hook draws from the
+        // parts' own matrices (a1) and the camera's +0x5a0, and nothing
+        // native reads the blocks. Left out (with their camera lookup) for a
+        // model without a shadow (shadowDisp's rigid matrix comes from its
+        // packets) whose LOD record asks for no lens scale (which rescales
+        // the blocks). Everything else as before.
+        const auto lensScaled = [&]
+        {
+            const uint32_t lodRecord = m.u32(m.u32(m.u32(m.u32(s1 + 0x144u)) + 0x20u) + 8u);
+            return lodRecord != 0u && m.u32(lodRecord + 0x3Cu) != 0u;
+        };
+        if (s0 == 0u && sotc_decomp::solid103On() && sotc_native::nativeDraws() && m.u32(m.u32(s1 + 0x144u) + 0x280u) == 0u && !lensScaled())
+        {
+            const int32_t s2 = m.s16(s1 + 0x1B4u);
+            SET_GPR_S32(ctx, 18, s2);
+            ctx->f[0] = 1.0f;
+            // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
+            // NaNs, so any reader left would show (a model gone or broken).
+            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0);
+            if (poison)
+            {
+                const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
+                for (int32_t i = 0; i < s2 && i < 256; ++i)
+                    for (uint32_t k = 0; k < 4u; ++k)
+                        m.putq(block(i) + k * 0x10u, nan);
+            }
+        }
+        else if (s0 == 0u)
+        {
+            const int32_t s2 = m.s16(s1 + 0x1B4u);
+            SET_GPR_S32(ctx, 18, s2);
+            g.call(kGetCameraContext, 0x010F3A2Cu, sp);
+            const uint32_t t0 = g.v0() + 0x1A0u;
+            uint32_t a3 = m.u32(s1 + 0x15Cu);
+            if (0 < s2)
+            {
+                // Round 67 (SOTC_WALK67): the parts' source matrices (64
+                // bytes each, in a row) and their blocks asked for four parts
+                // ahead of the products.
+                const bool w67 = sotc_decomp::walk67On();
+                auto askPart = [&](int32_t i, uint32_t src)
+                {
+                    ask(m, src);
+                    ask(m, src + 0x20u);
+                    const uint32_t d = block(i);
+                    ask(m, d);
+                    ask(m, d + 0x20u);
+                };
+                if (w67)
+                    for (int32_t i = 0; i < 4 && i < s2; ++i)
+                        askPart(i, a3 + static_cast<uint32_t>(i) * 0x40u);
+                for (int32_t i = 0; i < s2; ++i, a3 += 0x40u)
+                {
+                    if (w67 && i + 4 < s2)
+                        askPart(i + 4, a3 + 0x100u);
+                    const uint32_t dst = block(i);
+                    // (the camera matrix read again each part, as the original does)
+                    const __m128 cc[4] = {m.q(t0), m.q(t0 + 0x10u), m.q(t0 + 0x20u), m.q(t0 + 0x30u)};
+                    const __m128 src[4] = {m.q(a3), m.q(a3 + 0x10u), m.q(a3 + 0x20u), m.q(a3 + 0x30u)};
+                    for (int k = 0; k < 4; ++k)
+                        lastOut[k] = d1wApply(cc, src[k], acc);
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        m.putq(dst + static_cast<uint32_t>(k) * 0x10u, lastOut[k]);
+                        lastC[k] = cc[k];
+                    }
+                    vuTouched = true;
+                }
+            }
+            // The lens factor: the camera's +0xc / 500, when the LOD record asks (+0x3c).
+            const uint32_t header = m.u32(m.u32(m.u32(s1 + 0x144u)) + 0x20u);
+            float f12 = 1.0f;
+            const uint32_t lodRecord = m.u32(header + 8u);
+            if (lodRecord != 0u && m.u32(lodRecord + 0x3Cu) != 0u)
+            {
+                if (vuTouched)
+                {
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        ctx->vu0_vf[14 + k] = lastC[k];
+                        ctx->vu0_vf[24 + k] = lastOut[k];
+                    }
+                    ctx->vu0_acc = acc;
+                    vuTouched = false;
+                }
+                g.call(kGetCameraContext, 0x010F3B10u, sp);
+                const uint32_t camera = g.v0();
+                if (camera != 0u)
+                {
+                    float f0 = m.f32(camera + 0xCu);
+                    f0 = ps2FpuDivide(ctx->fcr31, f0, 500.0f);
+                    ctx->f[0] = f0;
+                    f12 = ps2FpuDivide(ctx->fcr31, 1.0f, f0);
+                }
+            }
+            ctx->f[0] = 1.0f;
+            if (!d1::eq(f12, 1.0f))
+            {
+                if (vuTouched)
+                {
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        ctx->vu0_vf[14 + k] = lastC[k];
+                        ctx->vu0_vf[24 + k] = lastOut[k];
+                    }
+                    ctx->vu0_acc = acc;
+                    vuTouched = false;
+                }
+                // iosGetScaleMatrix(sp, f12, f12, f12), then each part's block x that.
+                const int32_t count = m.s16(s1 + 0x1B4u);
+                SET_GPR_S32(ctx, 16, count);
+                g.a(4, sp);
+                ctx->f[12] = f12;
+                ctx->f[13] = f12;
+                ctx->f[14] = f12;
+                g.callRel(0x010F3B7Cu, sp);
+                acc = ctx->vu0_acc;
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    const uint32_t dst = block(i);
+                    const __m128 c[4] = {m.q(dst), m.q(dst + 0x10u), m.q(dst + 0x20u), m.q(dst + 0x30u)};
+                    const __m128 sc[4] = {m.q(sp), m.q(sp + 0x10u), m.q(sp + 0x20u), m.q(sp + 0x30u)};
+                    for (int k = 0; k < 4; ++k)
+                        lastOut[k] = d1wApply(c, sc[k], acc);
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        m.putq(dst + static_cast<uint32_t>(k) * 0x10u, lastOut[k]);
+                        lastC[k] = c[k];
+                    }
+                    vuTouched = true;
+                }
+            }
+        }
+        else
+        {
+            // A parent's matrix block (+0x194: its object) taken as this one's.
+            const uint32_t parent = layoutClass(g, s0, 0x010F3C38u, sp);
+            m.put32(m.u32(s1 + 0x144u) + 0xCu, m.u32(m.u32(parent + 0x144u) + 0xCu));
+        }
+        if (vuTouched)
+        {
+            for (int k = 0; k < 4; ++k)
+            {
+                ctx->vu0_vf[14 + k] = lastC[k];
+                ctx->vu0_vf[24 + k] = lastOut[k];
+            }
+            ctx->vu0_acc = acc;
+        }
+        auto finish = [&](uint64_t v0)
+        {
+            SET_GPR_U64(ctx, 2, v0);
+            SET_GPR_U64(ctx, 16, in16);
+            SET_GPR_U64(ctx, 17, in17);
+            SET_GPR_U64(ctx, 18, in18);
+            SET_GPR_U32(ctx, 29, sp0);
+            SET_GPR_U32(ctx, 31, ra0);
+            returnTo(ctx);
+        };
+        uint32_t geo = m.u32(s1 + 0x144u);
+        uint64_t v0 = m.u64(geo + 0x260u) & 0x20u;
+        if (v0 == 0u)
+        {
+            g.a(4, geo);
+            g.a(5, m.u32(s1 + 0x15Cu));
+            g.call(kModelDisp, 0x010F3C64u, sp);
+        }
+        v0 = static_cast<uint64_t>(static_cast<int64_t>(m.s32(s1 + 0x194u)));
+        if (v0 != 0u)
+            return finish(v0);
+        geo = m.u32(s1 + 0x144u);
+        v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(geo)));
+        const uint32_t shadow = m.u32(geo + 0x280u);
+        if (shadow == 0u)
+            return finish(v0);
+        g.a(4, shadow);
+        g.callRel(0x010F3C88u, sp);
+        geo = m.u32(s1 + 0x144u);
+        v0 = m.u64(geo + 0x260u) & 0x40u;
+        if (v0 != 0u)
+            return finish(v0);
+        // shadowDisp(geo's +0xc, shadow +0x20, +0x134, the matrix, the part count, 0, 0, 0.0)
+        const uint32_t record = m.u32(geo + 0x280u);
+        const uint32_t a1 = m.u32(record + 0x20u);
+        g.a(6, m.u32(s1 + 0x134u));
+        g.a(5, a1);
+        g.a(4, m.u32(geo + 0xCu));
+        g.a(7, a1 == 0u ? m.u32(s1 + 0x15Cu) : m.u32(s1 + 0x160u));
+        SET_GPR_S32(ctx, 8, m.s16(s1 + 0x1B4u));
+        SET_GPR_U64(ctx, 9, 0u);
+        ctx->f[12] = 0.0f;
+        SET_GPR_U64(ctx, 10, 0u);
+        g.call(kShadowDisp, 0x010F3CD0u, sp);
+        finish(GPR_U64(ctx, 2));
+    }
+
+    void solidDispSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            solidDispD1(rdram, ctx, runtime);
+        else
+            solidDisp(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_01142350 (partial D1): the VU0 block on locals ----
+    void quad1142350D1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        constexpr uint32_t kSelf = 0x01142350u;
+        G g(rdram, ctx, runtime);
+        const Ram m = g.m;
+        const uint32_t s0 = GPR_U32(ctx, 4), s1in = GPR_U32(ctx, 5), s3 = GPR_U32(ctx, 6);
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x130u;
+        if (!sotc_decomp::glv117On() || !Ram::ok(sp, 0x130u) || !Ram::ok(s0, 0x50u) || !Ram::ok(s1in, 8u) || !Ram::ok(s3, 0x40u) ||
+            sotc_decomp::jalTarget(rdram, 0x0114240Cu) != 0x001283D0u)
+            return fallback(rdram, ctx, runtime, kSelf);
+        const uint64_t e16 = GPR_U64(ctx, 16), e17 = GPR_U64(ctx, 17), e18 = GPR_U64(ctx, 18), e19 = GPR_U64(ctx, 19), e20 = GPR_U64(ctx, 20);
+        m.put64(sp + 0x120u, e20);
+        m.put64(sp + 0x100u, e16);
+        m.put64(sp + 0x108u, e17);
+        m.put64(sp + 0x118u, e19);
+        m.put64(sp + 0x110u, e18);
+        m.put64(sp + 0x128u, ra0);
+        const uint32_t s4 = sp + 0x80u, s2 = sp + 0xC0u;
+        SET_GPR_U32(ctx, 29, sp);
+        SET_GPR_U32(ctx, 16, s0);
+        SET_GPR_U32(ctx, 17, s1in);
+        SET_GPR_U32(ctx, 19, s3);
+        SET_GPR_U32(ctx, 20, s4);
+        for (uint32_t i = 0; i < 0x40u; i += 8u)
+            m.put64(sp + i, m.u64(0x01195900u + i));
+        std::memset(m.p(s4), 0, 0x40u); // memset (0x1283d0, checked above): the same bytes
+        {
+            const float f0 = m.f32(s1in), f1 = m.f32(s1in + 4u);
+            m.putf(sp + 0xB0u, f0);
+            m.putf(sp + 0x90u, f0);
+            m.putf(sp + 0xB4u, f1);
+            m.putf(sp + 0xA4u, f1);
+            for (uint32_t i = 0; i < 0x40u; i += 8u)
+                m.put64(sp + 0x40u + i, m.u64(sp + 0x80u + i));
+        }
+        SET_GPR_U32(ctx, 18, s2);
+        g.a(4, s2);
+        g.a(5, s0 + 0x30u);
+        g.a(6, 1u);
+        ctx->f[12] = m.f32(s0 + 0x40u);
+        g.call(0x01133748u, 0x0114247Cu, sp); // iosRotMatrixAxis
+        ++c_d1Quad.n;
+        {
+            // Round D1: the VU0 block as d1 vec4 math on locals (the same operations: vmr32 x 3 of vf0, the two
+            // axes scaled by +0xc, the three columns through the rotation (vf14..17 = s2) then the world matrix
+            // (vf14..17 = s3), the four corners through those columns + the position (vf27, w = 1)); the VU0
+            // registers written once after it, as the block leaves them.
+            const d1::Mem dm{rdram};
+            const float f0 = d1wF32(dm, s0 + 0xCu);
+            ctx->f[0] = f0;
+            uint32_t bits;
+            std::memcpy(&bits, &f0, 4);
+            SET_GPR_U32(ctx, 8, bits);
+            const __m128 vf10 = _mm_castsi128_ps(GPR_VEC(ctx, 8)); // qmtc2.ni t0, vf10 (the whole register)
+            const __m128 rot[4] = {d1wQ(dm, s2), d1wQ(dm, s2 + 16u), d1wQ(dm, s2 + 32u), d1wQ(dm, s2 + 48u)};
+            const __m128 world[4] = {d1wQ(dm, s3), d1wQ(dm, s3 + 16u), d1wQ(dm, s3 + 32u), d1wQ(dm, s3 + 48u)};
+            const __m128 vf0 = d1::vf0();
+            __m128 acc;
+            __m128 vf26 = d1::make(0.0f, 0.0f, 1.0f, 0.0f), vf25 = d1::make(0.0f, 1.0f, 0.0f, 0.0f), vf24 = d1::make(1.0f, 0.0f, 0.0f, 0.0f);
+            vf25 = d1::vsel(vf25, d1::vmul(vf25, d1::bc<0>(vf10)), d1::mask(0, 1, 0, 0));
+            vf24 = d1::vsel(vf24, d1::vmul(vf24, vf10), d1::mask(1, 0, 0, 0));
+            vf26 = d1wApply(rot, vf26, acc);
+            vf25 = d1wApply(rot, vf25, acc);
+            vf24 = d1wApply(rot, vf24, acc);
+            vf24 = d1wApply(world, vf24, acc);
+            vf25 = d1wApply(world, vf25, acc);
+            vf26 = d1wApply(world, vf26, acc);
+            const __m128 vf27 = d1::vsel(d1wQ(dm, s0), vf0, d1::mask(0, 0, 0, 1));
+            const __m128 cols[4] = {vf24, vf25, vf26, vf27};
+            // (the corners' last term: vf27 x vf0w)
+            auto corner = [&](__m128 c)
+            {
+                acc = d1::vmul(cols[0], d1::bc<0>(c));
+                acc = d1::vmadd(acc, cols[1], d1::bc<1>(c));
+                acc = d1::vmadd(acc, cols[2], d1::bc<2>(c));
+                return d1::vmadd(acc, cols[3], d1::bc<3>(vf0));
+            };
+            const __m128 vf20 = corner(d1wQ(dm, sp)), vf21 = corner(d1wQ(dm, sp + 16u)), vf22 = corner(d1wQ(dm, sp + 32u)), vf23 = corner(d1wQ(dm, sp + 48u));
+            d1wPutQ(dm, s4, vf20);
+            d1wPutQ(dm, s4 + 16u, vf21);
+            d1wPutQ(dm, s4 + 32u, vf22);
+            d1wPutQ(dm, s4 + 48u, vf23);
+            __m128 *vf = ctx->vu0_vf;
+            vf[10] = vf10;
+            for (int i = 0; i < 4; ++i)
+                vf[14 + i] = world[i];
+            vf[20] = vf20;
+            vf[21] = vf21;
+            vf[22] = vf22;
+            vf[23] = vf23;
+            vf[24] = vf24;
+            vf[25] = vf25;
+            vf[26] = vf26;
+            vf[27] = vf27;
+            ctx->vu0_acc = acc;
+        }
+
+        SET_GPR_U32(ctx, 17, 0u);
+        // (glBegin below, in prim128: it writes nothing glColor4fv or the corners read)
+        // glColor4fv(+0x10): glColor4f's words and clamp; f1 - f5 as it leaves them.
+        {
+            const uint32_t c = s0 + 0x10u;
+            glColor4f(ctx, m, m.f32(c), m.f32(c + 4u), m.f32(c + 8u), m.f32(c + 0xCu));
+            ctx->f[1] = FPU_MUL_S(m.f32(c + 8u), 255.0f);
+            ctx->f[2] = 255.0f;
+            ctx->f[3] = 128.0f;
+            ctx->f[4] = 255.0f;
+            ctx->f[5] = 0.0f;
+        }
+        const uint32_t st = sp + 0x40u;
+        Vert117 vs[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vs[i].alpha = 0.0f;
+            vs[i].u = m.f32(st + i * 16u);
+            vs[i].v = m.f32(st + i * 16u + 4u);
+            vs[i].pos = s4 + i * 16u;
+            vs[i].site = 0x011425B4u;
+            vs[i].colour = false;
+        }
+        auto calls = [&]
+        {
+            // The loop as the code has it: glTexCoord2fv(sp + 0x40 + 16 i), glVertex4fv(sp + 0x80 + 16 i) (guest calls).
+            for (uint32_t i = 0; i < 4u; ++i)
+            {
+                SET_GPR_U32(ctx, 16, i << 4);
+                SET_GPR_U32(ctx, 17, i + 1u);
+                g.a(4, st + (i << 4));
+                g.call(0x0108E9F0u, 0x011425ACu, sp);
+                g.a(4, s4 + (i << 4));
+                g.call(0x0108ECA0u, 0x011425B4u, sp);
+            }
+        };
+        // Round 128 (imm128): glBegin(5), the corners, glEnd without the GIF packet (prim128), else as the calls.
+        prim128(g, sp, vs, 4, 5u, 0x01142590u, 0x011425C8u, false,
+                [&]
+                {
+                    SET_GPR_U32(ctx, 18, st);
+                    SET_GPR_U32(ctx, 20, s4);
+                    quadRun117(g, sp, vs, 4, calls);
+                    SET_GPR_U32(ctx, 16, 0x30u);
+                    SET_GPR_U32(ctx, 17, 4u);
+                });
+        SET_GPR_U64(ctx, 16, e16);
+        SET_GPR_U64(ctx, 17, e17);
+        SET_GPR_U64(ctx, 18, e18);
+        SET_GPR_U64(ctx, 19, e19);
+        SET_GPR_U64(ctx, 20, e20);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void quad1142350Sw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            quad1142350D1(rdram, ctx, runtime);
+        else
+            quad1142350(rdram, ctx, runtime);
+    }
 }

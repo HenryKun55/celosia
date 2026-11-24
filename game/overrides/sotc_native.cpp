@@ -4597,6 +4597,8 @@ namespace sotc_native
             }();
             if (d1Log && g_frame % d1Log == 0u)
                 d1::report((unsigned long long)g_frame);
+            // The D1 natives' slots: the dispatchers with d1native on, the old functions with it off (d1_alias.h).
+            d1::syncTable(g_runtimeForLog, d1::on());
         }
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {

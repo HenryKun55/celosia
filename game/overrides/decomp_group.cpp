@@ -22,6 +22,7 @@
 // anything is written for the iterators; for the walk, the rest of it from
 // its loop head with the registers it has there).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "decomp_group.h"
 #include "c2scene.h"
@@ -279,6 +280,235 @@ namespace decomp_group
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x001C76D0u, isysGroupForNext, decomp_group::groupForNext);
+namespace decomp_group
+{
+    void groupForNextSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void initLayoutObjMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_AB_FUNCTION(0x001C76D0u, isysGroupForNext, decomp_group::groupForNextSw);
+D1_ALIAS(0x001C76D0u, isysGroupForNext, decomp_group::groupForNextSw, decomp_group::groupForNext);
 SOTC_DECOMP_AB_FUNCTION(0x001C7758u, isysGroupForNextForce, decomp_group::groupForNextForce);
-SOTC_DECOMP_AB_FUNCTION(0x010F5820u, InitLayoutObjMatrix, decomp_group::initLayoutObjMatrix);
+SOTC_DECOMP_AB_FUNCTION(0x010F5820u, InitLayoutObjMatrix, decomp_group::initLayoutObjMatrixSw);
+D1_ALIAS(0x010F5820u, InitLayoutObjMatrix, decomp_group::initLayoutObjMatrixSw, decomp_group::initLayoutObjMatrix);
+
+// ---- Round D1 (d1native, SOTC_D1NATIVE=1): isysGroupForNext as a typed core, InitLayoutObjMatrix's walk on it --------
+namespace decomp_group
+{
+    D1_COUNTER(c_d1GroupNext, "isysGroupForNext");
+    D1_COUNTER(c_d1InitLayoutMatrix, "InitLayoutObjMatrix");
+
+    inline bool d1GroupInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
+
+    // isysGroupForNext on `entry` (next()'s steps on d1::Mem): the chain's next entry not being deleted (+0xc) whose
+    // object's +0xa bit 0 is clear; the current object's walk count (+9) down, the next one's up. False: something
+    // outside main RAM (checked before anything is written).
+    bool groupNextCore(const d1::Mem m, uint32_t entry, NextRegs &r)
+    {
+        if (!d1GroupInRam(entry, 0x10u))
+            return false;
+        const uint32_t current = m.get<uint32_t>(entry);
+        uint32_t v0 = m.get<uint16_t>(entry + 0xEu), v1 = 0u, e = entry;
+        for (uint32_t steps = 0;; ++steps)
+        {
+            if (v0 == 0u)
+            {
+                r = {0u, 0u, 0u, 0u, current};
+                return true;
+            }
+            v1 = v0;
+            e = kEntries + v1 * 24u;
+            if (!d1GroupInRam(e, 0x10u) || steps > 0x10000u)
+                return false;
+            if (m.get<uint8_t>(e + 0xCu) != 0u)
+            {
+                v0 = m.get<uint16_t>(e + 0xEu);
+                continue;
+            }
+            const uint32_t object = m.get<uint32_t>(e);
+            if (!d1GroupInRam(object, 0xCu) || !d1GroupInRam(current, 0xAu))
+                return false;
+            if ((m.get<uint16_t>(object + 0xAu) & 1u) != 0u)
+            {
+                v0 = m.get<uint16_t>(e + 0xEu);
+                continue;
+            }
+            uint8_t *const cur = m.at<uint8_t>(current + 9u);
+            *cur = static_cast<uint8_t>(*cur - 1u);
+            // The entry's object read again after that store (the original's order: they may alias).
+            const uint32_t nextObj = m.get<uint32_t>(e);
+            uint8_t *const nx = m.at<uint8_t>(nextObj + 9u);
+            *nx = static_cast<uint8_t>(*nx + 1u);
+            r = {e, nextObj, e, e, current};
+            return true;
+        }
+    }
+
+    void groupForNextD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1GroupNext.n;
+        NextRegs r;
+        if (!groupNextCore(d1::Mem{rdram}, GPR_U32(ctx, 4), r))
+            return groupForNext(rdram, ctx, runtime);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(r.a0));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(r.a1));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(kEntries));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(r.a3));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+        returnTo(ctx);
+    }
+
+    void groupForNextSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            groupForNextD1(rdram, ctx, runtime);
+        else
+            groupForNext(rdram, ctx, runtime);
+    }
+
+    // GetLayoutClass's plain cases (a type byte 9..22 through the table at 0x1194070): 1 when the guest call decides.
+    struct D1InitClass
+    {
+        uint32_t lc, target;
+        bool guest;
+    };
+    inline D1InitClass initLayoutClassOf(const d1::Mem m, uint32_t object)
+    {
+        const uint32_t index = static_cast<uint32_t>(m.get<uint8_t>(object + 8u)) - 9u;
+        const uint32_t target = index < 0xEu ? m.get<uint32_t>(0x01194070u + index * 4u) : 0u;
+        if (index >= 0xEu)
+            return {0u, 0u, false};
+        if (target == 0x010F1A58u)
+            return {object + 0x20u, target, false};
+        if (target == 0x010F1A98u)
+            return {object + 0x90u, target, false};
+        if (target == 0x010F1AA0u)
+            return {0u, target, false};
+        return {0u, target, true};
+    }
+    // The geometry's matrix block flip (+0x260 bit 9, +0xc = +0x10 or +0x120 by it); returns the block, bit in `bit`.
+    inline uint32_t initFlipBlock(const d1::Mem m, uint32_t geo, uint32_t &bit)
+    {
+        const uint64_t flags = m.get<uint64_t>(geo + 0x260u) ^ 0x200u;
+        m.set<uint64_t>(geo + 0x260u, flags);
+        bit = static_cast<uint32_t>(flags >> 9) & 1u;
+        const uint32_t block = geo + bit * 0x110u + 0x10u;
+        m.set<uint32_t>(geo + 0xCu, block);
+        return block;
+    }
+
+    // InitLayoutObjMatrix: the walk with typed memory, GetLayoutClass's plain cases and isysGroupForNext's core inline;
+    // GetLayoutDispObjGroup, isysGroupForFirst, the other GetLayoutClass cases and isysGroupForExit stay guest calls
+    // (the same registers, frame and return addresses as the old body). c2scene on: the old fn.
+    void initLayoutObjMatrixD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1InitLayoutMatrix.n;
+        if (sotc_decomp::switchOn(sotc_decomp::kC2Scene))
+            return initLayoutObjMatrix(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x20u;
+        if (!d1GroupInRam(frame, 0x20u))
+            return initLayoutObjMatrix(rdram, ctx, runtime);
+        const uint64_t s0In = GPR_U64(ctx, 16), s1In = GPR_U64(ctx, 17), s2In = GPR_U64(ctx, 18);
+        auto call = [&](uint32_t target, uint32_t site) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, frame); };
+        // The prologue's saves (the recompiled code's epilogue reads them when a fallback goes on there).
+        m.set<uint64_t>(frame, s0In);
+        m.set<uint64_t>(frame + 8u, s1In);
+        m.set<uint64_t>(frame + 0x10u, s2In);
+        m.set<uint64_t>(frame + 0x18u, GPR_U64(ctx, 31));
+        call(kGetGroup, 0x010F5834u);
+        SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2));
+        SET_GPR_U64(ctx, 5, 0u);
+        call(kForFirst, 0x010F5840u);
+        uint32_t s0 = GPR_U32(ctx, 2), s1 = 0u;
+        while (s0 != 0u)
+        {
+            if (!d1GroupInRam(s0, 0x10u))
+            {
+                // The recompiled loop from its head (0x10f5858): s0 the entry, s1 its object, s2 the mask.
+                SET_GPR_S32(ctx, 16, static_cast<int32_t>(s0));
+                SET_GPR_U64(ctx, 18, static_cast<uint64_t>(static_cast<int64_t>(-0x201)));
+                SET_GPR_S32(ctx, 17, static_cast<int32_t>(READ32(s0))); // the loop's lw s1, 0(s0)
+                SET_GPR_U32(ctx, 29, frame);
+                ctx->pc = 0x010F5858u;
+                return sotc_decomp::recompiled(kInit)(rdram, ctx, runtime);
+            }
+            s1 = m.get<uint32_t>(s0);
+            const D1InitClass k = initLayoutClassOf(m, s1);
+            uint32_t lc = k.lc, target = k.target;
+            if (k.guest)
+            {
+                SET_GPR_U32(ctx, 4, s1);
+                call(kGetLayoutClass, 0x010F5858u);
+                lc = GPR_U32(ctx, 2);
+                target = GPR_U32(ctx, 3);
+            }
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(target));
+            uint32_t geo = 0u;
+            if (lc != 0u && d1GroupInRam(lc + 0x144u, 4u) && (geo = m.get<uint32_t>(lc + 0x144u)) != 0u)
+            {
+                if (!d1GroupInRam(geo, 0x268u) || (geo & 7u) != 0u)
+                {
+                    // Odd: this object by the recompiled code, from after GetLayoutClass (0x10f5860).
+                    SET_GPR_S32(ctx, 16, static_cast<int32_t>(s0));
+                    SET_GPR_S32(ctx, 17, static_cast<int32_t>(s1));
+                    SET_GPR_U64(ctx, 18, static_cast<uint64_t>(static_cast<int64_t>(-0x201)));
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(lc));
+                    SET_GPR_U32(ctx, 29, frame);
+                    SET_GPR_U32(ctx, 31, 0x010F5860u);
+                    ctx->pc = 0x010F5860u;
+                    return sotc_decomp::recompiled(kInit)(rdram, ctx, runtime);
+                }
+                uint32_t bit;
+                const uint32_t block = initFlipBlock(m, geo, bit);
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(block));
+                SET_GPR_U64(ctx, 3, bit);
+            }
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(geo));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(lc));
+            NextRegs r;
+            if (!groupNextCore(m, s0, r))
+            {
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(s0));
+                SET_GPR_U64(ctx, 5, 0u);
+                call(kNext, 0x010F58D0u);
+                s0 = GPR_U32(ctx, 2);
+                continue;
+            }
+            s0 = r.v0;
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(r.a0));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(r.a1));
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(kEntries));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(r.a3));
+        }
+        if (s1 == 0u)
+        {
+            SET_GPR_U64(ctx, 16, s0In);
+            SET_GPR_U64(ctx, 17, s1In);
+            SET_GPR_U64(ctx, 18, s2In);
+            SET_GPR_U32(ctx, 29, sp0);
+            SET_GPR_U32(ctx, 31, ra0);
+            return returnTo(ctx);
+        }
+        // The tail jump: isysGroupForExit(s1, 0), returning to our caller.
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(s1));
+        SET_GPR_U64(ctx, 5, 0u);
+        SET_GPR_U64(ctx, 16, s0In);
+        SET_GPR_U64(ctx, 17, s1In);
+        SET_GPR_U64(ctx, 18, s2In);
+        sotc_decomp::callGuest(rdram, ctx, runtime, kForExit, ra0, sp0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void initLayoutObjMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            initLayoutObjMatrixD1(rdram, ctx, runtime);
+        else
+            initLayoutObjMatrix(rdram, ctx, runtime);
+    }
+}
