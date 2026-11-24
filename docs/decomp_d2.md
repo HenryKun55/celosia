@@ -133,3 +133,10 @@ same amount; the render thread unchanged) and within noise riding. D1 alone meas
 
 **Console package**: build/agent-scratch/d2/celosia-d2.vpk (= p1; d1native off by default) + env-ab.txt (console base env,
 SOTC_AB_FLAG=d1native SOTC_AB_PERIOD=300, SOTC_D1_LOG=600), not installed.
+
+## Merge
+
+Rebased on A15 main f3a1e34 as 34f7648 / cfe9147 / docs (only docs conflicted: rounds.json, decomp.md, kept both). Merged build
+pmD2 (default switches): 0 build errors, no "segment 1 overlaps" (ELF room 122880), spalign 0 sp-based of 2 430. 89 MB boot
+(ride7 600 s, SOTC_VITA_EAT_USER_MB=89 taken): mounted at frame 2 999, rode to 15 538 (610 s), 0 FREEZE lines; pictures at
+300 / 540 s normal (Agro by the wall, galloping along the cliff; Wander, ground, shadows, sky fine).
