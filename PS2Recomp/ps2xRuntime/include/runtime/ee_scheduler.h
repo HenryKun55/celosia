@@ -128,6 +128,12 @@ struct GuestThread
     // Round B1: set while the thread's own code (not its handler invocations) runs on a host carrier thread
     // (EeScheduler::resumeCarrier); null: it runs as generated code dispatched by run() as before.
     EeHostCarrier *carrier = nullptr;
+    // Round B8 (b8sched): a host-form interrupt handed to this thread without an invocation record (EeScheduler::b8Push):
+    // 0 none, 1 queued on it (the record form's invocation at its entry: its run is the thread's next dispatch), 2 run (the
+    // record form's completed invocation: its pop is the thread's next dispatch). The invocation itself is in the
+    // scheduler's slot for this thread (m_b8Slot); b8Irq is its host form's index.
+    uint8_t b8State = 0;
+    uint8_t b8Irq = 0;
 
     [[nodiscard]] R5900Context &activeContext()
     {
@@ -417,6 +423,29 @@ struct EeB7Stats
     uint64_t dropIop = 0;                  // gates set on a carrier with the IOP batch left out (part 1)
 };
 extern EeB7Stats g_eeB7;
+// Round B8 (docs/decomp_b8.md; switch b8sched, game/overrides/b8_sched.cpp sets it once a frame with b7irq on). (1) A queued
+// interrupt whose handler has a host form (B7's EeHostIrq) is delivered without an invocation record: the dispatcher's push
+// moves it into the thread's slot (GuestThread::b8State 1), the thread's next dispatch runs the host function there as a
+// plain call (the dispatch checkpoint, the gate, the run, the events and the reschedule exactly as the record's dispatch),
+// and the dispatch after that is the record's pop (b8State 2: the VU0 owner's flush test, then the loop goes on as after a
+// pop). No GuestInvocation on the thread, no generated-dispatch lookups, no B7 record search. Anything the host path does not
+// cover (B7 off, the GS callback refused, a completion to run on the record, a check-mode generated run that unwound) turns
+// the slot back into the record it stands for (b8Materialize) and the record path goes on from the same point. (2) A timer
+// register read on a carrier (PS2Memory's timer sync, which closes the EE clock's gate) re-sets the gate in place
+// (updateGate) instead of leaving it to the next checkpoint's slow path: the same absolute gate (EeScheduler::b8Regate).
+extern uint32_t g_ps2xB8Sched;  // nonzero: (1) on (the switch)
+extern uint32_t g_ps2xB8Check;  // check mode (SOTC_B8_CHECK): the record form's shadow, compared at every dispatcher step
+extern uint32_t g_ps2xB8Regate; // nonzero: (2) on (with b8sched and B7's checkpoint part)
+struct EeB8Stats
+{
+    uint64_t pushed = 0, ran = 0, popped = 0, deferred = 0; // slots filled, host runs, pops, dispatches deferred by the checkpoint
+    uint64_t materialized[4] = {};                          // slots turned into records: 0 B7 off / refused, 1 unwound, 2 completion, 3 other
+    uint64_t steps = 0, stepBad = 0;                        // check: dispatcher steps compared with the record form's shadow
+    uint64_t runs = 0, cycBad = 0;                          // check: host runs whose charges were compared (dispatch + handler)
+    uint64_t regate = 0, regateOff = 0;                     // gates re-set in place at a timer read / reads not on a carrier
+    uint64_t predict = 0, predictCmp = 0, predictBad = 0, predictSlow = 0, predictNest = 0; // check: predictions, compared, bad, the slow path past them
+};
+extern EeB8Stats g_eeB8;
 class EeScheduler;
 struct EeHostIrq
 {
@@ -429,6 +458,8 @@ struct EeHostIrq
     uint32_t watch[4] = {}; // check mode: guest doublewords compared after both forms (0: none)
     int stampWord = 0;      // check mode: watch[stampWord - 1] is a timer stamp (the shadow reads the timer later; 0: none)
     const char *name = "";
+    // Round B8's check: the EE cycles the handler charges on the path the state before its run takes (null: not compared).
+    uint64_t (*charges)(const uint8_t *rdram) = nullptr;
 };
 extern int g_ps2xS17Home; // the game thread (the game sets it each frame): only its checkpoints nest (0: any thread)
 struct EeS17Stats
@@ -805,6 +836,38 @@ private:
     const EeHostIrq *b7Find(const GuestThread &running, const R5900Context &context) noexcept;
     void b7RunIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context);
     void b7CheckIrq(const EeHostIrq &spec, GuestThread &running, R5900Context &context);
+    // Round B8 (g_ps2xB8Sched): the slot-held deliveries (one per thread id 1..63), the push, the dispatch / pop of a slot, a
+    // slot turned back into its record, the check's shadow of the record form, the gate re-set at a timer read.
+    static constexpr int kB8Slots = 64;
+    GuestInvocation *m_b8Slot[kB8Slots] = {};
+    bool b8Push(GuestThread &owner);
+    bool b8Dispatch(GuestThread &running, int site);
+    void b8Materialize(GuestThread &thread, int why);
+    void b8Step(const GuestThread &running, int site);
+    struct B8Shadow
+    {
+        uint8_t depth = 0; // the record form's invocations on the thread (records the host path never covers included)
+        bool done = false; // its top one has run (pc 0: the next dispatch pops it)
+    };
+    B8Shadow m_b8Shadow[kB8Slots];
+    uint64_t m_b8Predict = 0;
+    bool m_b8Armed = false;
+    uint64_t gateNow(int &by) noexcept;
+    void b8Compare() noexcept;
+public:
+    void b8Regate() noexcept;
+    // Round B8's check (the shadow): the record form's invocation count of a thread after a push / a run / a pop.
+    void b8ShadowPush(int id) noexcept { if (id > 0 && id < kB8Slots) { ++m_b8Shadow[id].depth; m_b8Shadow[id].done = false; } }
+    // ... after a record's run / pop (the record form's own records: the shadow follows them).
+    void b8ShadowRecord(const GuestThread &t) noexcept
+    {
+        if (t.id > 0 && t.id < kB8Slots)
+        {
+            m_b8Shadow[t.id].depth = static_cast<uint8_t>(t.invocations.size() + (t.b8State != 0u ? 1u : 0u));
+            m_b8Shadow[t.id].done = t.b8State == 2u || (t.b8State == 0u && !t.invocations.empty() && t.invocations.back().context.pc == 0u);
+        }
+    }
+private:
     EeHostCarrier *m_activeCarrier = nullptr;
     // The host threads of carriers that ended, kept for the next take-overs (round B2: one per table entry at most).
     EeHostCarrier *m_spareCarrier[kMaxCarry] = {};

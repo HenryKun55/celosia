@@ -184,6 +184,7 @@ namespace b7irq
             vb.pc = kVBlankStart;
             vb.fn = vblankStart;
             vb.name = "vblank";
+            vb.charges = [](const uint8_t *) -> uint64_t { return PS2Runtime::kEeDispatchCycles; }; // round B8's check: one JAL
             ee.addHostIrq(vb);
         }
         if ((g_handlers & 2u) != 0u)
@@ -199,6 +200,9 @@ namespace b7irq
             gs.watch[3] = kGcFinishCount;
             gs.stampWord = 3; // (+0x28: the T0 stamp)
             gs.name = "gs";
+            // Round B8's check: two isceGsPutIMR (three JALs each), and the GP finish callback's two when it is set.
+            gs.charges = [](const uint8_t *rdram) -> uint64_t
+            { return PS2Runtime::kEeDispatchCycles * (6u + (rd32(rdram, kGsCallback) == kGpFinish ? 2u : 0u)); };
             ee.addHostIrq(gs);
         }
         if (g_check || g_log)

@@ -407,6 +407,9 @@ public:
         m_eeClockSyncArg = arg;
         m_eeClock = clock;
     }
+    // Round B8 (b8sched part 2): called after a timer register read's sync and flush (which closed the gate): the scheduler
+    // may set the gate again in place (EeScheduler::b8Regate; it decides whether it acts).
+    void setEeRegate(void (*regate)(void *)) noexcept { m_eeRegate = regate; }
     void resetEeTimers() noexcept;
 
     using GifPacketCallback = std::function<void(const uint8_t *, uint32_t)>;
@@ -492,6 +495,7 @@ public:
     uint32_t m_timerIrqLatched = 0; // raised by a flush outside advanceEeTimers
     void (*m_eeClockSync)(void *) = nullptr;
     void *m_eeClockSyncArg = nullptr;
+    void (*m_eeRegate)(void *) = nullptr; // round B8
     EeClock *m_eeClock = nullptr;
     uint32_t syncAndFlushEeTimers() noexcept
     {

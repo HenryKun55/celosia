@@ -76,6 +76,11 @@ EeB5Stats g_eeB5;
 uint32_t g_ps2xB7Irq = 0u;
 uint32_t g_ps2xB7Check = 0u;
 uint32_t g_ps2xB7Cp = 0u;
+uint32_t g_ps2xB8Sched = 0u; // round B8 (b8_sched.cpp)
+uint32_t g_ps2xB8Check = 0u;
+uint32_t g_ps2xB8Regate = 0u;
+EeB8Stats g_eeB8;
+static bool g_b8Predicting = false; // round B8: gateNow asked by the check (its counts left alone)
 EeB7Stats g_eeB7;
 namespace
 {
@@ -817,6 +822,8 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     m_runtime.memory().setEeClockSync([](void *self)
                                       { static_cast<EeScheduler *>(self)->syncAccounting(); },
                                       this, &m_runtime.m_eeClock);
+    m_runtime.memory().setEeRegate([](void *self) // round B8 (b8Regate: acts only with b8sched's part 2)
+                                   { static_cast<EeScheduler *>(self)->b8Regate(); });
     m_hostClockBase = std::chrono::steady_clock::now();
     m_sliceEndCycle = kDefaultTimeSliceCycles;
     m_stopRequested.store(false, std::memory_order_release);
@@ -943,6 +950,8 @@ void EeScheduler::run()
         assert(running != nullptr);
         if (running->resumeCompletion)
         {
+            if (__builtin_expect(running->b8State != 0u, 0))
+                b8Materialize(*running, 2); // round B8: the record form runs it on the invocation's context
             auto completion = std::move(running->resumeCompletion);
             running->resumeCompletion = {};
             try
@@ -959,6 +968,11 @@ void EeScheduler::run()
                 continue;
             }
         }
+        // Round B8: a slot-held interrupt's dispatch (its run, or its pop) as the record's would be.
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+            b8Step(*running, 0);
+        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 0))
+            continue;
         R5900Context &context = running->activeContext();
         if (m_debugPublishCountdown == 0u)
         {
@@ -985,6 +999,8 @@ void EeScheduler::run()
                     flushVu0Owner();
                 GuestInvocation completed = std::move(running->invocations.back());
                 running->invocations.pop_back();
+                if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+                    b8ShadowRecord(*running); // round B8
                 b5trace::note(b5trace::kPop, running->id, 0u);
                 if (completed.onComplete)
                 {
@@ -1010,6 +1026,10 @@ void EeScheduler::run()
 
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
+            if (b8Push(*running)) // round B8: a host-form interrupt into the thread's slot
+                continue;
+            if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+                b8ShadowPush(running->id);
             const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
             const uint32_t stackTop = needsStack ? invocationStackTop() : 0u;
             GuestInvocation &invocation = running->invocations.emplace_back(std::move(m_pendingInvocations.front()));
@@ -1116,6 +1136,7 @@ void EeScheduler::run()
             if (m_s17Open)
                 s17End();
         }
+        const int b8Id = running->id; // round B8 (check)
         try
         {
             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
@@ -1238,6 +1259,9 @@ void EeScheduler::run()
             g_eeDispatchProbe(&context, after && &after->activeContext() == &context ? 1 : 2);
         }
 
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8: the shadow follows the records after a run
+            if (GuestThread *t = thread(b8Id))
+                b8ShadowRecord(*t);
         processPendingEvents();
         if (m_rescheduleRequested && m_currentThreadId != 0)
         {
@@ -1330,6 +1354,9 @@ bool EeScheduler::checkpointSlowInner() noexcept
     }
 #endif
     syncAccounting();
+    // Round B8's check: a gate predicted at a timer read on a carrier (b8Regate) against what this checkpoint does.
+    if (__builtin_expect(m_b8Armed, 0))
+        b8Compare();
 
     // Relaxed: these run every few guest instructions, and on ARM an acquire
     // load is a barrier each. What they flag is taken under m_eventMutex
@@ -1497,11 +1524,29 @@ void EeScheduler::updateGate() noexcept
     g_eeB7.charged += m_clock.run; // round B7: the cycles guest code charged since the last fold
 #endif
     m_clock.fold();
+    m_b8Armed = false; // round B8's check: the gate is set here in both forms
     if (!m_gateEnabled)
     {
         m_clock.closeGate();
         return;
     }
+    int by = 0;
+    const uint64_t gate = gateNow(by);
+    if (m_activeCarrier != nullptr)
+        ++g_eeB7.gateCarrier[by]; // round B7
+    m_clock.setGate(gate);
+    ++(by == 0 ? g_eeS11.gateTimer : by == 1 ? g_eeS11.gateIop : by == 2 ? g_eeS11.gateDeadline : g_eeS11.gateSlice);
+    // The pending flag lives in the gate (flagCheckpoint): one posted while
+    // the gate was being set is seen here (the fences order the two sides).
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+    if (m_checkpointPending.load(std::memory_order_relaxed))
+        m_clock.closeGate();
+}
+
+// The gate updateGate sets (an absolute EE cycle) and its nearest term (by: 0 timer 1 IOP 2 deadline 3 slice); round B8 asks
+// it at a timer read too (b8Regate's check).
+uint64_t EeScheduler::gateNow(int &byOut) noexcept
+{
     // The nearest of: the next EE timer flush or IOP batch (counted from the
     // cycles they have seen), the next deadline, the end of the time slice.
     const uint64_t timerSlack = m_runtime.memory().eeTimerSlack(), iopSlack = PS2Runtime::iopBatchSlack();
@@ -1523,7 +1568,8 @@ void EeScheduler::updateGate() noexcept
         // GAMECORE, renewTimeSlice.)
         if (iopSlack < timerSlack)
         {
-            ++g_eeB7.dropIop;
+            if (!g_b8Predicting)
+                ++g_eeB7.dropIop;
             // (no timer interrupt set up: the slack is the maximum; saturate)
             gate = timerSlack > UINT64_MAX - m_accountedCycle ? UINT64_MAX : m_accountedCycle + timerSlack;
             by = 0;
@@ -1539,15 +1585,8 @@ void EeScheduler::updateGate() noexcept
         gate = m_sliceEndCycle;
         by = 3;
     }
-    if (m_activeCarrier != nullptr)
-        ++g_eeB7.gateCarrier[by]; // round B7
-    m_clock.setGate(gate);
-    ++(by == 0 ? g_eeS11.gateTimer : by == 1 ? g_eeS11.gateIop : by == 2 ? g_eeS11.gateDeadline : g_eeS11.gateSlice);
-    // The pending flag lives in the gate (flagCheckpoint): one posted while
-    // the gate was being set is seen here (the fences order the two sides).
-    std::atomic_thread_fence(std::memory_order_seq_cst);
-    if (m_checkpointPending.load(std::memory_order_relaxed))
-        m_clock.closeGate();
+    byOut = by;
+    return gate;
 }
 
 bool EeScheduler::isExecutingGuest() const noexcept
@@ -2330,6 +2369,8 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
     }
     invocation.sequence = ++m_invocationSequence;
     owner->invocations.push_back(std::move(invocation));
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+        b8ShadowRecord(*owner); // round B8
     publishSnapshot();
     throw EeDispatcherTransfer{};
 }
@@ -2349,6 +2390,8 @@ void EeScheduler::queueInvocation(GuestInvocation invocation)
         it->sequence = ++m_invocationSequence;
         owner->invocations.push_back(std::move(*it));
     }
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+        b8ShadowRecord(*owner); // round B8
     publishSnapshot();
     throw EeDispatcherTransfer{};
 }
@@ -2869,7 +2912,7 @@ void EeScheduler::publishSnapshot()
         snapshot.waitId = waitObjectId(item.wait);
         snapshot.suspendCount = item.suspendCount;
         snapshot.wakeupCount = item.wakeupCount;
-        snapshot.invocationDepth = static_cast<uint32_t>(item.invocations.size());
+        snapshot.invocationDepth = static_cast<uint32_t>(item.invocations.size() + (item.b8State != 0u ? 1u : 0u)); // (round B8: a slot)
         next.threads.push_back(snapshot);
     }
     std::sort(next.threads.begin(), next.threads.end(), [](const auto &left, const auto &right)
@@ -3016,6 +3059,9 @@ void EeScheduler::makeDormant(GuestThread &item)
     item.suspendCount = 0;
     item.wakeupCount = 0;
     item.invocations.clear();
+    item.b8State = 0u; // round B8: a slot-held interrupt goes with its thread as a record would
+    if (item.id > 0 && item.id < kB8Slots)
+        m_b8Shadow[item.id] = B8Shadow{};
 }
 
 void EeScheduler::removeFromWaitObject(GuestThread &item)
@@ -4061,6 +4107,10 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
     int bail = -1;
     auto pushInvocation = [this](GuestThread &owner)
     {
+        if (b8Push(owner)) // round B8: a host-form interrupt into the thread's slot
+            return;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+            b8ShadowPush(owner.id);
         const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
         const uint32_t stackTop = needsStack ? invocationStackTop() : 0u;
         GuestInvocation &invocation = owner.invocations.emplace_back(std::move(m_pendingInvocations.front()));
@@ -4137,6 +4187,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         GuestThread *running = currentThread();
         if (running->resumeCompletion)
         {
+            if (__builtin_expect(running->b8State != 0u, 0))
+                b8Materialize(*running, 2); // round B8: the record form runs it on the invocation's context
             auto completion = std::move(running->resumeCompletion);
             running->resumeCompletion = {};
             try
@@ -4152,6 +4204,10 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                 continue;
             running = currentThread();
         }
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
+            b8Step(*running, 2);
+        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 2))
+            continue;
         if (running->id == homeId && running->invocations.empty())
         {
             // run() would dispatch the home thread at its checkpoint's pc now (after the handlers queued for it).
@@ -4182,6 +4238,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                     flushVu0Owner();
                 GuestInvocation completed = std::move(running->invocations.back());
                 running->invocations.pop_back();
+                if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+                    b8ShadowRecord(*running); // round B8
                 if (completed.onComplete)
                 {
                     try
@@ -4224,6 +4282,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         const EeHostIrq *const hostIrq = (!carried && __builtin_expect(g_ps2xB7Irq != 0u, 0)) ? b7Find(*running, context) : nullptr; // round B7
         if (!hostIrq || g_ps2xB7Check != 0u)
             handOverVu0(*running, context);
+        const int b8Id = running->id; // round B8 (check)
         try
         {
             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
@@ -4249,6 +4308,9 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         }
         m_insideInterrupt = false;
         m_clock.transferred = false;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8: the shadow follows the records after a run
+            if (GuestThread *t = thread(b8Id))
+                b8ShadowRecord(*t);
         processPendingEvents();
         if (m_rescheduleRequested && m_currentThreadId != 0)
         {
@@ -4514,6 +4576,10 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
     EeHostCarrier *to = nullptr; // the direct hand-over's carrier
     auto pushInvocation = [this](GuestThread &owner)
     {
+        if (b8Push(owner)) // round B8: a host-form interrupt into the thread's slot
+            return;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+            b8ShadowPush(owner.id);
         const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
         const uint32_t stackTop = needsStack ? invocationStackTop() : 0u;
         GuestInvocation &invocation = owner.invocations.emplace_back(std::move(m_pendingInvocations.front()));
@@ -4593,6 +4659,8 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         GuestThread *running = currentThread();
         if (running->resumeCompletion)
         {
+            if (__builtin_expect(running->b8State != 0u, 0))
+                b8Materialize(*running, 2); // round B8: the record form runs it on the invocation's context
             auto completion = std::move(running->resumeCompletion);
             running->resumeCompletion = {};
             try
@@ -4608,6 +4676,10 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
                 continue;
             running = currentThread();
         }
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
+            b8Step(*running, 1);
+        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 1))
+            continue;
         if (running->id == homeId && running->invocations.empty())
         {
             // run() would resume this carrier now (after the handlers queued for its thread).
@@ -4638,6 +4710,8 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
                     flushVu0Owner();
                 GuestInvocation completed = std::move(running->invocations.back());
                 running->invocations.pop_back();
+                if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+                    b8ShadowRecord(*running); // round B8
                 b5trace::note(b5trace::kPop, running->id, 1u);
                 if (completed.onComplete)
                 {
@@ -4696,6 +4770,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             ++g_eeB4.carrierRuns;
         else if (!running->invocations.empty())
             ++g_eeB4.handlers;
+        const int b8Id = running->id; // round B8 (check)
         try
         {
             m_insideInterrupt = !running->invocations.empty() && running->invocations.back().kind == GuestInvocationKind::Interrupt;
@@ -4709,6 +4784,9 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         }
         m_insideInterrupt = false;
         m_clock.transferred = false;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8: the shadow follows the records after a run
+            if (GuestThread *t = thread(b8Id))
+                b8ShadowRecord(*t);
         processPendingEvents();
         if (m_rescheduleRequested && m_currentThreadId != 0)
         {
@@ -4988,4 +5066,291 @@ void EeScheduler::b7CheckIrq(const EeHostIrq &spec, GuestThread &running, R5900C
     };
     if (pick(*sh) != pick(*sg))
         bad("next pick", static_cast<uint64_t>(pick(*sh)), static_cast<uint64_t>(pick(*sg)));
+}
+
+// Round B8 (docs/decomp_b8.md): the deliveries of host-form interrupts without an invocation record.
+//
+// The record form (run(), carrierNest, s17Nest): a queued handler invocation is pushed onto the thread the dispatcher runs
+// (when that thread has none); the loop goes round (its top: the events); the thread's next dispatch charges the dispatch
+// checkpoint (a checkpoint due: round again) and runs the handler (B7: its host function) with the interrupt flag up and the
+// gate set, then the events and the reschedule; the dispatch after that pops the completed invocation (the VU0 owner's flush
+// test) and the loop goes round again before the thread's own code. b8sched keeps every one of those steps in its place and
+// drops what only the record needed: the invocation moves into the thread's slot instead of its record vector (b8Push), the
+// run is the host function called by the dispatcher itself on the slot's context (b8Dispatch, b8State 1), the pop is the
+// flush test alone (b8Dispatch, b8State 2). The slot is the record for every reader that matters: the loops' "has an
+// invocation" tests (b8State), the snapshot's depth, a thread made dormant (cleared).
+bool EeScheduler::b8Push(GuestThread &owner)
+{
+    if (__builtin_expect(g_ps2xB8Sched == 0u || g_ps2xB7Irq == 0u, 1))
+        return false;
+    GuestInvocation &front = m_pendingInvocations.front();
+    if (front.kind != GuestInvocationKind::Interrupt || front.onComplete || owner.id <= 0 || owner.id >= kB8Slots ||
+        !owner.invocations.empty() || owner.b8State != 0u || front.context.pc == 0u || getRegU32(&front.context, 31) != 0u)
+        return false;
+    int idx = -1;
+    for (int i = 0; i < m_hostIrqCount; ++i)
+        if (m_hostIrq[i].pc == front.context.pc)
+        {
+            idx = i;
+            break;
+        }
+    if (idx < 0)
+        return false;
+    GuestInvocation *&slot = m_b8Slot[owner.id];
+    if (!slot)
+        slot = new GuestInvocation;
+    // As the record's push: its stack top from the thread's depth (0), taken before the move.
+    const bool needsStack = getRegU32(&front.context, 29) == 0u;
+    const uint32_t stackTop = needsStack ? invocationStackTop() : 0u;
+    *slot = std::move(front);
+    m_pendingInvocations.pop_front();
+    if (needsStack)
+        SET_GPR_U32(&slot->context, 29, stackTop);
+    owner.b8State = 1u;
+    owner.b8Irq = static_cast<uint8_t>(idx);
+    b5trace::note(b5trace::kPush, owner.id, slot->context.pc);
+    ++g_eeB8.pushed;
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+        b8ShadowPush(owner.id);
+    return true;
+}
+
+// The slot back into the record it stands for (pushed as the record form would hold it at this point); the record path goes on.
+void EeScheduler::b8Materialize(GuestThread &thread, int why)
+{
+    GuestInvocation &slot = *m_b8Slot[thread.id];
+    thread.invocations.emplace_back(std::move(slot));
+    thread.b8State = 0u;
+    ++g_eeB8.materialized[why & 3];
+}
+
+// The record form's two dispatches of a slot-held invocation (site: 0 run(), 1 carrierNest, 2 s17Nest). True: done, the loop
+// goes round (as after the record's dispatch / pop); false: the slot became its record, the caller's record path runs now.
+bool EeScheduler::b8Dispatch(GuestThread &running, int site)
+{
+    GuestInvocation &inv = *m_b8Slot[running.id];
+    if (running.b8State == 2u)
+    {
+        // The pop: the VU0 owner's flush as the pop calls it (flushVu0Owner: the owner is this record when its depth and
+        // sequence match; only check mode's hand-over makes it so), no completion (interrupts have none).
+        if (m_vu0OwnerValid && m_vu0Owner.threadId == running.id && m_vu0Owner.depth == running.invocations.size() + 1u)
+        {
+            m_vu0OwnerValid = false;
+            if (m_vu0Owner.sequence == inv.sequence)
+                saveGlobalVu0(inv.context);
+        }
+        running.b8State = 0u;
+        b5trace::note(b5trace::kPop, running.id, static_cast<uint32_t>(site));
+        ++g_eeB8.popped;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0) && m_b8Shadow[running.id].depth != 0u)
+        {
+            --m_b8Shadow[running.id].depth;
+            m_b8Shadow[running.id].done = false;
+        }
+        return true;
+    }
+    // The run. A path the host form does not take (b7irq off now, the GS handler with another callback) runs the record.
+    const EeHostIrq &spec = m_hostIrq[running.b8Irq];
+    if (g_ps2xB7Irq == 0u || spec.pc != inv.context.pc || (spec.accept && !spec.accept(m_rdram)))
+    {
+        b8Materialize(running, 0);
+        return false;
+    }
+    const uint64_t c0 = eeNow();
+    if (checkpointDue(kGuestDispatchCycles))
+    {
+        ++g_eeB8.deferred;
+        return true;
+    }
+    // Check mode: what the record form charges from here (the handler's own charges, from the state before it runs).
+    // (with B7's check both the generated handler and its host shadow charge: twice the handler's cycles)
+    const uint64_t expect = g_ps2xB8Check != 0u && spec.charges ? kGuestDispatchCycles + spec.charges(m_rdram) * (g_ps2xB7Check != 0u ? 2u : 1u) : 0u;
+    if (__builtin_expect(g_ps2xB7Check != 0u, 0))
+    {
+        // Check mode runs the generated handler (b7CheckIrq): the hand-over the record's dispatch makes for it.
+        static const bool sharedVu0 = std::getenv("PS2X_VU0_PER_THREAD") == nullptr;
+        const Vu0OwnerKey key{m_currentThreadId, running.invocations.size() + 1u, inv.sequence};
+        if (sharedVu0 && (!m_vu0OwnerValid || !(key == m_vu0Owner)))
+        {
+            flushVu0Owner();
+            loadGlobalVu0(inv.context);
+            m_vu0Owner = key;
+            m_vu0OwnerValid = true;
+        }
+    }
+    if (site == 1)
+    {
+        ++g_eeB4.runs;
+        ++g_eeB4.handlers;
+    }
+    const uint64_t b7Unwound = g_eeB7.interrupted;
+    bool b8Whole = false; // (check: B7's check ran both forms, its generated run did not unwind)
+    try
+    {
+        m_insideInterrupt = true;
+        if (site == 0)
+            m_guestExecuting.store(true, std::memory_order_relaxed);
+        m_unwinding = false;
+        m_clock.transferred = false;
+        updateGate();
+        if (site == 0 && g_eeDispatchProbe)
+            g_eeDispatchProbe(&inv.context, 0);
+        b7RunIrq(spec, running, inv.context);
+        b8Whole = g_eeB7.interrupted == b7Unwound;
+        if (site == 0)
+            m_guestExecuting.store(false, std::memory_order_relaxed);
+        m_insideInterrupt = false;
+        if (m_clock.transferred)
+        {
+            m_clock.transferred = false;
+            if (site == 0 && m_xferAudit)
+                updateGate();
+        }
+    }
+    catch (const EeDispatcherTransfer &)
+    {
+        if (site == 0)
+            m_guestExecuting.store(false, std::memory_order_relaxed);
+        m_insideInterrupt = false;
+        m_clock.transferred = false;
+    }
+    m_insideInterrupt = false;
+    m_clock.transferred = false;
+    if (site == 0 && g_eeDispatchProbe)
+        g_eeDispatchProbe(&inv.context, m_currentThreadId == running.id ? 1 : 2);
+    ++g_eeB8.ran;
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0) && inv.context.pc == 0u && spec.charges && b8Whole)
+    {
+        // (a check-mode generated run that unwound is the record form's from here: not compared)
+        ++g_eeB8.runs;
+        if (eeNow() - c0 != expect)
+        {
+            ++g_eeB8.cycBad;
+            static int printed = 0;
+            if (++printed <= 12)
+                std::fprintf(stderr, "[b8chk] %s charges %llu, the record form's %llu (t%d)\n", spec.name,
+                             static_cast<unsigned long long>(eeNow() - c0), static_cast<unsigned long long>(expect), running.id);
+        }
+    }
+    if (inv.context.pc != 0u)
+        b8Materialize(running, 1); // (check mode: the generated handler unwound; it goes on as its record)
+    else
+    {
+        running.b8State = 2u;
+        if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+            m_b8Shadow[running.id].done = true;
+    }
+    processPendingEvents();
+    if (m_rescheduleRequested && m_currentThreadId != 0)
+    {
+        enqueueReady(*currentThread(), !m_timeSliceExpired);
+        m_currentThreadId = 0;
+        m_rescheduleRequested = false;
+        m_timeSliceExpired = false;
+    }
+    return true;
+}
+
+// Check mode (SOTC_B8_CHECK): the record form's shadow. m_b8Shadow keeps, per thread, the invocation count the record form
+// would have and whether its top one has run, updated by the record form's own rules at its own points (a push: one more,
+// not run; a run that returned with pc 0: run; a pop: one less; a thread made dormant: none), whatever form the dispatcher
+// used (records the host path never covers included). At every dispatcher step (each loop's turn for the thread it runs,
+// before it acts) the step the record form takes from the shadow (pop / run / push / the thread's own code) is compared with
+// the one the dispatcher takes from the thread (its slot state, its records, the pending queue), and the counts with each
+// other.
+void EeScheduler::b8Step(const GuestThread &running, int site)
+{
+    (void)site;
+    static bool synced = false;
+    if (!synced)
+    {
+        // The check's first step: the shadow starts from the records as they are (invocations pushed before the check was on).
+        synced = true;
+        for (const auto &[id, t] : m_threads)
+            b8ShadowRecord(t);
+    }
+    if (running.id <= 0 || running.id >= kB8Slots)
+        return;
+    const B8Shadow &sh = m_b8Shadow[running.id];
+    auto act = [&](bool has, bool done) { return has ? (done ? 0 : 1) : (!m_pendingInvocations.empty() ? 2 : 3); };
+    const int want = act(sh.depth != 0u, sh.done);
+    const bool real = !running.invocations.empty();
+    const int got = running.b8State == 2u ? 0 : running.b8State == 1u ? 1 : act(real, real && running.invocations.back().context.pc == 0u);
+    const size_t depth = running.invocations.size() + (running.b8State != 0u ? 1u : 0u);
+    ++g_eeB8.steps;
+    if (want != got || depth != sh.depth)
+    {
+        ++g_eeB8.stepBad;
+        static int printed = 0;
+        if (++printed <= 12)
+            std::fprintf(stderr, "[b8chk] step t%d site %d: record form %d (depth %u done %d), dispatcher %d (depth %u slot %u)\n", running.id, site,
+                         want, static_cast<unsigned>(sh.depth), sh.done ? 1 : 0, got, static_cast<unsigned>(depth), static_cast<unsigned>(running.b8State));
+        // (re-synced to the dispatcher's, so one difference is reported once)
+        m_b8Shadow[running.id].depth = static_cast<uint8_t>(depth);
+        m_b8Shadow[running.id].done = running.b8State == 2u || (real && running.invocations.back().context.pc == 0u);
+    }
+}
+
+// Round B8 (2): a timer register read on a carrier closed the gate (PS2Memory::flushEeTimers, after the clock's sync). The next
+// checkpoint's slow path would only sync again and set the gate (B7's "below the slice" outcome); set here, the gate is the
+// same absolute cycle: the timers' slack counts down from this sync by the cycles charged since, the deadline and the slice
+// end are absolute, the IOP is out of a carrier's gate (B7). A pending flag, a latched timer interrupt or a deadline already
+// due still close it (updateGate). Check mode leaves the gate closed (the old path) and compares what the slow path sets.
+void EeScheduler::b8Regate() noexcept
+{
+    if (g_ps2xB8Regate == 0u)
+        return;
+    if (m_activeCarrier == nullptr || g_ps2xB7Cp == 0u || std::this_thread::get_id() != m_executorThread)
+    {
+        ++g_eeB8.regateOff;
+        return;
+    }
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+    {
+        int by = 0;
+        g_b8Predicting = true;
+        m_b8Predict = gateNow(by);
+        g_b8Predicting = false;
+        m_b8Armed = true;
+        ++g_eeB8.predict;
+        return;
+    }
+    ++g_eeB8.regate;
+    updateGate();
+}
+
+// Round B8's check of (2): at the first slow checkpoint after a predicted re-set (the old path: the gate stayed closed), after
+// its sync. If the re-set gate would not have sent this checkpoint to the slow path (nothing pending, the clock below the
+// predicted gate), the slow path must only re-set the gate ("below the slice": no deadline due, the slice not over) and set
+// the predicted one.
+void EeScheduler::b8Compare() noexcept
+{
+    m_b8Armed = false;
+    const uint64_t now = eeNow();
+    if (m_activeCarrier == nullptr)
+    {
+        ++g_eeB8.predictNest; // (a nested dispatcher's checkpoint: no carrier gate to compare; the dispatch sets the gate in both)
+        return;
+    }
+    if (m_checkpointPending.load(std::memory_order_relaxed) || m_stopRequested.load(std::memory_order_relaxed) || now >= m_b8Predict)
+    {
+        ++g_eeB8.predictSlow;
+        return;
+    }
+    ++g_eeB8.predictCmp;
+    const uint64_t next = m_nextDeadlineCycle.load(std::memory_order_relaxed);
+    int by = 0;
+    g_b8Predicting = true;
+    const uint64_t gate = gateNow(by);
+    g_b8Predicting = false;
+    const bool below = (next == 0u || now < next) && now < m_sliceEndCycle;
+    if (!below || gate != m_b8Predict)
+    {
+        ++g_eeB8.predictBad;
+        static int printed = 0;
+        if (++printed <= 12)
+            std::fprintf(stderr, "[b8chk] regate: predicted %llu, slow path %llu (by %d, below %d, now %llu, deadline %llu)\n",
+                         static_cast<unsigned long long>(m_b8Predict), static_cast<unsigned long long>(gate), by, below ? 1 : 0,
+                         static_cast<unsigned long long>(now), static_cast<unsigned long long>(next));
+    }
 }

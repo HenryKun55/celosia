@@ -3138,12 +3138,18 @@ uint32_t PS2Memory::readIORegister(uint32_t address)
         if (address == kVif1Stat)
             return value | 0x01000000u; // FQC: data still queued
         m_timerIrqLatched |= syncAndFlushEeTimers();
+        if (m_eeRegate)
+            m_eeRegate(m_eeClockSyncArg); // round B8
         return value | 0x00000C00u; // APATH: PATH3 transferring
     }
     if ((address >= 0x10003000u && address < 0x10003100u) || (address >= 0x10003C00u && address < 0x10003E00u))
         syncVu1(); // GIF / VIF1 registers
     if (address == 0x10003020u || address < 0x10002000u)
+    {
         m_timerIrqLatched |= syncAndFlushEeTimers(); // timers and GIF_STAT.FQC see the elapsed cycles
+        if (m_eeRegate)
+            m_eeRegate(m_eeClockSyncArg); // round B8: the gate set again in place (b8sched), else at the next checkpoint
+    }
     size_t timerIndex = 0u;
     uint32_t timerOffset = 0u;
     if (decodeEeTimerRegister(address, timerIndex, timerOffset))
