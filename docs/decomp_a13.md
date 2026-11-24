@@ -65,7 +65,7 @@ A12's typed code off on worker shells, step 2 300 frames later forces a12typed o
 | xoff7 | **off all run** (frames on 0) | 111 | **yes**: frame 3 711, horse -149.29 0.12 -305.94 |
 | xoff13 | off all run | 111 | no (mounted 9 734 -> 12 900) |
 | xa11 | A11's build (pm, no A12 code) | 111 | no (4 450 -> 11 100; then lost to a stale kill timer) |
-| xoff7c | off all run | 222 | XOFF7C |
+| xoff7c | off all run | 222 | no (4 623 -> 12 000) |
 
 - fA7b: after the FREEZE the watchdog's step 1 and step 2 changed nothing: with a12typed forced off for 300 frames and more (the last
   64 frames' flag word 0) Agro stayed at the same place to the end. xoff7, with a12typed never on (`frames on 0 off 4291`), froze at
