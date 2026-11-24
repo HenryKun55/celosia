@@ -155,11 +155,11 @@ def d1_natives():
     callees, three levels) has none of TYPED_BAD's markers (no ctx, no guest call, no PS2 FPU / VU0 macro, no READ /
     WRITE macro, no rdram, no runtime->, no _mm_ intrinsic): the typed bar of rounds A1-A14 applied to a hand native.
     Returns address -> (file, adapter, core, kind, clean)."""
-    p = os.path.join(ROOT, 'docs/d1_natives.txt')
     out = {}
-    if not os.path.exists(p):
-        return out
-    for line in open(p):
+    # round D2 (docs/decomp_d2.md): docs/d2_natives.txt, the same format and the same switch (d1native)
+    paths = [os.path.join(ROOT, 'docs/%s_natives.txt' % r) for r in ('d1', 'd2')]
+    lines = [line for p in paths if os.path.exists(p) for line in open(p)]
+    for line in lines:
         if line.startswith('#') or not line.strip():
             continue
         f = [x.strip() for x in line.split('|')]
@@ -374,7 +374,7 @@ def main():
     order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
              'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
-             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10 / A11 / A12 / A13 / A14, D1)'}
+             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10 / A11 / A12 / A13 / A14, D1, D2)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -386,7 +386,7 @@ def main():
     print('typed functions (docs/a1_typed.txt ... docs/a14_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
         len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
     if d1:
-        print('round D1 natives (docs/d1_natives.txt): %d listed, %d full, %d full with a clean core (counted (d)), %d holding their slot' % (
+        print('round D1 / D2 natives (docs/d1_natives.txt, docs/d2_natives.txt): %d listed, %d full, %d full with a clean core (counted (d)), %d holding their slot' % (
             len(d1), sum(1 for v in d1.values() if v[3] == 'full'), sum(1 for v in d1.values() if v[4]), sum(1 for a in d1 if a in why)))
         bad_d1 = [a for a, v in d1.items() if v[3] == 'full' and not v[4]]
         if bad_d1:

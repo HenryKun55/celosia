@@ -16,9 +16,9 @@ namespace d1
         GuestFn sw;
         GuestFn old;
     };
-    inline constexpr uint32_t kAliasSlots = 128u;
+    inline constexpr uint32_t kAliasSlots = 256u; // round D2: 128 -> 256 (D1's 56 + D2's)
     inline AliasSlot g_alias[kAliasSlots] = {};
-    inline uint32_t aliasHash(GuestFn f) { return static_cast<uint32_t>((reinterpret_cast<uintptr_t>(f) >> 2) * 2654435761u) >> 25; }
+    inline uint32_t aliasHash(GuestFn f) { return static_cast<uint32_t>((reinterpret_cast<uintptr_t>(f) >> 2) * 2654435761u) >> 24; }
     inline GuestFn aliasOf(GuestFn f)
     {
         for (uint32_t i = aliasHash(f), n = 0; n < kAliasSlots; ++n, i = (i + 1u) & (kAliasSlots - 1u))
