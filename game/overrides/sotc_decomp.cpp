@@ -896,8 +896,11 @@ namespace sotc_decomp
             // (reported with the names as without it; the game goes on from the native's leg): a difference that follows
             // the order is the state, not the code.
             static const bool swapLegs = ps2_diag::env("SOTC_DIFFTEST_SWAP") != nullptr;
+            // Round D1: SOTC_DIFFTEST_SELF=1: the native in both legs (with SOTC_DIFFTEST_SWITCH=d1native: its D1 body in the
+            // first, its old body in the second; docs/decomp_d1.md).
+            static const bool selfLegs = ps2_diag::env("SOTC_DIFFTEST_SELF") != nullptr;
             const PS2Runtime::RecompiledFunction leg = control || swapLegs ? c.recompiled : c.function->native;
-            const PS2Runtime::RecompiledFunction leg2 = swapLegs ? c.function->native : c.recompiled;
+            const PS2Runtime::RecompiledFunction leg2 = swapLegs || selfLegs ? c.function->native : c.recompiled;
             // SOTC_DIFFTEST_CYCLES=1 (checking, round 15): the EE cycles each
             // leg charges (the game's time step comes from the EE clock).
             static const bool cyclesOn = ps2_diag::env("SOTC_DIFFTEST_CYCLES") != nullptr;

@@ -148,6 +148,36 @@ def a6_adapted():
     return out
 
 
+def d1_natives():
+    """Round D1 (docs/decomp_d1.md): the hand natives with a D1 body (switch d1native), docs/d1_natives.txt:
+    `<address> | <registration name> | <file> | <adapter fn> | <core fn> | full|partial | <what changed>`.
+    A `full` one counts as (d) when its core (the function the adapter calls with C++ parameters, and its same-file
+    callees, three levels) has none of TYPED_BAD's markers (no ctx, no guest call, no PS2 FPU / VU0 macro, no READ /
+    WRITE macro, no rdram, no runtime->, no _mm_ intrinsic): the typed bar of rounds A1-A14 applied to a hand native.
+    Returns address -> (file, adapter, core, kind, clean)."""
+    p = os.path.join(ROOT, 'docs/d1_natives.txt')
+    out = {}
+    if not os.path.exists(p):
+        return out
+    for line in open(p):
+        if line.startswith('#') or not line.strip():
+            continue
+        f = [x.strip() for x in line.split('|')]
+        a, name, file, adapter, core, kind = int(f[0], 16), f[1], f[2], f[3], f[4], f[5]
+        clean = False
+        if kind == 'full':
+            text = ''
+            for c in core.split(','):
+                t, found = body_closure(os.path.join(OVR, file), c.strip())
+                if not found:
+                    text = None
+                    break
+                text += t
+            clean = text is not None and not TYPED_BAD.search(text)
+        out[a] = (file, adapter, core, kind, clean)
+    return out
+
+
 def lifted_addresses():
     out = {}
     pat = re.compile(r'SOTC_DECOMP_LIFT_FUNCTION(?:_D\d+)?\(\s*(0x[0-9A-Fa-f]+)u?\s*,\s*(\w+)')
@@ -296,6 +326,7 @@ def main():
     typed, typed_bad = typed_functions()
     adapted6 = a6_adapted()
     nreg = native_registrations()
+    d1 = d1_natives()
     if args.replaced:
         replaced = {int(l.split()[0], 16) for l in open(args.replaced) if l.strip()}
         source = args.replaced
@@ -315,6 +346,11 @@ def main():
         elif a in replaced and a in nreg and (nreg[a][3] == 'macro' or a not in lifted):
             f, name, fn, how = nreg[a]
             k, marks = native_kind(os.path.join(OVR, f), fn)
+            if a in d1 and d1[a][4]:
+                k = 'typed'  # round D1: a full D1 body whose core meets the typed bar
+                marks = dict(marks, d1=d1[a][3])
+            elif a in d1:
+                marks = dict(marks, d1=d1[a][3])
             cls[a] = k
             why[a] = dict(marks, file=f, fn=fn)
         elif a in replaced and a in lifted:
@@ -332,7 +368,7 @@ def main():
     order = ['recomp', 'lifted', 'native-ps2', 'native-host', 'runtime', 'typed']
     label = {'recomp': '(a) recompiled only', 'lifted': '(b) lifted (lift_d1)', 'native-ps2': '(c1) native, PS2-shaped body',
              'native-host': '(c2) native, host body behind guest adapter', 'runtime': '(r) runtime-implemented (kernel/SDK/libc)',
-             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10 / A11 / A12 / A13 / A14)'}
+             'typed': '(d) real C++, no ctx (typed, rounds A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10 / A11 / A12 / A13 / A14, D1)'}
     game = lambda a: a >= 0x1000000
     tot_n = len(funcs)
     tot_b = sum(size.get(a, 4) for a in funcs)
@@ -343,6 +379,12 @@ def main():
     print('slots held by a wrapper in front of the generated body (counted recomp, or lifted when lift tables hold it): %d' % len(wrapped))
     print('typed functions (docs/a1_typed.txt ... docs/a14_typed.txt): %d listed with a clean body, %d with a marker left (not counted), %d of them hold their slot' % (
         len(typed), typed_bad, sum(1 for a in funcs if cls[a] == 'typed')))
+    if d1:
+        print('round D1 natives (docs/d1_natives.txt): %d listed, %d full, %d full with a clean core (counted (d)), %d holding their slot' % (
+            len(d1), sum(1 for v in d1.values() if v[3] == 'full'), sum(1 for v in d1.values() if v[4]), sum(1 for a in d1 if a in why)))
+        bad_d1 = [a for a, v in d1.items() if v[3] == 'full' and not v[4]]
+        if bad_d1:
+            print('  full D1 cores with a marker left (not counted): %s' % ' '.join('0x%08x' % a for a in sorted(bad_d1)))
     print()
     print('%-46s %6s %7s %10s %7s' % ('class', 'funcs', '%', 'bytes', '%'))
     for k in order:

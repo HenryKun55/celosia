@@ -1,6 +1,7 @@
 #include <tuple>
 #include "sotc_replay.h"
 #include "s12_draw.h"
+#include "d1_native.h" // round D1: the D1 bodies' run counts (SOTC_D1_LOG)
 // Shadow of the Colossus: models drawn by the native renderer
 // (runtime/native_renderer.h) straight from the game's own model data, read
 // at modelDisp (docs/native_renderer_map.md). SOTC_NATIVE=1 shows that
@@ -3840,7 +3841,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch", "d1native"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4588,6 +4589,15 @@ namespace sotc_native
         // Round A14 (a14typed): stage 14's typed functions (runtime state as VU0-interface slots, break slots; typed_a14.h).
         a14FlagsNow();
         ++g_a14Frames[g_a14Typed ? 1 : 0];
+        {
+            // Round D1 (d1native): SOTC_D1_LOG=<n>: the D1 bodies' run counts every n frames (d1_native.cpp).
+            static const uint64_t d1Log = [] {
+                const char *e = std::getenv("SOTC_D1_LOG");
+                return e ? static_cast<uint64_t>(std::strtoull(e, nullptr, 10)) : 0ull;
+            }();
+            if (d1Log && g_frame % d1Log == 0u)
+                d1::report((unsigned long long)g_frame);
+        }
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
             std::fprintf(stderr, "[a1] frame %llu: typed %d; frames off %llu on %llu; check build %d\n", (unsigned long long)g_frame, g_a1Typed ? 1 : 0,
