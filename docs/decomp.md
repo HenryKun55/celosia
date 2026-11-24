@@ -24150,3 +24150,29 @@ frame in n).
   20.42% of the bytes, 12.48% of the console game thread (A12: 4 251 / 47.11% / 20.19% / 12.40%).
 - **Ships**: a12typed / a13typed off by default. build/agent-scratch/a13/celosia-a13.vpk (built before the revert: a12typed on by
   default in it) + env-ab.txt (SOTC_AB_FLAG=a12typed), not installed.
+
+## Decomp B9: a delivery in one turn of the dispatcher's loop, the ready queues as a host bitmap (b9loop, off by default) (2026-11-24)
+
+docs/decomp_b9.md. Code: `b9AfterPush` / `b9Dispatch` / `b9SkipTop` / `b9Quiet`, the bitmap `m_b9Ready` (`b9FirstReady`), the check
+`b9Digest` / `b9TopCheck` in EeScheduler.cpp, game/overrides/b9_loop.cpp. Scripts, runs and logs: `build/agent-scratch/b9/`. Switch
+`SOTC_B9LOOP` (acts only while b8sched and b7irq are in effect); `SOTC_B9_CHECK` runs the skipped tops and compares the bitmap.
+Console package `build/agent-scratch/b9/celosia-b9.vpk` + `env-ab.txt` (all eight on, A/B b9loop, period 300).
+
+- **One turn**: a slot-held delivery (B8) does push, run, pop and the thread's own path in one loop turn while the tops between them
+  would do nothing (`b9Quiet`: no stop, nothing flagged / posted, no timer interrupt latched, no deadline due, no reschedule, the
+  thread still running, no completion); otherwise the loop goes round and the slot carries on. Same steps, order, picks and cycles.
+  Riding: 63-80 % of the deliveries in one turn (bootR 1.92 of 3.07 a frame, 8.07 turns skipped); the rest (~1.2) wake another thread
+  and go round for the pick.
+- **Bitmap**: the ready queues' non-empty set as 4 x 32 bits kept by enqueue / remove / select; the pick and the preemption test use it.
+- **Checks** (all eight switches, every check): **0 bad of 275 571 top comparisons and 279 271 bitmap comparisons** (5 races with a
+  post from another thread, allowed) on ride7 600 / attract 400 / lake6 400 / smoke; B8 steps, B7, B6, B3, B1 / B2 still 0.
+- **Boots** (host loaded by another round's Vita3K jobs, load avg up to 32, 3 000-4 800 frames in 300 s): 15 of 15 89 MB boots reached
+  the field, 9 of 10 boot slots mounted Agro (pf 5 of 10 at 300 s, reruns pr2-pr5 at 450 s; pr1 on foot at frame 5 400); 0 dismounts,
+  0 watchdog lines. 89 MB picture boot (bootR) mounted at frame 4 294, rode 600 s, pictures at 300 / 540 s normal. Loads on / off
+  both far slower than B8's on that host and differing both ways (not attributable); the attract route never reaches the field on
+  or off. spalign 0 of 1 064, ELF room unchanged.
+- **Vita3K A/B** (222 MHz, off - on): mixR7 -0.012 +- 0.228 ms, mixR13 -0.721 +- 0.613, mixL7 -0.014 +- 0.314: no measurable
+  difference. Slow checkpoints unchanged (~5.5 a frame): B9 removes loop turns, not checkpoints.
+- **What is left of the PS2 scheduler**: run()'s loop and thread records (a delivery that wakes another thread and every wait /
+  wakeup still go through the loop's top for the pick), the cycle charges and slow checkpoints, the id-keyed semaphore / event
+  records, the hand-back path, the boot threads (decomp_b9.md section 6).
