@@ -79,7 +79,10 @@ uint32_t g_ps2xB7Cp = 0u;
 uint32_t g_ps2xB8Sched = 0u; // round B8 (b8_sched.cpp)
 uint32_t g_ps2xB8Check = 0u;
 uint32_t g_ps2xB8Regate = 0u;
+uint32_t g_ps2xB9Loop = 0u; // round B9 (b9_loop.cpp)
+uint32_t g_ps2xB9Check = 0u;
 EeB8Stats g_eeB8;
+EeB9Stats g_eeB9;
 static bool g_b8Predicting = false; // round B8: gateNow asked by the check (its counts left alone)
 EeB7Stats g_eeB7;
 namespace
@@ -859,6 +862,7 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
     main.status = EeThreadStatus::Ready;
     m_threads.emplace(main.id, std::move(main));
     m_readyQueues[0].push_back(kMainThreadId);
+    b9MaskRebuild(); // round B9
     scheduleEvent(eeNow() + kVBlankPeriodCycles,
                   std::chrono::steady_clock::now() + kVBlankPeriod,
                   EeEvent{EeEventType::VBlankStart, 0, 0});
@@ -903,6 +907,8 @@ void EeScheduler::run()
     while (!m_stopRequested.load(std::memory_order_relaxed))
     {
         processPendingEvents();
+        if (__builtin_expect(m_b9Armed, 0))
+            b9TopCheck(); // round B9's check: a skip point's prediction against this real top
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             break;
@@ -971,8 +977,18 @@ void EeScheduler::run()
         // Round B8: a slot-held interrupt's dispatch (its run, or its pop) as the record's would be.
         if (__builtin_expect(g_ps2xB8Check != 0u, 0))
             b8Step(*running, 0);
-        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 0))
-            continue;
+        if (__builtin_expect(running->b8State != 0u, 0))
+        {
+            // Round B9: the slot's steps and the turns after them while their tops are quiet (b9Dispatch).
+            if (g_ps2xB9Loop != 0u)
+            {
+                if (b9Dispatch(*running, 0, false) == 0)
+                    continue;
+            }
+            else if (b8Dispatch(*running, 0))
+                continue;
+        }
+    b9Own0: // round B9: a delivery done in this turn goes on here with the thread's own path
         R5900Context &context = running->activeContext();
         if (m_debugPublishCountdown == 0u)
         {
@@ -1027,7 +1043,11 @@ void EeScheduler::run()
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
             if (b8Push(*running)) // round B8: a host-form interrupt into the thread's slot
+            {
+                if (g_ps2xB9Loop != 0u && b9AfterPush(*running, 0) != 0)
+                    goto b9Own0; // round B9: delivered in this turn
                 continue;
+            }
             if (__builtin_expect(g_ps2xB8Check != 0u, 0))
                 b8ShadowPush(running->id);
             const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
@@ -1513,6 +1533,8 @@ void EeScheduler::syncAccounting() noexcept
 void EeScheduler::flagCheckpoint(int site) noexcept
 {
     ++g_eeS11.flags[site < 12 ? site : 11]; // (other threads too: a racy count, for the log only)
+    if (__builtin_expect(g_ps2xB9Check != 0u, 0))
+        m_b9Posts.fetch_add(1u, std::memory_order_acq_rel); // round B9's check: a flag / post (a race, not a difference)
     m_checkpointPending.store(true, std::memory_order_release);
     std::atomic_thread_fence(std::memory_order_seq_cst);
     m_clock.closeGate();
@@ -2995,6 +3017,7 @@ void EeScheduler::enqueueReady(GuestThread &item, bool front)
     {
         queue.push_back(item.id);
     }
+    b9MaskSet(item.currentPriority); // round B9: the ready bitmap
     if (m_sliceStretched)
         sliceStretchCut(item);
 }
@@ -3009,10 +3032,47 @@ void EeScheduler::removeReady(GuestThread &item)
     auto it = std::find(queue.begin(), queue.end(), item.id);
     assert(it != queue.end());
     queue.erase(it);
+    if (queue.empty())
+        b9MaskClear(item.currentPriority); // round B9
 }
 
 GuestThread *EeScheduler::selectReady()
 {
+    if (__builtin_expect(g_ps2xB9Loop != 0u, 0))
+    {
+        // Round B9 (2): the highest non-empty queue from the bitmap (the scan's answer; the check compares the two).
+        const int p = b9FirstReady();
+        ++g_eeB9.picks;
+        if (__builtin_expect(g_ps2xB9Check != 0u, 0))
+        {
+            int scan = -1;
+            for (int q = 0; q < kPriorityCount; ++q)
+                if (!m_readyQueues[static_cast<size_t>(q)].empty())
+                {
+                    scan = q;
+                    break;
+                }
+            ++g_eeB9.maskChecks;
+            if (scan != p)
+            {
+                ++g_eeB9.maskBad;
+                static int printed = 0;
+                if (++printed <= 12)
+                    std::fprintf(stderr, "[b9chk] pick: bitmap %d, the queues' scan %d\n", p, scan);
+            }
+        }
+        if (p < 0)
+            return nullptr;
+        auto &queue = m_readyQueues[static_cast<size_t>(p)];
+        const int id = queue.front();
+        queue.pop_front();
+        if (queue.empty())
+            b9MaskClear(p);
+        GuestThread *selected = thread(id);
+        assert(selected != nullptr);
+        assert(selected->status == EeThreadStatus::Ready);
+        return selected;
+    }
     for (auto &queue : m_readyQueues)
     {
         if (queue.empty())
@@ -3021,6 +3081,8 @@ GuestThread *EeScheduler::selectReady()
         }
         const int id = queue.front();
         queue.pop_front();
+        if (queue.empty())
+            b9MaskClear(static_cast<int>(&queue - &m_readyQueues[0])); // round B9: the bitmap kept in both forms
         GuestThread *selected = thread(id);
         assert(selected != nullptr);
         assert(selected->status == EeThreadStatus::Ready);
@@ -3673,6 +3735,32 @@ void EeScheduler::updateNextDeadline()
 bool EeScheduler::hasReadyAtOrAbovePriority(int priority) const
 {
     const int last = std::clamp(priority, 0, kPriorityCount - 1);
+    if (__builtin_expect(g_ps2xB9Loop != 0u, 0))
+    {
+        // Round B9 (2): from the bitmap.
+        const int first = b9FirstReady();
+        const bool r = first >= 0 && first <= last;
+        ++g_eeB9.readyTests;
+        if (__builtin_expect(g_ps2xB9Check != 0u, 0))
+        {
+            bool scan = false;
+            for (int p = 0; p <= last; ++p)
+                if (!m_readyQueues[static_cast<size_t>(p)].empty())
+                {
+                    scan = true;
+                    break;
+                }
+            ++g_eeB9.maskChecks;
+            if (scan != r)
+            {
+                ++g_eeB9.maskBad;
+                static int printed = 0;
+                if (++printed <= 12)
+                    std::fprintf(stderr, "[b9chk] ready at or above %d: bitmap %d, the queues' scan %d\n", last, r ? 1 : 0, scan ? 1 : 0);
+            }
+        }
+        return r;
+    }
     for (int p = 0; p <= last; ++p)
     {
         if (!m_readyQueues[static_cast<size_t>(p)].empty())
@@ -4108,7 +4196,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
     auto pushInvocation = [this](GuestThread &owner)
     {
         if (b8Push(owner)) // round B8: a host-form interrupt into the thread's slot
-            return;
+            return true;
         if (__builtin_expect(g_ps2xB8Check != 0u, 0))
             b8ShadowPush(owner.id);
         const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
@@ -4122,6 +4210,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             s17Note(6, invocation.context.pc);
             s17NotePc(127u << 25 | (invocation.context.pc & 0x1FFFFFFu));
         }
+        return false;
     };
     auto handOverVu0 = [this](GuestThread &running, R5900Context &context)
     {
@@ -4154,6 +4243,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             break;
         }
         processPendingEvents();
+        if (__builtin_expect(m_b9Armed, 0))
+            b9TopCheck(); // round B9's check
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             bail = 1;
@@ -4206,8 +4297,17 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         }
         if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
             b8Step(*running, 2);
-        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 2))
-            continue;
+        if (__builtin_expect(running->b8State != 0u, 0))
+        {
+            if (g_ps2xB9Loop != 0u) // round B9 (as run())
+            {
+                if (b9Dispatch(*running, 2, false) == 0)
+                    continue;
+            }
+            else if (b8Dispatch(*running, 2))
+                continue;
+        }
+    b9Own2: // round B9: a delivery done in this turn goes on here
         if (running->id == homeId && running->invocations.empty())
         {
             // run() would dispatch the home thread at its checkpoint's pc now (after the handlers queued for it).
@@ -4218,7 +4318,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                     bail = 3; // (part 4: no handler run nested either)
                     break;
                 }
-                pushInvocation(*running);
+                if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 2) != 0)
+                    goto b9Own2;
                 continue;
             }
             if (checkpointDue(kGuestDispatchCycles))
@@ -4260,7 +4361,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         }
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
-            pushInvocation(*running);
+            if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 2) != 0)
+                goto b9Own2;
             continue;
         }
         const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
@@ -4577,7 +4679,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
     auto pushInvocation = [this](GuestThread &owner)
     {
         if (b8Push(owner)) // round B8: a host-form interrupt into the thread's slot
-            return;
+            return true;
         if (__builtin_expect(g_ps2xB8Check != 0u, 0))
             b8ShadowPush(owner.id);
         const bool needsStack = getRegU32(&m_pendingInvocations.front().context, 29) == 0u;
@@ -4587,6 +4689,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         if (needsStack)
             SET_GPR_U32(&invocation.context, 29, stackTop);
         b5trace::note(b5trace::kPush, owner.id, invocation.context.pc);
+        return false;
     };
     auto handOverVu0 = [this](GuestThread &running, R5900Context &context)
     {
@@ -4619,6 +4722,8 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             break;
         }
         processPendingEvents();
+        if (__builtin_expect(m_b9Armed, 0))
+            b9TopCheck(); // round B9's check
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             bail = 1;
@@ -4678,14 +4783,24 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         }
         if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
             b8Step(*running, 1);
-        if (__builtin_expect(running->b8State != 0u, 0) && b8Dispatch(*running, 1))
-            continue;
+        if (__builtin_expect(running->b8State != 0u, 0))
+        {
+            if (g_ps2xB9Loop != 0u) // round B9 (as run())
+            {
+                if (b9Dispatch(*running, 1, false) == 0)
+                    continue;
+            }
+            else if (b8Dispatch(*running, 1))
+                continue;
+        }
+    b9Own1: // round B9: a delivery done in this turn goes on here
         if (running->id == homeId && running->invocations.empty())
         {
             // run() would resume this carrier now (after the handlers queued for its thread).
             if (!m_pendingInvocations.empty())
             {
-                pushInvocation(*running);
+                if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 1) != 0)
+                    goto b9Own1;
                 continue;
             }
             if (running->carrier != &c)
@@ -4733,7 +4848,8 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         }
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
-            pushInvocation(*running);
+            if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 1) != 0)
+                goto b9Own1;
             continue;
         }
         const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
@@ -4965,6 +5081,7 @@ void EeScheduler::b7CheckIrq(const EeHostIrq &spec, GuestThread &running, R5900C
             std::memcpy(&t->activeContext().r[2], r.v0, sizeof(r.v0));
         }
         m_readyQueues = st.ready;
+        b9MaskRebuild(); // round B9
         m_rescheduleRequested = st.resched;
         m_timeSliceExpired = st.expired;
         m_sliceStretched = st.stretched;
@@ -5353,4 +5470,213 @@ void EeScheduler::b8Compare() noexcept
                          static_cast<unsigned long long>(m_b8Predict), static_cast<unsigned long long>(gate), by, below ? 1 : 0,
                          static_cast<unsigned long long>(now), static_cast<unsigned long long>(next));
     }
+}
+
+// Round B9 (docs/decomp_b9.md): the dispatcher's loop around a slot-held delivery, host-shaped.
+//
+// B8 kept the record form's turns: push (turn 1), run (turn 2), pop (turn 3), the thread's own path (turn 4); every turn
+// begins with the loop's top (the stop test, processPendingEvents, the pick when no thread runs). With b9loop the delivery
+// is one host call at the push point (b9AfterPush -> b9Dispatch): after each step the next turn's top is looked at where it
+// would run (b9SkipTop): when it would do nothing (b9Quiet), the turn's next step follows at once; when it would do
+// something (an event posted, a deadline due by cycles, a reschedule, the thread no longer running...) the loop goes round
+// as before and the slot's state (B8's 1 / 2) carries the delivery on at the thread's next dispatch, again through
+// b9Dispatch. So the steps, their order, the picks and the EE cycles are the record form's: only tops that do nothing are
+// left out. A top's work is decided by state the executor alone changes (between two steps nothing runs) and by flags other
+// host threads set (flagCheckpoint: an event, an invocation queued from elsewhere, the stop): a flag set after the test is
+// seen at the next top that runs, as one set a moment later would be in the record form.
+
+// The reason the next turn's top would not be a no-op (-1: it would be one). processPendingEvents' own fast test (nothing
+// flagged, no timer interrupt latched, no deadline due by cycles), its applyPendingPreemption (no reschedule asked), the
+// loops' stop tests, the pick (the thread still the running one) and the completion test (none to run).
+int EeScheduler::b9Quiet(const GuestThread &t) const noexcept
+{
+    if (m_stopRequested.load(std::memory_order_relaxed))
+        return 0;
+    if (m_checkpointPending.load(std::memory_order_relaxed))
+        return 1;
+    if (m_pendingEeTimerInterrupts != 0u)
+        return 2;
+    const uint64_t next = m_nextDeadlineCycle.load(std::memory_order_relaxed);
+    if (next != 0u && eeNow() >= next)
+        return 3;
+    if (m_rescheduleRequested)
+        return 4;
+    if (m_currentThreadId != t.id)
+        return 5;
+    if (t.resumeCompletion)
+        return 6;
+    return -1;
+}
+
+// What a loop top can change (check mode): the running thread, the reschedule flags, the pending flag, the latched timer
+// interrupts, the queued invocations, the deadlines and posted events, the VBlank count, the EE clock, the ready queues, the
+// thread records' states.
+uint64_t EeScheduler::b9Digest() const noexcept
+{
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    mix(static_cast<uint64_t>(static_cast<int64_t>(m_currentThreadId)));
+    mix(m_rescheduleRequested ? 1u : 0u);
+    mix(m_timeSliceExpired ? 1u : 0u);
+    mix(m_checkpointPending.load(std::memory_order_relaxed) ? 1u : 0u);
+    mix(m_stopRequested.load(std::memory_order_relaxed) ? 1u : 0u);
+    mix(m_pendingEeTimerInterrupts);
+    mix(m_pendingInvocations.size());
+    mix(m_nextDeadlineCycle.load(std::memory_order_relaxed));
+    mix(m_vsyncTick);
+    mix(eeNow());
+    {
+        std::lock_guard lock(m_eventMutex);
+        mix(m_deadlines.size());
+        mix(m_events.size());
+    }
+    for (int p = 0; p < kPriorityCount; ++p)
+    {
+        const auto &q = m_readyQueues[static_cast<size_t>(p)];
+        if (!q.empty())
+        {
+            mix(static_cast<uint64_t>(p));
+            mix(q.size());
+            mix(static_cast<uint64_t>(static_cast<int64_t>(q.front())));
+        }
+    }
+    for (const auto &[id, t] : m_threads)
+    {
+        mix(static_cast<uint64_t>(static_cast<int64_t>(id)));
+        mix(static_cast<uint64_t>(t.status));
+        mix(t.wakeupCount);
+        mix(static_cast<uint64_t>(static_cast<int64_t>(t.suspendCount)));
+        mix(static_cast<uint64_t>(t.wait.reason));
+        mix(static_cast<uint64_t>(t.invocations.size()) << 8 | t.b8State);
+    }
+    return h;
+}
+
+// The next turn's top at a skip point: true, it would do nothing and the caller takes the turn's step now. Check mode
+// (SOTC_B9_CHECK): every other skip point runs the top here for real (processPendingEvents) and compares the state before
+// and after; the others go round with the prediction armed, and the record form's own top compares it (b9TopCheck). A
+// difference with a flag / post in between is a race (counted apart); without one, a mismatch.
+bool EeScheduler::b9SkipTop(GuestThread &t, int site)
+{
+    const uint32_t posts = g_ps2xB9Check != 0u ? m_b9Posts.load(std::memory_order_acquire) : 0u;
+    const int why = b9Quiet(t);
+    if (why >= 0)
+    {
+        ++g_eeB9.round[why];
+        return false;
+    }
+    if (__builtin_expect(g_ps2xB9Check != 0u, 0))
+    {
+        const uint64_t before = b9Digest();
+        if ((++m_b9Alt & 1u) != 0u)
+        {
+            m_b9Armed = true;
+            m_b9ArmId = t.id;
+            m_b9ArmPosts = posts;
+            m_b9ArmDigest = before;
+            ++g_eeB9.predicted;
+            return false;
+        }
+        ++g_eeB9.topChecks;
+        processPendingEvents();
+        if (b9Digest() != before || m_currentThreadId != t.id)
+        {
+            if (m_b9Posts.load(std::memory_order_acquire) != posts)
+                ++g_eeB9.topRaced;
+            else
+            {
+                ++g_eeB9.topBad;
+                static int printed = 0;
+                if (++printed <= 12)
+                    std::fprintf(stderr, "[b9chk] a quiet top changed the state (t%d site %d, running t%d)\n", t.id, site, m_currentThreadId);
+            }
+            return false; // (the loop goes on from here as after this top)
+        }
+    }
+    if (__builtin_expect(g_ps2xB8Check != 0u, 0))
+        b8Step(t, site); // B8's check: the step the skipped turn takes
+    ++g_eeB9.skipped;
+    return true;
+}
+
+// Check mode: the loop's real top after a skip point that went round with its prediction (the state must be as it was).
+void EeScheduler::b9TopCheck() noexcept
+{
+    m_b9Armed = false;
+    if (b9Digest() == m_b9ArmDigest && m_currentThreadId == m_b9ArmId)
+        return;
+    if (m_b9Posts.load(std::memory_order_acquire) != m_b9ArmPosts)
+    {
+        ++g_eeB9.predRaced;
+        return;
+    }
+    ++g_eeB9.predBad;
+    static int printed = 0;
+    if (++printed <= 12)
+        std::fprintf(stderr, "[b9chk] a top predicted quiet changed the state (t%d, running t%d)\n", m_b9ArmId, m_currentThreadId);
+}
+
+// A slot just filled (b8Push, at the push point): when the run turn would not turn it into its record (B8's refusals: b7irq
+// off, another handler at the pc, the GS callback refused), the delivery goes on here. 1 / -1: the caller goes on with the
+// thread's own path (-1: the slot became its record there, as b8Dispatch's false), 0: the loop goes round.
+int EeScheduler::b9AfterPush(GuestThread &t, int site)
+{
+    const GuestInvocation &inv = *m_b8Slot[t.id];
+    const EeHostIrq &spec = m_hostIrq[t.b8Irq];
+    if (g_ps2xB7Irq == 0u || spec.pc != inv.context.pc || (spec.accept && !spec.accept(m_rdram)))
+    {
+        ++g_eeB9.round[7];
+        return 0;
+    }
+    return b9Dispatch(t, site, true);
+}
+
+// The slot's steps (B8's b8Dispatch: the run, the pop) each after a skipped top while the tops are quiet. topFirst: the
+// caller is a step past a top (the push); else the loop's top just ran. Returns as b9AfterPush.
+int EeScheduler::b9Dispatch(GuestThread &t, int site, bool topFirst)
+{
+    const bool fromPush = topFirst;
+    for (;;)
+    {
+        if (topFirst && !b9SkipTop(t, site))
+            return 0;
+        topFirst = true;
+        if (t.b8State == 2u)
+        {
+            b8Dispatch(t, site); // the pop (B8: always done)
+            if (!b9SkipTop(t, site))
+                return 0;
+            if (fromPush)
+                ++g_eeB9.merged;
+            return 1;
+        }
+        if (!b8Dispatch(t, site))
+        {
+            ++g_eeB9.afterRun[2];
+            return -1; // the record path, in this turn (as B8)
+        }
+        if (t.b8State != 2u)
+        {
+            ++g_eeB9.afterRun[t.b8State == 1u ? 0 : 2]; // deferred by the checkpoint / a check-mode run that unwound
+            return 0;
+        }
+        ++g_eeB9.afterRun[1];
+    }
+}
+
+void EeScheduler::b9MaskRebuild() noexcept
+{
+    for (uint32_t &w : m_b9Ready)
+        w = 0u;
+    for (int p = 0; p < kPriorityCount; ++p)
+        if (!m_readyQueues[static_cast<size_t>(p)].empty())
+            b9MaskSet(p);
+}
+
+int EeScheduler::b9FirstReady() const noexcept
+{
+    for (int w = 0; w < 4; ++w)
+        if (m_b9Ready[w] != 0u)
+            return w * 32 + __builtin_ctz(m_b9Ready[w]);
+    return -1;
 }

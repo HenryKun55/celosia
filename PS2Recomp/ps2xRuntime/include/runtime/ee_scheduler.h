@@ -446,6 +446,30 @@ struct EeB8Stats
     uint64_t predict = 0, predictCmp = 0, predictBad = 0, predictSlow = 0, predictNest = 0; // check: predictions, compared, bad, the slow path past them
 };
 extern EeB8Stats g_eeB8;
+// Round B9 (docs/decomp_b9.md; switch b9loop, game/overrides/b9_loop.cpp sets it once a frame with b8sched in effect). (1) A
+// slot-held delivery (B8) is one host call at the delivery point: the push, the run and the pop, and the thread's own path
+// after them, in one turn of the dispatcher's loop, where the record form took three more turns (push -> run -> pop -> own).
+// Each turn skipped is one whose top (the stop test, processPendingEvents, the pick) would do nothing at that instant: the
+// dispatcher tests it there (EeScheduler::b9Quiet: no stop, nothing posted / flagged, no timer interrupt latched, no deadline
+// due by cycles, no reschedule requested, the thread still the running one with no completion to run) and goes round as
+// before when it would not; so the steps, their order and the EE cycles are the record form's. (2) The ready queues' state
+// as a host bitmap (one bit a priority, kept by enqueueReady / removeReady / selectReady): the pick and the preemption test
+// find the highest non-empty queue with a count-leading-zeros instead of scanning the 128 queues.
+extern uint32_t g_ps2xB9Loop;  // nonzero: (1) and (2)'s use on (the switch; the bitmap is kept always)
+extern uint32_t g_ps2xB9Check; // check mode (SOTC_B9_CHECK): each skipped turn's top run for real and compared; the bitmap against the scan
+struct EeB9Stats
+{
+    uint64_t merged = 0;       // deliveries done push to own path in one turn
+    uint64_t skipped = 0;      // loop turns skipped (their top quiet)
+    uint64_t round[8] = {};    // turns not skipped: 0 stop 1 posted / flagged 2 timer irq 3 deadline due 4 reschedule 5 not running
+                               // 6 completion 7 refused (the run turn would make the record)
+    uint64_t afterRun[3] = {}; // the run turn's ends: 0 deferred (checkpoint due), 1 ran (pop next), 2 made a record
+    uint64_t picks = 0, readyTests = 0; // (2): picks / preemption tests from the bitmap
+    uint64_t topChecks = 0, topBad = 0, topRaced = 0; // check: skipped tops run here for real; changed state (bad); changed after a post (raced)
+    uint64_t predicted = 0, predBad = 0, predRaced = 0; // check: skip points left to the record form's own turn, its top compared
+    uint64_t maskChecks = 0, maskBad = 0;             // check: bitmap answers compared with the scan
+};
+extern EeB9Stats g_eeB9;
 class EeScheduler;
 struct EeHostIrq
 {
@@ -854,6 +878,27 @@ private:
     bool m_b8Armed = false;
     uint64_t gateNow(int &by) noexcept;
     void b8Compare() noexcept;
+    // Round B9 (g_ps2xB9Loop): the delivery in one turn (b9AfterPush / b9Dispatch), the skipped turn's top (b9SkipTop: its
+    // quiet test b9Quiet, the check's real run b9Digest), the ready bitmap (m_b9Ready: bit p of word p >> 5 set while
+    // m_readyQueues[p] is not empty).
+    int b9AfterPush(GuestThread &t, int site);
+    int b9Dispatch(GuestThread &t, int site, bool topFirst);
+    bool b9SkipTop(GuestThread &t, int site);
+    int b9Quiet(const GuestThread &t) const noexcept;
+    uint64_t b9Digest() const noexcept;
+    uint32_t m_b9Ready[4] = {};
+    std::atomic<uint32_t> m_b9Posts{0}; // flags / posts from any thread (the check tells a race from a difference)
+    void b9MaskSet(int p) noexcept { m_b9Ready[p >> 5] |= 1u << (p & 31); }
+    void b9MaskClear(int p) noexcept { m_b9Ready[p >> 5] &= ~(1u << (p & 31)); }
+    void b9MaskRebuild() noexcept;
+    int b9FirstReady() const noexcept; // the highest non-empty priority (lowest number), -1: none
+    // B9's check: every other skip point goes round instead (the record form's own turn) with its prediction armed; the
+    // loop's top, after its processPendingEvents, compares (b9TopCheck).
+    bool m_b9Armed = false;
+    int m_b9ArmId = 0;
+    uint32_t m_b9ArmPosts = 0, m_b9Alt = 0;
+    uint64_t m_b9ArmDigest = 0;
+    void b9TopCheck() noexcept;
 public:
     void b8Regate() noexcept;
     // Round B8's check (the shadow): the record form's invocation count of a thread after a push / a run / a pop.
