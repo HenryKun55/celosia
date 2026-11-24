@@ -24248,3 +24248,17 @@ the bodies' run counts.
 - **Count**: (d) 4 439 -> **4 466** (49.49%), 22.48% of the bytes, **23.84%** of the console time (13.11% before).
 - **Boots**: bootD1 (p1) and bootD2 (p2), 89 MB, d1native on: mounted at 2 220 / 3 609 and rode 600 s, pictures normal (Agro, ground, shadows).
 - Console package celosia-d1.vpk + env-ab.txt (`SOTC_AB_FLAG=d1native`), not installed.
+
+## Decomp A15: the ride7 freeze hunt: older than A12, the stage manager's subcell gate (typed switches stay off) (2026-11-24)
+
+docs/decomp_a15.md. The ride7 freeze is **not the typed code's**: S10 / S11 rides (2026-11-18, before A12 existed) froze the same
+way at x = -148.8 .. -149.4. The likely mechanism is the game's own: the stage manager (10 x 10 cells of 600 units, 4 x 4 subcells
+of 150; x = -150 is a subcell edge) wants the subcells around the **camera's** map place (0x1465990, gamecore_sub_01362208), and
+Agro's / Wander's coroutines (0x1395E20, nico_player1) do not step while their place is in a subcell neither loaded nor wanted
+(StageManagerCheckAreaExist), so a pair ahead of a trailing camera can deadlock at the edge. A15 added `[a15s]` stage-manager lines
+(SOTC_A15_STAGE=<n>, and at the watchdog's dumps) and an opt-in fix (SOTC_A15_LOADCENTER=1: that call given the pair's place when
+the camera's window leaves the pair's subcell out). 14 of 14 mounted ride7 rides with a12 + a13 + a14 on (6 with 40 ms added a
+frame) had **0 ride freezes**; every crossing of x = -150 found the subcell wanted / loaded and the fix never acted, so cause and
+fix stay unproven. One new failure class: hA1, a whole-process hang at t = 705 s (all guest threads parked in Vita3K semaphore
+waits; evidence in build/agent-scratch/a15/hang-hA1). Defaults unchanged (a12typed / a13typed / a14typed / the fix off); ELF room
+128 KB. Not done: A/B, 89 MB boot (the console memory card vanished from build/agent-scratch/avion/console during the round).
