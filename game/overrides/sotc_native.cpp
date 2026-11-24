@@ -288,12 +288,13 @@ bool g_ckSampleOff = false; // round A13 (typed_a3_check_rt.h): SOTC_CK_EVERY
 static void a13FlagsNow() { g_a13Typed = sotc_decomp::switchOn(sotc_decomp::kA13Typed) && g_a12Typed; }
 static void a12FlagsNow()
 {
-    // Round A13: on by default again (SOTC_A12TYPED=0 off). A12 kept it opt-in after 3 of 9 ride7 runs froze Agro on the plain; round
-    // A13 reproduced that freeze with a12typed off all run (xoff7) and saw it stay after the watchdog forced a12typed off (fA7b), and
-    // the in-run check compared A12's typed code with the lifted text while galloping: 0 differences (docs/decomp_a13.md section 3).
+    // Off unless SOTC_A12TYPED=1 (an opt-in, read once): 3 of 9 ride7 runs with it on froze the world after mounting (the horse
+    // and Wander stop updating while frames go on; docs/decomp_a12.md section 7), cause not found. The A/B (SOTC_AB_FLAG=a12typed)
+    // flips the switch only when the opt-in is set. Round A13 keeps it opt-in (a13typed rides on it, so it is off too): the freeze
+    // also happened with a12typed off all run (docs/decomp_a13.md section 3), its cause is still open, and its A/B is -0.04 +- 0.11 ms.
     static const bool optIn = [] {
         const char *e = std::getenv("SOTC_A12TYPED");
-        return !(e && e[0] == '0');
+        return e && e[0] >= '1' && e[0] <= '3';
     }();
     g_a12Typed = optIn && sotc_decomp::switchOn(sotc_decomp::kA12Typed) && g_a11Typed && !a13diag::g_forceOff; // A13: the watchdog's step 2
     static uint32_t proven = A12MM_PROVEN;

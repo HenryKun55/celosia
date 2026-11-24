@@ -79,10 +79,13 @@ A12's typed code off on worker shells, step 2 300 frames later forces a12typed o
   them off it. The cause inside the game (an edge, a collision seam, the steer's closed loop) is **not found** in this round.
 - The A11 controls of A12 (c11, ctlR7) and xa11 did not freeze: 3 runs, too few to say the freeze is newer than A11.
 
-**What ships.** a12typed is **on by default again** (sotc_native's a12FlagsNow: SOTC_A12TYPED=0 turns it off; a13typed rides on
-it), on these grounds: the freeze is not A12's (above); the galloping in-run check (section 4) compared A12's and A13's typed code with
-the lifted text after the mount, 0 differences; 5 ride7 runs with it on at 222 MHz rode clean (fA7, fA13, fO1, fA13b, fO2: A/B mix
-seeds 7 and 13 and on all run). The ride7 freeze itself stays open (a route / game-state issue on a slow host, section 3).
+**What ships.** a12typed **stays off by default**, as A12 left it (sotc_native's a12FlagsNow: on only with SOTC_A12TYPED=1), and so
+does a13typed, which acts only where a12typed is on. A first close of this round (commit 16803c7) turned a12typed on by default again;
+that part is reverted: its A/B gain is nothing (pooled -0.04 +- 0.11 ms, section 5) and the ride7 freeze's cause is still **open**.
+The evidence that the freeze is not A12's code stands: xoff7 froze with a12typed off all run (`frames on 0`), at x = -149 like every
+A12 freeze, and fA7b stayed frozen after the watchdog forced a12typed off; but with a12typed off the freeze was only seen at 111 MHz
+(xoff7; xoff13 and xoff7c rode clean), so the code stays opt-in until the freeze is understood. The in-run check (section 4) compared
+A12's and A13's typed code with the lifted text after the mount, 0 differences; 5 a12typed-on ride7 runs at 222 MHz rode clean.
 
 ## 4. Checks
 
@@ -130,11 +133,11 @@ differences in all 30 runs** (660 000 checks). A12's .. A3's harnesses rebuilt f
 No measurable change (stage 13 is 18 small functions, one of them reached in game). **A/B of a12typed** (a13typed with it; the freeze
 series' fA7 / fA13 / fA13b): -0.061 +- 0.125, +0.086 +- 0.287, +0.027 +- 0.651 ms; pooled -0.04 +- 0.11 ms.
 
-**89 MB boot** (pm = the shipped default, a12typed and a13typed on; SOTC_VITA_EAT_USER_MB=89, ride7 600 s): booted on the first try (`[vita] SOTC_VITA_EAT_USER_MB=89: taken`, `[a12] adapters installed over 64`, `[a13] ... over 4`), mounted at frame 2 444 and rode to frame 11 100 (horse -589.54 6.84 -428.66; `[a12] typed 1` all run, 15.6 fps at the end on the loaded host); no FREEZE. Screenshot at 420 s: Wander on Agro by the cliffs, ground and shadows normal.
+**89 MB boot** (pm = the build of the first close, with a12typed and a13typed on by default; SOTC_VITA_EAT_USER_MB=89, ride7 600 s): booted on the first try (`[vita] SOTC_VITA_EAT_USER_MB=89: taken`, `[a12] adapters installed over 64`, `[a13] ... over 4`), mounted at frame 2 444 and rode to frame 11 100 (horse -589.54 6.84 -428.66; `[a12] typed 1` all run, 15.6 fps at the end on the loaded host); no FREEZE. Screenshot at 420 s: Wander on Agro by the cliffs, ground and shadows normal.
 
-**Default ride** dR (pm, ride7 1500 s, watchdog): mounted at frame 10 401, rode to 31 800 (horse -420.20 0.76 -236.90), no FREEZE.
+**Default ride** dR (pm, a12typed on by default in it, ride7 1500 s, watchdog): mounted at frame 10 401, rode to 31 800 (horse -420.20 0.76 -236.90), no FREEZE.
 
-**Console package**: build/agent-scratch/a13/celosia-a13.vpk (pm) + env-ab.txt (the console base env, SOTC_AB_FLAG=a12typed
+**Console package**: build/agent-scratch/a13/celosia-a13.vpk (pm: built before the revert, so a12typed / a13typed are on by default in it) + env-ab.txt (the console base env, SOTC_AB_FLAG=a12typed
 SOTC_AB_PERIOD=300: flips stage 12 and 13 together), not installed.
 
 **Count** (tools/decomp100_count.py, now reading docs/a13_typed.txt; console profile 2026-11-20 runs 1-2):
@@ -148,5 +151,5 @@ SOTC_AB_PERIOD=300: flips stage 12 and 13 together), not installed.
 | (r) runtime kernel / SDK / libc | 286 | 3.17% | 49 940 | 1.90% | 0.26% |
 | **(d) real typed C++, no ctx** | **4 269** | **47.31%** | **536 132** | **20.42%** | **12.48%** |
 
-(A12: 4 251 / 47.11% / 20.19% / 12.40%.) +18 in (d). With a12typed on by default stage 12's and 13's typed code now runs in a default
-game.
+(A12: 4 251 / 47.11% / 20.19% / 12.40%.) +18 in (d). a12typed (and so a13typed) stay off by default, so stage 12's and 13's typed code runs only with
+SOTC_A12TYPED=1 (the count counts it as typed C++ either way).
