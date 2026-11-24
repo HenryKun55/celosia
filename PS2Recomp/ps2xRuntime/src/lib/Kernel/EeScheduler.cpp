@@ -81,8 +81,11 @@ uint32_t g_ps2xB8Check = 0u;
 uint32_t g_ps2xB8Regate = 0u;
 uint32_t g_ps2xB9Loop = 0u; // round B9 (b9_loop.cpp)
 uint32_t g_ps2xB9Check = 0u;
+uint32_t g_ps2xB10Switch = 0u; // round B10 (b10_switch.cpp)
+uint32_t g_ps2xB10Check = 0u;
 EeB8Stats g_eeB8;
 EeB9Stats g_eeB9;
+EeB10Stats g_eeB10;
 static bool g_b8Predicting = false; // round B8: gateNow asked by the check (its counts left alone)
 EeB7Stats g_eeB7;
 namespace
@@ -885,6 +888,14 @@ void EeScheduler::reset(uint8_t *rdram, const R5900Context &mainContext)
         }                                                     \
     } while (0)
 
+// Round B10: a loop's `continue` with no thread running: the pick follows at once when the top would do nothing (b10Skip).
+#define B10_ROUND(loop, where, label)                                                 \
+    do                                                                                \
+    {                                                                                 \
+        if (__builtin_expect(g_ps2xB10Switch != 0u, 0) && b10Skip((loop), (where))) \
+            goto label;                                                               \
+    } while (0)
+
 void EeScheduler::run()
 {
     assertExecutor();
@@ -909,14 +920,19 @@ void EeScheduler::run()
         processPendingEvents();
         if (__builtin_expect(m_b9Armed, 0))
             b9TopCheck(); // round B9's check: a skip point's prediction against this real top
+        if (__builtin_expect(m_b10Hook, 0))
+            b10Top(); // round B10's check / counts
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             break;
         }
 
+    b10Pick0: // round B10: a switch whose top would do nothing comes straight here
         if (m_currentThreadId == 0)
         {
             GuestThread *next = selectReady();
+            if (__builtin_expect(m_b10Hook, 0))
+                b10Pick(next, -1);
             if (!next && m_pendingInvocations.empty())
             {
                 copyMainContextToRuntime();
@@ -971,6 +987,7 @@ void EeScheduler::run()
             m_clock.transferred = false;
             if (m_currentThreadId == 0)
             {
+                B10_ROUND(0, 3, b10Pick0);
                 continue;
             }
         }
@@ -983,7 +1000,10 @@ void EeScheduler::run()
             if (g_ps2xB9Loop != 0u)
             {
                 if (b9Dispatch(*running, 0, false) == 0)
+                {
+                    B10_ROUND(0, 2, b10Pick0); // round B10: the handler made another thread the one to run
                     continue;
+                }
             }
             else if (b8Dispatch(*running, 0))
                 continue;
@@ -1037,6 +1057,7 @@ void EeScheduler::run()
             copyMainContextToRuntime();
             publishIdleDebugContext();
             publishSnapshot();
+            B10_ROUND(0, 3, b10Pick0);
             continue;
         }
 
@@ -1046,6 +1067,7 @@ void EeScheduler::run()
             {
                 if (g_ps2xB9Loop != 0u && b9AfterPush(*running, 0) != 0)
                     goto b9Own0; // round B9: delivered in this turn
+                B10_ROUND(0, 2, b10Pick0); // round B10: the handler made another thread the one to run
                 continue;
             }
             if (__builtin_expect(g_ps2xB8Check != 0u, 0))
@@ -1292,6 +1314,7 @@ void EeScheduler::run()
             m_rescheduleRequested = false;
             m_timeSliceExpired = false;
         }
+        B10_ROUND(0, 0, b10Pick0); // round B10: the thread parked / gave way / ended: the next one at once
     }
 
     m_guestExecuting.store(false, std::memory_order_release);
@@ -1533,8 +1556,8 @@ void EeScheduler::syncAccounting() noexcept
 void EeScheduler::flagCheckpoint(int site) noexcept
 {
     ++g_eeS11.flags[site < 12 ? site : 11]; // (other threads too: a racy count, for the log only)
-    if (__builtin_expect(g_ps2xB9Check != 0u, 0))
-        m_b9Posts.fetch_add(1u, std::memory_order_acq_rel); // round B9's check: a flag / post (a race, not a difference)
+    if (__builtin_expect((g_ps2xB9Check | g_ps2xB10Check) != 0u, 0))
+        m_b9Posts.fetch_add(1u, std::memory_order_acq_rel); // round B9's / B10's check: a flag / post (a race, not a difference)
     m_checkpointPending.store(true, std::memory_order_release);
     std::atomic_thread_fence(std::memory_order_seq_cst);
     m_clock.closeGate();
@@ -4235,6 +4258,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         m_rescheduleRequested = false;
         m_timeSliceExpired = false;
     }
+    B10_ROUND(2, 1, b10Pick2); // round B10: the switch's pick at once when the loop's first top would do nothing
     for (;;)
     {
         if (m_stopRequested.load(std::memory_order_relaxed))
@@ -4245,11 +4269,14 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
         processPendingEvents();
         if (__builtin_expect(m_b9Armed, 0))
             b9TopCheck(); // round B9's check
+        if (__builtin_expect(m_b10Hook, 0))
+            b10Top(); // round B10's check / counts
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             bail = 1;
             break;
         }
+    b10Pick2: // round B10
         if (m_currentThreadId == 0)
         {
             const GuestThread *h = thread(homeId); // (looked up: a nested thread may terminate and delete it)
@@ -4259,6 +4286,8 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                 break;
             }
             GuestThread *next = selectReady();
+            if (__builtin_expect(m_b10Hook, 0))
+                b10Pick(next, homeId); // round B10
             if (!next)
             {
                 bail = 2;
@@ -4292,7 +4321,10 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             }
             m_clock.transferred = false;
             if (m_currentThreadId == 0)
+            {
+                B10_ROUND(2, 3, b10Pick2);
                 continue;
+            }
             running = currentThread();
         }
         if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
@@ -4302,7 +4334,10 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             if (g_ps2xB9Loop != 0u) // round B9 (as run())
             {
                 if (b9Dispatch(*running, 2, false) == 0)
+                {
+                    B10_ROUND(2, 2, b10Pick2); // round B10
                     continue;
+                }
             }
             else if (b8Dispatch(*running, 2))
                 continue;
@@ -4320,6 +4355,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
                 }
                 if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 2) != 0)
                     goto b9Own2;
+                B10_ROUND(2, 2, b10Pick2); // round B10
                 continue;
             }
             if (checkpointDue(kGuestDispatchCycles))
@@ -4357,12 +4393,14 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             }
             makeDormant(*running);
             m_currentThreadId = 0;
+            B10_ROUND(2, 3, b10Pick2);
             continue;
         }
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
             if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 2) != 0)
                 goto b9Own2;
+            B10_ROUND(2, 2, b10Pick2); // round B10
             continue;
         }
         const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
@@ -4421,6 +4459,7 @@ int EeScheduler::s17Nest(GuestThread &home) noexcept
             m_rescheduleRequested = false;
             m_timeSliceExpired = false;
         }
+        B10_ROUND(2, 0, b10Pick2); // round B10
     }
     --m_s17Depth;
     m_xferThrowDepth = saveThrow;
@@ -4714,6 +4753,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         m_rescheduleRequested = false;
         m_timeSliceExpired = false;
     }
+    B10_ROUND(1, 1, b10Pick1); // round B10: the switch's pick at once when the loop's first top would do nothing
     for (;;)
     {
         if (m_stopRequested.load(std::memory_order_relaxed))
@@ -4724,11 +4764,14 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
         processPendingEvents();
         if (__builtin_expect(m_b9Armed, 0))
             b9TopCheck(); // round B9's check
+        if (__builtin_expect(m_b10Hook, 0))
+            b10Top(); // round B10's check / counts
         if (m_stopRequested.load(std::memory_order_relaxed))
         {
             bail = 1;
             break;
         }
+    b10Pick1: // round B10
         if (m_currentThreadId == 0)
         {
             const GuestThread *h = thread(homeId);
@@ -4739,6 +4782,8 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
                 break;
             }
             GuestThread *next = selectReady();
+            if (__builtin_expect(m_b10Hook, 0))
+                b10Pick(next, homeId); // round B10
             if (!next)
             {
                 bail = 2; // (run() would wait for an event here, or start a pending invocation's owner: the executor does)
@@ -4778,7 +4823,10 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             }
             m_clock.transferred = false;
             if (m_currentThreadId == 0)
+            {
+                B10_ROUND(1, 3, b10Pick1);
                 continue;
+            }
             running = currentThread();
         }
         if (__builtin_expect(g_ps2xB8Check != 0u, 0)) // round B8
@@ -4788,7 +4836,10 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             if (g_ps2xB9Loop != 0u) // round B9 (as run())
             {
                 if (b9Dispatch(*running, 1, false) == 0)
+                {
+                    B10_ROUND(1, 2, b10Pick1); // round B10
                     continue;
+                }
             }
             else if (b8Dispatch(*running, 1))
                 continue;
@@ -4801,6 +4852,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             {
                 if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 1) != 0)
                     goto b9Own1;
+                B10_ROUND(1, 2, b10Pick1); // round B10
                 continue;
             }
             if (running->carrier != &c)
@@ -4844,12 +4896,14 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             }
             makeDormant(*running);
             m_currentThreadId = 0;
+            B10_ROUND(1, 3, b10Pick1);
             continue;
         }
         if (!m_pendingInvocations.empty() && running->invocations.empty())
         {
             if (pushInvocation(*running) && g_ps2xB9Loop != 0u && b9AfterPush(*running, 1) != 0)
                 goto b9Own1;
+            B10_ROUND(1, 2, b10Pick1); // round B10
             continue;
         }
         const bool carried = carriedOwn || (running->invocations.empty() && claimCarrier(*running, context));
@@ -4911,6 +4965,7 @@ int EeScheduler::carrierNest(EeHostCarrier &c, int why)
             m_rescheduleRequested = false;
             m_timeSliceExpired = false;
         }
+        B10_ROUND(1, 0, b10Pick1); // round B10
     }
     m_s17Depth = saveDepth;
     m_unwinding = false;
@@ -5679,4 +5734,150 @@ int EeScheduler::b9FirstReady() const noexcept
         if (m_b9Ready[w] != 0u)
             return w * 32 + __builtin_ctz(m_b9Ready[w]);
     return -1;
+}
+
+// Round B10 (docs/decomp_b10.md): the thread switch without the dispatcher's loop top.
+//
+// Every switch went through a loop's top: after a run that parked / gave way / was preempted / ended (run() and both nests:
+// processPendingEvents and the reschedule test after the run, then `continue`), at a nest's entry (a carrier's switch yield,
+// an unwind S17 nests: processPendingEvents and the reschedule test as after a run, then the loop), after a completion or a
+// delivery whose handler made another thread the one to run (B9's "not running"), the loop went round: the stop test,
+// processPendingEvents, the stop test again, then the pick. Right after the after-run processPendingEvents that top does
+// nothing unless something came in between (a flag or a post, a timer interrupt latched, a deadline due by the cycles, a
+// reschedule still pending). With b10switch the pick and the next thread's dispatch follow at once when it would do nothing
+// (b10Quiet), and the loop goes round as before when it would not. So the steps (after-run settle, pick, dispatch, hand-over),
+// their order, the picks and the EE cycles are the record form's: only tops that do nothing are left out. With B4's direct
+// hand-over a carrier's park now goes: settle, pick, the next carrier's dispatch, the baton, in one pass.
+
+// The reason the top before the pick would not be a no-op (-1: it would be one). With no thread running,
+// processPendingEvents' fast path (nothing flagged, no timer interrupt latched, no deadline due by cycles) is
+// applyPendingPreemption alone, which does nothing without a reschedule pending; the loops' stop tests.
+int EeScheduler::b10Quiet() const noexcept
+{
+    if (m_stopRequested.load(std::memory_order_relaxed))
+        return 0;
+    if (m_checkpointPending.load(std::memory_order_relaxed))
+        return 1;
+    if (m_pendingEeTimerInterrupts != 0u)
+        return 2;
+    const uint64_t next = m_nextDeadlineCycle.load(std::memory_order_relaxed);
+    if (next != 0u && eeNow() >= next)
+        return 3;
+    if (m_rescheduleRequested)
+        return 4;
+    if (m_b9Armed || m_b10Armed)
+        return 5; // (a check's prediction waits for the loop's own top)
+    return -1;
+}
+
+// The front of the highest non-empty ready queue by the queues' own scan (the check's prediction of the pick), -1: none.
+int EeScheduler::b10Front() const noexcept
+{
+    for (int p = 0; p < kPriorityCount; ++p)
+        if (!m_readyQueues[static_cast<size_t>(p)].empty())
+            return m_readyQueues[static_cast<size_t>(p)].front();
+    return -1;
+}
+
+// At a loop's `continue` (loop: 0 run() 1 carrierNest 2 S17's nest; where: see EeB10Stats): true, no thread runs and the top
+// would do nothing: the caller goes straight to its pick. Check mode (SOTC_B10_CHECK): every other skip point runs the top
+// here for real (processPendingEvents) and compares the state before and after; the others go round with the prediction
+// armed (the state and the pick), and the loop's own top and pick compare (b10Top / b10Pick). A difference with a flag /
+// post in between is a race (counted apart); without one, a mismatch.
+bool EeScheduler::b10Skip(int loop, int where)
+{
+    if (m_currentThreadId != 0)
+        return false; // (not a switch: the running thread is dispatched again after the top)
+    const uint32_t posts = g_ps2xB10Check != 0u ? m_b9Posts.load(std::memory_order_acquire) : 0u;
+    const int why = b10Quiet();
+    if (why >= 0)
+    {
+        ++g_eeB10.round[why];
+        return false;
+    }
+    m_b10PickArmed = false;
+    if (__builtin_expect(g_ps2xB10Check != 0u, 0))
+    {
+        const uint64_t before = b9Digest();
+        if ((++m_b10Alt & 1u) != 0u)
+        {
+            m_b10Armed = true;
+            m_b10ArmPosts = posts;
+            m_b10ArmDigest = before;
+            m_b10ArmPick = b10Front();
+            m_b10From = 0;
+            m_b10Hook = true;
+            ++g_eeB10.predicted;
+            return false;
+        }
+        ++g_eeB10.topChecks;
+        processPendingEvents();
+        if (b9Digest() != before)
+        {
+            if (m_b9Posts.load(std::memory_order_acquire) != posts)
+                ++g_eeB10.topRaced;
+            else
+            {
+                ++g_eeB10.topBad;
+                static int printed = 0;
+                if (++printed <= 12)
+                    std::fprintf(stderr, "[b10chk] a quiet top changed the state (loop %d where %d, running t%d)\n", loop, where, m_currentThreadId);
+            }
+        }
+        if (m_stopRequested.load(std::memory_order_relaxed))
+            return false; // (the loop's stop test after this top)
+        // (the top ran here: the pick follows as after it)
+    }
+    ++g_eeB10.skipped[loop][where];
+    m_b10From = loop + 1;
+    m_b10Hook = true;
+    return true;
+}
+
+// A loop's real top (after its processPendingEvents): a skipped top's pick not taken is dropped (the loop went elsewhere), a
+// prediction is compared with the state found here, and its pick armed for the pick that follows.
+void EeScheduler::b10Top() noexcept
+{
+    m_b10From = 0;
+    m_b10PickArmed = false;
+    if (m_b10Armed)
+    {
+        m_b10Armed = false;
+        if (b9Digest() == m_b10ArmDigest)
+            m_b10PickArmed = true;
+        else if (m_b9Posts.load(std::memory_order_acquire) != m_b10ArmPosts)
+            ++g_eeB10.predRaced;
+        else
+        {
+            ++g_eeB10.predBad;
+            static int printed = 0;
+            if (++printed <= 12)
+                std::fprintf(stderr, "[b10chk] a top predicted quiet changed the state (running t%d)\n", m_currentThreadId);
+        }
+    }
+    m_b10Hook = m_b10PickArmed;
+}
+
+// The pick after a skipped top (counted by what it took) or after a predicted one (compared with the prediction).
+void EeScheduler::b10Pick(const GuestThread *next, int homeId) noexcept
+{
+    if (m_b10From != 0)
+    {
+        ++g_eeB10.picked[!next ? 0 : next->id == homeId ? 1 : next->carrier != nullptr ? 2 : 3];
+        m_b10From = 0;
+    }
+    if (m_b10PickArmed)
+    {
+        m_b10PickArmed = false;
+        ++g_eeB10.pickChecks;
+        const int got = next ? next->id : -1;
+        if (got != m_b10ArmPick)
+        {
+            ++g_eeB10.pickBad;
+            static int printed = 0;
+            if (++printed <= 12)
+                std::fprintf(stderr, "[b10chk] the loop picked t%d, predicted t%d\n", got, m_b10ArmPick);
+        }
+    }
+    m_b10Hook = m_b10Armed;
 }

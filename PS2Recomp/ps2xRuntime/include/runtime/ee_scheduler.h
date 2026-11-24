@@ -470,6 +470,28 @@ struct EeB9Stats
     uint64_t maskChecks = 0, maskBad = 0;             // check: bitmap answers compared with the scan
 };
 extern EeB9Stats g_eeB9;
+// Round B10 (docs/decomp_b10.md; switch b10switch, game/overrides/b10_switch.cpp sets it once a frame with b9loop in effect).
+// The thread switch without the dispatcher's loop top: wherever a loop (run(), B4's carrierNest, S17's nest) would go round
+// with no thread running (a thread parked, gave way, was preempted or ended; a carrier's switch yield; a delivery whose
+// handler made another thread the one to run), the pick and the next thread's dispatch follow at once while the top would do
+// nothing there (EeScheduler::b10Quiet: no stop, nothing posted / flagged, no timer interrupt latched, no deadline due by
+// cycles, no reschedule pending). The top before a pick is the only thing left out: the pick (B9's bitmap), the dispatch, the
+// hand-over to a carrier, the EE cycles stay the record form's.
+extern uint32_t g_ps2xB10Switch; // nonzero: the switch on
+extern uint32_t g_ps2xB10Check;  // check mode (SOTC_B10_CHECK): each skipped top run for real or predicted and compared, and the pick
+struct EeB10Stats
+{
+    uint64_t skipped[3][4] = {}; // tops skipped before a pick, by loop (0 run() 1 carrierNest 2 S17's nest) and where (0 after a
+                                 // run, 1 a nest's entry (a carrier's switch yield / an unwind), 2 after a delivery, 3 a completion /
+                                 // a thread's end)
+    uint64_t round[6] = {};      // not skipped: 0 stop 1 posted / flagged 2 timer irq 3 deadline due 4 reschedule 5 a check armed
+    uint64_t picked[4] = {};     // after a skipped top the pick took: 0 nothing (the loop waits / bails), 1 the nest's own thread,
+                                 // 2 another carried thread, 3 a thread as generated code
+    uint64_t topChecks = 0, topBad = 0, topRaced = 0;   // check: skipped tops run here for real; changed state (bad); after a post (raced)
+    uint64_t predicted = 0, predBad = 0, predRaced = 0; // check: skip points left to the loop's own top, the state it finds compared
+    uint64_t pickChecks = 0, pickBad = 0;               // check: the loop's own pick after a predicted top against the predicted one
+};
+extern EeB10Stats g_eeB10;
 class EeScheduler;
 struct EeHostIrq
 {
@@ -899,6 +921,19 @@ private:
     uint32_t m_b9ArmPosts = 0, m_b9Alt = 0;
     uint64_t m_b9ArmDigest = 0;
     void b9TopCheck() noexcept;
+    // Round B10 (g_ps2xB10Switch): the top before a pick skipped (b10Skip: its quiet test b10Quiet; the check: a real run here
+    // or a prediction the loop's own top compares, b10Top, with the pick after it, b10Pick).
+    bool b10Skip(int loop, int where);
+    int b10Quiet() const noexcept;
+    void b10Top() noexcept;
+    void b10Pick(const GuestThread *next, int homeId) noexcept;
+    int b10Front() const noexcept; // the pick's answer now (the front of the highest non-empty queue), -1: none
+    bool m_b10Hook = false;        // b10Top / b10Pick have work (one of the three below set)
+    bool m_b10Armed = false, m_b10PickArmed = false;
+    int m_b10From = 0;             // a skipped top's pick to count (1 + the loop)
+    int m_b10ArmPick = -1;
+    uint32_t m_b10ArmPosts = 0, m_b10Alt = 0;
+    uint64_t m_b10ArmDigest = 0;
 public:
     void b8Regate() noexcept;
     // Round B8's check (the shadow): the record form's invocation count of a thread after a push / a run / a pop.
