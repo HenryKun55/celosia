@@ -334,7 +334,7 @@ namespace a13diag
 // Agro's coroutine (gamecore_sub_01395E20) and Wander's (nico_player1) do not step while their place (layout +0x134) is in a
 // subcell with neither bit (StageManagerCheckAreaExist): when the camera trails the pair by more than half a subcell as they
 // cross into an unloaded subcell, the pair stops, the camera stops behind it, and nothing ever marks the subcell ahead.
-// SOTC_A15_LOADCENTER (default on): when the ridden horse's (or Wander's) subcell is outside the camera's window and the
+// SOTC_A15_LOADCENTER=1 (opt-in, off by default: in 14 A15 rides it never acted and the freeze did not recur, so it is unproven): when the ridden horse's (or Wander's) subcell is outside the camera's window and the
 // camera's subcell is inside the window centred on the pair, that call of 01362208 is given the pair's place instead of the
 // camera's (both subcells kept, the pair goes on); every other call is the game's own.
 namespace a13diag
@@ -342,7 +342,7 @@ namespace a13diag
     namespace
     {
         PS2Runtime::RecompiledFunction g_areaSetOriginal = nullptr;
-        bool g_lcOn = true;
+        bool g_lcOn = false;
         uint64_t g_lcCalls = 0, g_lcSwaps = 0, g_lcLastSwapFrame = 0;
 
         struct Sub
@@ -439,7 +439,7 @@ namespace a13diag
     {
         constexpr uint32_t kAreaSet = 0x01362208u; // gamecore_sub_01362208 (NOBLOCK: returns within the manager's turn)
         const char *e = std::getenv("SOTC_A15_LOADCENTER");
-        g_lcOn = !e || e[0] != '0';
+        g_lcOn = e && e[0] >= '1' && e[0] <= '9';
         if (!runtime.hasFunction(kAreaSet) || g_areaSetOriginal)
             return;
         g_areaSetOriginal = runtime.lookupFunction(kAreaSet);
