@@ -60,6 +60,7 @@
 // end "[replay] end"; SOTC_REPLAY_EXIT=1 leaves there.
 #include "sotc_replay.h"
 #include "sotc_decomp.h"
+#include "a13_watch.h" // round A13: the ride watchdog
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime.h"
@@ -1041,6 +1042,8 @@ namespace sotc_replay
                         std::fprintf(stderr, "[ride] frame %llu: signs %u (class +0x950 %08x, AI flag %08x, still %u)\n",
                                      (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed), signs, h, aiFlag, still);
                     }
+                    // Round A13: the ride watchdog (SOTC_A13_WATCH=<steps>: both places still that long while mounted, after moving).
+                    a13diag::rideStep(runtime, rdram, pl, g_horse, h, still, ps2_stats::vif1Chains.load(std::memory_order_relaxed));
                     if (!h && aiFlag)
                         h = g_horse;
                     // Round S7: SOTC_RIDE_STEER=<frame>: from that frame, while Wander is on foot, the left stick is steered

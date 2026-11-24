@@ -917,6 +917,10 @@ namespace sotc_worker
             g_shell = static_cast<PS2Runtime *>(bytes);
             g_shell->m_eeClock.setGate(~0ull);
             g_shell->m_hostStackFloor = ~uintptr_t(0); // every call and jump to the hooks
+            // Round A13 (measuring, SOTC_A13_SHELLFLOOR=1): the NOCHK floor at the top too, so no typed adapter (A*_GO), N4 fast
+            // form or NOCHK direct call runs on the shell (zeroed storage: 0, every one of them passes there)
+            if (const char *e = std::getenv("SOTC_A13_SHELLFLOOR"); e && e[0] == '1')
+                g_shell->m_noCheckFloor = UINTPTR_MAX;
             g_shell->m_directDispatch = true;
             g_shell->memory().bindWorkerShell(rdram, g_own->scratchpad, g_own->vu0Data);
             g_runtime = runtime;
