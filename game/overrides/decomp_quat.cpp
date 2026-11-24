@@ -1328,15 +1328,19 @@ namespace decomp_quat
     void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void invMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void axisDirZYExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void atan2ExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2
+    void diffQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);   // round D2
 }
 
 SOTC_DECOMP_AB_FUNCTION(0x001DD538u, atanf, decomp_quat::atanf);
 SOTC_DECOMP_AB_FUNCTION(0x001DE540u, ieee754_atan2f, decomp_quat::atan2);
 SOTC_DECOMP_AB_FUNCTION(0x001DD9F8u, atan2f, decomp_quat::atan2);
-SOTC_DECOMP_AB_FUNCTION(0x001BE458u, iosGetATan2fExact, decomp_quat::atan2Exact);
+SOTC_DECOMP_AB_FUNCTION(0x001BE458u, iosGetATan2fExact, decomp_quat::atan2ExactSw);
+D1_ALIAS(0x001BE458u, iosGetATan2fExact, decomp_quat::atan2ExactSw, decomp_quat::atan2Exact);
 SOTC_DECOMP_AB_FUNCTION(0x001BBDA8u, SetQuaternionByAxisRotateVWithNoRegularize, decomp_quat::axisRotateSw);
 D1_ALIAS(0x001BBDA8u, SetQuaternionByAxisRotateVWithNoRegularize, decomp_quat::axisRotateSw, decomp_quat::axisRotate);
-SOTC_DECOMP_AB_FUNCTION(0x001BA4D0u, GetDifferencialQuaternionWithNoRegularize, decomp_quat::diffQuat);
+SOTC_DECOMP_AB_FUNCTION(0x001BA4D0u, GetDifferencialQuaternionWithNoRegularize, decomp_quat::diffQuatSw);
+D1_ALIAS(0x001BA4D0u, GetDifferencialQuaternionWithNoRegularize, decomp_quat::diffQuatSw, decomp_quat::diffQuat);
 SOTC_DECOMP_AB_FUNCTION(0x001BC308u, GetQuaternionByAxisDirZY, decomp_quat::axisDirZYSw);
 D1_ALIAS(0x001BC308u, GetQuaternionByAxisDirZY, decomp_quat::axisDirZYSw, decomp_quat::axisDirZY);
 SOTC_DECOMP_AB_FUNCTION(0x001BA880u, GetEulerYXZFromQuaternion, decomp_quat::eulerYXZSw);
@@ -2283,5 +2287,68 @@ namespace decomp_quat
             invMatrixD1(rdram, ctx, runtime);
         else
             invMatrix(rdram, ctx, runtime);
+    }
+} // namespace decomp_quat
+
+// =====================================================================================================================
+// Round D2 (switch d1native, docs/decomp_d1.md): iosGetATan2fExact (0x1be458) and GetDifferencialQuaternionWithNoRegularize
+// (0x1ba4d0) for the default configuration (quat122 on): round 122's host cores (typed_a9_core.h: atan2ExactCore,
+// diffCore) called directly with the arguments read once, what char122::quat::atan2Exact / diffQuat do in the slot's
+// native (f0 / the output qword; nothing else is left: those paths write no other register). quat122 off, its check mode
+// (SOTC_CHAR122_CHECK) or a pointer outside round 122's guest-RAM test: the old body, before any side effect.
+// =====================================================================================================================
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+}
+namespace decomp_quat
+{
+    namespace d2q
+    {
+        D1_COUNTER(c_d2Atan2Exact, "quat.atan2Exact");
+        D1_COUNTER(c_d2DiffQuat, "quat.diffQuat");
+
+        // iosGetATan2fExact(y, x): f0.
+        float atan2ExactD1Core(float y, float x) { return char122::quat::atan2ExactCore(y, x); }
+        // GetDifferencialQuaternionWithNoRegularize(out, from, to, axis): out = the rotation taking from to to.
+        void diffQuatD1Core(const d1::Mem m, uint32_t out, uint32_t from, uint32_t to, uint32_t axis)
+        {
+            const __m128 q = char122::quat::diffCore(d1q::d1ldq(m, from), d1q::d1ldq(m, to), d1q::d1ldq(m, axis));
+            d1q::d1stq(m, out, q);
+        }
+    } // namespace d2q
+
+    void atan2ExactD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || char122::checkEvery() > 0)
+            return atan2Exact(rdram, ctx, runtime);
+        ++d2q::c_d2Atan2Exact.n;
+        ctx->f[0] = d2q::atan2ExactD1Core(ctx->f[12], ctx->f[13]);
+        returnTo(ctx);
+    }
+    void atan2ExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            atan2ExactD1(rdram, ctx, runtime);
+        else
+            atan2Exact(rdram, ctx, runtime);
+    }
+
+    void diffQuatD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5), to = GPR_U32(ctx, 6), axis = GPR_U32(ctx, 7);
+        if (!char122::quat::on() || char122::checkEvery() > 0 || !d1q::d1in122(out, 16u) || !d1q::d1in122(from, 16u) ||
+            !d1q::d1in122(to, 16u) || !d1q::d1in122(axis, 16u))
+            return diffQuat(rdram, ctx, runtime);
+        ++d2q::c_d2DiffQuat.n;
+        d2q::diffQuatD1Core(d1::Mem{rdram}, out, from, to, axis);
+        returnTo(ctx);
+    }
+    void diffQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            diffQuatD1(rdram, ctx, runtime);
+        else
+            diffQuat(rdram, ctx, runtime);
     }
 } // namespace decomp_quat

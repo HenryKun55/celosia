@@ -2053,7 +2053,12 @@ D1_ALIAS(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatricesSw, dec
 SOTC_DECOMP_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw);
 D1_ALIAS(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw, decomp_light::execGlobalLightMan);
 SOTC_DECOMP_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLights);
-SOTC_DECOMP_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLight);
+namespace decomp_light
+{
+    void setWorkFromGlobalLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLightSw);
+D1_ALIAS(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLightSw, decomp_light::setWorkFromGlobalLight);
 SOTC_DECOMP_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPos);
 SOTC_DECOMP_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCube);
 
@@ -3073,5 +3078,131 @@ namespace decomp_light
             execGlobalLightManD1(rdram, ctx, runtime);
         else
             execGlobalLightMan(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): SetWorkFromGlobalLight's default path (round 49's setWorkImpl<true>) ------------
+// The work area through D1Spr (main RAM or the scratchpad: the same bytes as FlatMem for every address of the 0x5c0-byte
+// range Mem::ok checked; the work light count is checked non-negative at the entry so every light record stays inside
+// it), the three global lights' VU0 block on d1 vec4: PS2_VMUL_K / VADD_K / VSUB_K -> d1::vmul / vadd / vsub, the dest
+// fields d1::vsel, vmr32 a NEON lane rotation. The operand clamps the fast path keeps are kept (ps2VuOperand on vf4 and
+// vf0, and on both operands of the colour scale, a PS2_VMUL there): the same bits. The colour's scale operand is the
+// 128-bit GPR a1 after SET_GPR_U32 (d1GprVec: its upper doubleword the register's). FPU_C_OLT_S -> d1::lt, FPU_NEG_S ->
+// a negation. vf4-vf8, the condition bit and a1 only when a light was set (as the old body), f0 / v0 always.
+// fastnative off, or a negative light count: the old body (nothing written).
+namespace decomp_light
+{
+    D1_COUNTER(c_d2SetWork, "SetWorkFromGlobalLight");
+
+    struct D2SetWorkState
+    {
+        __m128 vf4, vf5, vf6, vf7, vf8;
+        __m128 r5; // the GPR a1 (128 bits)
+        float f0;
+        uint32_t v0, a1;
+        bool c, touched;
+    };
+
+    // vmr32: x <- y, y <- z, z <- w, w <- x.
+    inline __m128 d2LightMr32(__m128 v) { return vextq_f32(v, v, 1); }
+
+    void setWorkCore(const D1Spr &m, uint32_t work, __m128 vf0, D2SetWorkState &s)
+    {
+        const __m128 mx = d1::mask(1, 0, 0, 0), my = d1::mask(0, 1, 0, 0), mz = d1::mask(0, 0, 1, 0), mw = d1::mask(0, 0, 0, 1),
+                     mxyz = d1::mask(1, 1, 1, 0);
+        const __m128 n0 = ps2VuOperand(vf0);
+        uint32_t s0 = work + 0x240u;
+        for (int i = 0; i < 3; ++i, s0 += 0x40u)
+        {
+            // GetNextWorkLightClass (0x10f9270).
+            const int32_t count = static_cast<int32_t>(m.d1u32(work + 0x530u));
+            uint32_t light = 0u;
+            if (count < 3)
+            {
+                light = work + static_cast<uint32_t>(count) * 0x40u + 0x450u;
+                m.d1put32(work + static_cast<uint32_t>(count) * 4u + 0x534u, light);
+                m.d1put32(work + 0x530u, m.d1u32(work + 0x530u) + 1u);
+            }
+            s.v0 = light;
+            if (light == 0u)
+                continue;
+            s.touched = true;
+            m.d1put32(light + 0x30u, 2u);
+            s.v0 = m.d1u32(s0 + 0x2Cu) & 0x1000u;
+            if (s.v0 != 0u)
+                m.d1put32(light + 0x30u, 0x102u);
+            s.vf4 = m.d1q(s0);
+            const __m128 n4 = ps2VuOperand(s.vf4);
+            s.vf5 = d1::vmul(n4, n4);
+            const __m128 n6 = d2LightMr32(n4);
+            s.vf6 = d2LightMr32(s.vf4);
+            s.vf7 = d1::vmul(n6, n4);
+            s.vf6 = d2LightMr32(s.vf6);
+            s.vf8 = d1::vmul(d2LightMr32(n6), n4);
+            s.vf6 = d1::vsel(s.vf6, d1::vsub(n0, d1::bc<0>(s.vf5)), mz);
+            s.vf6 = d1::vsel(s.vf6, d1::vsub(s.vf6, d1::bc<1>(s.vf5)), mz);
+            s.vf6 = d1::vsel(s.vf6, d1::vadd(s.vf7, d1::bc<3>(s.vf7)), my);
+            s.vf6 = d1::vsel(s.vf6, d1::vsub(s.vf8, d1::bc<1>(s.vf8)), mx);
+            s.vf6 = d1::vsel(s.vf6, d1::vsub(n0, n0), mw);
+            s.vf5 = d1::vsel(s.vf5, d1::vadd(n0, n0), mw);
+            s.vf6 = d1::vsel(s.vf6, d1::vmul(s.vf6, d1::bc<3>(s.vf5)), mxyz);
+            s.vf6 = d1::vsel(s.vf6, d1::vadd(s.vf6, d1::bc<3>(n0)), mz);
+            m.d1putq(light + 0x10u, s.vf6);
+            m.d1put32(light + 0x34u, 0u);
+            s.v0 = s0 + 0x10u;
+            s.f0 = m.d1f32(s0 + 0x24u);
+            s.a1 = d1LightFBits(s.f0);
+            s.r5 = d1GprVec(s.a1, s.r5);
+            s.vf5 = m.d1q(s0 + 0x10u);
+            s.vf6 = s.r5;
+            s.vf5 = d1::vsel(s.vf5, d1::vmul(ps2VuOperand(s.vf5), ps2VuOperand(d1::bc<0>(s.vf6))), mxyz);
+            m.d1putq(light + 0x20u, s.vf5);
+            s.f0 = m.d1f32(s0 + 0x28u);
+            s.c = d1::lt(s.f0, 0.0f);
+            if (s.c)
+                s.f0 = -s.f0;
+            m.d1putf(light + 0x38u, s.f0);
+        }
+    }
+
+    void setWorkFromGlobalLightD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2SetWork.n;
+        const uint32_t work = GPR_U32(ctx, 4);
+        if (!Mem::ok(work, 0x5C0u) || !sotc_decomp::fastNativeOn())
+            return setWorkFromGlobalLight(rdram, ctx, runtime);
+        const D1Spr m = d1Spr(rdram, runtime);
+        if (static_cast<int32_t>(m.d1u32(work + 0x530u)) < 0)
+            return setWorkFromGlobalLight(rdram, ctx, runtime);
+        D2SetWorkState s;
+        s.vf4 = ctx->vu0_vf[4], s.vf5 = ctx->vu0_vf[5], s.vf6 = ctx->vu0_vf[6], s.vf7 = ctx->vu0_vf[7], s.vf8 = ctx->vu0_vf[8];
+        s.r5 = _mm_castsi128_ps(ctx->r[5]);
+        s.f0 = ctx->f[0];
+        s.v0 = GPR_U32(ctx, 2);
+        s.a1 = GPR_U32(ctx, 5);
+        s.c = (ctx->fcr31 & 0x800000u) != 0u;
+        s.touched = false;
+        setWorkCore(m, work, ctx->vu0_vf[0], s);
+        if (s.touched)
+        {
+            SET_GPR_U32(ctx, 5, s.a1);
+            ctx->vu0_vf[4] = s.vf4;
+            ctx->vu0_vf[5] = s.vf5;
+            ctx->vu0_vf[6] = s.vf6;
+            ctx->vu0_vf[7] = s.vf7;
+            ctx->vu0_vf[8] = s.vf8;
+            cond(ctx, s.c);
+        }
+        ctx->f[0] = s.f0;
+        SET_GPR_U32(ctx, 2, s.v0);
+        returnTo(ctx);
+    }
+
+    void setWorkFromGlobalLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            setWorkFromGlobalLightD1(rdram, ctx, runtime);
+        else
+            setWorkFromGlobalLight(rdram, ctx, runtime);
     }
 }

@@ -10,6 +10,7 @@
 // x word. SOTC_RND139_CHECK=1: every call also runs the recompiled code on a copy of the context
 // and compares R, vf5, a3, f0 ([rnd139] lines).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -82,4 +83,65 @@ namespace decomp_r139
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x001BE7E8u, iosGetRandom, decomp_r139::getRandom);
+namespace decomp_r139
+{
+    void getRandomSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001BE7E8u, iosGetRandom, decomp_r139::getRandomSw);
+D1_ALIAS(0x001BE7E8u, iosGetRandom, decomp_r139::getRandomSw, decomp_r139::getRandom);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): iosGetRandom as a typed core ------------------------------------------------
+// The 23-bit generator stepped on a host word (vrnext x7, vrinit from the last R, vrnext x7) and the float in [1, 2)
+// minus 1 (exact) in the core; the adapter reads R once and writes R (four lanes), vf5.x (y / z / w kept), a3 (vf5's
+// 128 bits) and f0. rnd139 off or SOTC_RND139_CHECK set (or not read yet): the old body.
+namespace decomp_r139
+{
+    D1_COUNTER(c_d1GetRandom, "iosGetRandom");
+
+    PS2_FORCE_INLINE uint32_t d1Rnext(uint32_t r) { return (((r << 1) ^ ((r >> 4) & 1u) ^ ((r >> 22) & 1u)) & 0x007FFFFFu) | 0x3F800000u; }
+
+    struct RandomOut
+    {
+        uint32_t r;  // R's new word (every lane)
+        uint32_t xb; // vf5.x / f0: R's float - 1
+    };
+    // R in; the new R and the result's bits out.
+    PS2_FORCE_INLINE RandomOut getRandomCore(uint32_t r)
+    {
+        for (int i = 0; i < 7; ++i)
+            r = d1Rnext(r);
+        r = 0x3F800000u | (r & 0x007FFFFFu); // vrinit R, vf5x (the last vrnext's R)
+        for (int i = 0; i < 7; ++i)
+            r = d1Rnext(r);
+        float x;
+        std::memcpy(&x, &r, 4);
+        x -= 1.0f; // exact: x in [1, 2)
+        uint32_t xb;
+        std::memcpy(&xb, &x, 4);
+        return {r, xb};
+    }
+
+    void getRandomD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::rnd139On() || g_check != 0)
+            return getRandom(rdram, ctx, runtime);
+        ++c_d1GetRandom.n;
+        uint32_t r;
+        std::memcpy(&r, &ctx->vu0_r, 4);
+        const RandomOut o = getRandomCore(r);
+        const uint32_t lanes[4] = {o.r, o.r, o.r, o.r};
+        std::memcpy(&ctx->vu0_r, lanes, 16);
+        std::memcpy(&ctx->vu0_vf[5], &o.xb, 4);       // y / z / w kept
+        std::memcpy(&ctx->r[7], &ctx->vu0_vf[5], 16); // qmfc2 a3, vf5
+        std::memcpy(&ctx->f[0], &o.xb, 4);
+        returnTo(ctx);
+    }
+
+    void getRandomSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            getRandomD1(rdram, ctx, runtime);
+        else
+            getRandom(rdram, ctx, runtime);
+    }
+}

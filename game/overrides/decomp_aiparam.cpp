@@ -20,6 +20,7 @@
 // SOTC_MOTION=0 (round 41's switch) or SOTC_DECOMP_SKIP=AI_GetSmallAnimalAIParam:
 // the recompiled code.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -289,4 +290,234 @@ namespace decomp_aiparam
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x013D3AB8u, AI_GetSmallAnimalAIParam, decomp_aiparam::aiParam);
+namespace decomp_aiparam
+{
+    void aiParamSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x013D3AB8u, AI_GetSmallAnimalAIParam, decomp_aiparam::aiParamSw);
+D1_ALIAS(0x013D3AB8u, AI_GetSmallAnimalAIParam, decomp_aiparam::aiParamSw, decomp_aiparam::aiParam);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): AI_GetSmallAnimalAIParam as a typed core ------------------------------------
+// The old body's statements in order on a register-state struct (vf5-vf8, vf10-vf17, ACC, Q, status, f0 / f1, v0's 128
+// bits) the adapter loads at the entry and stores at the exit: PS2_VSUB / VMUL / VADD and ps2Vu*K -> d1::vsub / vmul /
+// vadd, blends -> d1::vsel, broadcasts -> d1::bc, vopmula's lane rotations as vector shuffles; VSQRT / VRSQRT kept as
+// ps2VuSqrt / ps2VuRsqrt (the status), FPU_SUB_S -> d1::sub. Operand clamps exactly where the old body has them (every
+// PS2_V* operand, the K<.., 0> ones; the record / positions / directions are loaded from RAM with lanes the caller may
+// not have set): the same bits. Memory through d1::Mem (the old body's rdram + (a & mask), qwords at & ~0xf).
+namespace decomp_aiparam
+{
+    D1_COUNTER(c_d1AiParam, "AI_GetSmallAnimalAIParam");
+
+    struct AiRegs
+    {
+        __m128 vf0, vf5, vf6, vf7, vf8, vf10, vf11, vf12, vf13, vf14, vf15, vf16, vf17, acc;
+        float q, f0, f1;
+        uint16_t status;
+        __m128 v0; // v0's 128 bits (the last qmfc2)
+        uint32_t v1, a0, a1;
+    };
+
+    PS2_FORCE_INLINE __m128 aiO(__m128 v) { return ps2VuOperand(v); } // a PS2_V* / K<0> operand clamp
+    PS2_FORCE_INLINE __m128 aiQ(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void aiPutQ(const d1::Mem m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+    PS2_FORCE_INLINE uint32_t aiBits(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+    // (y, z, x, w) and (z, x, y, w): vopmula's operand rotations.
+    PS2_FORCE_INLINE __m128 aiYzx(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, 1, 2, 0, 3);
+#else
+        return __builtin_shuffle(v, (int32x4_t){1, 2, 0, 3});
+#endif
+    }
+    PS2_FORCE_INLINE __m128 aiZxy(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, 2, 0, 1, 3);
+#else
+        return __builtin_shuffle(v, (int32x4_t){2, 0, 1, 3});
+#endif
+    }
+    // vmulax.w / vmadday.w / vmaddz.w: the squared length's x + y + z into dst.w (ACC.w on the way).
+    PS2_FORCE_INLINE void aiSumW(AiRegs &s, __m128 &dst)
+    {
+        const __m128 w = d1::mask(0, 0, 0, 1);
+        s.acc = d1::vsel(s.acc, d1::vmul(s.vf0, d1::bc<0>(s.vf7)), w);
+        s.acc = d1::vsel(s.acc, d1::vadd(s.acc, d1::vmul(s.vf0, d1::bc<1>(s.vf7))), w);
+        dst = d1::vsel(dst, d1::vadd(s.acc, d1::vmul(s.vf0, d1::bc<2>(s.vf7))), w);
+    }
+    // vaddw.x vf7, vf0, vf0w; vmul.xyz vf6, vf5, vf6; vaddax.x / vmadday.x / vmaddz.x: dot(vf5, vf6) into vf6.x.
+    PS2_FORCE_INLINE void aiDotX(AiRegs &s)
+    {
+        const __m128 x = d1::mask(1, 0, 0, 0);
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf0, d1::bc<3>(s.vf0)), x);
+        s.vf6 = d1::vsel(s.vf6, d1::vmul(aiO(s.vf5), aiO(s.vf6)), d1::mask(1, 1, 1, 0));
+        s.acc = d1::vsel(s.acc, d1::vadd(s.vf0, d1::bc<0>(s.vf6)), x);
+        s.acc = d1::vsel(s.acc, d1::vadd(s.acc, d1::vmul(s.vf7, d1::bc<1>(s.vf6))), x);
+        s.vf6 = d1::vsel(s.vf6, d1::vadd(s.acc, d1::vmul(s.vf7, d1::bc<2>(s.vf6))), x);
+    }
+
+    // a0 the record, a1 the position, a2 the target, a3 the quaternion, t0 / t1 the two directions.
+    void aiParamCore(const d1::Mem m, AiRegs &s, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t t0, uint32_t t1)
+    {
+        const __m128 xyz = d1::mask(1, 1, 1, 0);
+        uint32_t R4 = a0, R5 = a1;
+        // The position into the record; |pos - target| (xyz) at +0x40.
+        aiPutQ(m, R4, aiQ(m, R5));
+        s.vf5 = aiQ(m, R4);
+        s.vf6 = aiQ(m, a2);
+        s.vf7 = d1::vsub(aiO(s.vf5), aiO(s.vf6));
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(s.vf7, s.vf7), xyz);
+        aiSumW(s, s.vf7);
+        s.q = ps2VuSqrt(s.status, d1::lane<3>(s.vf7));
+        s.f0 = s.q;
+        m.set<uint32_t>(R4 + 0x40u, aiBits(s.f0));
+        // The horizontal distance (xz) at +0x44.
+        s.vf5 = aiQ(m, R4);
+        s.vf6 = aiQ(m, a2);
+        s.vf7 = d1::vsub(aiO(s.vf5), aiO(s.vf6));
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(s.vf7, s.vf7), d1::mask(1, 0, 1, 0));
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<2>(s.vf7)), d1::mask(1, 0, 0, 0));
+        s.q = ps2VuSqrt(s.status, d1::lane<0>(s.vf7));
+        s.f1 = s.q;
+        m.set<uint32_t>(R4 + 0x44u, aiBits(s.f1));
+        // target.y - pos.y at +0x48.
+        R5 = R4 + 0x20u;
+        s.f1 = m.get<float>(R4 + 4u);
+        s.f0 = m.get<float>(a2 + 4u);
+        s.f0 = d1::sub(s.f0, s.f1);
+        m.set<uint32_t>(R4 + 0x48u, aiBits(s.f0));
+        // pos - target at +0x20, the same with y = 0 at +0x30.
+        s.vf5 = aiQ(m, R4);
+        s.vf6 = aiQ(m, a2);
+        s.vf5 = d1::vsel(s.vf5, d1::vsub(aiO(s.vf5), aiO(s.vf6)), xyz);
+        aiPutQ(m, R5, s.vf5);
+        aiPutQ(m, R4 + 0x30u, aiQ(m, R5));
+        m.set<uint32_t>(R4 + 0x34u, 0u);
+        // +0x20 normalised.
+        s.vf5 = aiQ(m, R5);
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(aiO(s.vf5), aiO(s.vf5)), xyz);
+        aiSumW(s, s.vf7);
+        s.q = ps2VuRsqrt(s.status, d1::lane<3>(s.vf0), d1::lane<3>(s.vf7));
+        s.vf5 = d1::vsel(s.vf5, d1::vmul(aiO(s.vf5), aiO(d1::splat(s.q))), xyz);
+        aiPutQ(m, R5, s.vf5);
+        // +0x30 normalised.
+        const uint32_t R3 = R4 + 0x30u;
+        s.vf5 = aiQ(m, R3);
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(aiO(s.vf5), aiO(s.vf5)), xyz);
+        aiSumW(s, s.vf7);
+        s.q = ps2VuRsqrt(s.status, d1::lane<3>(s.vf0), d1::lane<3>(s.vf7));
+        s.vf5 = d1::vsel(s.vf5, d1::vmul(aiO(s.vf5), aiO(d1::splat(s.q))), xyz);
+        aiPutQ(m, R3, s.vf5);
+        // dot(t0, +0x20) at +0x4c, dot(t1, +0x30) at +0x50.
+        s.vf5 = aiQ(m, t0);
+        s.vf6 = aiQ(m, R5);
+        aiDotX(s);
+        s.v0 = s.vf6;
+        s.f0 = d1::lane<0>(s.vf6);
+        m.set<uint32_t>(R4 + 0x4Cu, aiBits(s.f0));
+        s.vf5 = aiQ(m, t1);
+        s.vf6 = aiQ(m, R3);
+        aiDotX(s);
+        s.v0 = s.vf6;
+        s.f1 = d1::lane<0>(s.vf6);
+        m.set<uint32_t>(R4 + 0x50u, aiBits(s.f1));
+        // +0x20 rotated by the quaternion's rows into +0x10.
+        R4 = R4 + 0x10u;
+        s.vf8 = aiQ(m, R5);
+        s.vf12 = d1::vsel(s.vf12, d1::vadd(s.vf0, d1::bc<3>(s.vf0)), xyz);
+        s.vf11 = aiQ(m, a3);
+        const __m128 w = d1::mask(0, 0, 0, 1);
+        s.vf14 = d1::vsel(s.vf14, d1::bc<0>(s.vf0), w); // vmr32.w: vf0.x
+        s.vf15 = d1::vsel(s.vf15, d1::bc<0>(s.vf0), w);
+        s.vf16 = d1::vsel(s.vf16, d1::bc<0>(s.vf0), w);
+        s.acc = d1::vsel(s.acc, d1::vmul(aiO(aiYzx(s.vf11)), aiO(aiZxy(s.vf12))), xyz);
+        s.vf11 = d1::vsel(s.vf11, d1::vadd(s.acc, d1::vmul(s.vf0, s.vf0)), xyz);
+        s.vf10 = d1::vsel(s.vf10, d1::vadd(s.acc, d1::vmul(s.vf11, aiO(s.vf12))), xyz);
+        s.vf13 = d1::vsel(s.vf13, d1::vmul(s.vf11, s.vf10), xyz);
+        s.acc = d1::vsel(s.acc, d1::vmul(aiYzx(s.vf11), aiZxy(s.vf10)), xyz);
+        s.vf15 = d1::vsel(s.vf15, d1::vadd(s.acc, d1::vmul(s.vf10, aiO(d1::bc<3>(s.vf11)))), xyz);
+        s.vf16 = d1::vsel(s.vf16, d1::vsub(s.acc, d1::vmul(s.vf10, aiO(d1::bc<3>(s.vf11)))), xyz);
+        s.acc = d1::vsel(s.acc, d1::vmul(aiYzx(s.vf13), aiO(aiZxy(s.vf12))), xyz);
+        s.vf17 = d1::vsel(s.vf17, d1::vadd(s.acc, d1::vmul(s.vf13, aiO(s.vf12))), xyz);
+        s.acc = d1::vsel(s.acc, d1::vmul(aiYzx(s.vf15), aiO(aiZxy(s.vf12))), xyz);
+        s.vf15 = d1::vsel(s.vf15, d1::vadd(s.acc, d1::vmul(s.vf0, s.vf0)), xyz);
+        s.vf14 = d1::vsel(s.vf14, d1::vsub(aiO(s.vf12), s.vf17), xyz);
+        s.vf17 = d1::vsel(s.vf17, s.vf14, d1::mask(0, 1, 1, 0));
+        const __m128 y = d1::mask(0, 1, 0, 0), z = d1::mask(0, 0, 1, 0);
+        s.vf14 = d1::vsel(s.vf14, s.vf16, y);
+        s.vf16 = d1::vsel(s.vf16, s.vf15, y);
+        s.vf15 = d1::vsel(s.vf15, s.vf17, y);
+        s.vf14 = d1::vsel(s.vf14, s.vf15, z);
+        s.vf15 = d1::vsel(s.vf15, s.vf16, z);
+        s.vf16 = d1::vsel(s.vf16, s.vf17, z);
+        s.acc = d1::vmul(s.vf14, aiO(d1::bc<0>(s.vf8)));
+        s.acc = d1::vadd(s.acc, d1::vmul(s.vf15, aiO(d1::bc<1>(s.vf8))));
+        s.acc = d1::vadd(s.acc, d1::vmul(s.vf16, aiO(d1::bc<2>(s.vf8))));
+        s.vf10 = d1::vadd(s.acc, d1::vmul(s.vf0, aiO(d1::bc<3>(s.vf8))));
+        aiPutQ(m, R4, s.vf10);
+        s.v1 = R3;
+        s.a0 = R4;
+        s.a1 = R5;
+    }
+
+    void aiParamD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::motionOn())
+            return aiParam(rdram, ctx, runtime);
+        ++c_d1AiParam.n;
+        AiRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf11 = ctx->vu0_vf[11];
+        s.vf12 = ctx->vu0_vf[12];
+        s.vf13 = ctx->vu0_vf[13];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.vf16 = ctx->vu0_vf[16];
+        s.vf17 = ctx->vu0_vf[17];
+        s.acc = ctx->vu0_acc;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        aiParamCore(d1::Mem{rdram}, s, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), GPR_U32(ctx, 8), GPR_U32(ctx, 9));
+        std::memcpy(&ctx->r[2], &s.v0, 16); // qmfc2 v0, vf6
+        SET_GPR_U32(ctx, 3, s.v1);
+        SET_GPR_U32(ctx, 4, s.a0);
+        SET_GPR_U32(ctx, 5, s.a1);
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[11] = s.vf11;
+        ctx->vu0_vf[12] = s.vf12;
+        ctx->vu0_vf[13] = s.vf13;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void aiParamSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            aiParamD1(rdram, ctx, runtime);
+        else
+            aiParam(rdram, ctx, runtime);
+    }
+}

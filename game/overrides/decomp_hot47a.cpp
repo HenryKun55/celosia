@@ -826,6 +826,392 @@ namespace decomp_hot47a
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010BC2F8u, manager_sub_010BC2F8, decomp_hot47a::rootNodes);
-SOTC_DECOMP_FUNCTION(0x010BC718u, manager_sub_010BC718, decomp_hot47a::childNodes);
+#include "d1_native.h"
+namespace decomp_hot47a
+{
+    // Round D2 (d1native): the dispatchers (the D2 bodies at the end of this file).
+    void rootNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void childNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
+SOTC_DECOMP_FUNCTION(0x010BC2F8u, manager_sub_010BC2F8, decomp_hot47a::rootNodesSw);
+D1_ALIAS(0x010BC2F8u, manager_sub_010BC2F8, decomp_hot47a::rootNodesSw, decomp_hot47a::rootNodes);
+SOTC_DECOMP_FUNCTION(0x010BC718u, manager_sub_010BC718, decomp_hot47a::childNodesSw);
+D1_ALIAS(0x010BC718u, manager_sub_010BC718, decomp_hot47a::childNodesSw, decomp_hot47a::childNodes);
 SOTC_DECOMP_FUNCTION(0x010BC900u, manager_sub_010BC900, decomp_hot47a::geometryStep);
+
+// ---- Round D2 (switch d1native, d1_native.h): the root / child option nodes' passes as native C++ (full) ----------------
+// Both passes call only GetMotionOptionNodeParentId and GetCharacterClassOptionNodeLocalQuaternionPos (guest calls in the
+// old bodies, through the table). With ctl126 off (the default) those slots run D5's lifted copies' typed leaves (rounds
+// A3 / A4): here they are typed reads in the cores (calls direct 2), and the adapters gate on exactly that state (the
+// slots hold cam126's entries or their D2 dispatchers, the recompiled slots the lifted copies, a3typed / a4typed on);
+// anything else runs the old body. The frame's scratch (the local quaternion / position, the parents' frames, the
+// turned and previous quaternions) are C++ locals; the saves of the callee-saved registers are not made (the frame is
+// below the final sp; the registers end with their entry values as after the old epilogue). The VU0 blocks as d1 vec4
+// ops on a local register file (loaded from the context at the entry, written back at the exit: the lanes the blocks
+// keep stay the caller's), the operand clamps of the old PS2_VMUL / VADD / VSUB kept (d2c: the local positions' w lanes
+// are read, and a lane the game may not have written is not finite data); VU0 Q / status by ps2VuRsqrt as before. v0 /
+// v1 (all 128 bits), f0 / f1 and the FPU condition as the old body and its callees leave them; the other scratch GPRs
+// (a0-t1) are not reproduced (no caller reads them; the difftest does not compare them).
+namespace lift_d1
+{
+    void GetMotionOptionNodeParentId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetCharacterClassOptionNodeLocalQuaternionPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace cam126
+{
+    void parentIdEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void localQPEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void parentIdSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void localQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+extern bool g_a3Typed;
+extern bool g_a4Typed;
+
+namespace decomp_hot47a
+{
+    D1_COUNTER(c_d2RootNodes, "manager_sub_010BC2F8");
+    D1_COUNTER(c_d2ChildNodes, "manager_sub_010BC718");
+
+#if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && !PS2X_A3_CHECK && !PS2X_A4_CHECK
+    constexpr bool kD2TypedLeaves = true;
+#else
+    constexpr bool kD2TypedLeaves = false;
+#endif
+
+    // The local VU0 register file the blocks work on (vf0 is d1::vf0()), and the GPR / FPU registers the passes leave.
+    struct D2Vu
+    {
+        __m128 vf[19];
+        __m128 acc;
+        float q;
+        uint16_t status;
+    };
+    struct D2Regs
+    {
+        uint8_t r2[16], r3[16]; // v0 / v1, all 128 bits
+        float f0, f1;
+        bool c; // the FPU condition bit
+    };
+
+    // A VU0 macro op's operand clamp (ps2VuOperand on the Vita), kept: d2mul / d2add / d2sub are PS2_VMUL / VADD / VSUB.
+    PS2_FORCE_INLINE __m128 d2c(__m128 v) { return ps2VuClampNF(v); }
+    PS2_FORCE_INLINE __m128 d2mul(__m128 a, __m128 b) { return d1::vmul(d2c(a), d2c(b)); }
+    PS2_FORCE_INLINE __m128 d2add(__m128 a, __m128 b) { return d1::vadd(d2c(a), d2c(b)); }
+    PS2_FORCE_INLINE __m128 d2sub(__m128 a, __m128 b) { return d1::vsub(d2c(a), d2c(b)); }
+    template <int A, int B, int C, int D>
+    PS2_FORCE_INLINE __m128 d2perm(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+        typedef int d2v4i __attribute__((vector_size(16)));
+        return __builtin_shuffle(v, d2v4i{A, B, C, D});
+#endif
+    }
+    PS2_FORCE_INLINE __m128 d2yzx(__m128 v) { return d2perm<1, 2, 0, 3>(v); }
+    PS2_FORCE_INLINE __m128 d2zxy(__m128 v) { return d2perm<2, 0, 1, 3>(v); }
+    PS2_FORCE_INLINE __m128 d2q(const d1::Mem &m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void d2putq(const d1::Mem &m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+
+    // GetMotionOptionNodeParentId's typed leaf: the node table's (*(nodes + 0x24) + index * 64) +0x30 word.
+    PS2_FORCE_INLINE uint32_t d2ParentId(const d1::Mem &m, uint32_t nodes, uint32_t index) { return m.u32(m.u32(nodes + 0x24u) + (index << 6) + 0x30u); }
+    // GetCharacterClassOptionNodeLocalQuaternionPos's typed leaf: the node's local position / quaternion qwords; v1's
+    // upper half becomes the quaternion's (the leaf's adapter keeps v1's lower half).
+    PS2_FORCE_INLINE void d2LocalQP(const d1::Mem &m, D2Regs &g, uint32_t cls, uint32_t node, __m128 &pos, __m128 &rot)
+    {
+        const uint32_t t1 = node << 4;
+        pos = d2q(m, t1 + m.u32(cls + 0x2F0u));
+        rot = d2q(m, t1 + m.u32(cls + 0x2ECu));
+        std::memcpy(g.r3 + 8, reinterpret_cast<const uint8_t *>(&rot) + 8, 8);
+    }
+
+    // The quaternion a x b (vf11 / vf12; the product in vf13; vf14 / vf15 / vf16 / ACC xyz as the block leaves them).
+    PS2_FORCE_INLINE __m128 d2QuatMul(D2Vu &u, __m128 a, __m128 b)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1), mXyz = d1::mask(1, 1, 1, 0);
+        __m128 *const vf = u.vf;
+        vf[11] = a;
+        vf[12] = b;
+        vf[13] = d2mul(vf[11], vf[12]);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], d1::bc<1>(vf[13])), mX);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], d1::bc<2>(vf[13])), mX);
+        vf[13] = d1::vsel(vf[13], d2sub(vf[13], d1::bc<0>(vf[13])), mW);
+        vf[14] = d1::vsel(vf[14], d2mul(vf[12], d1::bc<3>(vf[11])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2mul(vf[11], d1::bc<3>(vf[12])), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[12]), d2zxy(vf[11])), mXyz);
+        vf[16] = d1::vsel(vf[16], d2sub(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[12]))), mXyz);
+        vf[13] = d1::vsel(vf[13], d2add(vf[14], vf[15]), mXyz);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], vf[16]), mXyz);
+        return vf[13];
+    }
+    // The quaternion q's rotation rows in vf14..vf16 (vf12 = (1, 1, 1), vf11 = q; 0x10bc7f8-0x10bc854).
+    PS2_FORCE_INLINE void d2QuatRows(D2Vu &u, __m128 q)
+    {
+        const __m128 z = d1::vf0();
+        const __m128 mXyz = d1::mask(1, 1, 1, 0), mW = d1::mask(0, 0, 0, 1), mY = d1::mask(0, 1, 0, 0), mZ = d1::mask(0, 0, 1, 0);
+        __m128 *const vf = u.vf;
+        vf[12] = d1::vsel(vf[12], d2add(z, d1::bc<3>(z)), mXyz);
+        vf[11] = q;
+        const __m128 w0 = d2perm<1, 2, 3, 0>(z); // vmr32: (0, 0, 1, 0), its w to the rows' w
+        vf[14] = d1::vsel(vf[14], w0, mW);
+        vf[15] = d1::vsel(vf[15], w0, mW);
+        vf[16] = d1::vsel(vf[16], w0, mW);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[12])), mXyz);
+        vf[11] = d1::vsel(vf[11], d2add(u.acc, d2mul(z, z)), mXyz);
+        vf[10] = d1::vsel(vf[10], d2add(u.acc, d2mul(vf[11], vf[12])), mXyz);
+        vf[13] = d1::vsel(vf[13], d2mul(vf[11], vf[10]), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[10])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2add(u.acc, d2mul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+        vf[16] = d1::vsel(vf[16], d2sub(u.acc, d2mul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[13]), d2zxy(vf[12])), mXyz);
+        vf[17] = d1::vsel(vf[17], d2add(u.acc, d2mul(vf[13], vf[12])), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[15]), d2zxy(vf[12])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2add(u.acc, d2mul(z, z)), mXyz);
+        vf[14] = d1::vsel(vf[14], d2sub(vf[12], vf[17]), mXyz);
+        vf[17] = d1::vsel(vf[17], vf[14], d1::mask(0, 1, 1, 0));
+        vf[14] = d1::vsel(vf[14], vf[16], mY);
+        vf[16] = d1::vsel(vf[16], vf[15], mY);
+        vf[15] = d1::vsel(vf[15], vf[17], mY);
+        vf[14] = d1::vsel(vf[14], vf[15], mZ);
+        vf[15] = d1::vsel(vf[15], vf[16], mZ);
+        vf[16] = d1::vsel(vf[16], vf[17], mZ);
+    }
+    // ACC = vf14 vf8x + vf15 vf8y + vf16 vf8z; vf10 = ACC + vf<t> vf8w.
+    PS2_FORCE_INLINE void d2RowsApply(D2Vu &u, int t)
+    {
+        __m128 *const vf = u.vf;
+        u.acc = d2mul(vf[14], d1::bc<0>(vf[8]));
+        u.acc = d2add(u.acc, d2mul(vf[15], d1::bc<1>(vf[8])));
+        u.acc = d2add(u.acc, d2mul(vf[16], d1::bc<2>(vf[8])));
+        vf[10] = d2add(u.acc, d2mul(vf[t], d1::bc<3>(vf[8])));
+    }
+
+    // ---- manager_sub_010BC718: the child option nodes' positions ----------------------------------------------------
+    void childNodesD2Core(const d1::Mem &m, uint32_t cls, D2Vu &u, D2Regs &g)
+    {
+        __m128 *const vf = u.vf;
+        const uint32_t nodes = m.u32(cls + 0x358u);
+        int32_t count = 0;
+        if (nodes != 0u)
+        {
+            count = m.s32(nodes + 0x20u);
+            const uint64_t v0 = static_cast<uint64_t>(static_cast<int64_t>(count));
+            std::memcpy(g.r2, &v0, 8);
+        }
+        if (count <= 0)
+            return;
+        for (uint32_t node = 0;;)
+        {
+            if (static_cast<int32_t>(d2ParentId(m, nodes, node)) >= 0)
+            {
+                uint32_t parent = d2ParentId(m, nodes, node); // (the old body asks twice)
+                __m128 pos, rot;
+                d2LocalQP(m, g, cls, node, pos, rot); // (rot: the frame's +0x10, not read)
+                // Up through the parents flagged 0x10000 (an option node's id): pos = R(its quaternion) pos + its position.
+                while (static_cast<int32_t>(parent) > 0 && (parent & 0x10000u) != 0u)
+                {
+                    parent &= 0xFFFEFFFFu;
+                    __m128 ppos, prot;
+                    d2LocalQP(m, g, cls, parent, ppos, prot);
+                    vf[8] = pos;
+                    vf[18] = d1::vsel(ppos, d1::vf0(), d1::mask(0, 0, 0, 1));
+                    d2QuatRows(u, prot);
+                    d2RowsApply(u, 18);
+                    pos = vf[10];
+                    parent = d2ParentId(m, nodes, parent);
+                }
+                // Through the bone's matrix into the position array.
+                const uint32_t dst = (node << 4) + m.u32(cls + 0x34Cu);
+                const uint32_t mat = (parent << 6) + m.u32(cls + 0x15Cu);
+                vf[8] = pos;
+                vf[14] = d2q(m, mat + 0x00u);
+                vf[15] = d2q(m, mat + 0x10u);
+                vf[16] = d2q(m, mat + 0x20u);
+                vf[17] = d2q(m, mat + 0x30u);
+                d2RowsApply(u, 17);
+                d2putq(m, dst, vf[10]);
+            }
+            ++node;
+            if (!(static_cast<int32_t>(node) < count))
+                break;
+        }
+        const uint64_t zero = 0u; // v0: the loop test's 0
+        std::memcpy(g.r2, &zero, 8);
+    }
+
+    // ---- manager_sub_010BC2F8: the root option nodes' pose ----------------------------------------------------------
+    void rootNodesD2Core(const d1::Mem &m, uint32_t cls, D2Vu &u, D2Regs &g)
+    {
+        __m128 *const vf = u.vf;
+        const uint32_t nodes = m.u32(cls + 0x358u);
+        const int32_t count = nodes != 0u ? m.s32(nodes + 0x20u) : 0;
+        if (count <= 0)
+            return;
+        const __m128 mXyz = d1::mask(1, 1, 1, 0), mW = d1::mask(0, 0, 0, 1), mX = d1::mask(1, 0, 0, 0), all = d1::mask(1, 1, 1, 1);
+        for (int32_t i = 0;;)
+        {
+            if (static_cast<int32_t>(d2ParentId(m, nodes, static_cast<uint32_t>(i))) < 0)
+            {
+                // A root node: its local quaternion and position, the quaternion turned by the class's (+0x80).
+                __m128 lpos, lrot;
+                d2LocalQP(m, g, cls, static_cast<uint32_t>(i), lpos, lrot);
+                const __m128 turned = d2QuatMul(u, d2q(m, cls + 0x80u), lrot);
+                const float blend = m.f32(cls + 0x724u);
+                g.f0 = blend;
+                const uint32_t ofs = static_cast<uint32_t>(i) << 4;
+                const uint32_t pos = m.u32(cls + 0x34Cu) + ofs;
+                const uint32_t quat = m.u32(cls + 0x2E4u) + ofs;
+                g.c = d1::lt(blend, 1.0f);
+                std::memcpy(g.r2, &lpos, 16); // (v0 = the local position, copied to the frame)
+                if (!g.c)
+                {
+                    // Not blended: stored as they are.
+                    std::memcpy(g.r2, &turned, 16);
+                    d2putq(m, quat, turned);
+                    std::memcpy(g.r3, &lpos, 16);
+                    d2putq(m, pos, lpos);
+                }
+                else
+                {
+                    // The previous quaternion, flipped when its dot with the new one is negative.
+                    __m128 prev = d2q(m, quat);
+                    std::memcpy(g.r3, &prev, 16);
+                    vf[14] = turned;
+                    vf[15] = d2mul(vf[14], prev);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<1>(vf[15])), mX);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<2>(vf[15])), mX);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<3>(vf[15])), mX);
+                    std::memcpy(g.r2, &vf[15], 16);
+                    int32_t dotBits;
+                    std::memcpy(&dotBits, &vf[15], 4);
+                    std::memcpy(&g.f1, &vf[15], 4);
+                    const uint64_t v0 = static_cast<uint64_t>(static_cast<int64_t>(dotBits));
+                    std::memcpy(g.r2, &v0, 8);
+                    if (dotBits < 0)
+                    {
+                        vf[5] = prev;
+                        vf[6] = d1::make(-1.0f, 0.0f, 0.0f, 0.0f); // (s5's -1.0 bits; only its x is read: the register is reloaded below)
+                        vf[5] = d2mul(vf[5], d1::bc<0>(vf[6]));
+                        prev = vf[5];
+                    }
+                    // quat = new x f0 + prev x (1 - f0), normalised. vf7 = t0's 128 bits: f0's bits sign-extended, the
+                    // upper half the local position's (the leaf's t0).
+                    int32_t fb;
+                    std::memcpy(&fb, &blend, 4);
+                    __m128 t0v = lpos;
+                    const int64_t t0lo = fb;
+                    std::memcpy(&t0v, &t0lo, 8);
+                    vf[7] = t0v;
+                    vf[5] = turned;
+                    vf[6] = prev;
+                    vf[8] = d1::vsel(vf[8], d2sub(d1::vf0(), d1::bc<0>(vf[7])), mW);
+                    u.acc = d2mul(vf[5], d1::bc<0>(vf[7]));
+                    vf[9] = d2add(u.acc, d2mul(vf[6], d1::bc<3>(vf[8])));
+                    d2putq(m, quat, vf[9]);
+                    vf[14] = d2q(m, quat);
+                    vf[15] = d1::vsel(vf[15], d2mul(vf[14], vf[14]), all);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<1>(vf[15])), mX);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<2>(vf[15])), mX);
+                    vf[15] = d1::vsel(vf[15], d2add(vf[15], d1::bc<3>(vf[15])), mX);
+                    u.q = ps2VuRsqrt(u.status, 1.0f, d1::lane<0>(vf[15]));
+                    vf[15] = d2mul(vf[14], d1::splat(u.q));
+                    d2putq(m, quat, vf[15]);
+                    // pos.xyz = new x f0 + old x (1 - f0).
+                    vf[7] = t0v;
+                    vf[5] = lpos;
+                    vf[6] = d2q(m, pos);
+                    vf[8] = d1::vsel(vf[8], d2sub(d1::vf0(), d1::bc<0>(vf[7])), mW);
+                    u.acc = d1::vsel(u.acc, d2mul(vf[5], d1::bc<0>(vf[7])), mXyz);
+                    vf[5] = d1::vsel(vf[5], d2add(u.acc, d2mul(vf[6], d1::bc<3>(vf[8]))), mXyz);
+                    d2putq(m, pos, vf[5]);
+                }
+            }
+            ++i;
+            if (!(i < count))
+                break;
+        }
+        const uint64_t zero = 0u; // v0: the loop test's 0
+        std::memcpy(g.r2, &zero, 8);
+    }
+
+    // The state the cores stand for: hotlist47 on, ctl126 off, the two callees' slots holding cam126's entries (or their
+    // D2 dispatchers) whose recompiled functions are the lifted copies running their typed leaves.
+    inline bool d2PassesOn(PS2Runtime *runtime)
+    {
+        if (!kD2TypedLeaves || !sotc_decomp::hotList47On() || sotc_decomp::switchOn(sotc_decomp::kCtl126) || !g_a3Typed || !g_a4Typed)
+            return false;
+        const auto p = sotc_decomp::guestFunction(runtime, kParentId), l = sotc_decomp::guestFunction(runtime, kLocalQuatPos);
+        if ((p != &cam126::parentIdEntry && p != &cam126::parentIdSw) || (l != &cam126::localQPEntry && l != &cam126::localQPSw))
+            return false;
+        return sotc_decomp::recompiled(kParentId) == &lift_d1::GetMotionOptionNodeParentId &&
+               sotc_decomp::recompiled(kLocalQuatPos) == &lift_d1::GetCharacterClassOptionNodeLocalQuaternionPos;
+    }
+    inline void d2Load(const R5900Context *ctx, D2Vu &u, D2Regs &g)
+    {
+        for (int i = 5; i <= 18; ++i)
+            u.vf[i] = ctx->vu0_vf[i];
+        u.acc = ctx->vu0_acc;
+        u.q = ctx->vu0_q;
+        u.status = ctx->vu0_status;
+        std::memcpy(g.r2, &ctx->r[2], 16);
+        std::memcpy(g.r3, &ctx->r[3], 16);
+        g.f0 = ctx->f[0];
+        g.f1 = ctx->f[1];
+        g.c = (ctx->fcr31 & 0x800000u) != 0u;
+    }
+    inline void d2Store(R5900Context *ctx, const D2Vu &u, const D2Regs &g)
+    {
+        for (int i = 5; i <= 18; ++i)
+            ctx->vu0_vf[i] = u.vf[i];
+        ctx->vu0_acc = u.acc;
+        ctx->vu0_q = u.q;
+        ctx->vu0_status = u.status;
+        std::memcpy(&ctx->r[2], g.r2, 16);
+        std::memcpy(&ctx->r[3], g.r3, 16);
+        ctx->f[0] = g.f0;
+        ctx->f[1] = g.f1;
+        ctx->fcr31 = g.c ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+    }
+
+    void childNodesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t cls = GPR_U32(ctx, 4);
+        if (!d2PassesOn(runtime) || cls - 0x10000u >= 0x1FE0000u)
+            return childNodes(rdram, ctx, runtime);
+        ++c_d2ChildNodes.n;
+        D2Vu u;
+        D2Regs g;
+        d2Load(ctx, u, g);
+        childNodesD2Core(d1::Mem{rdram}, cls, u, g);
+        d2Store(ctx, u, g);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void childNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            childNodesD1(rdram, ctx, runtime);
+        else
+            childNodes(rdram, ctx, runtime);
+    }
+    void rootNodesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t cls = GPR_U32(ctx, 4);
+        if (!d2PassesOn(runtime) || cls - 0x10000u >= 0x1FE0000u)
+            return rootNodes(rdram, ctx, runtime);
+        ++c_d2RootNodes.n;
+        D2Vu u;
+        D2Regs g;
+        d2Load(ctx, u, g);
+        rootNodesD2Core(d1::Mem{rdram}, cls, u, g);
+        d2Store(ctx, u, g);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void rootNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rootNodesD1(rdram, ctx, runtime);
+        else
+            rootNodes(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot47a

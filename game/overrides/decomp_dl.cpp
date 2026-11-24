@@ -23,6 +23,7 @@
 // the native one instead.
 #include "sotc_decomp.h"
 #include "r1sort.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -403,5 +404,268 @@ namespace decomp_dl
 SOTC_DECOMP_FUNCTION(0x001C0198u, iosDlGetLayer, decomp_dl::getLayer);
 SOTC_DECOMP_FUNCTION(0x01114B50u, transMicroCode, decomp_dl::transMicroCode);
 
-SOTC_DECOMP_AB_FUNCTION(0x0110DC20u, AddSortObj, decomp_dl::addSortObj);
-SOTC_DECOMP_AB_FUNCTION(0x001BFE88u, iosDlChainTailCurrent, decomp_dl::chainTail);
+namespace decomp_dl
+{
+    void addSortObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void chainTailSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_AB_FUNCTION(0x0110DC20u, AddSortObj, decomp_dl::addSortObjSw);
+D1_ALIAS(0x0110DC20u, AddSortObj, decomp_dl::addSortObjSw, decomp_dl::addSortObj);
+SOTC_DECOMP_AB_FUNCTION(0x001BFE88u, iosDlChainTailCurrent, decomp_dl::chainTailSw);
+D1_ALIAS(0x001BFE88u, iosDlChainTailCurrent, decomp_dl::chainTailSw, decomp_dl::chainTail);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): AddSortObj and iosDlChainTailCurrent as typed cores -------------------------
+// AddSortObj: the old body's reads, checks (before any store), compares and stores on d1::Mem; FPU_MUL_S -> d1::mul,
+// FPU_C_OLT_S -> d1::lt (the keys are finite game data), the conversion through the same ps2FpuConvertToWord; f0 / f1 /
+// f2, the condition bit and the GPRs the old body leaves written by the adapter from the core's result.
+// iosDlChainTailCurrent: the packet's stores, the two re-reads of the layer's tail and the tail's link on d1::Mem in the
+// old order; a layout where a store before a re-read could reach the word re-read (or an address outside main RAM) goes
+// to the old body before anything is written, so every re-read is in the range checked at the entry.
+// (transMicroCode calls iosDlChainTailCurrent through callNative(&chainTail): with d1native on the slot holds the
+// dispatcher, so that call takes callNative's table path: correct, a little slower.)
+namespace decomp_dl
+{
+    D1_COUNTER(c_d2AddSortObj, "AddSortObj");
+    D1_COUNTER(c_d2ChainTail, "iosDlChainTailCurrent");
+
+    inline bool d2Ok(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
+    inline bool d2Overlap(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a < b + bn && b < a + an; }
+
+    struct SortOut
+    {
+        enum Exit
+        {
+            kEmpty, // the bucket was empty
+            kPrev,  // dd14: first in the +8 direction
+            kHead,  // dc90: the bucket's new head
+            kMid    // dcc0: between node and its +0xc neighbour
+        } exit;
+        float key, f0;
+        int32_t word, mode;
+        bool cond;
+        uint32_t offset, buckets, slot, node, next, v0;
+    };
+
+    // False: an address the old body sends to the recompiled code (nothing written).
+    bool addSortCore(const d1::Mem m, uint32_t list, uint32_t obj, bool condIn, SortOut &o)
+    {
+        if (!d2Ok(list, 0x10u) || !d2Ok(obj, 0x10u) || (list & 3u) || (obj & 3u))
+            return false;
+        const float key = m.f32(obj + 4u);
+        const int32_t count = m.s32(list + 4u);
+        const float product = d1::mul(key, m.f32(list + 8u));
+        const int32_t word = ps2FpuConvertToWord(product);
+        int32_t index;
+        if (word < count)
+            index = word < 0 ? 0 : word;
+        else
+            index = count - 1;
+        const int32_t mode = m.s32(list + 0xCu);
+        if (mode == 1)
+            index = count - index - 1;
+        const uint32_t offset = static_cast<uint32_t>(index) << 2;
+        const uint32_t buckets = m.u32(list);
+        const uint32_t slot = offset + buckets;
+        if (!d2Ok(slot, 4u) || (slot & 3u))
+            return false;
+        o.key = key;
+        o.word = word;
+        o.mode = mode;
+        o.offset = offset;
+        o.buckets = buckets;
+        o.slot = slot;
+        const uint32_t head = m.u32(slot);
+        float f0 = product;
+        bool cond = condIn;
+        if (head == 0u)
+        {
+            m.set<uint32_t>(slot, obj);
+            m.set<uint32_t>(obj + 8u, 0u);
+            m.set<uint32_t>(obj + 0xCu, 0u);
+            o.exit = SortOut::kEmpty;
+            o.f0 = f0;
+            o.cond = cond;
+            return true;
+        }
+        uint32_t node = head, next = 0u;
+        bool toPrev = false;
+        for (uint32_t steps = 0;; ++steps)
+        {
+            if (!d2Ok(node, 0x10u) || (node & 3u) || steps > (1u << 20))
+                return false;
+            bool goPrev = false;
+            if (mode == 0)
+            {
+                f0 = m.f32(node + 4u);
+                cond = d1::lt(f0, key);
+                goPrev = cond;
+            }
+            if (!goPrev && mode == 1)
+            {
+                f0 = m.f32(node + 4u);
+                cond = d1::lt(key, f0);
+                goPrev = cond;
+            }
+            if (goPrev)
+            {
+                next = m.u32(node + 8u);
+                if (next != 0u)
+                {
+                    node = next;
+                    continue;
+                }
+                toPrev = true;
+            }
+            else
+                next = m.u32(node + 0xCu);
+            break;
+        }
+        o.f0 = f0;
+        o.cond = cond;
+        o.node = node;
+        o.next = next;
+        if (toPrev)
+        {
+            m.set<uint32_t>(obj + 8u, 0u);
+            m.set<uint32_t>(obj + 0xCu, node);
+            m.set<uint32_t>(node + 8u, obj);
+            o.exit = SortOut::kPrev;
+            return true;
+        }
+        if (next == 0u)
+        {
+            m.set<uint32_t>(slot, obj);
+            m.set<uint32_t>(obj + 0xCu, 0u);
+            m.set<uint32_t>(obj + 8u, node);
+            m.set<uint32_t>(node + 0xCu, obj);
+            o.exit = SortOut::kHead;
+            return true;
+        }
+        if (!d2Ok(next, 0x10u))
+            return false; // nothing written yet
+        m.set<uint32_t>(next + 8u, obj);
+        const uint32_t v0 = m.u32(node + 0xCu); // after that store, as the old body reads it
+        m.set<uint32_t>(obj + 8u, node);
+        m.set<uint32_t>(obj + 0xCu, v0);
+        m.set<uint32_t>(node + 0xCu, obj);
+        o.v0 = v0;
+        o.exit = SortOut::kMid;
+        return true;
+    }
+
+    void addSortObjD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2AddSortObj.n;
+        SortOut o;
+        if (!addSortCore(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), (ctx->fcr31 & 0x800000u) != 0u, o))
+            return addSortObj(rdram, ctx, runtime);
+        ctx->f[1] = o.key;
+        std::memcpy(&ctx->f[2], &o.word, 4);
+        ctx->f[0] = o.f0;
+        if (o.exit == SortOut::kEmpty)
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.offset));
+            SET_GPR_U64(ctx, 3, 0u);
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(o.buckets));
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.slot));
+            SET_GPR_S32(ctx, 8, o.mode);
+            return returnTo(ctx);
+        }
+        setCond(ctx, o.cond);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(o.buckets));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.node));
+        SET_GPR_S32(ctx, 7, o.mode);
+        SET_GPR_S32(ctx, 8, o.mode);
+        SET_GPR_U64(ctx, 9, 1u);
+        switch (o.exit)
+        {
+        case SortOut::kPrev:
+            SET_GPR_U64(ctx, 3, 0u);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.offset));
+            break;
+        case SortOut::kHead:
+            SET_GPR_U64(ctx, 3, 0u);
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.slot));
+            break;
+        default:
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.next));
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.v0));
+            break;
+        }
+        returnTo(ctx);
+    }
+
+    struct ChainOut
+    {
+        uint64_t v0, addr;
+        uint32_t tail, packet, record;
+    };
+
+    // tagHi: a0's low word (the DMA tag's upper word). False: outside main RAM, misaligned, or a store that could reach
+    // a word read after it (nothing written).
+    bool chainTailCore(const d1::Mem m, uint32_t tagHi, ChainOut &o)
+    {
+        const uint32_t layer = m.u32(kDl + 0x1Cu), buf = m.u32(kDl + 0x18u);
+        const uint32_t record = m.u32(kDl + 8u + (buf << 2)) + layer * 48u;
+        const uint32_t packet = m.u32(kDl + 0x10u);
+        if (!d2Ok(record, 0x28u) || !d2Ok(packet, 0x20u) || (packet & 7u))
+            return false;
+        const uint32_t tail0 = m.u32(record + 0x24u);
+        if (!d2Ok(tail0, 0x18u) || (tail0 & 7u))
+            return false;
+        // The layer's tail word (re-read twice) written by none of the stores before those reads.
+        if (d2Overlap(record + 0x24u, 4u, kDl + 0x10u, 4u) || d2Overlap(record + 0x24u, 4u, packet, 0x20u))
+            return false;
+        m.set<uint32_t>(kDl + 0x10u, packet + 0x20u);
+        __builtin_prefetch(m.at<uint8_t>(packet + 0x40u));
+        const uint64_t a0 = (static_cast<uint64_t>(tagHi) << 32) | 0x50000000u;
+        m.set<uint32_t>(packet + 0x1Cu, 0u);
+        m.set<uint64_t>(packet, a0);
+        m.set<uint32_t>(packet + 0x18u, 0u);
+        m.set<uint32_t>(packet + 0xCu, 0u);
+        m.set<uint32_t>(packet + 8u, 0u);
+        const uint64_t addr = static_cast<uint64_t>(packet & 0x7FFFFFFFu) << 32;
+        const uint32_t first = m.u32(record + 0x24u); // tail0 (not written above)
+        const uint64_t link = (static_cast<uint64_t>(m.u32(first + 0x14u) & 0x7FFFFFFFu) << 32) | 0x20000000u;
+        m.set<uint64_t>(packet + 0x10u, link);
+        const uint32_t tail = m.u32(record + 0x24u); // tail0 again
+        const uint64_t v0 = (m.get<uint64_t>(tail + 0x10u) & 0x80000000FFFFFFFFull) | addr;
+        m.set<uint64_t>(tail + 0x10u, v0);
+        m.set<uint32_t>(record + 0x24u, packet);
+        o = {v0, addr, tail, packet, record};
+        return true;
+    }
+
+    void chainTailD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2ChainTail.n;
+        ChainOut o;
+        if (!chainTailCore(d1::Mem{rdram}, GPR_U32(ctx, 4), o))
+            return chainTail(rdram, ctx, runtime);
+        SET_GPR_U64(ctx, 2, o.v0);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.tail));
+        SET_GPR_U64(ctx, 4, o.addr);
+        SET_GPR_U64(ctx, 5, 0x7FFFFFFFu);
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.packet));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(o.record));
+        SET_GPR_U64(ctx, 8, 0x20000000u);
+        SET_GPR_U64(ctx, 9, 0x80000000FFFFFFFFull);
+        returnTo(ctx);
+    }
+
+    void addSortObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            addSortObjD1(rdram, ctx, runtime);
+        else
+            addSortObj(rdram, ctx, runtime);
+    }
+
+    void chainTailSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            chainTailD1(rdram, ctx, runtime);
+        else
+            chainTail(rdram, ctx, runtime);
+    }
+}

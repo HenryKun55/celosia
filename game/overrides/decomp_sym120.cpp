@@ -34,6 +34,7 @@
 // SOTC_SYM120_LOG=1: "[sym120]" every 600 frames: calls, sheets, entries,
 // lookups (found), imports looked at / retried / resolved.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -693,6 +694,114 @@ namespace decomp_sym120
 
 SOTC_DECOMP_FUNCTION(0x001CBE70u, SearchStrHashKey, decomp_sym120::searchKey);
 SOTC_DECOMP_FUNCTION(0x001B5F28u, isysSearchSymbol, decomp_sym120::searchSymbolFn);
-SOTC_DECOMP_FUNCTION(0x001B4760u, kernel_sub_001B4760, decomp_sym120::resolveImports);
+namespace decomp_sym120
+{
+    void resolveImportsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001B4760u, kernel_sub_001B4760, decomp_sym120::resolveImportsSw);
+D1_ALIAS(0x001B4760u, kernel_sub_001B4760, decomp_sym120::resolveImportsSw, decomp_sym120::resolveImports);
 SOTC_DECOMP_FUNCTION(0x0115D170u, sheetMgrResolve, decomp_sym120::sheetResolve);
 SOTC_DECOMP_FUNCTION(0x001CBDB8u, MakeStrHashValue, decomp_sym120::makeHash);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): kernel_sub_001B4760 as a typed core -----------------------------------------
+// A module's unresolved imports looked up again: resolveImports' steps on d1::Mem (the same reads, the same writes in
+// the same order, the hash chain walk as SearchStrHashKey's). Integer only, 0 math. The adapter reads a0 once and writes
+// v0 (the resolved count) / v1 (the descriptor, or -1 after the loop) as the old body; sym120 off or its log on (the
+// statistics): the old body.
+namespace decomp_sym120
+{
+    D1_COUNTER(c_d1ResolveImports, "kernel_sub_001B4760");
+
+    // SearchStrHashKey's walk on d1::Mem: the entry with `key` in the table's bucket, or 0.
+    PS2_FORCE_INLINE uint32_t d1HashFind(const d1::Mem m, uint32_t table, uint32_t key)
+    {
+        const uint32_t size = m.get<uint32_t>(table), buckets = m.get<uint32_t>(table + 4u);
+        uint32_t e = m.get<uint32_t>(((size - 1u) & key) * 4u + buckets);
+        while (e != 0u)
+        {
+            if (m.get<uint32_t>(e) == key)
+                return e;
+            e = m.get<uint32_t>(e + 0xCu);
+        }
+        return 0u;
+    }
+
+    // The imports of `module` retried; the count of resolved ones (v0). v1: the descriptor (sign-extended), or -1 when
+    // the loop ran (the original's loop test register).
+    uint32_t resolveImportsCore(const d1::Mem m, uint32_t module, uint64_t &v1)
+    {
+        const uint32_t desc = m.get<uint32_t>(module + 0x1Cu);
+        const uint32_t count = m.get<uint32_t>(desc + 0x1Cu);
+        uint32_t resolvedCount = 0u;
+        v1 = sx(desc);
+        if (count == 0u)
+            return 0u;
+        const uint32_t records = m.get<uint32_t>(desc + 0x28u);
+        uint32_t link = m.get<uint32_t>(module + 0x28u);
+        uint32_t index = m.get<uint32_t>(desc + 0x20u);
+        for (uint32_t n = count; n != 0u; --n, index += 4u, link += 0x10u)
+        {
+            const uint32_t rec = records + (m.get<uint32_t>(index) << 4);
+            const uint32_t undef = m.get<uint32_t>(kUndef);
+            if (m.get<uint32_t>(rec + 4u) != undef)
+                continue;
+            const uint32_t sym = d1HashFind(m, kTable, m.get<uint32_t>(link));
+            if (sym == 0u)
+            {
+                if (m.get<uint8_t>(rec + 0xDu) != 0u)
+                    ++resolvedCount;
+                continue;
+            }
+            const uint32_t value = m.get<uint32_t>(m.get<uint32_t>(sym + 8u) + 4u);
+            // Off the reference list it is on.
+            const uint32_t prev = m.get<uint32_t>(link + 8u);
+            if (prev != 0u)
+            {
+                const uint32_t next = m.get<uint32_t>(link + 0xCu);
+                if ((prev & 0x80000000u) != 0u)
+                    m.set<uint32_t>((prev & 0x7FFFFFFFu) + 4u, next);
+                else
+                    m.set<uint32_t>(prev + 0xCu, next);
+                if (next != 0u)
+                    m.set<uint32_t>(next + 8u, prev);
+            }
+            const uint32_t old = m.get<uint32_t>(link + 4u);
+            m.set<uint32_t>(link + 0xCu, 0u);
+            m.set<uint32_t>(link + 8u, 0u);
+            m.set<uint8_t>(old + 0xDu, 1u);
+            m.set<uint32_t>(old + 4u, m.get<uint32_t>(kUndef));
+            // Onto the symbol's list, first.
+            const uint32_t head = m.get<uint32_t>(sym + 4u);
+            m.set<uint32_t>(link + 8u, sym | 0x80000000u);
+            m.set<uint32_t>(link + 0xCu, head);
+            m.set<uint32_t>(sym + 4u, link);
+            if (head != 0u)
+                m.set<uint32_t>(head + 8u, link);
+            m.set<uint8_t>(rec + 0xDu, 1u);
+            m.set<uint32_t>(rec + 4u, value);
+            ++resolvedCount;
+        }
+        v1 = ~0ull; // addiu $v1, $zero, -1 (the loop's test)
+        return resolvedCount;
+    }
+
+    void resolveImportsD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kSym120) || logOn())
+            return resolveImports(rdram, ctx, runtime);
+        ++c_d1ResolveImports.n;
+        uint64_t v1 = 0u;
+        const uint32_t n = resolveImportsCore(d1::Mem{rdram}, GPR_U32(ctx, 4), v1);
+        SET_GPR_U64(ctx, 2, n);
+        SET_GPR_U64(ctx, 3, v1);
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void resolveImportsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            resolveImportsD1(rdram, ctx, runtime);
+        else
+            resolveImports(rdram, ctx, runtime);
+    }
+}

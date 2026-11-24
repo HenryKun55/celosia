@@ -284,10 +284,12 @@ namespace decomp_group
 {
     void groupForNextSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void initLayoutObjMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void groupForNextForceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 SOTC_DECOMP_AB_FUNCTION(0x001C76D0u, isysGroupForNext, decomp_group::groupForNextSw);
 D1_ALIAS(0x001C76D0u, isysGroupForNext, decomp_group::groupForNextSw, decomp_group::groupForNext);
-SOTC_DECOMP_AB_FUNCTION(0x001C7758u, isysGroupForNextForce, decomp_group::groupForNextForce);
+SOTC_DECOMP_AB_FUNCTION(0x001C7758u, isysGroupForNextForce, decomp_group::groupForNextForceSw);
+D1_ALIAS(0x001C7758u, isysGroupForNextForce, decomp_group::groupForNextForceSw, decomp_group::groupForNextForce);
 SOTC_DECOMP_AB_FUNCTION(0x010F5820u, InitLayoutObjMatrix, decomp_group::initLayoutObjMatrixSw);
 D1_ALIAS(0x010F5820u, InitLayoutObjMatrix, decomp_group::initLayoutObjMatrixSw, decomp_group::initLayoutObjMatrix);
 
@@ -510,5 +512,74 @@ namespace decomp_group
             initLayoutObjMatrixD1(rdram, ctx, runtime);
         else
             initLayoutObjMatrix(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): isysGroupForNextForce as a typed core ------------------------------------
+// The chain's next entry whatever its state: groupForNextForce's steps on d1::Mem (the same checks before the writes, the
+// current object's walk count down, the next one's up, its object read again after the first store as the original).
+// Integer only, 0 math. The adapter reads a0 once and writes v0 / v1 / a1 / a2 as the old body; something outside main
+// RAM: the old body (before anything is written).
+namespace decomp_group
+{
+    D1_COUNTER(c_d1GroupNextForce, "isysGroupForNextForce");
+
+    struct ForceRegs
+    {
+        bool end;     // no next entry: v0 = a1 = 0
+        uint32_t v0;  // the next entry (= a1)
+        uint32_t v1;  // its object
+        uint32_t a2;  // the current object
+    };
+    // False: something outside main RAM (nothing written).
+    bool groupNextForceCore(const d1::Mem m, uint32_t entry, ForceRegs &r)
+    {
+        if (!d1GroupInRam(entry, 0x10u))
+            return false;
+        const uint32_t current = m.get<uint32_t>(entry);
+        const uint32_t index = m.get<uint16_t>(entry + 0xEu);
+        if (index == 0u)
+        {
+            r = {true, 0u, 0u, current};
+            return true;
+        }
+        const uint32_t e = kEntries + index * 24u;
+        if (!d1GroupInRam(e, 0x10u) || !d1GroupInRam(current, 0xAu) || !d1GroupInRam(m.get<uint32_t>(e), 0xAu))
+            return false;
+        uint8_t *const cur = m.at<uint8_t>(current + 9u);
+        *cur = static_cast<uint8_t>(*cur - 1u);
+        const uint32_t object = m.get<uint32_t>(e); // read again after that store (they may alias)
+        uint8_t *const nx = m.at<uint8_t>(object + 9u);
+        *nx = static_cast<uint8_t>(*nx + 1u);
+        r = {false, e, object, current};
+        return true;
+    }
+
+    void groupForNextForceD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ForceRegs r;
+        if (!groupNextForceCore(d1::Mem{rdram}, GPR_U32(ctx, 4), r))
+            return groupForNextForce(rdram, ctx, runtime);
+        ++c_d1GroupNextForce.n;
+        if (r.end)
+        {
+            SET_GPR_U64(ctx, 2, 0u);
+            SET_GPR_U64(ctx, 5, 0u);
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(r.a2));
+            return returnTo(ctx);
+        }
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.v1));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(r.v0));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(r.a2));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+        returnTo(ctx);
+    }
+
+    void groupForNextForceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            groupForNextForceD1(rdram, ctx, runtime);
+        else
+            groupForNextForce(rdram, ctx, runtime);
     }
 }

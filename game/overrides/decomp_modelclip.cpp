@@ -11,6 +11,7 @@
 // the status left as it leaves them. Interrupts are disabled around it on
 // the PS2 (di / ei): the status bit is set back the same way.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -294,4 +295,174 @@ namespace decomp_modelclip
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01099C50u, modelClipPoint, decomp_modelclip::modelClip);
+namespace decomp_modelclip
+{
+    void modelClipSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01099C50u, modelClipPoint, decomp_modelclip::modelClipSw);
+D1_ALIAS(0x01099C50u, modelClipPoint, decomp_modelclip::modelClipSw, decomp_modelclip::modelClip);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): the default path (round 49's modelClipFast) as a typed core -------------------
+// The same VU0 ops in the same order on d1 vec4 (NEON): PS2_VMUL_K / VADD_K / VSUB_K -> d1::vmul / vadd / vsub (the
+// result clamp inside), the lane broadcasts d1::bc, the dest fields d1::vsel, vmr32 a NEON lane rotation. The operand
+// clamps the fast path keeps (each loaded register once: the point, whose w lane the code reads, the matrices' rows, the
+// eye, vf0) are kept: ps2VuOperand on the loads, the same function. The point into a0 is stored before the camera rows
+// are read, the screen point after them, as the old order. The CLIP judgement by the same NEON helper (clipFlagsVec),
+// Q by the same ps2VuSqrt (its status). The VU0 file (vf1-vf14, vf20-vf28 as the fast path leaves them: the loaded
+// registers raw, the results), ACC, CLIP, Q / status, f0, the interrupt bit and the GPRs written by the adapter.
+// fastnative off, or an address outside main RAM: the old body (nothing written).
+namespace decomp_modelclip
+{
+    D1_COUNTER(c_d2ModelClip, "modelClipPoint");
+
+    struct ClipIo
+    {
+        __m128 vf[29]; // out: 1..14, 20..28
+        __m128 acc;    // out
+        uint32_t clip; // in / out: the CLIP register
+        uint16_t status; // in / out: VU0 status (Q's sqrt)
+        float q;         // out when the point clips
+        uint32_t clipLow; // out: the judgement's low six bits (v1)
+    };
+
+    inline bool d2Direct(uint32_t a, uint32_t size) { return a < PS2_RAM_SIZE - size; }
+    // vmr32: x <- y, y <- z, z <- w, w <- x.
+    inline __m128 d2Mr32(__m128 v) { return vextq_f32(v, v, 1); }
+    // ACC = n0 x v.x + n1 x v.y + n2 x v.z; the result ACC + n3 x s (the fast path's chainK).
+    inline __m128 d2Chain(const __m128 *n, __m128 v, __m128 s, __m128 &acc)
+    {
+        acc = d1::vmul(n[0], d1::bc<0>(v));
+        acc = d1::vadd(acc, d1::vmul(n[1], d1::bc<1>(v)));
+        acc = d1::vadd(acc, d1::vmul(n[2], d1::bc<2>(v)));
+        return d1::vadd(acc, d1::vmul(n[3], s));
+    }
+
+    // a0 the world point out, a1 the screen point out (a1 + 0x230 & ~0xf), a2 the point, a3 the matrix, t0 the camera
+    // context (all quadword-masked but t0). False: outside main RAM (nothing written).
+    bool modelClipCore(const d1::Mem m, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t t0, __m128 vf0, ClipIo &io)
+    {
+        if (!d2Direct(a0, 16u) || !d2Direct(a1, 16u) || !d2Direct(a2, 16u) || !d2Direct(a3, 0x40u) || !d2Direct(t0 & ~0xFu, 0x5E0u))
+            return false;
+        const __m128 mx = d1::mask(1, 0, 0, 0), my = d1::mask(0, 1, 0, 0), mz = d1::mask(0, 0, 1, 0), mw = d1::mask(0, 0, 0, 1),
+                     mxyz = d1::mask(1, 1, 1, 0);
+        __m128 *const vf = io.vf;
+        __m128 acc;
+        const __m128 n0 = ps2VuOperand(vf0);
+        const __m128 w0 = d1::bc<3>(n0);
+        const uint32_t t2 = t0 + 0x140u, t1 = t0 + 0x1E0u, v0 = t0 + 0x5A0u, t0b = t0 + 0x1A0u;
+        vf[1] = m.q(a2 & ~0xFu);
+        const __m128 n1 = ps2VuOperand(vf[1]);
+        __m128 n20[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[20 + i] = m.q((a3 + 0x10u * i) & ~0xFu);
+            n20[i] = ps2VuOperand(vf[20 + i]);
+        }
+        vf[25] = d2Chain(n20, n1, w0, acc);
+        const __m128 x26 = d1::vadd(n0, d1::bc<3>(n1));
+        vf[26] = d1::vsel(vf0, x26, mx); // x the sum, y z w vf0's
+        const __m128 n26 = d1::vsel(n0, x26, mx);
+        m.putq(a0, vf[25]);
+        __m128 n3[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[3 + i] = m.q((t1 + 0x10u * i) & ~0xFu);
+            n3[i] = ps2VuOperand(vf[3 + i]);
+        }
+        vf[26] = d2Chain(n3, n26, d1::bc<3>(n26), acc);
+        __m128 n7[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[7 + i] = m.q((v0 + 0x10u * i) & ~0xFu);
+            n7[i] = ps2VuOperand(vf[7 + i]);
+        }
+        vf[27] = d2Chain(n7, vf[25], w0, acc);
+        vf[27] = d1::vsel(vf[27], d1::vadd(vf[27], d1::bc<0>(vf[26])), mw);
+        io.clip = ((io.clip << 6) | clipFlagsVec(vf[27])) & 0xFFFFFFu;
+        vf[2] = m.q(t2 & ~0xFu);
+        __m128 n11[4];
+        for (int i = 0; i < 4; ++i)
+        {
+            vf[11 + i] = m.q((t0b + 0x10u * i) & ~0xFu);
+            n11[i] = ps2VuOperand(vf[11 + i]);
+        }
+        const uint32_t v1 = io.clip & 0x00FFFFFFu;
+        for (int i = 0; i < 4; ++i)
+            vf[24 + i] = d2Chain(n11, n20[i], d1::bc<3>(n20[i]), acc);
+        vf[28] = d2Chain(&vf[24], n1, w0, acc);
+        vf[28] = d1::vsel(vf[28], d2Mr32(vf[28]), my); // vmr32.y
+        vf[28] = d1::vsel(vf[28], d2Mr32(vf[28]), mx); // vmr32.x
+        const __m128 w1 = d1::bc<3>(n1);
+        vf[28] = d1::vsel(vf[28], d1::vadd(vf[28], w1), mx);
+        vf[28] = d1::vsel(vf[28], d1::vsub(vf[28], w1), mz);
+        m.putq(a1, vf[28]);
+        io.clipLow = v1 & 0x3Fu;
+        if (io.clipLow != 0u)
+        {
+            vf[26] = d1::vsub(vf[25], ps2VuOperand(vf[2]));
+            vf[26] = d1::vsel(vf[26], d1::vmul(vf[26], vf[26]), mxyz);
+            acc = d1::vsel(acc, d1::vmul(n0, d1::bc<0>(vf[26])), mw);
+            acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(n0, d1::bc<1>(vf[26]))), mw);
+            vf[26] = d1::vsel(vf[26], d1::vadd(acc, d1::vmul(n0, d1::bc<2>(vf[26]))), mw);
+            vf[27] = d1::vsel(vf[27], d1::vsub(n0, w0), mxyz);
+            io.q = ps2VuSqrt(io.status, d1::lane<3>(vf[26]));
+            vf[27] = d1::vsel(vf[27], d1::vadd(vf[27], vf[27]), mxyz);
+        }
+        io.acc = acc;
+        return true;
+    }
+
+    void modelClipD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2ModelClip.n;
+        sotc_decomp::clipNeeded(ctx); // round 61: it reads the whole CLIP register
+        if (!sotc_decomp::fastNativeOn())
+            return modelClip(rdram, ctx, runtime);
+        const uint32_t a0 = GPR_U32(ctx, 4) & ~0xFu, a1 = (GPR_U32(ctx, 5) + 0x230u) & ~0xFu, a2 = GPR_U32(ctx, 6) & ~0xFu,
+                       a3 = GPR_U32(ctx, 7) & ~0xFu, t0 = GPR_U32(ctx, 8);
+        ClipIo io;
+        io.clip = ctx->vu0_clip_flags;
+        io.status = ctx->vu0_status;
+        if (!modelClipCore(d1::Mem{rdram}, a0, a1, a2, a3, t0, ctx->vu0_vf[0], io))
+            return modelClip(rdram, ctx, runtime);
+        ctx->vu0_clip_flags = io.clip;
+        ctx->vu0_acc = io.acc;
+        for (int i = 1; i <= 14; ++i)
+            ctx->vu0_vf[i] = io.vf[i];
+        for (int i = 20; i <= 28; ++i)
+            ctx->vu0_vf[i] = io.vf[i];
+        ctx->cop0_status |= 0x10000u; // di ... ei
+        uint32_t a3out = io.clipLow;
+        if (a3out != 0u)
+        {
+            ctx->vu0_status = io.status;
+            ctx->vu0_q = io.q;
+            std::memcpy(&a3out, &io.q, 4);
+            std::memcpy(&ctx->f[0], &a3out, 4);
+        }
+        else
+        {
+            SET_GPR_S32(ctx, 1, static_cast<int32_t>(0xBF800000u));
+            const uint32_t minusOne = 0xBF800000u;
+            std::memcpy(&ctx->f[0], &minusOne, 4);
+        }
+        const uint32_t t2 = t0 + 0x140u, t1 = t0 + 0x1E0u, v0 = t0 + 0x5A0u, t0b = t0 + 0x1A0u;
+        SET_GPR_U32(ctx, 10, t2);
+        SET_GPR_U32(ctx, 9, t1);
+        SET_GPR_U32(ctx, 2, v0);
+        SET_GPR_U32(ctx, 8, t0b);
+        SET_GPR_U64(ctx, 11, GPR_U64(ctx, 7)); // t3 = a3 (daddu)
+        SET_GPR_U32(ctx, 5, GPR_U32(ctx, 5) + 0x230u);
+        SET_GPR_U64(ctx, 3, io.clipLow);
+        SET_GPR_U32(ctx, 7, a3out);
+        returnTo(ctx);
+    }
+
+    void modelClipSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            modelClipD1(rdram, ctx, runtime);
+        else
+            modelClip(rdram, ctx, runtime);
+    }
+}

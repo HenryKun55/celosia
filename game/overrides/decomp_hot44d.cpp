@@ -53,6 +53,7 @@
 // sleeps (isysSleepSubThread) between its steps and is resumed by pc at the
 // labels after each sleep, which a native callGuest cannot return through.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
@@ -690,7 +691,348 @@ namespace decomp_hot44d
 #undef loadVf
 #undef storeVf
 
-SOTC_DECOMP_FUNCTION(0x0137D9E8u, _setNodeHPB, decomp_hot44d::setNodeHPB);
-SOTC_DECOMP_FUNCTION(0x0137D790u, _setNodeHPBIllegal, decomp_hot44d::setNodeHPBIllegal);
+namespace decomp_hot44d
+{
+    // round D2 (d1native): the dispatchers (end of file)
+    void setNodeHPBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void setNodeHPBIllegalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x0137D9E8u, _setNodeHPB, decomp_hot44d::setNodeHPBSw);
+D1_ALIAS(0x0137D9E8u, _setNodeHPB, decomp_hot44d::setNodeHPBSw, decomp_hot44d::setNodeHPB);
+SOTC_DECOMP_FUNCTION(0x0137D790u, _setNodeHPBIllegal, decomp_hot44d::setNodeHPBIllegalSw);
+D1_ALIAS(0x0137D790u, _setNodeHPBIllegal, decomp_hot44d::setNodeHPBIllegalSw, decomp_hot44d::setNodeHPBIllegal);
 SOTC_DECOMP_FUNCTION(0x010AC4A0u, manager_sub_010AC4A0, decomp_hot44d::nodeQuatPos);
 SOTC_DECOMP_FUNCTION(0x01102638u, manager_sub_01102638, decomp_hot44d::scriptPass);
+
+// =====================================================================================================================
+// Round D2 (switch d1native, d1_native.h, docs/decomp_d1.md): _setNodeHPB / _setNodeHPBIllegal's D1 bodies (partial: the
+// Euler / quaternion / axis-rotation guest calls stay, with the old register state). The quaternion products, the
+// conjugates and the closing normalisation are d1:: NEON vec4 ops on a local VU0 register set (D1Vu: loaded from the
+// context at the entry and after each guest call, written back before each call and at the exit; the operand clamps
+// kept as one clamp of each register read, the lanes a product leaves unwritten carried as the context has them); the
+// FPU statements are d1:: scalar ops on locals; guest memory through d1::Mem (every store the old body makes, its frame
+// included, in its order). hotlist44 off or a pointer outside main RAM: the old body at the entry.
+// =====================================================================================================================
+#include "d1_native.h"
+
+namespace decomp_hot44d
+{
+    namespace d1h
+    {
+        D1_COUNTER(c_d1HPB, "_setNodeHPB");
+        D1_COUNTER(c_d1HPBIllegal, "_setNodeHPBIllegal");
+
+        PS2_FORCE_INLINE bool inMain(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+
+        template <int A, int B, int C, int D>
+        PS2_FORCE_INLINE __m128 perm(__m128 v)
+        {
+#if defined(__clang__)
+            return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+            typedef int d1v4i __attribute__((vector_size(16)));
+            return __builtin_shuffle(v, d1v4i{A, B, C, D});
+#endif
+        }
+        PS2_FORCE_INLINE __m128 yzx(__m128 v) { return perm<1, 2, 0, 3>(v); }
+        PS2_FORCE_INLINE __m128 zxy(__m128 v) { return perm<2, 0, 1, 3>(v); }
+
+        // The VU0 registers these bodies touch.
+        struct D1Vu
+        {
+            __m128 vf5, vf11, vf12, vf13, vf14, vf15, vf16, acc;
+        };
+
+        // quatMul(): vf13 = vf11 * vf12 as quaternions; vf14-vf16 / ACC's xyz as the block leaves them (their w as read).
+        void quatMulD1(D1Vu &s)
+        {
+            const __m128 a = ps2VuClampNF(s.vf11), b = ps2VuClampNF(s.vf12);
+            const __m128 xyz = d1::mask(1, 1, 1, 0), x = d1::mask(1, 0, 0, 0);
+            __m128 v13 = d1::vmul(a, b);
+            v13 = d1::vsel(v13, d1::vadd(v13, d1::bc<1>(v13)), x);
+            v13 = d1::vsel(v13, d1::vadd(v13, d1::bc<2>(v13)), x);
+            v13 = d1::vsel(v13, d1::vsub(v13, d1::bc<0>(v13)), d1::mask(0, 0, 0, 1));
+            s.vf14 = d1::vsel(s.vf14, d1::vmul(b, d1::bc<3>(a)), xyz);
+            s.vf15 = d1::vsel(s.vf15, d1::vmul(a, d1::bc<3>(b)), xyz);
+            s.acc = d1::vsel(s.acc, d1::vmul(yzx(b), zxy(a)), xyz);
+            s.vf16 = d1::vsel(s.vf16, d1::vsub(s.acc, d1::vmul(yzx(a), zxy(b))), xyz);
+            v13 = d1::vsel(v13, d1::vadd(s.vf14, s.vf15), xyz);
+            s.vf13 = d1::vsel(v13, d1::vadd(v13, s.vf16), xyz);
+        }
+        // vf13 = q(p) * q(q) (vf11 / vf12 the operands as loaded), stored to `to`.
+        void quatMulAtD1(const d1::Mem m, D1Vu &s, uint32_t p, uint32_t q, uint32_t to)
+        {
+            s.vf11 = m.q(p & ~0xFu);
+            s.vf12 = m.q(q & ~0xFu);
+            quatMulD1(s);
+            m.putq(to & ~0xFu, s.vf13);
+        }
+        // conjugate(): vf11 = q(src) with xyz x (vf0.x - vf0.w) (vf5.x = -1), stored to dst.
+        void conjugateD1(const d1::Mem m, D1Vu &s, uint32_t src, uint32_t dst)
+        {
+            s.vf11 = m.q(src & ~0xFu);
+            const __m128 vf0 = d1::vf0();
+            s.vf5 = d1::vsel(s.vf5, d1::vsub(vf0, d1::bc<3>(vf0)), d1::mask(1, 0, 0, 0));
+            s.vf11 = d1::vsel(s.vf11, d1::vmul(ps2VuClampNF(s.vf11), d1::bc<0>(s.vf5)), d1::mask(1, 1, 1, 0));
+            m.putq(dst & ~0xFu, s.vf11);
+        }
+        // _setNodeHPB's close: q(at) normalised (vf14 the quaternion, vf15 its squares' sum then the result; vrsqrt).
+        void normaliseD1(const d1::Mem m, D1Vu &s, uint16_t &status, float &q, uint32_t at)
+        {
+            s.vf14 = m.q(at & ~0xFu);
+            const __m128 c14 = ps2VuClampNF(s.vf14), x = d1::mask(1, 0, 0, 0);
+            __m128 v15 = d1::vmul(c14, c14);
+            v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<1>(v15)), x);
+            v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<2>(v15)), x);
+            v15 = d1::vsel(v15, d1::vadd(v15, d1::bc<3>(v15)), x);
+            q = ps2VuRsqrt(status, d1::lane<3>(d1::vf0()), d1::lane<0>(v15));
+            s.vf15 = d1::vmul(c14, ps2VuClampNF(d1::splat(q)));
+            m.putq(at & ~0xFu, s.vf15);
+        }
+
+        void loadVu(D1Vu &s, const R5900Context *c)
+        {
+            s.vf5 = c->vu0_vf[5];
+            s.vf11 = c->vu0_vf[11];
+            s.vf12 = c->vu0_vf[12];
+            s.vf13 = c->vu0_vf[13];
+            s.vf14 = c->vu0_vf[14];
+            s.vf15 = c->vu0_vf[15];
+            s.vf16 = c->vu0_vf[16];
+            s.acc = c->vu0_acc;
+        }
+        void storeVu(R5900Context *c, const D1Vu &s)
+        {
+            c->vu0_vf[5] = s.vf5;
+            c->vu0_vf[11] = s.vf11;
+            c->vu0_vf[12] = s.vf12;
+            c->vu0_vf[13] = s.vf13;
+            c->vu0_vf[14] = s.vf14;
+            c->vu0_vf[15] = s.vf15;
+            c->vu0_vf[16] = s.vf16;
+            c->vu0_acc = s.acc;
+        }
+    } // namespace d1h
+
+    void setNodeHPBD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On())
+            return setNodeHPB(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t entrySp = GPR_U32(ctx, 29), a0 = GPR_U32(ctx, 4), skel = GPR_U32(ctx, 5);
+        if (entrySp < 0x70u || !d1h::inMain(entrySp - 0x70u, 0x70u) || !d1h::inMain(skel, 0xCu))
+            return setNodeHPB(rdram, ctx, runtime);
+        const uint32_t node = m.u32(skel + 8u) + (a0 << 6);
+        const uint32_t a2 = GPR_U32(ctx, 6) + (a0 << 4);
+        if (!d1h::inMain(node, 0x40u) || !d1h::inMain(a2 & ~0xFu, 0x10u))
+            return setNodeHPB(rdram, ctx, runtime);
+        const uint32_t parent = m.u32(node + 0x38u);
+        const uint32_t ref = static_cast<int32_t>(parent) >= 0 ? relocated(rdram, 0x0137DA34u, 0x0137DA38u) : GPR_U32(ctx, 7);
+        if (!d1h::inMain(ref & ~0xFu, 0x10u))
+            return setNodeHPB(rdram, ctx, runtime);
+        ++d1h::c_d1HPB.n;
+        float *const f = ctx->f;
+        const uint32_t sp = entrySp - 0x70u;
+        SET_GPR_U32(ctx, 29, sp);
+        m.set<uint64_t>(sp + 0x48u, GPR_U64(ctx, 17));
+        const uint32_t s1 = sp + 0x10u;
+        SET_GPR_U32(ctx, 17, s1);
+        m.set<float>(sp + 0x68u, f[22]);
+        f[22] = f[12];
+        m.set<float>(sp + 0x60u, f[21]);
+        f[21] = f[14];
+        m.set<float>(sp + 0x58u, f[20]);
+        f[20] = f[13];
+        m.set<uint64_t>(sp + 0x40u, GPR_U64(ctx, 16));
+        SET_GPR_U32(ctx, 4, a0 << 4);
+        m.set<uint64_t>(sp + 0x50u, GPR_U64(ctx, 31));
+        SET_GPR_U32(ctx, 6, a2);
+        SET_GPR_U32(ctx, 2, node);
+        SET_GPR_U32(ctx, 3, parent);
+        SET_GPR_U32(ctx, 9, sp);
+        if (static_cast<int32_t>(parent) >= 0)
+        {
+            SET_GPR_U32(ctx, 2, sotc_decomp::codeWord(rdram, 0x0137DA34u) << 16);
+            SET_GPR_U32(ctx, 7, ref);
+        }
+        // 0x137da3c: the reference copied to sp+0x10 (lq / sq v1), its conjugate to sp+0x30, conj x node into sp.
+        const __m128 refQ = m.q(ref & ~0xFu);
+        SET_GPR_VEC(ctx, 3, _mm_castps_si128(refQ));
+        SET_GPR_U32(ctx, 2, sp + 0x30u);
+        m.putq(sp + 0x10u, refQ);
+        d1h::D1Vu s;
+        d1h::loadVu(s, ctx);
+        d1h::conjugateD1(m, s, s1, sp + 0x30u);
+        d1h::quatMulAtD1(m, s, sp + 0x30u, a2, sp);
+        d1h::storeVu(ctx, s);
+        SET_GPR_U32(ctx, 16, a2);
+        SET_GPR_U32(ctx, 5, sp);
+        SET_GPR_U32(ctx, 4, sp + 0x20u);
+        if (GPR_U64(ctx, 8) != 0u)
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137DA9Cu), 0x0137DAA4u, sp);
+        else
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137DAB0u), 0x0137DAB8u, sp);
+        // 0x137dabc: the offsets x pi / 180 added to the angles (heading negated); GetQuaternionByEulerYXZ.
+        {
+            const float k = fb(0x3C8EFA35u), f20 = f[20], f21 = f[21], f22 = f[22];
+            SET_GPR_U64(ctx, 1, 0x3C8EFA35u);
+            const float f5 = d1::mul(f21, k), f3 = d1::mul(-f20, k), f0 = d1::mul(f22, k);
+            const float f2 = d1::add(m.f32(sp + 0x28u), f5), f1 = d1::add(m.f32(sp + 0x20u), f3), f4 = d1::add(m.f32(sp + 0x24u), f0);
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 29));
+            f[0] = f0;
+            f[1] = f1;
+            f[2] = f2;
+            f[3] = f3;
+            f[4] = f4;
+            f[5] = f5;
+            f[14] = f2;
+            m.set<float>(sp + 0x28u, f2);
+            f[12] = f1;
+            m.set<float>(sp + 0x20u, f1);
+            f[13] = f4;
+            m.set<float>(sp + 0x24u, f4);
+        }
+        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137DB04u), 0x0137DB0Cu, sp);
+        // 0x137db0c: reference x the new rotation into the node, normalised.
+        d1h::loadVu(s, ctx);
+        d1h::quatMulAtD1(m, s, s1, sp, a2);
+        uint16_t status = ctx->vu0_status;
+        float q = ctx->vu0_q;
+        d1h::normaliseD1(m, s, status, q, a2);
+        d1h::storeVu(ctx, s);
+        ctx->vu0_status = status;
+        ctx->vu0_q = q;
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x40u));
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 0x48u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x50u));
+        f[22] = m.f32(sp + 0x68u);
+        f[21] = m.f32(sp + 0x60u);
+        f[20] = m.f32(sp + 0x58u);
+        SET_GPR_U32(ctx, 29, sp + 0x70u);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void setNodeHPBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            setNodeHPBD1(rdram, ctx, runtime);
+        else
+            setNodeHPB(rdram, ctx, runtime);
+    }
+
+    void setNodeHPBIllegalD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On())
+            return setNodeHPBIllegal(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t entrySp = GPR_U32(ctx, 29), a0 = GPR_U32(ctx, 4), skel = GPR_U32(ctx, 5);
+        if (entrySp < 0x90u || !d1h::inMain(entrySp - 0x90u, 0x90u) || !d1h::inMain(skel, 0xCu))
+            return setNodeHPBIllegal(rdram, ctx, runtime);
+        const uint32_t node = m.u32(skel + 8u) + (a0 << 6);
+        const uint32_t s1 = GPR_U32(ctx, 6) + (a0 << 4);
+        if (!d1h::inMain(node, 0x40u) || !d1h::inMain(s1 & ~0xFu, 0x10u))
+            return setNodeHPBIllegal(rdram, ctx, runtime);
+        const uint32_t parent = m.u32(node + 0x38u);
+        const uint32_t ref = static_cast<int32_t>(parent) >= 0 ? relocated(rdram, 0x0137D7D4u, 0x0137D7D8u) : GPR_U32(ctx, 7);
+        if (!d1h::inMain(ref & ~0xFu, 0x10u))
+            return setNodeHPBIllegal(rdram, ctx, runtime);
+        ++d1h::c_d1HPBIllegal.n;
+        float *const f = ctx->f;
+        const uint32_t sp = entrySp - 0x90u;
+        SET_GPR_U32(ctx, 29, sp);
+        m.set<uint64_t>(sp + 0x68u, GPR_U64(ctx, 17));
+        SET_GPR_U32(ctx, 4, a0 << 4);
+        m.set<float>(sp + 0x88u, f[22]);
+        f[22] = f[14];
+        m.set<float>(sp + 0x80u, f[21]);
+        f[21] = f[13];
+        m.set<uint64_t>(sp + 0x60u, GPR_U64(ctx, 16));
+        SET_GPR_U32(ctx, 17, s1);
+        m.set<uint64_t>(sp + 0x70u, GPR_U64(ctx, 31));
+        m.set<float>(sp + 0x78u, f[20]);
+        SET_GPR_U32(ctx, 2, node);
+        SET_GPR_U32(ctx, 3, parent);
+        SET_GPR_U32(ctx, 5, node + 0x20u);
+        if (static_cast<int32_t>(parent) >= 0)
+        {
+            SET_GPR_U32(ctx, 2, sotc_decomp::codeWord(rdram, 0x0137D7D4u) << 16);
+            SET_GPR_U32(ctx, 7, ref);
+        }
+        // 0x137d7dc: reference x the node record's +0x20 into sp, its conjugate to sp+0x10, conj x node into s0 (sp+0x20).
+        d1h::D1Vu s;
+        d1h::loadVu(s, ctx);
+        d1h::quatMulAtD1(m, s, ref, node + 0x20u, sp);
+        d1h::conjugateD1(m, s, sp, sp + 0x10u);
+        const uint32_t s0 = sp + 0x20u;
+        SET_GPR_U32(ctx, 16, s0);
+        d1h::quatMulAtD1(m, s, sp + 0x10u, s1, s0);
+        // 182.04 (0x10000 / 360): the bank turn about the first axis.
+        SET_GPR_U64(ctx, 1, 0x43360B60u);
+        const float k = fb(0x43360B60u);
+        f[20] = k;
+        const __m128 prod = m.q(sp);
+        SET_GPR_VEC(ctx, 2, _mm_castps_si128(prod));
+        SET_GPR_U32(ctx, 6, relocated(rdram, 0x0137D868u, 0x0137D870u));
+        float f0 = d1::mul(f[12], k);
+        f[0] = f0;
+        SET_GPR_U32(ctx, 4, sp + 0x30u);
+        m.putq(s1 & ~0xFu, prod);
+        {
+            const int32_t t = ps2FpuConvertToWord(f0);
+            std::memcpy(&f[1], &t, 4);
+        }
+        SET_GPR_U32(ctx, 5, negAngle(f[1]));
+        d1h::storeVu(ctx, s);
+        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137D890u), 0x0137D898u, sp);
+        // 0x137d898
+        SET_GPR_U32(ctx, 2, sp + 0x30u);
+        d1h::loadVu(s, ctx);
+        d1h::quatMulAtD1(m, s, s1, sp + 0x30u, s1);
+        f0 = d1::mul(-f[21], f[20]);
+        SET_GPR_U32(ctx, 6, relocated(rdram, 0x0137D8D4u, 0x0137D8D8u));
+        SET_GPR_U32(ctx, 4, sp + 0x40u);
+        f[0] = f0;
+        {
+            const int32_t t = ps2FpuConvertToWord(f0);
+            std::memcpy(&f[1], &t, 4);
+        }
+        SET_GPR_U32(ctx, 5, negAngle(f[1]));
+        d1h::storeVu(ctx, s);
+        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137D8F4u), 0x0137D8FCu, sp);
+        // 0x137d8fc
+        SET_GPR_U32(ctx, 2, sp + 0x40u);
+        d1h::loadVu(s, ctx);
+        d1h::quatMulAtD1(m, s, s1, sp + 0x40u, s1);
+        const float f20 = d1::mul(f[22], f[20]);
+        f[20] = f20;
+        SET_GPR_U32(ctx, 6, relocated(rdram, 0x0137D938u, 0x0137D93Cu));
+        SET_GPR_U32(ctx, 4, sp + 0x50u);
+        {
+            const int32_t t = ps2FpuConvertToWord(f20);
+            std::memcpy(&f[0], &t, 4);
+        }
+        SET_GPR_U32(ctx, 5, negAngle(f[0]));
+        d1h::storeVu(ctx, s);
+        callGuest(rdram, ctx, runtime, jalTarget(rdram, 0x0137D954u), 0x0137D95Cu, sp);
+        // 0x137d95c
+        SET_GPR_U32(ctx, 2, sp + 0x50u);
+        d1h::loadVu(s, ctx);
+        d1h::quatMulAtD1(m, s, s1, sp + 0x50u, s1);
+        d1h::quatMulAtD1(m, s, s1, s0, s1);
+        d1h::storeVu(ctx, s);
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x60u));
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 0x68u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x70u));
+        f[22] = m.f32(sp + 0x88u);
+        f[21] = m.f32(sp + 0x80u);
+        f[20] = m.f32(sp + 0x78u);
+        SET_GPR_U32(ctx, 29, sp + 0x90u);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void setNodeHPBIllegalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            setNodeHPBIllegalD1(rdram, ctx, runtime);
+        else
+            setNodeHPBIllegal(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot44d

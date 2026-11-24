@@ -85,6 +85,7 @@
 // GAMEUTIL_get_interp_value_interp_value_cntrl: not called through the
 // table), and the loops' EE checkpoints (left out).
 #include "sotc_decomp.h"
+#include "d1_native.h" // round D2: StageManagerCheckAreaExist's D1 body
 #include "a9cmp.h"
 #include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
@@ -1788,10 +1789,182 @@ namespace decomp_hot47j
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExist);
+// Round D2 (switch d1native): the dispatcher (defined at the end of the file).
+namespace decomp_hot47j
+{
+    void areaExistSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExistSw);
+D1_ALIAS(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExistSw, decomp_hot47j::areaExist);
 SOTC_DECOMP_FUNCTION(0x01118340u, manager_sub_01118340, decomp_hot47j::groundProbe);
 // Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
 // SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, decomp_hot47j::clothStep);
 SOTC_DECOMP_FUNCTION(0x01124C88u, GetCollisionDBCallBack, decomp_hot47j::collisionDB);
 SOTC_DECOMP_FLOAT_FUNCTION(0x01084450u, GAMEUTIL_doit_interp_value_cntrl, decomp_hot47j::interpValue);
 SOTC_DECOMP_FUNCTION(0x01100BD8u, GetSkeletonFocusNode, decomp_hot47j::skeletonFocusNode);
+
+// =====================================================================================================================
+// Round D2 (switch d1native, docs/decomp_d1.md's framework): StageManagerCheckAreaExist as native C++. The core takes the
+// point and d1::Mem and returns v0 with the registers the old body leaves (f0 - f7, HI / LO, fcr31's divide flags) in a
+// struct; the FPU macros as d1:: scalars (FPU_MUL_S / ADD_S / SUB_S -> d1::mul / add / sub; cvt.s.w the same host
+// conversion, cvt.w.s / div.s the old body's helpers, ps2FpuConvertToWord / ps2FpuDivide). Guest RAM outside the plain
+// block (nothing written by the core) or hotlist47 off: the old body.
+namespace decomp_hot47j
+{
+    D1_COUNTER(c_d2AreaExist, "StageManagerCheckAreaExist");
+
+    struct D2AreaRegs
+    {
+        float f[8];
+        uint64_t hi, lo;
+        uint32_t fcr31;
+    };
+    PS2_FORCE_INLINE bool d2Plain(uint32_t a, uint32_t size) { return a < 0x02000000u - size; }
+    PS2_FORCE_INLINE float d2Fb(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    PS2_FORCE_INLINE float d2Ifl(int32_t i)
+    {
+        float f;
+        std::memcpy(&f, &i, 4);
+        return f;
+    }
+    // mult: HI / LO (each half sign-extended), the low word.
+    PS2_FORCE_INLINE uint32_t d2Mult(D2AreaRegs &r, uint32_t a, uint32_t b)
+    {
+        const int64_t p = static_cast<int64_t>(static_cast<int32_t>(a)) * static_cast<int64_t>(static_cast<int32_t>(b));
+        r.lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(p)));
+        r.hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(p >> 32)));
+        return static_cast<uint32_t>(p);
+    }
+    // focusNode(): the record's owner, not the empty one (the relocated lui / lw pair's word), its node at the index x
+    // the stride; 0 for none; -1: a word outside the plain block (the old body).
+    int d2FocusNode(const d1::Mem &m, D2AreaRegs &r, uint32_t record, uint32_t emptyHi, uint32_t emptyLo, uint32_t &node)
+    {
+        node = 0u;
+        if (!d2Plain(record, 4u))
+            return -1;
+        const uint32_t word = m.u32(record);
+        const uint32_t back = word & 0x3FFFFu;
+        if (back != 0u && !d2Plain(record - back, 4u))
+            return -1;
+        const uint32_t owner = back == 0u ? 0u : m.u32(record - back);
+        if (owner == 0u)
+            return 0;
+        const uint32_t empty = (m.u32(emptyHi) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(m.u32(emptyLo) & 0xFFFFu)));
+        if (!d2Plain(empty, 4u))
+            return -1;
+        if (owner == m.u32(empty))
+            return 0;
+        if (!d2Plain(owner + 8u, 0xCu))
+            return -1;
+        const uint32_t skeleton = m.u32(owner + 8u);
+        if (!d2Plain(skeleton + 0xCu, 4u))
+            return -1;
+        const uint32_t index = (word >> 18) & 0xFFFu;
+        const uint32_t nodes = m.u32(owner + 0x10u);
+        node = nodes + d2Mult(r, index, m.u32(skeleton + 0xCu));
+        return 0;
+    }
+    // StageManagerCheckAreaExist's core: v0 (0 / 1); -1: the old body (nothing changed in r's caller copy).
+    int areaExistD2Core(const d1::Mem &m, uint32_t point, D2AreaRegs &r)
+    {
+        float *f = r.f;
+        const uint32_t grid = m.u32(kStageGrid);
+        const uint32_t cells = grid == 0u ? 0u : m.u32(kStageCells);
+        if (grid == 0u || cells == 0u)
+            return 1;
+        if (!d2Plain(grid + 0x14u, 0x30u) || !d2Plain(point, 0xCu))
+            return -1;
+        const int32_t countX = m.s32(grid + 0x34u);
+        f[6] = m.f32(grid + 0x14u); // the cell size in x
+        f[1] = static_cast<float>(countX);
+        const int32_t countZ = m.s32(grid + 0x38u);
+        f[3] = d2Fb(kHalfBits);
+        f[0] = static_cast<float>(countZ);
+        f[5] = m.f32(grid + 0x18u); // the cell size in z
+        f[4] = m.f32(point);
+        f[1] = d1::mul(f[6], f[1]);
+        f[2] = m.f32(point + 8u);
+        f[0] = d1::mul(f[5], f[0]);
+        f[1] = d1::mul(f[1], f[3]);
+        f[0] = d1::mul(f[0], f[3]);
+        f[7] = d1::sub(f[1], f[4]); // half width - x
+        f[4] = d1::add(f[2], f[0]); // z + half depth
+        f[1] = ps2FpuDivide(r.fcr31, f[7], f[6]);
+        f[0] = ps2FpuDivide(r.fcr31, f[4], f[5]);
+        const int32_t cellX = ps2FpuConvertToWord(f[1]);
+        f[2] = d2Ifl(cellX);
+        const int32_t cellZ = ps2FpuConvertToWord(f[0]);
+        f[1] = d2Ifl(cellZ);
+        if (cellX < 0 || cellZ < 0 || !(cellX < countX) || !(cellZ < countZ))
+            return 0;
+        const int32_t subX = m.s32(grid + 0x3Cu);
+        f[3] = static_cast<float>(m.s32(grid + 0x40u));
+        f[0] = static_cast<float>(cellZ);
+        f[2] = static_cast<float>(subX);
+        const uint32_t all = m.u32(kStageAllAreas);
+        f[1] = static_cast<float>(cellX);
+        f[3] = ps2FpuDivide(r.fcr31, f[5], f[3]);
+        f[0] = d1::mul(f[0], f[5]);
+        f[1] = d1::mul(f[1], f[6]);
+        f[0] = d1::sub(f[4], f[0]);
+        f[2] = ps2FpuDivide(r.fcr31, f[6], f[2]);
+        f[1] = d1::sub(f[7], f[1]);
+        f[0] = ps2FpuDivide(r.fcr31, f[0], f[3]);
+        f[1] = ps2FpuDivide(r.fcr31, f[1], f[2]);
+        const int32_t inZ = ps2FpuConvertToWord(f[0]);
+        f[2] = d2Ifl(inZ);
+        const uint32_t rowZ = d2Mult(r, static_cast<uint32_t>(inZ), static_cast<uint32_t>(subX));
+        const int32_t inX = ps2FpuConvertToWord(f[1]);
+        f[0] = d2Ifl(inX);
+        const uint32_t sub = rowZ + static_cast<uint32_t>(inX);
+        if (all != 0u)
+            return 1;
+        const uint32_t cell = d2Mult(r, static_cast<uint32_t>(cellZ), static_cast<uint32_t>(countX)) + static_cast<uint32_t>(cellX);
+        const uint32_t record = cell * 0x9Cu + cells + 8u;
+        uint32_t node;
+        if (d2FocusNode(m, r, record, kAreaEmptyHi, kAreaEmptyLo, node) < 0)
+            return -1;
+        if (node == 0u)
+            return 0;
+        const uint32_t at = sub * 0x3Cu + node + 4u;
+        if (!d2Plain(at, 4u))
+            return -1;
+        const uint32_t bits = m.u32(at);
+        return (((bits >> 2) & 1u) | (bits & 2u)) != 0u ? 1 : 0;
+    }
+
+    void areaExistD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList47On())
+            return areaExist(rdram, ctx, runtime);
+        D2AreaRegs r;
+        for (int i = 0; i < 8; ++i)
+            r.f[i] = ctx->f[i];
+        r.hi = ctx->hi;
+        r.lo = ctx->lo;
+        r.fcr31 = ctx->fcr31;
+        const int v0 = areaExistD2Core(d1::Mem{rdram}, GPR_U32(ctx, 4), r);
+        if (v0 < 0)
+            return areaExist(rdram, ctx, runtime); // nothing written: the old body from the start
+        ++c_d2AreaExist.n;
+        for (int i = 0; i < 8; ++i)
+            ctx->f[i] = r.f[i];
+        ctx->hi = r.hi;
+        ctx->lo = r.lo;
+        ctx->fcr31 = r.fcr31;
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(v0));
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void areaExistSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            areaExistD1(rdram, ctx, runtime);
+        else
+            areaExist(rdram, ctx, runtime);
+    }
+}

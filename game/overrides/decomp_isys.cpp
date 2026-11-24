@@ -466,7 +466,9 @@ namespace decomp_isys
 
     void forFirstSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void forExitSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    SOTC_DECOMP_FUNCTION(kAdd, isysAddGroupWithLinkParam, addGroup);
+    void addGroupSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    SOTC_DECOMP_FUNCTION(kAdd, isysAddGroupWithLinkParam, addGroupSw);
+    D1_ALIAS(kAdd, isysAddGroupWithLinkParam, addGroupSw, addGroup);
     SOTC_DECOMP_FUNCTION(kAddNoWait, isysAddGroupWithLinkParamNoWait, addGroupNoWait);
     SOTC_DECOMP_FUNCTION(kInsert, kernel_sub_001C6180, insert);
     SOTC_DECOMP_FUNCTION(kRemove, kernel_sub_001C6408, remove);
@@ -596,5 +598,118 @@ namespace decomp_isys
             forExitD1(rdram, ctx, runtime);
         else
             forExit(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): isysAddGroupWithLinkParam -----------------------------------------------------
+// The add's plan (the checks, reads only) and its writes (the free list's head taken, the link filled and put last in the
+// group's list and the object's) as typed cores on d1::Mem, in the old order; the lock (GetThreadId / PollSema /
+// SignalSema: the scheduler's; a SignalSema can hand the CPU to a woken thread) stays the old helpers' calls with the
+// same frame and registers, as isysGroupForFirst's D1 body.
+namespace decomp_isys
+{
+    D1_COUNTER(c_d1AddGroup, "isysAddGroupWithLinkParam");
+
+    // addPlan on d1::Mem: the link the add takes (the free list's head), 0 when the old path must run.
+    uint32_t addPlanCore(const d1::Mem m, uint32_t object, uint32_t group)
+    {
+        const uint32_t link = m.get<uint32_t>(kFree);
+        if (!d1Sane(link) || object == 0u || group == 0u || !d1IsysOk(object, 0x10u) || !d1IsysOk(group, 4u))
+            return 0u;
+        const uint32_t last = linkAt(m.get<uint16_t>(group + 2u));
+        if (last != 0u)
+        {
+            if (!d1Sane(last) || !d1IsysOk(m.get<uint32_t>(last + 4u), 4u))
+                return 0u;
+            if (const uint16_t n = m.get<uint16_t>(last + 0xEu); n != 0u && !d1Sane(linkAt(n)))
+                return 0u;
+        }
+        if (m.get<uint16_t>(object + 0xCu) != 0u && !d1Sane(linkAt(m.get<uint16_t>(object + 0xEu))))
+            return 0u;
+        return link;
+    }
+
+    // insertAfter on d1::Mem (kernel_sub_001C6180 with a2 = 1).
+    void addInsertAfterCore(const d1::Mem m, uint32_t prev, uint32_t link)
+    {
+        if (prev == 0u)
+        {
+            const uint32_t group = m.get<uint32_t>(link + 4u);
+            m.set<uint16_t>(group, indexOf(link));
+            m.set<uint16_t>(group + 2u, indexOf(link));
+            m.set<uint16_t>(link + 0x10u, 0u);
+            m.set<uint16_t>(link + 0xEu, 0u);
+            return;
+        }
+        m.set<uint16_t>(link + 0x10u, indexOf(prev));
+        const uint16_t next = m.get<uint16_t>(prev + 0xEu);
+        m.set<uint16_t>(link + 0xEu, next);
+        if (next == 0u)
+            m.set<uint16_t>(m.get<uint32_t>(prev + 4u) + 2u, indexOf(link));
+        else
+            m.set<uint16_t>(linkAt(next) + 0x10u, indexOf(link));
+        m.set<uint16_t>(prev + 0xEu, indexOf(link));
+    }
+
+    // addDo on d1::Mem: the add's writes in the original's order.
+    void addDoCore(const d1::Mem m, uint32_t link, uint32_t object, uint32_t group, uint32_t word)
+    {
+        m.set<uint32_t>(kFree, linkAt(m.get<uint16_t>(link + 0xEu)));
+        m.set<uint32_t>(link + 8u, word);
+        m.set<uint32_t>(link, object);
+        m.set<uint32_t>(link + 4u, group);
+        addInsertAfterCore(m, linkAt(m.get<uint16_t>(group + 2u)), link);
+        if (m.get<uint16_t>(object + 0xCu) == 0u)
+        {
+            m.set<uint16_t>(link + 0x14u, 0u);
+            m.set<uint16_t>(object + 0xCu, indexOf(link));
+        }
+        else
+        {
+            m.set<uint16_t>(link + 0x14u, m.get<uint16_t>(object + 0xEu));
+            m.set<uint16_t>(linkAt(m.get<uint16_t>(object + 0xEu)) + 0x12u, indexOf(link));
+        }
+        m.set<uint16_t>(link + 0x12u, 0u);
+        m.set<uint16_t>(object + 0xEu, indexOf(link));
+    }
+
+    void addGroupD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d1AddGroup.n;
+        const d1::Mem dm{rdram};
+        const M m{rdram};
+        const uint32_t object = GPR_U32(ctx, 4), group = GPR_U32(ctx, 5), word = GPR_U32(ctx, 7);
+        const uint32_t spIn = GPR_U32(ctx, 29), ra = GPR_U32(ctx, 31);
+        const uint32_t link = addPlanCore(dm, object, group);
+        const Lock lock = link == 0u ? Lock::No : acquire(m, rdram, ctx, runtime);
+        if (lock == Lock::No)
+        {
+            ctx->pc = kAdd;
+            SET_GPR_U32(ctx, 4, object);
+            return sotc_decomp::recompiled(kAdd)(rdram, ctx, runtime);
+        }
+        addDoCore(dm, link, object, group, word);
+        if (release(m))
+        {
+            // The original's frame (sp - 0x40: s0..s6 at 0..0x30, ra at 0x38), s0 the link.
+            const uint32_t frame = spIn - 0x40u;
+            saveFrame(rdram, ctx, frame, 7, 0x38u);
+            const uint64_t s0 = GPR_U64(ctx, 16);
+            SET_GPR_U32(ctx, 16, link);
+            signal(m, rdram, ctx, runtime, 0x001C6784u, frame);
+            SET_GPR_U64(ctx, 16, s0);
+            SET_GPR_U32(ctx, 29, spIn);
+            SET_GPR_U32(ctx, 31, ra);
+        }
+        SET_GPR_U64(ctx, 2, 1u);
+        returnTo(ctx);
+    }
+
+    void addGroupSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            addGroupD1(rdram, ctx, runtime);
+        else
+            addGroup(rdram, ctx, runtime);
     }
 }

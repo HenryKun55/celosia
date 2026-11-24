@@ -62,6 +62,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "d1_native.h"
 
 #include <cstring>
 
@@ -541,4 +542,552 @@ namespace decomp_hot47c
 }
 
 SOTC_DECOMP_FUNCTION(0x010DC808u, charrootdyn_slideExceptionJudgeCB, decomp_hot47c::slideExceptionJudgeCB);
-SOTC_DECOMP_FUNCTION(0x010DAE30u, GetCharaRootDynamicsAfter, decomp_hot47c::rootDynamicsAfter);
+namespace decomp_hot47c { void rootDynamicsAfterSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D2
+SOTC_DECOMP_FUNCTION(0x010DAE30u, GetCharaRootDynamicsAfter, decomp_hot47c::rootDynamicsAfterSw);
+D1_ALIAS(0x010DAE30u, GetCharaRootDynamicsAfter, decomp_hot47c::rootDynamicsAfterSw, decomp_hot47c::rootDynamicsAfter);
+
+// ---- Round D2 (switch d1native, d1_native.h): GetCharaRootDynamicsAfter as native C++ (partial) ----------------------------
+// The old body's statements in its order: guest memory through d1::Mem, the VU0 blocks (quaternion product, the 4- and
+// 3-vector normalisations, the xyz difference, the angle / axis block, the shorter-way blend) as d1:: NEON vec4 cores on a
+// local VU0 register set (operand clamps dropped: the lanes are the character's / bones' quaternions and vectors, game
+// data, and the relocated constant quaternions; the stale lanes the old code never reads stay masked out), Q by the old
+// ps2VuRsqrt with its status, the FPU ops as d1::. The VU0 set is stored to the context before each guest call and
+// reloaded after it (SetQuaternionByAxisRotateVWithNoRegularize, GetDifferencialQuaternionWithNoRegularize,
+// iosGetACosfExact x1 / x3, GetGeometryPointerPosition / Quaternion: kept as the old body makes them). Mode A's and C's
+// bone loops, the hot part, have no guest call. v0 / v1 / t0 / at's 128 bits, f0 - f2, f12, f13, f20, f21, the condition
+// bit, HI / LO, s0 - s5 as the old body leaves them.
+namespace decomp_hot47c
+{
+    D1_COUNTER(c_d2RootAfter, "GetCharaRootDynamicsAfter");
+
+    namespace d2r
+    {
+        template <int A, int B, int C, int D>
+        PS2_FORCE_INLINE __m128 d2perm(__m128 v)
+        {
+#if defined(__clang__)
+            return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+            typedef int d2v4i __attribute__((vector_size(16)));
+            return __builtin_shuffle(v, d2v4i{A, B, C, D});
+#endif
+        }
+        PS2_FORCE_INLINE __m128 d2yzx(__m128 v) { return d2perm<1, 2, 0, 3>(v); }
+        PS2_FORCE_INLINE __m128 d2zxy(__m128 v) { return d2perm<2, 0, 1, 3>(v); }
+        PS2_FORCE_INLINE uint32_t d2fBits(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d2bitsF(uint32_t b)
+        {
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f;
+        }
+        PS2_FORCE_INLINE uint64_t d2sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+        // The low 64 bits of a 128-bit GPR image replaced (mfc1 / lui / addiu into a register whose upper half stays).
+        PS2_FORCE_INLINE __m128 d2low(__m128 q, uint64_t low)
+        {
+            std::memcpy(&q, &low, 8);
+            return q;
+        }
+
+        // The VU0 registers the blocks use.
+        struct RootVu
+        {
+            __m128 vf5, vf6, vf7, vf8, vf9, vf11, vf12, vf13, vf14, vf15, vf16, acc;
+            float q;
+            uint16_t status;
+        };
+
+        // *dst = *a x *b (quatMul's statements).
+        void d2QuatMul(const d1::Mem &m, uint32_t a, uint32_t b, uint32_t dst, RootVu &v)
+        {
+            const __m128 kX = d1::mask(1, 0, 0, 0), kW = d1::mask(0, 0, 0, 1), kXyz = d1::mask(1, 1, 1, 0);
+            v.vf11 = m.q(a & ~0xFu);
+            v.vf12 = m.q(b & ~0xFu);
+            v.vf13 = d1::vmul(v.vf11, v.vf12);
+            v.vf13 = d1::vsel(v.vf13, d1::vadd(v.vf13, d1::bc<1>(v.vf13)), kX);
+            v.vf13 = d1::vsel(v.vf13, d1::vadd(v.vf13, d1::bc<2>(v.vf13)), kX);
+            v.vf13 = d1::vsel(v.vf13, d1::vsub(v.vf13, d1::bc<0>(v.vf13)), kW);
+            v.vf14 = d1::vsel(v.vf14, d1::vmul(v.vf12, d1::bc<3>(v.vf11)), kXyz);
+            v.vf15 = d1::vsel(v.vf15, d1::vmul(v.vf11, d1::bc<3>(v.vf12)), kXyz);
+            v.acc = d1::vsel(v.acc, d1::vmul(d2yzx(v.vf12), d2zxy(v.vf11)), kXyz);
+            v.vf16 = d1::vsel(v.vf16, d1::vsub(v.acc, d1::vmul(d2yzx(v.vf11), d2zxy(v.vf12))), kXyz);
+            v.vf13 = d1::vsel(v.vf13, d1::vadd(v.vf14, v.vf15), kXyz);
+            v.vf13 = d1::vsel(v.vf13, d1::vadd(v.vf13, v.vf16), kXyz);
+            m.putq(dst & ~0xFu, v.vf13);
+        }
+
+        // *q normalised as a 4-vector (normalize4's statements).
+        void d2Normalize4(const d1::Mem &m, uint32_t q, RootVu &v)
+        {
+            const __m128 kX = d1::mask(1, 0, 0, 0);
+            v.vf14 = m.q(q & ~0xFu);
+            v.vf15 = d1::vmul(v.vf14, v.vf14);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<1>(v.vf15)), kX);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<2>(v.vf15)), kX);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<3>(v.vf15)), kX);
+            v.q = ps2VuRsqrt(v.status, d1::lane<3>(d1::vf0()), d1::lane<0>(v.vf15));
+            v.vf15 = d1::vmul(v.vf14, d1::splat(v.q));
+            m.putq(q & ~0xFu, v.vf15);
+        }
+
+        // *dst = *src's xyz normalised (normalize3's statements: vf7.w the squares' sum through ACC.w).
+        void d2Normalize3(const d1::Mem &m, uint32_t src, uint32_t dst, RootVu &v)
+        {
+            const __m128 kW = d1::mask(0, 0, 0, 1), kXyz = d1::mask(1, 1, 1, 0);
+            const __m128 vf0 = d1::vf0();
+            v.vf5 = m.q(src & ~0xFu);
+            v.vf7 = d1::vsel(v.vf7, d1::vmul(v.vf5, v.vf5), kXyz);
+            v.acc = d1::vsel(v.acc, d1::vmul(vf0, d1::bc<0>(v.vf7)), kW);
+            v.acc = d1::vsel(v.acc, d1::vadd(v.acc, d1::vmul(vf0, d1::bc<1>(v.vf7))), kW);
+            v.vf7 = d1::vsel(v.vf7, d1::vadd(v.acc, d1::vmul(vf0, d1::bc<2>(v.vf7))), kW);
+            v.q = ps2VuRsqrt(v.status, d1::lane<3>(vf0), d1::lane<3>(v.vf7));
+            v.vf5 = d1::vsel(v.vf5, d1::vmul(v.vf5, d1::splat(v.q)), kXyz);
+            m.putq(dst & ~0xFu, v.vf5);
+        }
+
+        // *dst = (*a - *b)'s xyz (subXyz's statements).
+        void d2SubXyz(const d1::Mem &m, uint32_t a, uint32_t b, uint32_t dst, RootVu &v)
+        {
+            v.vf5 = m.q(a & ~0xFu);
+            v.vf6 = m.q(b & ~0xFu);
+            v.vf5 = d1::vsel(v.vf5, d1::vsub(v.vf5, v.vf6), d1::mask(1, 1, 1, 0));
+            m.putq(dst & ~0xFu, v.vf5);
+        }
+
+        // The scalar registers angleAxis / blendToward read and leave.
+        struct RootScalars
+        {
+            float f0, f1, fx, f20, f21;
+            uint32_t fcr31;
+            __m128 v0q, v1q, t0q; // v0 / v1 / t0's 128 bits
+            uint64_t at;
+        };
+
+        // angleAxis's statements: f0 = acos's result in, fx the angle (2 acos x f20) out.
+        void d2AngleAxis(const d1::Mem &m, uint32_t q, uint32_t out, uint32_t flag, RootVu &v, RootScalars &s)
+        {
+            const __m128 kX = d1::mask(1, 0, 0, 0), kXyz = d1::mask(1, 1, 1, 0);
+            s.f0 = d1::add(s.f0, s.f0);
+            s.fx = d1::mul(s.f0, s.f20);
+            m.set<float>(out + 0x10u, s.fx);
+            v.vf7 = m.q(q & ~0xFu);
+            v.vf7 = d1::vsel(v.vf7, d1::vmul(v.vf7, v.vf7), kXyz);
+            v.vf7 = d1::vsel(v.vf7, d1::vadd(v.vf7, d1::bc<1>(v.vf7)), kX);
+            v.vf7 = d1::vsel(v.vf7, d1::vadd(v.vf7, d1::bc<2>(v.vf7)), kX);
+            s.v0q = v.vf7;          // qmfc2.ni v0, vf7
+            s.f0 = d1::lane<0>(v.vf7); // mtc1 v0, f0
+            s.f1 = d2bitsF(0u);
+            bool c = d1::eq(s.f0, s.f1);
+            s.fcr31 = c ? (s.fcr31 | 0x800000u) : (s.fcr31 & ~0x800000u);
+            uint64_t v0 = 0u;
+            if (!c)
+            {
+                c = d1::eq(s.fx, s.f1);
+                s.fcr31 = c ? (s.fcr31 | 0x800000u) : (s.fcr31 & ~0x800000u);
+                if (!c)
+                {
+                    d2Normalize3(m, q, out, v);
+                    v0 = 1u;
+                    m.set<float>(out + 0xCu, s.f1);
+                }
+            }
+            s.v0q = d2low(s.v0q, v0);
+            m.set<uint8_t>(flag, static_cast<uint8_t>(v0));
+        }
+
+        // blendToward's statements: *s2 blended toward *target by f21, the shorter way, normalised.
+        void d2BlendToward(const d1::Mem &m, uint32_t target, uint32_t tmp, uint32_t dotAt, uint32_t s2, RootVu &v, RootScalars &s)
+        {
+            const __m128 kX = d1::mask(1, 0, 0, 0), kW = d1::mask(0, 0, 0, 1);
+            s.v1q = m.q(s2 & ~0xFu);
+            m.putq(tmp & ~0xFu, s.v1q);
+            v.vf14 = m.q(target & ~0xFu);
+            v.vf15 = m.q(tmp & ~0xFu);
+            v.vf15 = d1::vmul(v.vf14, v.vf15);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<1>(v.vf15)), kX);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<2>(v.vf15)), kX);
+            v.vf15 = d1::vsel(v.vf15, d1::vadd(v.vf15, d1::bc<3>(v.vf15)), kX);
+            s.v0q = v.vf15; // qmfc2.ni v0, vf15
+            s.f0 = d1::lane<0>(v.vf15);
+            m.set<float>(dotAt, s.f0);
+            const uint32_t dot = m.u32(dotAt);
+            s.v0q = d2low(s.v0q, d2sx(dot));
+            if (static_cast<int32_t>(dot) < 0)
+            {
+                s.at = d2sx(0xBF800000u); // lui at, 0xbf80
+                s.f0 = d2bitsF(0xBF800000u);
+                s.v0q = d2low(s.v0q, d2sx(0xBF800000u));
+                v.vf5 = m.q(tmp & ~0xFu);
+                v.vf6 = s.v0q;
+                v.vf5 = d1::vmul(v.vf5, d1::bc<0>(v.vf6));
+                m.putq(tmp & ~0xFu, v.vf5);
+            }
+            s.t0q = d2low(s.t0q, d2sx(d2fBits(s.f21))); // mfc1 t0, f21
+            v.vf7 = s.t0q;
+            v.vf5 = m.q(target & ~0xFu);
+            v.vf6 = m.q(tmp & ~0xFu);
+            v.vf8 = d1::vsel(v.vf8, d1::vsub(d1::vf0(), d1::bc<0>(v.vf7)), kW);
+            v.acc = d1::vmul(v.vf5, d1::bc<0>(v.vf7));
+            v.vf9 = d1::vadd(v.acc, d1::vmul(v.vf6, d1::bc<3>(v.vf8)));
+            m.putq(s2 & ~0xFu, v.vf9);
+            d2Normalize4(m, s2, v);
+        }
+
+        // Mode A's bones: the first along the skeleton's chain (or the first only, without a skeleton) times s2.
+        void d2BonesA(const d1::Mem &m, uint32_t s1, uint32_t s2, uint32_t s4, RootVu &v)
+        {
+            const uint32_t skel = m.u32(s1 + 0x358u);
+            if (skel == 0u)
+                d2QuatMul(m, s2, s4, s4, v);
+            else if (s4 != 0u)
+            {
+                const uint32_t bones = m.u32(skel + 8u);
+                uint32_t at = s4;
+                uint32_t idx = 0u;
+                for (;;)
+                {
+                    d2QuatMul(m, s2, at, at, v);
+                    idx = m.u32((idx << 6) + bones + 0x34u);
+                    if (static_cast<int32_t>(idx) < 0)
+                        break;
+                    at = s4 + (idx << 4);
+                    if (at == 0u)
+                        break;
+                }
+            }
+        }
+        // Mode C's bones: every bone along the chain times s2 (the first only without a skeleton).
+        void d2BonesC(const d1::Mem &m, uint32_t s1, uint32_t s2, uint32_t s4, RootVu &v)
+        {
+            uint32_t idx = 0u;
+            for (;;)
+            {
+                const uint32_t at = (idx << 4) + s4;
+                d2QuatMul(m, s2, at, at, v);
+                const uint32_t skel = m.u32(s1 + 0x358u);
+                if (skel == 0u)
+                    break;
+                idx = m.u32((idx << 6) + m.u32(skel + 8u) + 0x34u);
+                if (static_cast<int32_t>(idx) < 0)
+                    break;
+            }
+        }
+        // Mode C's conjugate of +0xa70 (vf5.x = 0 - 1, vf11.xyz x it) into dst.
+        void d2Conjugate(const d1::Mem &m, uint32_t src, uint32_t dst, RootVu &v)
+        {
+            const __m128 vf0 = d1::vf0();
+            v.vf11 = m.q(src & ~0xFu);
+            v.vf5 = d1::vsel(v.vf5, d1::vsub(vf0, d1::bc<3>(vf0)), d1::mask(1, 0, 0, 0));
+            v.vf11 = d1::vsel(v.vf11, d1::vmul(v.vf11, d1::bc<0>(v.vf5)), d1::mask(1, 1, 1, 0));
+            m.putq(dst & ~0xFu, v.vf11);
+        }
+    } // namespace d2r
+
+    void rootDynamicsAfterD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t s1 = GPR_U32(ctx, 4);
+        if (!sotc_decomp::hotList47On() || entrySp < 0xB0u || entrySp > PS2_RAM_SIZE || s1 > PS2_RAM_SIZE - 0x1100u)
+            return rootDynamicsAfter(rdram, ctx, runtime);
+        ++c_d2RootAfter.n;
+        const d1::Mem m{rdram};
+        const uint32_t sp = entrySp - 0xB0u;
+        const uint64_t mode = GPR_U64(ctx, 5);
+
+        d2r::RootVu v;
+        auto loadVu = [&]()
+        {
+            v.vf5 = ctx->vu0_vf[5];
+            v.vf6 = ctx->vu0_vf[6];
+            v.vf7 = ctx->vu0_vf[7];
+            v.vf8 = ctx->vu0_vf[8];
+            v.vf9 = ctx->vu0_vf[9];
+            v.vf11 = ctx->vu0_vf[11];
+            v.vf12 = ctx->vu0_vf[12];
+            v.vf13 = ctx->vu0_vf[13];
+            v.vf14 = ctx->vu0_vf[14];
+            v.vf15 = ctx->vu0_vf[15];
+            v.vf16 = ctx->vu0_vf[16];
+            v.acc = ctx->vu0_acc;
+            v.q = ctx->vu0_q;
+            v.status = ctx->vu0_status;
+        };
+        auto storeVu = [&]()
+        {
+            ctx->vu0_vf[5] = v.vf5;
+            ctx->vu0_vf[6] = v.vf6;
+            ctx->vu0_vf[7] = v.vf7;
+            ctx->vu0_vf[8] = v.vf8;
+            ctx->vu0_vf[9] = v.vf9;
+            ctx->vu0_vf[11] = v.vf11;
+            ctx->vu0_vf[12] = v.vf12;
+            ctx->vu0_vf[13] = v.vf13;
+            ctx->vu0_vf[14] = v.vf14;
+            ctx->vu0_vf[15] = v.vf15;
+            ctx->vu0_vf[16] = v.vf16;
+            ctx->vu0_acc = v.acc;
+            ctx->vu0_q = v.q;
+            ctx->vu0_status = v.status;
+        };
+        // A guest call with the VU0 set in the context.
+        auto call = [&](uint32_t to, uint32_t ra)
+        {
+            storeVu();
+            callGuest(rdram, ctx, runtime, to, ra, sp);
+            loadVu();
+        };
+        // angleAxis / blendToward on the context's scalar registers.
+        auto scalarsIn = [&](d2r::RootScalars &s, int fx)
+        {
+            s.f0 = ctx->f[0];
+            s.f1 = ctx->f[1];
+            s.fx = ctx->f[fx];
+            s.f20 = ctx->f[20];
+            s.f21 = ctx->f[21];
+            s.fcr31 = ctx->fcr31;
+            s.v0q = _mm_castsi128_ps(ctx->r[2]);
+            s.v1q = _mm_castsi128_ps(ctx->r[3]);
+            s.t0q = _mm_castsi128_ps(ctx->r[8]);
+            s.at = GPR_U64(ctx, 1);
+        };
+        auto scalarsOut = [&](const d2r::RootScalars &s, int fx)
+        {
+            ctx->f[fx] = s.fx; // first: blendToward passes fx 0 (its f0 below wins)
+            ctx->f[0] = s.f0;
+            ctx->f[1] = s.f1;
+            ctx->fcr31 = s.fcr31;
+            ctx->r[2] = _mm_castps_si128(s.v0q);
+            ctx->r[3] = _mm_castps_si128(s.v1q);
+            ctx->r[8] = _mm_castps_si128(s.t0q);
+            SET_GPR_U64(ctx, 1, s.at);
+        };
+        auto angleAxis = [&](int fx, uint32_t q, uint32_t out, uint32_t flag)
+        {
+            d2r::RootScalars s;
+            scalarsIn(s, fx);
+            d2r::d2AngleAxis(m, q, out, flag, v, s);
+            scalarsOut(s, fx);
+        };
+        auto blendToward = [&](uint32_t target, uint32_t tmp, uint32_t dotAt)
+        {
+            d2r::RootScalars s;
+            scalarsIn(s, 0);
+            d2r::d2BlendToward(m, target, tmp, dotAt, s1 + 0x4B0u, v, s);
+            scalarsOut(s, 0);
+        };
+        loadVu();
+
+        // The prologue's saves, in its order.
+        m.set<uint64_t>(sp + 0x68u, GPR_U64(ctx, 17));
+        const uint64_t s1x = GPR_U64(ctx, 4);
+        SET_GPR_U64(ctx, 17, s1x);
+        m.set<uint64_t>(sp + 0x70u, GPR_U64(ctx, 18));
+        const uint32_t s2 = s1 + 0x4B0u; // the rotation quaternion
+        SET_GPR_U64(ctx, 18, sx(s2));
+        m.set<float>(sp + 0x98u, ctx->f[20]);
+        ctx->f[20] = ctx->f[13];
+        m.set<uint64_t>(sp + 0x60u, GPR_U64(ctx, 16));
+        m.set<uint64_t>(sp + 0x78u, GPR_U64(ctx, 19));
+        m.set<uint64_t>(sp + 0x80u, GPR_U64(ctx, 20));
+        m.set<uint64_t>(sp + 0x88u, GPR_U64(ctx, 21));
+        m.set<uint64_t>(sp + 0x90u, GPR_U64(ctx, 31));
+        m.set<float>(sp + 0xA0u, ctx->f[21]);
+        const uint8_t b124 = m.get<uint8_t>(s1 + 0x124u);
+        const uint32_t s4 = m.u32(s1 + 0x2E8u); // the bones' quaternions
+        SET_GPR_U64(ctx, 20, sx(s4));
+        m.set<uint8_t>(s1 + 0x10C0u, b124);
+        const uint64_t modeA = sx(m.u32(relocated(rdram, 0x010DAE34u, 0x010DAE74u)));
+        ctx->f[21] = m.f32(s1 + 0x724u);
+
+        int path; // 0 A, 1 B, 2 C
+        if (mode == modeA)
+            path = 0;
+        else if (mode != sx(m.u32(relocated(rdram, 0x010DAE80u, 0x010DAE84u))))
+            path = mode != sx(m.u32(relocated(rdram, 0x010DAE8Cu, 0x010DB078u))) ? 2 : 1;
+        else
+            path = 0;
+
+        if (path == 0)
+        {
+            // ---- A (0x10dae90) --------------------------------------------
+            const int8_t on = static_cast<int8_t>(m.get<uint8_t>(s1 + 0x529u));
+            m.set<uint8_t>(s1 + 0x10C0u, 0u);
+            if (on != 0)
+            {
+                const uint32_t root = m.u32(s1 + 0x19Cu);
+                // f0 = angle x f12 x 32768 / pi, as a 16-bit angle.
+                SET_GPR_S32(ctx, 1, 0x47000000);
+                ctx->f[2] = bitsf(0x47000000u);
+                ctx->f[0] = m.f32(root + 0x50u);
+                SET_GPR_S32(ctx, 1, 0x40490FDA);
+                ctx->f[1] = bitsf(0x40490FDAu);
+                ctx->f[0] = d1::mul(ctx->f[0], ctx->f[12]);
+                ctx->f[0] = d1::mul(ctx->f[0], ctx->f[2]);
+                ctx->f[0] = ps2FpuDivide(ctx->fcr31, ctx->f[0], ctx->f[1]);
+                {
+                    const int32_t tmp = ps2FpuConvertToWord(ctx->f[0]);
+                    std::memcpy(&ctx->f[1], &tmp, sizeof(tmp));
+                }
+                uint32_t w;
+                std::memcpy(&w, &ctx->f[1], 4);
+                SET_GPR_U64(ctx, 4, sx(sp));
+                SET_GPR_S32(ctx, 5, SRA32(static_cast<int32_t>(SLL32(w, 16)), 16));
+                SET_GPR_S32(ctx, 6, static_cast<int32_t>(root + 0x40u));
+                call(jalTarget(rdram, kSiteAxisRot), 0x010DAEE8u);
+
+                // The animation record's factor (+0x1c0 + 0x24's handle).
+                const uint32_t rec = m.u32(s1 + 0x1C0u) + 0x24u;
+                const uint32_t packed = m.u32(rec);
+                const uint32_t low = packed & 0x3FFFFu;
+                uint64_t tbl = low == 0u ? 0u : sx(m.u32(rec - low));
+                uint32_t entry = 0u;
+                if (tbl != 0u && tbl != sx(m.u32(relocated(rdram, 0x010DAF18u, 0x010DAF1Cu))))
+                {
+                    const uint32_t t = static_cast<uint32_t>(tbl);
+                    const uint32_t hdr = m.u32(t + 8u);
+                    const uint32_t idx = (packed >> 18) & 0xFFFu;
+                    const uint32_t base = m.u32(t + 0x10u);
+                    const uint32_t stride = m.u32(hdr + 0xCu);
+                    const int64_t result = static_cast<int64_t>(static_cast<int32_t>(idx)) * static_cast<int64_t>(static_cast<int32_t>(stride));
+                    ctx->lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(result)));
+                    ctx->hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(result >> 32)));
+                    entry = base + static_cast<uint32_t>(result);
+                }
+                if (entry != 0u)
+                {
+                    const uint32_t r = m.u32(s1 + 0x19Cu);
+                    ctx->f[1] = m.f32(entry + 0x10u);
+                    ctx->f[0] = m.f32(r + 0x50u);
+                    ctx->f[0] = d1::mul(ctx->f[0], ctx->f[1]);
+                    m.set<float>(r + 0x50u, ctx->f[0]);
+                }
+
+                // s2 = step x s2, normalised; the bones times s2.
+                d2r::d2QuatMul(m, sp, s2, s2, v);
+                d2r::d2Normalize4(m, s2, v);
+                d2r::d2BonesA(m, s1, s2, s4, v);
+            }
+        }
+        else if (path == 1)
+        {
+            // ---- B (0x10db084) --------------------------------------------
+            SET_GPR_U64(ctx, 4, sx(sp));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(s1 + 0xC0u));
+            call(kGeoPos, 0x010DB090u);
+            const uint32_t rootPos = m.u32(s1 + 0x19Cu) + 0x20u;
+            d2r::d2SubXyz(m, s1 + 0xB30u, rootPos, sp + 0x20u, v);
+            d2r::d2Normalize3(m, sp + 0x20u, sp + 0x20u, v);
+            d2r::d2SubXyz(m, s1 + 0xB40u, sp, sp + 0x10u, v);
+            d2r::d2Normalize3(m, sp + 0x10u, sp + 0x10u, v);
+            const uint32_t diff = sp + 0x30u;
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(diff));
+            SET_GPR_U64(ctx, 4, sx(diff));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(sp + 0x10u));
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(sp + 0x20u));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(relocated(rdram, 0x010DB114u, 0x010DB120u)));
+            call(jalTarget(rdram, kSiteDiffQ), 0x010DB124u);
+
+            const uint32_t rootRot = m.u32(s1 + 0x19Cu) + 0x40u;
+            ctx->f[12] = m.f32(sp + 0x3Cu);
+            SET_GPR_U64(ctx, 19, GPR_U64(ctx, 16)); // s3 = s0
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(rootRot));
+            call(jalTarget(rdram, kSiteAcosB), 0x010DB138u);
+            angleAxis(13, diff, rootRot, s1 + 0x529u);
+
+            blendToward(relocated(rdram, 0x010DB1A8u, 0x010DB1ACu), sp + 0x40u, sp + 0x50u);
+        }
+        else
+        {
+            // ---- C (0x10db258) --------------------------------------------
+            d2r::d2Conjugate(m, s1 + 0xA70u, sp + 0x10u, v);
+            d2r::d2QuatMul(m, s4, sp + 0x10u, sp, v);
+            const uint32_t s3 = s1 + 0xA10u;
+            SET_GPR_S32(ctx, 19, static_cast<int32_t>(s3));
+            d2r::d2QuatMul(m, s3, sp, sp, v);
+
+            // Its angle and axis into +0xa30 (+0xa26).
+            ctx->f[12] = m.f32(sp + 0xCu);
+            SET_GPR_U64(ctx, 21, sx(sp)); // s5 = sp
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(s1 + 0xA30u));
+            call(jalTarget(rdram, kSiteAcosC1), 0x010DB2E8u);
+            angleAxis(2, sp, s1 + 0xA30u, s1 + 0xA26u);
+
+            // The same into the root record; the first bone kept in +0xa70.
+            SET_GPR_U64(ctx, 21, sx(sp));
+            const uint32_t rootRot = m.u32(s1 + 0x19Cu) + 0x40u;
+            SET_GPR_VEC(ctx, 2, _mm_castps_si128(m.q(s4 & ~0xFu))); // lq v0, 0(s4)
+            ctx->f[12] = m.f32(sp + 0xCu);
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(rootRot));
+            m.putq((s1 + 0xA70u) & ~0xFu, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+            call(jalTarget(rdram, kSiteAcosC2), 0x010DB374u);
+            angleAxis(2, sp, rootRot, s1 + 0x529u);
+
+            // +0xa10's angle and axis into the root record.
+            SET_GPR_U64(ctx, 16, GPR_U64(ctx, 19)); // s0 = s3
+            const uint32_t rootRot2 = m.u32(s1 + 0x19Cu) + 0x40u;
+            ctx->f[12] = m.f32(s3 + 0xCu);
+            SET_GPR_S32(ctx, 19, static_cast<int32_t>(rootRot2));
+            call(jalTarget(rdram, kSiteAcosC3), 0x010DB3F8u);
+            angleAxis(13, s3, rootRot2, s1 + 0x529u);
+
+            blendToward(relocated(rdram, 0x010DB468u, 0x010DB46Cu), sp + 0x20u, sp + 0x54u);
+
+            d2r::d2BonesC(m, s1, s2, s4, v);
+        }
+
+        // ---- 0x10db57c: the geometry's position and quaternion --------------
+        if (m.u32(s1 + 0x124u) != 0u)
+        {
+            const uint32_t geo = s1 + 0xC0u;
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(geo));
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(s1 + 0x19Cu) + 0x20u));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(geo));
+            call(kGeoPos, 0x010DB59Cu);
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(s1 + 0xA00u));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(geo));
+            call(kGeoQuat, 0x010DB5A8u);
+        }
+        storeVu();
+
+        // ---- the +0x10a1.. flags ---------------------------------------------
+        const uint8_t now = m.get<uint8_t>(s1 + 0x10A1u);
+        const int8_t before = static_cast<int8_t>(m.get<uint8_t>(s1 + 0x10A2u));
+        uint64_t v0 = 1u;
+        if (now != 0u)
+        {
+            if (before != 0)
+                v0 = sx(static_cast<uint32_t>(static_cast<int32_t>(before)));
+            else
+                m.set<uint8_t>(s1 + 0x10A3u, 1u); // started
+        }
+        else if (before != 0)
+            m.set<uint8_t>(s1 + 0x10A4u, 1u); // ended
+        m.set<uint8_t>(s1 + 0x10A2u, now);
+
+        SET_GPR_U64(ctx, 2, v0);
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x60u));
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 0x68u));
+        SET_GPR_U64(ctx, 18, m.get<uint64_t>(sp + 0x70u));
+        SET_GPR_U64(ctx, 19, m.get<uint64_t>(sp + 0x78u));
+        SET_GPR_U64(ctx, 20, m.get<uint64_t>(sp + 0x80u));
+        SET_GPR_U64(ctx, 21, m.get<uint64_t>(sp + 0x88u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x90u));
+        ctx->f[21] = m.f32(sp + 0xA0u);
+        ctx->f[20] = m.f32(sp + 0x98u);
+        SET_GPR_U32(ctx, 29, entrySp);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void rootDynamicsAfterSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rootDynamicsAfterD1(rdram, ctx, runtime);
+        else
+            rootDynamicsAfter(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot47c

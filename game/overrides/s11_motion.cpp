@@ -245,4 +245,237 @@ namespace s11motion
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010B4478u, GetMotionRootFloatFrame, s11motion::rootFloatFrame);
+#include "d1_native.h"
+namespace s11motion
+{
+    void rootFloatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2 (d1native): below
+}
+
+SOTC_DECOMP_FUNCTION(0x010B4478u, GetMotionRootFloatFrame, s11motion::rootFloatFrameSw);
+D1_ALIAS(0x010B4478u, GetMotionRootFloatFrame, s11motion::rootFloatFrameSw, s11motion::rootFloatFrame);
+
+// ---- Round D2 (switch d1native, d1_native.h): GetMotionRootFloatFrame as native C++ (full) ------------------------------
+// The S11 host path (compute + apply) with the arguments read once by the adapter: the core takes the call's inputs as
+// C++ values (the three relocated words decoded by the adapter, the registers the lerp keeps lanes of) and typed guest
+// memory, returns the registers the old body leaves, and writes the 16 bytes out itself. The frame's FPU ops as d1::
+// (cvt.w.s by the runtime's ps2FpuConvertToWord, sub / c.eq as d1::sub / d1::eq); the lerp's three VU0 ops as d1 vec4 ops
+// (operand clamps dropped: the keys are motion data, the fraction a finite FPU result; the only stale lanes, vf7's y..w
+// and ACC's w, are never computed into a kept lane), dest masks as d1::vsel. Refusals (a packed key while neither
+// SOTC_S11RT_PACKED nor s13mot's kPacked is on, any address test S11 makes) run the old body, which refuses the same way.
+namespace s11motion
+{
+    D1_COUNTER(c_d2RootFloat, "GetMotionRootFloatFrame");
+
+    // The root track's key as rootKey (S11's view): xyz, v0, whether v0 is all 128 bits; false: the old body's refusal.
+    struct KeyD2
+    {
+        float v[4];
+        uint64_t v0;
+        bool full;
+    };
+    bool keyD2(const d1::Mem &m, uint32_t track, uint32_t frame, bool packedHost, KeyD2 &k)
+    {
+        k.v[3] = 1.0f;
+        k.full = false;
+        if (!okAddr(track))
+            return false;
+        const int16_t kind = m.get<int16_t>(track + layout::kTrackKind);
+        const uint32_t data = m.u32(track + layout::kTrackData);
+        if (kind < 6)
+        {
+            const uint32_t p = data + frame * 12u;
+            if (!okAddr(p))
+                return false;
+            k.v[0] = m.f32(p);
+            k.v[1] = m.f32(p + 4u);
+            k.v[2] = m.f32(p + 8u);
+            k.v0 = static_cast<uint64_t>(m.u32(p)) | (static_cast<uint64_t>(m.u32(p + 4u)) << 32);
+            k.full = true;
+            return true;
+        }
+        const uint16_t enc16 = m.get<uint16_t>(track + layout::kTrackEncoding);
+        const uint32_t enc = enc16 & 0xFu;
+        if (!okAddr(data))
+            return false;
+        if (enc == 0u)
+        {
+            k.v[0] = m.f32(data);
+            k.v[1] = m.f32(data + 4u);
+            k.v[2] = m.f32(data + 8u);
+            k.v0 = enc16;
+            return true;
+        }
+        if (enc == 2u)
+        {
+            if (!packedHost)
+                return false;
+            const uint32_t p = m.u32(data + layout::kPackedTable) + frame * 6u;
+            if (!okAddr(p))
+                return false;
+            const float scale = fbits(0x38000100u); // 2^-15 (1 + 2^-15)
+            int16_t last = 0;
+            for (uint32_t i = 0; i < 3u; ++i)
+            {
+                last = m.get<int16_t>(p + 2u * i);
+                const float raw = static_cast<float>(static_cast<int32_t>(last));
+                k.v[i] = d1::add(d1::mul(d1::mul(raw, m.f32(data + 4u + 8u * i)), scale), m.f32(data + 8u * i));
+            }
+            k.v0 = static_cast<uint64_t>(static_cast<int64_t>(last));
+            return true;
+        }
+        const uint32_t p = data + frame * 12u;
+        if (!okAddr(p))
+            return false;
+        k.v[0] = m.f32(p);
+        k.v[1] = m.f32(p + 4u);
+        k.v[2] = m.f32(p + 8u);
+        k.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(p)));
+        return true;
+    }
+
+    // The call's inputs (a0 out, a1 the MotionRef, f12 the frame; sp, t0's 128 bits, vf8 / ACC whose lanes the lerp keeps)
+    // and the three relocated words of the original's code (g1 / g2 the two globals' addresses, kind the resource kind).
+    struct RootFrameD2In
+    {
+        __m128 t0v, vf8, acc;
+        uint32_t out, ref, g1, kindWord, g2, sp;
+        float frame;
+        bool packedHost;
+    };
+    // The registers the old body leaves (apply): v0 (and its upper half when full), the c.eq condition, the lerp's VU0
+    // registers and t0.
+    struct RootFrameD2Out
+    {
+        __m128 vf5, vf6, vf7, vf8, acc;
+        uint64_t v0, v0Upper, t0;
+        bool v0Full, cEq, lerp;
+    };
+    bool rootFrameD2Core(const d1::Mem &m, const RootFrameD2In &in, RootFrameD2Out &o)
+    {
+        if (!okAddr(in.out) || !okAddr(in.ref) || (in.ref & 3u) != 0u || (in.out & 0xFu) != 0u)
+            return false;
+        const uint32_t word = m.u32(in.ref);
+        if (!okAddr(in.g1 & ~3u))
+            return false;
+        const uint32_t off = word & layout::kRefOffsetMask;
+        const uint32_t owner1 = off != 0u ? m.u32(in.ref - off) : 0u;
+        if (owner1 == 0u || owner1 == m.u32(in.g1) || !okAddr(owner1))
+            return false;
+        if (m.u32(owner1 + layout::kSetDescriptor) != in.kindWord)
+            return false;
+        if (!okAddr(in.g2 & ~3u))
+            return false;
+        const uint32_t owner = off != 0u ? m.u32(in.ref - off) : 0u;
+        if (owner == 0u || owner == m.u32(in.g2) || !okAddr(owner))
+            return false;
+        const uint32_t desc = m.u32(owner + layout::kSetDescriptor);
+        if (!okAddr(desc))
+            return false;
+        const uint32_t index = (word >> layout::kRefIndexShift) & layout::kRefIndexMask;
+        const uint32_t motion = m.u32(owner + layout::kSetMotions) + index * m.u32(desc + layout::kDescStride);
+        if (!okAddr(motion))
+            return false;
+        const uint32_t root = m.u32(motion + layout::kMotionRoot);
+        if (root == 0u || !okAddr(root))
+            return false;
+        const uint32_t track = m.u32(root + layout::kRootTrack);
+        // The frame: cvt.w.s, the fraction (sub.s), c.eq.s against 0.
+        const int32_t i = ps2FpuConvertToWord(in.frame);
+        const float frac = d1::sub(in.frame, static_cast<float>(i));
+        float key[4];
+        if (d1::eq(frac, 0.0f))
+        {
+            KeyD2 k;
+            if (!keyD2(m, track, static_cast<uint32_t>(i), in.packedHost, k))
+                return false;
+            key[0] = k.v[0];
+            key[1] = k.v[1];
+            key[2] = k.v[2];
+            key[3] = 1.0f;
+            o.v0 = k.v0;
+            o.v0Full = k.full;
+            o.v0Upper = keyUpper(k.v);
+            o.cEq = true;
+            o.lerp = false;
+        }
+        else
+        {
+            KeyD2 k1, k2;
+            if (!keyD2(m, track, static_cast<uint32_t>(i), in.packedHost, k1) || !keyD2(m, track, static_cast<uint32_t>(i) + 1u, in.packedHost, k2))
+                return false;
+            o.v0Full = k2.full;
+            o.v0Upper = keyUpper(k2.v);
+            o.cEq = false;
+            // The lerp (0x10b45b4..0x10b45d4): vf7 = t0's 128 bits (the fraction's bits, sign-extended, in the low word),
+            // vf8.w = 1 - x, ACC.xyz = k2 x, vf5.xyz = ACC + k1 vf8.w.
+            const uint64_t t0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(bitsf(frac))));
+            __m128 vf7 = in.t0v;
+            std::memcpy(&vf7, &t0, 8);
+            const __m128 vf5in = d1::make(k2.v[0], k2.v[1], k2.v[2], k2.v[3]);
+            const __m128 vf6 = d1::make(k1.v[0], k1.v[1], k1.v[2], k1.v[3]);
+            const __m128 x = d1::bc<0>(vf7);
+            const __m128 xyz = d1::mask(1, 1, 1, 0);
+            const __m128 vf8 = d1::vsel(in.vf8, d1::vsub(d1::vf0(), x), d1::mask(0, 0, 0, 1));
+            const __m128 acc = d1::vsel(in.acc, d1::vmul(vf5in, x), xyz);
+            const __m128 vf5 = d1::vsel(vf5in, d1::vadd(acc, d1::vmul(vf6, d1::bc<3>(vf8))), xyz);
+            o.vf5 = vf5;
+            o.vf6 = vf6;
+            o.vf7 = vf7;
+            o.vf8 = vf8;
+            o.acc = acc;
+            o.t0 = t0;
+            o.lerp = true;
+            key[0] = d1::lane<0>(vf5);
+            key[1] = d1::lane<1>(vf5);
+            key[2] = d1::lane<2>(vf5);
+            key[3] = 1.0f;
+            o.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(in.sp + 0x10u)));
+        }
+        m.putq(in.out, d1::make(key[0], key[1], key[2], key[3]));
+        return true;
+    }
+
+    void rootFloatFrameD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!s11rt::on(s11rt::kMotion) || s11rt::g_check || s13mot::g_check)
+            return rootFloatFrame(rdram, ctx, runtime);
+        RootFrameD2In in;
+        in.out = GPR_U32(ctx, 4);
+        in.ref = GPR_U32(ctx, 5);
+        in.frame = ctx->f[12];
+        in.sp = GPR_U32(ctx, 29) - 0x50u;
+        in.t0v = _mm_castsi128_ps(ctx->r[8]);
+        in.vf8 = ctx->vu0_vf[8];
+        in.acc = ctx->vu0_acc;
+        in.g1 = sotc_decomp::relocated(rdram, 0x010B44C0u, 0x010B44C4u);
+        in.kindWord = sotc_decomp::relocated(rdram, 0x010B44D4u, 0x010B44DCu);
+        in.g2 = sotc_decomp::relocated(rdram, 0x010B4508u, 0x010B450Cu);
+        in.packedHost = s11rt::g_packed || s13mot::on(s13mot::kPacked);
+        RootFrameD2Out o;
+        if (!rootFrameD2Core(d1::Mem{rdram}, in, o))
+            return rootFloatFrame(rdram, ctx, runtime); // (nothing written: the old body refuses the same way)
+        ++c_d2RootFloat.n;
+        SET_GPR_U64(ctx, 2, o.v0);
+        if (o.v0Full)
+            std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &o.v0Upper, 8);
+        ctx->fcr31 = o.cEq ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        ctx->f[0] = 1.0f;
+        if (o.lerp)
+        {
+            ctx->vu0_vf[5] = o.vf5;
+            ctx->vu0_vf[6] = o.vf6;
+            ctx->vu0_vf[7] = o.vf7;
+            ctx->vu0_vf[8] = o.vf8;
+            ctx->vu0_acc = o.acc;
+            SET_GPR_U64(ctx, 8, o.t0);
+        }
+        returnTo(ctx);
+    }
+    void rootFloatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rootFloatFrameD1(rdram, ctx, runtime);
+        else
+            rootFloatFrame(rdram, ctx, runtime);
+    }
+} // namespace s11motion

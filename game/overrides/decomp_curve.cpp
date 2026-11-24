@@ -33,6 +33,7 @@
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
+#include "d1_native.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -589,5 +590,277 @@ namespace decomp_curve
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x010AC6C8u, curveEval, decomp_curve::curveEval);
-SOTC_DECOMP_AB_FUNCTION(0x010B81F8u, motionKeys, decomp_curve::motionKeys);
+namespace decomp_curve // round D2
+{
+    void curveEvalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void motionKeysSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_AB_FUNCTION(0x010AC6C8u, curveEval, decomp_curve::curveEvalSw);
+D1_ALIAS(0x010AC6C8u, curveEval, decomp_curve::curveEvalSw, decomp_curve::curveEval);
+SOTC_DECOMP_AB_FUNCTION(0x010B81F8u, motionKeys, decomp_curve::motionKeysSw);
+D1_ALIAS(0x010B81F8u, motionKeys, decomp_curve::motionKeysSw, decomp_curve::motionKeys);
+
+// ---- Round D2 (switch d1native, d1_native.h): manager_sub_010AC6C8 (curveEval) as native C++ --------------------------------
+// The default (fastnative) path as a typed core on d1::Mem: formats 0 (the channel's qword), 7..9 (none: vf0, v0 = 1),
+// 3..6 (round 49's packedFast: the same host ops in the same order, d1::add / d1::sub for ps2FpuAddFinite / SubFinite,
+// ps2VuSqrt kept, the channel's eight words checked finite first) and 12 (round 48's s16 xyz key: FPU_MUL_S / ADD_S /
+// SUB_S as d1::mul / add / sub on the channel's words checked finite, the |xyz|^2 VU0 block as d1:: NEON vec4, ps2FpuSqrt
+// kept). Format 13 (iosGetSinCosf), the recompiled code's formats, an overlap of the out qword with the channel or the
+// key, a non-finite channel word, pointers outside main RAM, fastnative off or SOTC_CURVE_STATS: the old body, before
+// anything is written. The adapter writes f0, fcr31, vf1 / a2 (128 bits), vf7, Q, the status and v0 as the old body.
+// motionKeys (0x010B81F8, round 49's caller that reaches the decoder by a direct C++ call, not through the table): its D2
+// body calls the D2 decoder for each channel (else the old evalKey, else the guest call, as before).
+namespace decomp_curve
+{
+    D1_COUNTER(c_d2CurveEval, "manager_sub_010AC6C8");
+    D1_COUNTER(c_d2MotionKeys, "motionKeys");
+
+    namespace d2c
+    {
+        PS2_FORCE_INLINE bool d2Overlaps(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a < b + bn && b < a + an; }
+        PS2_FORCE_INLINE uint32_t d2fBits(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d2bitsF(uint32_t b)
+        {
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f;
+        }
+        PS2_FORCE_INLINE bool d2InRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
+
+        // What the decoder leaves: f0, fcr31, vf1 (= a2's 128 bits after mfc1 a2 / qmtc2 a2), vf7, Q, the status, v0.
+        struct CurveRegs
+        {
+            float f0;
+            uint32_t fcr31;
+            __m128 vf1, vf7, a2q;
+            float q;
+            uint16_t status;
+            uint64_t v0;
+            bool setF0, vu1, vu7;
+        };
+
+        // Formats 3..6: round 49's packedFast on typed memory (false: nothing written).
+        template <int S0, int S1, int S2, int S3, int L0, int L1, int L2, int L3, int SB>
+        bool d2Packed(const d1::Mem &m, uint32_t out, uint32_t chan, uint32_t key, CurveRegs &r)
+        {
+            if (d2Overlaps(out, 16u, chan, 0x20u) || d2Overlaps(out, 16u, key, 4u) || anyNonFinite8(m.at<uint8_t>(chan)))
+                return false;
+            const uint32_t w = m.u32(key);
+            const float k = d2bitsF(0x3B808080u);
+            // A field: cvt(v) x scale x k + offset (scale / offset words si / oi).
+            auto field = [&](int32_t v, uint32_t si, uint32_t oi)
+            {
+                float p = static_cast<float>(v) * m.f32(chan + si * 4u);
+                p = p * k;
+                return d1::add(p, m.f32(chan + oi * 4u));
+            };
+            const float a = field(static_cast<int32_t>(w << S0) >> 23, 1u, 0u);
+            const float b = field(static_cast<int32_t>(w << S1) >> 23, 3u, 2u);
+            const float cc = field(static_cast<int32_t>(w << S2) >> 23, 5u, 4u);
+            const int32_t v4 = static_cast<int32_t>(w << S3) >> 28;
+            float p4 = static_cast<float>(v4) * m.f32(chan + 7u * 4u);
+            p4 = p4 * d2bitsF(0x3E124924u);
+            const float off = d1::add(p4, m.f32(chan + 6u * 4u));
+            // One operation a statement (no contraction into a fused multiply-add).
+            float f2 = a * a;
+            const float f1 = b * b;
+            f2 = f2 + f1;
+            const float f3 = cc * cc;
+            f2 = f2 + f3;
+            const float f5 = d1::sub(1.0f, f2);
+            const uint32_t f5b = d2fBits(f5);
+            // mfc1 a2, f5 (the low 64 bits sign-extended, the upper kept) / qmtc2 a2, vf1.
+            __m128 vf1 = r.a2q;
+            const uint64_t low = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(f5b)));
+            std::memcpy(&vf1, &low, 8);
+            uint16_t status = r.status;
+            const float q = ps2VuSqrt(status, d1::lane<0>(vf1));
+            // FPU_C_OLT_S(f5, 0): negative with a nonzero exponent.
+            const bool neg = static_cast<int32_t>(f5b) < 0 && (f5b & 0x7F800000u) != 0u;
+            float f0;
+            if (neg)
+                f0 = d1::add(off, 0.0f);
+            else
+            {
+                const bool minus = SB == 31 ? static_cast<int32_t>(w) < 0 : ((w >> SB) & 1u) != 0u;
+                f0 = minus ? -q : q;
+                f0 = d1::add(f0, off);
+            }
+            m.set<float>(out + L0 * 4, a);
+            m.set<float>(out + L1 * 4, b);
+            m.set<float>(out + L2 * 4, cc);
+            m.set<float>(out + L3 * 4, f0);
+            r.f0 = f0;
+            r.setF0 = true;
+            r.fcr31 = neg ? (r.fcr31 | 0x800000u) : (r.fcr31 & ~0x800000u);
+            r.vf1 = vf1;
+            r.q = q;
+            r.status = status;
+            r.vu1 = true;
+            return true;
+        }
+
+        // Format 12: an s16 xyz key (table +0x18) with offset / scale, w = +-sqrt(1 - |xyz|^2) (round 48's statements).
+        bool d2S16Key(const d1::Mem &m, uint32_t out, uint32_t chan, uint32_t index, CurveRegs &r)
+        {
+            const uint32_t rec = m.u32(chan + 0x18u) + index * 6u;
+            if (!d2InRam(rec, 6u) || anyNonFinite8(m.at<uint8_t>(chan)))
+                return false;
+            const float k = d2bitsF(0x38000100u);
+            auto cvt16 = [&](uint32_t a) { return static_cast<float>(static_cast<int32_t>(m.get<int16_t>(a))); };
+            m.set<float>(out, d1::add(d1::mul(d1::mul(cvt16(rec), m.f32(chan + 4u)), k), m.f32(chan)));
+            m.set<float>(out + 4u, d1::add(d1::mul(d1::mul(cvt16(rec + 2u), m.f32(chan + 0xCu)), k), m.f32(chan + 8u)));
+            m.set<float>(out + 8u, d1::add(d1::mul(d1::mul(cvt16(rec + 4u), m.f32(chan + 0x14u)), k), m.f32(chan + 0x10u)));
+            const bool negative = (static_cast<uint16_t>(m.get<int16_t>(rec)) & 1u) != 0u;
+            // lqc2 vf7, out; vmul.xyz vf7, vf7, vf7; vaddy.x; vaddz.x: |xyz|^2 in x.
+            __m128 vf7 = m.q(out & ~0xFu);
+            vf7 = d1::vsel(vf7, d1::vmul(vf7, vf7), d1::mask(1, 1, 1, 0));
+            vf7 = d1::vsel(vf7, d1::vadd(vf7, d1::bc<1>(vf7)), d1::mask(1, 0, 0, 0));
+            vf7 = d1::vsel(vf7, d1::vadd(vf7, d1::bc<2>(vf7)), d1::mask(1, 0, 0, 0));
+            float f0 = d1::sub(1.0f, d1::lane<0>(vf7));
+            f0 = ps2FpuSqrt(r.fcr31, f0);
+            if (negative)
+                f0 = -f0;
+            m.set<float>(out + 0xCu, f0);
+            r.vf7 = vf7;
+            r.vu7 = true;
+            r.f0 = f0;
+            r.setF0 = true;
+            return true;
+        }
+
+        // The key into out (false: nothing written, the old body's case).
+        bool curveCore(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index, CurveRegs &r)
+        {
+            const uint32_t target = format < 15u ? m.u32(kTable + static_cast<uint32_t>(format) * 4u) : 0x010AC700u;
+            r.v0 = 0u;
+            switch (target)
+            {
+            case 0x010AD028u: // the channel's qword
+                m.putq(out & ~0xFu, m.q(chan & ~0xFu));
+                return true;
+            case 0x010AC700u: // none
+                m.putq(out & ~0xFu, d1::vf0());
+                r.v0 = 1u;
+                return true;
+            case 0x010AC978u:
+            case 0x010ACAB0u:
+            case 0x010ACBE8u:
+            case 0x010ACD20u:
+            {
+                const uint32_t key = m.u32(chan + 0x20u) + (index << 2);
+                if (!d2InRam(key, 4u))
+                    return false;
+                if (target == 0x010AC978u)
+                    return d2Packed<5, 14, 23, 1, 1, 2, 3, 0, 31>(m, out, chan, key, r);
+                if (target == 0x010ACAB0u)
+                    return d2Packed<0, 14, 23, 10, 0, 2, 3, 1, 22>(m, out, chan, key, r);
+                if (target == 0x010ACBE8u)
+                    return d2Packed<0, 9, 23, 19, 0, 1, 3, 2, 13>(m, out, chan, key, r);
+                return d2Packed<0, 9, 18, 28, 0, 1, 2, 3, 4>(m, out, chan, key, r);
+            }
+            case 0x010AC8A8u: // s16 xyz with offset / scale (table +0x18)
+                return d2S16Key(m, out, chan, index, r);
+            default: // 13 (iosGetSinCosf) and the recompiled code's formats
+                return false;
+            }
+        }
+    } // namespace d2c
+
+    // The D2 decoder on ctx's arguments: false (nothing written, nothing set) for the old body's cases.
+    bool curveD2(uint8_t *rdram, R5900Context *ctx)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), chan = GPR_U32(ctx, 6), index = GPR_U32(ctx, 7);
+        if (!d2c::d2InRam(out, 16u) || !d2c::d2InRam(chan, 0x20u))
+            return false;
+        d2c::CurveRegs r;
+        r.fcr31 = ctx->fcr31;
+        r.a2q = _mm_castsi128_ps(ctx->r[6]);
+        r.status = ctx->vu0_status;
+        r.setF0 = r.vu1 = r.vu7 = false;
+        if (!d2c::curveCore(d1::Mem{rdram}, out, GPR_U64(ctx, 5), chan, index, r))
+            return false;
+        ++c_d2CurveEval.n;
+        if (r.setF0)
+            ctx->f[0] = r.f0;
+        ctx->fcr31 = r.fcr31;
+        if (r.vu7)
+            ctx->vu0_vf[7] = r.vf7;
+        if (r.vu1)
+        {
+            ctx->r[6] = _mm_castps_si128(r.vf1);
+            ctx->vu0_vf[1] = r.vf1;
+            ctx->vu0_q = r.q;
+            ctx->vu0_status = r.status;
+        }
+        SET_GPR_U64(ctx, 2, r.v0);
+        return true;
+    }
+
+    void curveEvalD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // fastnative off, the stats on (or not read yet): the old body.
+        if (!sotc_decomp::fastNativeOn() || g_statsOn != 0 || !curveD2(rdram, ctx))
+            return curveEval(rdram, ctx, runtime);
+        returnTo(ctx);
+    }
+    void curveEvalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            curveEvalD1(rdram, ctx, runtime);
+        else
+            curveEval(rdram, ctx, runtime);
+    }
+
+    // motionKeys (partial): the old body's loop on d1::Mem, each channel by the D2 decoder (then the old evalKey, then the
+    // guest call: the formats neither decodes).
+    void motionKeysD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), motion = GPR_U32(ctx, 5);
+        const d1::Mem m{rdram};
+        if (!sotc_decomp::fastNativeOn() || g_statsOn != 0 || !inRam(motion, 0x18u) || m.u32(motion + 8u) == 0u)
+            return motionKeys(rdram, ctx, runtime);
+        ++c_d2MotionKeys.n;
+        const int32_t channels = m.s32(motion + 0x14u);
+        int32_t n = GPR_S32(ctx, 7);
+        const bool fewer = channels < n;
+        if (n != channels && fewer)
+            n = channels;
+        const uint64_t key64 = GPR_U64(ctx, 6);
+        if (n <= 0)
+        {
+            SET_GPR_U64(ctx, 2, fewer ? 1u : 0u);
+            return returnTo(ctx);
+        }
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0xF0u;
+        SET_GPR_U32(ctx, 29, frame);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            const uint32_t formats = m.u32(motion + 8u), chans = m.u32(motion + 0x10u);
+            SET_GPR_U32(ctx, 4, out + static_cast<uint32_t>(i) * 16u);
+            SET_GPR_U64(ctx, 5, m.get<uint8_t>(formats + static_cast<uint32_t>(i)));
+            SET_GPR_S32(ctx, 6, m.s32(chans + static_cast<uint32_t>(i) * 4u));
+            SET_GPR_U64(ctx, 7, key64);
+            SET_GPR_U32(ctx, 31, 0x010B8290u);
+            if (curveD2(rdram, ctx))
+                returnTo(ctx);
+            else if (!evalKey(rdram, ctx, runtime))
+                sotc_decomp::callGuest(rdram, ctx, runtime, kCurveEval, 0x010B8290u, frame);
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+    void motionKeysSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            motionKeysD1(rdram, ctx, runtime);
+        else
+            motionKeys(rdram, ctx, runtime);
+    }
+} // namespace decomp_curve

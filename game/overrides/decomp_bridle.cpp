@@ -23,6 +23,7 @@
 // recompiled loads give them); the frame below sp is dead after the return.
 // v0, f0, fcr31 and the VU0 registers as the original leaves them.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -509,5 +510,241 @@ namespace decomp_bridle
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x013978E8u, bridleCollide, decomp_bridle::three);
-SOTC_DECOMP_AB_FUNCTION(0x013976B8u, bridleCollideHead, decomp_bridle::head);
+
+// =====================================================================================================================
+// Round D2 (switch d1native, d1_native.h, docs/decomp_d1.md): the two rein walks' default path (cloth122 on) as native
+// C++. bridleCollide: the plain NEON walk (round 122's plain:: helpers, the same operations in the same order) as a core
+// on typed guest memory. bridleCollideHead: the two matrix guest calls stay in the adapter with the old register state
+// (iosTransMatrixF, 01B96D0); the inverse (VU0 statements -> d1:: NEON vec4, its stale-lane operand clamps kept) and the
+// walk in a core. cloth122 off, SOTC_CHAR122_CHECK, a grid / shape / object outside RAM: the old body at the entry.
+// =====================================================================================================================
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off; the same env as checked()'s)
+}
+namespace decomp_bridle
+{
+    namespace d1b
+    {
+        D1_COUNTER(c_d1Three, "bridleCollide");
+        D1_COUNTER(c_d1Head, "bridleCollideHead");
+
+        // Round 122's plain walk helpers (namespace plain above), copied under names of their own (the same statements, the same order:
+        // the same bits) so the core's same-file callees are these and not the VU0 walk's members of the same names.
+        struct d1M
+        {
+            float32x4_t r[4];
+        };
+        PS2_FORCE_INLINE float32x4_t d1Ld(const uint8_t *ram, uint32_t a)
+        {
+            float t[4];
+            std::memcpy(t, ram + (a & PS2_RAM_MASK & ~0xFu), 16);
+            return vld1q_f32(t);
+        }
+        PS2_FORCE_INLINE void d1St(uint8_t *ram, uint32_t a, float32x4_t v)
+        {
+            float t[4];
+            vst1q_f32(t, v);
+            std::memcpy(ram + (a & PS2_RAM_MASK & ~0xFu), t, 16);
+        }
+        PS2_FORCE_INLINE d1M d1Rows(const uint8_t *ram, uint32_t a) { return d1M{{d1Ld(ram, a), d1Ld(ram, a + 0x10u), d1Ld(ram, a + 0x20u), d1Ld(ram, a + 0x30u)}}; }
+        PS2_FORCE_INLINE float32x4_t d1Apply(const d1M &m, float32x4_t v)
+        {
+            float32x4_t t = vmulq_lane_f32(m.r[0], vget_low_f32(v), 0);
+            t = vmlaq_lane_f32(t, m.r[1], vget_low_f32(v), 1);
+            t = vmlaq_lane_f32(t, m.r[2], vget_high_f32(v), 0);
+            return vmlaq_lane_f32(t, m.r[3], vget_high_f32(v), 1);
+        }
+        PS2_FORCE_INLINE void d1Cylinder(uint8_t *ram, float32x4_t a, float r2, const d1M &back, uint32_t at)
+        {
+            const float x = vgetq_lane_f32(a, 0), y = vgetq_lane_f32(a, 1);
+            const float d2 = x * x + y * y;
+            if (!(d2 < r2))
+                return;
+            const float k = std::sqrt(r2 / d2);
+            a = vsetq_lane_f32(x * k, a, 0);
+            a = vsetq_lane_f32(y * k, a, 1);
+            d1St(ram, at, d1Apply(back, a));
+        }
+        PS2_FORCE_INLINE void d1Constrain(uint8_t *ram, uint32_t prev, uint32_t at, float length, float limit)
+        {
+            const float32x4_t p = d1Ld(ram, prev), d = vsubq_f32(d1Ld(ram, at), p);
+            const float dx = vgetq_lane_f32(d, 0), dy = vgetq_lane_f32(d, 1), dz = vgetq_lane_f32(d, 2);
+            const float l2 = dx * dx + dy * dy + dz * dz;
+            const float q = l2 > 0.0f ? 1.0f / std::sqrt(l2) : 3.4028235e38f;
+            if (!(q < limit))
+                return;
+            const float k = length * q;
+            const float r[4] = {vgetq_lane_f32(p, 0) + dx * k, vgetq_lane_f32(p, 1) + dy * k, vgetq_lane_f32(p, 2) + dz * k, vgetq_lane_f32(p, 3)};
+            d1St(ram, at, vld1q_f32(r));
+        }
+
+        struct GridD1
+        {
+            uint32_t rowsAt, rows, cols, params;
+        };
+
+        // 013978E8's walk: three cylinders (to-local +0x40 / +0xc0 / +0x140, back +0 / +0x80 / +0x100, radii^2
+        // +0x180..+0x188) then the row's length constraint, every point after its row's first.
+        void threeD1Core(const d1::Mem m, const GridD1 &g, uint32_t shapes)
+        {
+            uint8_t *const base = m.base;
+            const d1M toA = d1Rows(base, shapes + 0x40u), backA = d1Rows(base, shapes), toB = d1Rows(base, shapes + 0xC0u),
+                           backB = d1Rows(base, shapes + 0x80u), toC = d1Rows(base, shapes + 0x140u), backC = d1Rows(base, shapes + 0x100u);
+            const float length = m.f32(g.params + 4u), limit = m.f32(g.params + 8u);
+            const float rA = m.f32(shapes + 0x180u), rB = m.f32(shapes + 0x184u), rC = m.f32(shapes + 0x188u);
+            for (uint32_t r = 0; r < g.rows; ++r)
+            {
+                uint32_t prev = m.u32(g.rowsAt + r * 0x18u + 0x10u);
+                for (uint32_t k = 1; k < g.cols; ++k, prev += 0x10u)
+                {
+                    const uint32_t at = prev + 0x10u;
+                    const float32x4_t p = d1Ld(base, at);
+                    const float32x4_t a = d1Apply(toA, p);
+                    if (vgetq_lane_f32(a, 2) < 0.0f)
+                        d1Cylinder(base, a, rA, backA, at);
+                    else
+                    {
+                        const float32x4_t b = d1Apply(toB, p);
+                        if (vgetq_lane_f32(b, 2) < 0.0f)
+                            d1Cylinder(base, b, rB, backB, at);
+                        else
+                            d1Cylinder(base, d1Apply(toC, p), rC, backC, at);
+                    }
+                    d1Constrain(base, prev, at, length, limit);
+                }
+            }
+        }
+
+        // The VU0 registers 013976B8's inverse leaves.
+        struct HeadVu
+        {
+            __m128 vf24, vf25, vf26, vf28, vf29, acc;
+        };
+
+        // 013976B8 after its two matrix calls: the frame's matrix (at `frame`) inverted (the rotation transposed, the
+        // translation through it), then the head's cylinder (radius^2 0.25) and the constraint over the grid.
+        // vf28In: the caller's vf28 (its w lane is never written before the old code's vsub.w vf28, vf28, vf28: the
+        // operand clamp kept there).
+        void headD1Core(const d1::Mem m, const GridD1 &g, uint32_t frame, __m128 vf28In, HeadVu &o)
+        {
+            uint8_t *const base = m.base;
+            const __m128 vf0 = d1::vf0();
+            const __m128 row3 = m.q(frame + 0x30u);
+            // vsubw.x vf25, vf0, vf0w (-1); vmulx.xyz vf28, vf24, vf25x; vsub.w vf28, vf28, vf28.
+            const __m128 minusOne = d1::vsub(vf0, d1::bc<3>(vf0));
+            __m128 vf28 = d1::vsel(vf28In, d1::vmul(ps2VuClampNF(row3), d1::bc<0>(minusOne)), d1::mask(1, 1, 1, 0));
+            const __m128 c28 = ps2VuClampNF(vf28);
+            vf28 = d1::vsel(vf28, d1::vsub(c28, c28), d1::mask(0, 0, 0, 1));
+            // The rotation transposed (pextlw / pextuw / pcpyld / pcpyud as lane moves on the raw rows).
+            const __m128 r0 = m.q(frame), r1 = m.q(frame + 0x10u), r2 = m.q(frame + 0x20u);
+            const float32x4x2_t z01 = vzipq_f32(r0, r1), z2w = vzipq_f32(r2, vf0);
+            const __m128 vf24 = vcombine_f32(vget_low_f32(z01.val[0]), vget_low_f32(z2w.val[0]));
+            const __m128 vf25 = vcombine_f32(vget_high_f32(z01.val[0]), vget_high_f32(z2w.val[0]));
+            const __m128 vf26 = vcombine_f32(vget_low_f32(z01.val[1]), vget_low_f32(z2w.val[1]));
+            // vmulax / vmadday / vmaddaz / vmaddw: the translation through it (operands clamped as the macros do).
+            __m128 acc = d1::vmul(ps2VuClampNF(vf24), d1::bc<0>(vf28));
+            acc = d1::vmadd(acc, ps2VuClampNF(vf25), d1::bc<1>(vf28));
+            acc = d1::vmadd(acc, ps2VuClampNF(vf26), d1::bc<2>(vf28));
+            __m128 vf29 = d1::vmadd(acc, vf0, d1::bc<3>(vf28));
+            vf29 = d1::vsel(vf29, d1::vsub(vf29, vf29), d1::mask(0, 0, 0, 1));
+            vf29 = d1::vsel(vf29, d1::vadd(vf29, vf0), d1::mask(0, 0, 0, 1));
+            o.vf24 = vf24;
+            o.vf25 = vf25;
+            o.vf26 = vf26;
+            o.vf28 = vf28;
+            o.vf29 = vf29;
+            o.acc = acc;
+
+            // Round 122's walk on the matrices as computed (the raw rows).
+            d1M to;
+            to.r[0] = vf24;
+            to.r[1] = vf25;
+            to.r[2] = vf26;
+            to.r[3] = vf29;
+            const d1M bk = d1Rows(base, frame);
+            const float length = m.f32(g.params + 4u), limit = m.f32(g.params + 8u), r2c = bits(0x3E800000u);
+            for (uint32_t r = 0; r < g.rows; ++r)
+            {
+                uint32_t prev = m.u32(g.rowsAt + r * 0x18u + 0x10u);
+                for (uint32_t k = 1; k < g.cols; ++k, prev += 0x10u)
+                {
+                    const uint32_t at = prev + 0x10u;
+                    d1Cylinder(base, d1Apply(to, d1Ld(base, at)), r2c, bk, at);
+                    d1Constrain(base, prev, at, length, limit);
+                }
+            }
+        }
+    } // namespace d1b
+
+    void threeD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t cloth = GPR_U32(ctx, 4), shapes = GPR_U32(ctx, 6);
+        if (!sotc_decomp::switchOn(sotc_decomp::kCloth122) || char122::checkEvery() > 0)
+            return three(rdram, ctx, runtime);
+        const Grid g(Ram{rdram}, cloth);
+        if (!g.ok || !inRam(shapes, 0x190u))
+            return three(rdram, ctx, runtime);
+        ++d1b::c_d1Three.n;
+        const d1b::GridD1 gd{g.rowsAt, g.rows, g.cols, g.params};
+        d1b::threeD1Core(d1::Mem{rdram}, gd, shapes);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(g.cols));
+        returnTo(ctx);
+    }
+    void threeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            threeD1(rdram, ctx, runtime);
+        else
+            three(rdram, ctx, runtime);
+    }
+
+    void headD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t cloth = GPR_U32(ctx, 4), object = GPR_U32(ctx, 5);
+        if (!sotc_decomp::switchOn(sotc_decomp::kCloth122) || char122::checkEvery() > 0)
+            return head(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const Grid g(Ram{rdram}, cloth);
+        if (!g.ok || !inRam(object, 0x160u))
+            return head(rdram, ctx, runtime);
+        ++d1b::c_d1Head.n;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0xB0u;
+        // iosTransMatrixF(frame, object +0x158, 0, 0, -0.43), then 01B96D0(frame, frame, -0x4800): as the old body.
+        ctx->f[12] = 0.0f;
+        ctx->f[13] = 0.0f;
+        ctx->f[14] = bits(0xBEDC28F5u);
+        SET_GPR_U32(ctx, 4, frame);
+        SET_GPR_U32(ctx, 5, m.u32(object + 0x158u));
+        sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x013976E0u), 0x013976E8u, frame);
+        SET_GPR_S32(ctx, 6, -0x4800);
+        SET_GPR_U32(ctx, 4, frame);
+        SET_GPR_U32(ctx, 5, frame);
+        sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, 0x013976F0u), 0x013976F8u, frame);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        d1b::HeadVu o;
+        const d1b::GridD1 gd{g.rowsAt, g.rows, g.cols, g.params};
+        d1b::headD1Core(m, gd, frame, ctx->vu0_vf[28], o);
+        ctx->vu0_vf[24] = o.vf24;
+        ctx->vu0_vf[25] = o.vf25;
+        ctx->vu0_vf[26] = o.vf26;
+        ctx->vu0_vf[28] = o.vf28;
+        ctx->vu0_vf[29] = o.vf29;
+        ctx->vu0_acc = o.acc;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(g.cols));
+        returnTo(ctx);
+    }
+    void headSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            headD1(rdram, ctx, runtime);
+        else
+            head(rdram, ctx, runtime);
+    }
+} // namespace decomp_bridle
+
+SOTC_DECOMP_AB_FUNCTION(0x013978E8u, bridleCollide, decomp_bridle::threeSw);
+D1_ALIAS(0x013978E8u, bridleCollide, decomp_bridle::threeSw, decomp_bridle::three);
+SOTC_DECOMP_AB_FUNCTION(0x013976B8u, bridleCollideHead, decomp_bridle::headSw);
+D1_ALIAS(0x013976B8u, bridleCollideHead, decomp_bridle::headSw, decomp_bridle::head);

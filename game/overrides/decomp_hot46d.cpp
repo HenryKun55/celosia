@@ -77,6 +77,7 @@
 // (any other than the three cases) to the recompiled code from its entry,
 // before any register is changed (the frame's saves are the same bytes).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -898,6 +899,398 @@ namespace decomp_hot46d
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01397110u, gamecore_sub_01397110, decomp_hot46d::clothPass);
+namespace decomp_hot46d
+{
+    void clothPassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2 (d1native): the dispatcher (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x01397110u, gamecore_sub_01397110, decomp_hot46d::clothPassSw);
+D1_ALIAS(0x01397110u, gamecore_sub_01397110, decomp_hot46d::clothPassSw, decomp_hot46d::clothPass);
 SOTC_DECOMP_FUNCTION(0x01357898u, updatePowerWork, decomp_hot46d::powerWork);
 SOTC_DECOMP_FUNCTION(0x0135AE50u, gamecore_sub_0135AE50, decomp_hot46d::areaRefresh);
+
+// =====================================================================================================================
+// Round D2 (switch d1native, d1_native.h, docs/decomp_d1.md): gamecore_sub_01397110's D1 body. Step 1 (the free points
+// through the local frame and back: the hot loop, no guest call) is a core on typed guest memory with the VU0 / FPU
+// registers in a state struct (the macros -> d1:: NEON vec4 / scalar, the operand clamps kept as one clamp of each value
+// loaded from memory or the context; the FPU divide / sqrt and VU0 rsqrt through the old body's helpers); the frame's
+// scratch qword (sp+0) is a local, the frame's register saves are not written (dead stack after the return). Steps 2 / 3
+// keep their guest calls (GetGeometryPointerPosition, clothmath_doubleTensionMove) with the old register state; the
+// state is written to the context before the first call; the last fixed point's pull is a second core.
+// hotlist46 off, pointers outside main RAM, a strip whose counts would make the old loops wrap: the old body at the entry.
+// =====================================================================================================================
+#include "d1_native.h"
+
+namespace decomp_hot46d
+{
+    namespace d1c
+    {
+        D1_COUNTER(c_d1Cloth, "gamecore_sub_01397110");
+
+        PS2_FORCE_INLINE bool inMain(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+
+        // The registers step 1 reads and leaves.
+        struct ClothSt
+        {
+            __m128 vf5, vf6, vf7, vf8, vf10, vf14, vf15, vf16, vf17, acc, v0;
+            uint32_t t0[4];
+            uint32_t fcr31;
+            float f0, f1, f2, f3, f4, f5, f6, f7, f8, f9;
+            bool v0Set, t0Set;
+        };
+        PS2_FORCE_INLINE bool cond(uint32_t &fcr31, bool c)
+        {
+            fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u);
+            return c;
+        }
+        PS2_FORCE_INLINE __m128 qa(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+        PS2_FORCE_INLINE __m128 ld4(const float fr[4])
+        {
+            __m128 v;
+            std::memcpy(&v, fr, 16);
+            return v;
+        }
+        PS2_FORCE_INLINE void st4(float fr[4], __m128 v) { std::memcpy(fr, &v, 16); }
+        // mfc1 t0, f; qmtc2 t0, vf6: t0's low doubleword the word sign-extended, its upper one as it was.
+        PS2_FORCE_INLINE __m128 viaT0(uint32_t t0[4], bool &t0Set, float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            t0[0] = b;
+            t0[1] = (b & 0x80000000u) ? 0xFFFFFFFFu : 0u;
+            t0Set = true;
+            __m128 v;
+            std::memcpy(&v, t0, 16);
+            return v;
+        }
+        // xform(): vf8 = v, vf14-vf17 = the rows at `rows`, ACC the first three products' sum, vf10 the result.
+        PS2_FORCE_INLINE __m128 xformD1(const d1::Mem m, ClothSt &s, uint32_t rows, __m128 v)
+        {
+            s.vf8 = v;
+            s.vf14 = qa(m, rows);
+            s.vf15 = qa(m, rows + 0x10u);
+            s.vf16 = qa(m, rows + 0x20u);
+            s.vf17 = qa(m, rows + 0x30u);
+            const __m128 c8 = ps2VuClampNF(v);
+            __m128 acc = d1::vmul(ps2VuClampNF(s.vf14), d1::bc<0>(c8));
+            acc = d1::vmadd(acc, ps2VuClampNF(s.vf15), d1::bc<1>(c8));
+            acc = d1::vmadd(acc, ps2VuClampNF(s.vf16), d1::bc<2>(c8));
+            s.acc = acc;
+            s.vf10 = d1::vmadd(acc, ps2VuClampNF(s.vf17), d1::bc<3>(c8));
+            return s.vf10;
+        }
+        // A length (xz: lanes x / z, xy: lanes x / y) below 0.144: the two lanes scaled to it (fr: the frame's sp+0).
+        template <int L2>
+        PS2_FORCE_INLINE void minLength(ClothSt &s, float fr[4])
+        {
+            const __m128 sel = L2 == 2 ? d1::mask(1, 0, 1, 0) : d1::mask(1, 1, 0, 0);
+            const __m128 c7 = ps2VuClampNF(ld4(fr));
+            __m128 v7 = d1::vsel(ld4(fr), d1::vmul(c7, c7), sel);
+            v7 = d1::vsel(v7, d1::vadd(v7, d1::bc<L2>(v7)), d1::mask(1, 0, 0, 0));
+            s.vf7 = v7;
+            s.v0 = v7; // qmfc2 v0, vf7
+            s.v0Set = true;
+            s.f0 = d1::lane<0>(v7);
+            if (cond(s.fcr31, d1::lt(s.f0, s.f2)))
+            {
+                s.f0 = ps2FpuDivide(s.fcr31, s.f2, s.f0);
+                s.f0 = ps2FpuSqrt(s.fcr31, s.f0);
+                const __m128 v5 = ld4(fr);
+                s.vf6 = viaT0(s.t0, s.t0Set, s.f0);
+                s.vf5 = d1::vsel(v5, d1::vmul(ps2VuClampNF(v5), d1::bc<0>(ps2VuClampNF(s.vf6))), sel);
+                st4(fr, s.vf5);
+            }
+        }
+
+        // Step 1: points 1 .. n-2 into the local frame (mb +0x40), limited, and back (mb +0). s holds f4 / f5 (set by
+        // the caller from mb +0x84 / +0x80) and the registers read.
+        void clothFreeD1Core(const d1::Mem m, uint32_t mb, uint32_t pts, int32_t n, ClothSt &s)
+        {
+            int32_t a1 = n - 3;
+            uint32_t a0 = pts + 0x10u;
+            if (a1 == -1)
+                return;
+            const int32_t scale = m.s32(mb + 0x88u);
+            s.f3 = static_cast<float>(scale);
+            s.f9 = fb(kHangXBits);
+            s.f8 = fb(0u);
+            s.f7 = d1::mul(s.f5, s.f3);
+            s.f6 = s.f3;
+            do
+            {
+                float fr[4];
+                st4(fr, xformD1(m, s, mb + 0x40u, qa(m, a0)));
+                s.f0 = d1::mul(fr[0], s.f6);
+                if (cond(s.fcr31, d1::lt(s.f0, s.f7)))
+                    fr[0] = s.f5;
+                s.f1 = d1::add(s.f4, fr[1]);
+                s.f0 = d1::sub(fr[2], s.f1);
+                fr[2] = s.f0;
+                s.f2 = fb(kMinXzBits);
+                minLength<2>(s, fr);
+                s.f0 = d1::add(fr[2], s.f1);
+                const bool past = cond(s.fcr31, d1::lt(s.f4, s.f0));
+                fr[2] = s.f0;
+                if (past)
+                {
+                    s.f0 = fr[1];
+                    if (cond(s.fcr31, d1::lt(s.f8, s.f0)))
+                    {
+                        s.f0 = d1::mul(s.f3, s.f9);
+                        fr[0] = s.f0;
+                        m.putq(a0 & ~0xFu, xformD1(m, s, mb, ld4(fr)));
+                    }
+                    else
+                        minLength<1>(s, fr);
+                }
+                m.putq(a0 & ~0xFu, xformD1(m, s, mb, ld4(fr)));
+                --a1;
+                a0 += 0x10u;
+            } while (a1 != -1);
+        }
+
+        // Step 3's last point: pulled to the rest length (f20 x Q) from its neighbour when Q < the 1/length limit (f21).
+        struct TailSt
+        {
+            __m128 vf5, vf6, vf7, vf8;
+            uint32_t t0[4];
+            float q, f0;
+            uint32_t fcr31;
+            uint16_t status;
+            bool t0Set;
+        };
+        void clothTailD1Core(const d1::Mem m, uint32_t v1, float f20, float f21, TailSt &s)
+        {
+            const uint32_t prev = v1 - 0x10u;
+            s.vf5 = qa(m, v1);
+            s.vf6 = qa(m, prev);
+            s.vf8 = d1::vsub(ps2VuClampNF(s.vf5), ps2VuClampNF(s.vf6));
+            s.vf7 = d1::vsel(s.vf7, d1::vmul(s.vf8, s.vf8), d1::mask(1, 1, 1, 0));
+            s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<1>(s.vf7)), d1::mask(1, 0, 0, 0));
+            s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<2>(s.vf7)), d1::mask(1, 0, 0, 0));
+            s.q = ps2VuRsqrt(s.status, d1::lane<3>(d1::vf0()), d1::lane<0>(s.vf7));
+            s.f0 = s.q;
+            if (cond(s.fcr31, d1::lt(s.f0, f21)))
+            {
+                s.f0 = d1::mul(f20, s.f0);
+                s.vf7 = qa(m, prev);
+                s.vf5 = s.vf8;
+                s.vf6 = viaT0(s.t0, s.t0Set, s.f0);
+                s.vf5 = d1::vsel(s.vf5, d1::vmul(s.vf5, d1::bc<0>(ps2VuClampNF(s.vf6))), d1::mask(1, 1, 1, 0));
+                s.vf7 = d1::vsel(s.vf7, d1::vadd(ps2VuClampNF(s.vf7), s.vf5), d1::mask(1, 1, 1, 0));
+                m.putq(v1 & ~0xFu, s.vf7);
+            }
+        }
+    } // namespace d1c
+
+    void clothPassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList46On())
+            return clothPass(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        const uint32_t sp = static_cast<uint32_t>(entrySp) - 0xB0u;
+        const uint32_t strip = GPR_U32(ctx, 4), mb = GPR_U32(ctx, 6);
+        // The rare states: the old body before any side effect.
+        if (!d1c::inMain(strip, 0x80u) || !d1c::inMain(mb, 0x90u))
+            return clothPass(rdram, ctx, runtime);
+        const uint32_t s7 = m.u32(strip), s6 = m.u32(strip + 0xCu);
+        if (!d1c::inMain(s7, 0x2Cu) || !d1c::inMain(s6, 0x14u))
+            return clothPass(rdram, ctx, runtime);
+        const uint32_t prm = m.u32(s7 + 0x28u);
+        const int32_t n = m.s32(s7 + 8u);
+        const int32_t fixed = static_cast<int32_t>(m.get<uint8_t>(strip + 0x71u));
+        if (!d1c::inMain(prm, 0xCu) || n < 2 || n > 0x10000 || fixed > n - 2 || !d1c::inMain(m.u32(s6 + 0x10u), static_cast<uint32_t>(n) * 16u))
+            return clothPass(rdram, ctx, runtime);
+        {
+            // The point block never holds the strip's fixed-point count (read once here, after step 1 in the old body).
+            const uint32_t pts0 = m.u32(s6 + 0x10u);
+            if (pts0 <= strip + 0x71u && strip + 0x71u < pts0 + static_cast<uint32_t>(n) * 16u)
+                return clothPass(rdram, ctx, runtime);
+        }
+        ++d1c::c_d1Cloth.n;
+        const float f20in = ctx->f[20], f21in = ctx->f[21], f22in = ctx->f[22];
+
+        // Step 1 (the pass runs once: its counter at sp+0x24 starts at 0).
+        d1c::ClothSt s;
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.vf16 = ctx->vu0_vf[16];
+        s.vf17 = ctx->vu0_vf[17];
+        s.acc = ctx->vu0_acc;
+        s.v0 = d1::zero4();
+        std::memcpy(s.t0, &ctx->r[8], 16);
+        s.fcr31 = ctx->fcr31;
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.f3 = ctx->f[3];
+        s.f6 = ctx->f[6];
+        s.f7 = ctx->f[7];
+        s.f8 = ctx->f[8];
+        s.f9 = ctx->f[9];
+        s.v0Set = false;
+        s.t0Set = false;
+        s.f5 = m.f32(mb + 0x80u);
+        const float rest = m.f32(prm + 4u), limit = m.f32(prm + 8u);
+        const float f22 = d1::mul(rest, rest);
+        s.f4 = m.f32(mb + 0x84u);
+        d1c::clothFreeD1Core(m, mb, m.u32(s6 + 0x10u), n, s);
+        // The state as the old body leaves it in the context at its first call.
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+        if (s.v0Set)
+            SET_GPR_VEC(ctx, 2, _mm_castps_si128(s.v0));
+        if (s.t0Set)
+            std::memcpy(&ctx->r[8], s.t0, 8);
+        ctx->fcr31 = s.fcr31;
+        float *f = ctx->f;
+        f[0] = s.f0;
+        f[1] = s.f1;
+        f[2] = s.f2;
+        f[3] = s.f3;
+        f[4] = s.f4;
+        f[5] = s.f5;
+        f[6] = s.f6;
+        f[7] = s.f7;
+        f[8] = s.f8;
+        f[9] = s.f9;
+        f[20] = rest;
+        f[21] = limit;
+        f[22] = f22;
+
+        // f12 / f13 / f14 = f22 / f20 / f21; clothmath_doubleTensionMove(a0, a1, a2).
+        auto tension = [&](uint32_t a0, uint32_t a1, uint32_t a2, uint32_t site)
+        {
+            SET_GPR_S32(ctx, 4, a0);
+            SET_GPR_S32(ctx, 5, a1);
+            SET_GPR_S32(ctx, 6, a2);
+            f[12] = f[22];
+            f[13] = f[20];
+            f[14] = f[21];
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, site), site + 8u, sp);
+        };
+        auto geoPos = [&](uint32_t point, uint32_t geo, uint32_t site)
+        {
+            SET_GPR_S32(ctx, 4, point);
+            SET_GPR_S32(ctx, 5, geo);
+            callGuest(rdram, ctx, runtime, jalTarget(rdram, site), site + 8u, sp);
+        };
+
+        // 2. The first fixed point to the geometry, the tension walks.
+        const int32_t fp = n - 1;
+        uint32_t pts = m.u32(s6 + 0x10u);
+        const uint32_t geo = strip + 0x30u;
+        const int32_t first = fp - fixed;
+        int32_t s1 = first - 2;
+        const int32_t s3 = first - 1;
+        SET_GPR_S32(ctx, 2, first);
+        geoPos(pts + (static_cast<uint32_t>(first) << 4), geo, kSiteGeoPos1);
+        pts = m.u32(s6 + 0x10u);
+        SET_GPR_S32(ctx, 2, -1);
+        uint32_t s0 = pts + 0x10u;
+        if (s1 != -1)
+        {
+            uint32_t p = s0;
+            do
+            {
+                s0 += 0x10u;
+                --s1;
+                tension(p, s0, p - 0x10u, kSiteTensionFwd);
+                p = s0;
+            } while (s1 != -1);
+            pts = m.u32(s6 + 0x10u);
+        }
+        SET_GPR_S32(ctx, 2, static_cast<uint32_t>(s3) << 4);
+        s1 = s3 - 1;
+        s0 = pts + (static_cast<uint32_t>(s3) << 4);
+        if (s1 != -1)
+        {
+            uint32_t p = s0;
+            do
+            {
+                s0 -= 0x10u;
+                --s1;
+                tension(p, s0, p + 0x10u, kSiteTensionBack);
+                p = s0;
+            } while (s1 != -1);
+        }
+
+        // 3. The fixed tail.
+        if (fixed != 0)
+        {
+            const uint32_t pts2 = m.u32(s6 + 0x10u);
+            SET_GPR_S32(ctx, 2, pts2);
+            s1 = fixed - 1;
+            geoPos(pts2 + (static_cast<uint32_t>(fp) << 4), strip + 0x30u, kSiteGeoPos2);
+            const uint32_t count = m.u32(s7 + 8u);
+            uint32_t v1 = m.u32(s6 + 0x10u) + (count << 4) - (static_cast<uint32_t>(fixed) << 4);
+            SET_GPR_S32(ctx, 2, -1);
+            do
+            {
+                const uint32_t p = v1;
+                if (s1 != 0)
+                {
+                    s0 = v1 + 0x10u;
+                    tension(p, s0, p - 0x10u, kSiteTensionTail);
+                    --s1;
+                }
+                else
+                {
+                    d1c::TailSt t;
+                    t.vf7 = ctx->vu0_vf[7];
+                    std::memcpy(t.t0, &ctx->r[8], 16);
+                    t.fcr31 = ctx->fcr31;
+                    t.status = ctx->vu0_status;
+                    t.t0Set = false;
+                    d1c::clothTailD1Core(m, v1, f[20], f[21], t);
+                    ctx->vu0_vf[5] = t.vf5;
+                    ctx->vu0_vf[6] = t.vf6;
+                    ctx->vu0_vf[7] = t.vf7;
+                    ctx->vu0_vf[8] = t.vf8;
+                    ctx->vu0_q = t.q;
+                    ctx->vu0_status = t.status;
+                    {
+                        uint32_t qb;
+                        std::memcpy(&qb, &t.q, 4);
+                        SET_GPR_U32(ctx, 2, qb);
+                    }
+                    if (t.t0Set)
+                        std::memcpy(&ctx->r[8], t.t0, 8);
+                    f[0] = t.f0;
+                    ctx->fcr31 = t.fcr31;
+                    s0 = v1 + 0x10u;
+                    --s1;
+                }
+                v1 = s0;
+            } while (s1 != -1);
+        }
+
+        SET_GPR_S32(ctx, 3, -1);
+        f[22] = f22in;
+        f[21] = f21in;
+        f[20] = f20in;
+        SET_GPR_U64(ctx, 31, ra);
+        SET_GPR_U64(ctx, 29, entrySp);
+        ctx->pc = static_cast<uint32_t>(ra);
+    }
+    void clothPassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            clothPassD1(rdram, ctx, runtime);
+        else
+            clothPass(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot46d

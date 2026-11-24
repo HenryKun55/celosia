@@ -10,6 +10,7 @@
 // hands the walk to the recompiled code at its loop head (0x10ab630) with
 // the registers it has there. v0 / v1 / a0 as the original leaves them.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -312,4 +313,101 @@ namespace decomp_texreset
     }
 }
 
-SOTC_DECOMP_AB_FUNCTION(0x010AB618u, texResetTransfers, decomp_texreset::reset);
+namespace decomp_texreset
+{
+    void resetSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_AB_FUNCTION(0x010AB618u, texResetTransfers, decomp_texreset::resetSw);
+D1_ALIAS(0x010AB618u, texResetTransfers, decomp_texreset::resetSw, decomp_texreset::reset);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): the default path (round 49's resetFast) as a typed core -------------------------
+// The same walk on d1::Mem: each node's record and next word, the record's +0x24 flag, the 16 bytes at +0x10 cleared
+// when it is set and the next word read again after the clear (a record may overlap its node), the same limit. A node
+// or record outside main RAM, or a list too long, ends the core where resetFast hands off; the adapter then calls the
+// same handOff (the recompiled loop from that node, or the whole function when nothing was done), as resetFast does.
+// texr128 on (default off) or fastnative off: the old body.
+namespace decomp_texreset
+{
+    D1_COUNTER(c_d2TexReset, "texResetTransfers");
+
+    struct ResetOut
+    {
+        uint32_t flag, rec;
+        uint32_t handNode; // handing off: the node
+        bool empty;        // the list was empty
+        bool handOff;      // the recompiled loop from handNode
+        bool first;        // ... nothing done yet
+    };
+
+    void resetCore(const d1::Mem m, ResetOut &o)
+    {
+        o = ResetOut{0u, 0u, 0u, false, false, false};
+        uint32_t node = m.u32(kHead);
+        if (!node)
+        {
+            o.empty = true;
+            return;
+        }
+        uint32_t n = 1u << 20; // 1 << 20 minus the node's index
+        for (;;)
+        {
+            if (__builtin_expect(node > PS2_RAM_SIZE - 0x10u, 0))
+            {
+                o.handOff = true, o.handNode = node, o.first = n == (1u << 20);
+                return;
+            }
+            const uint32_t rec = m.u32(node + 4u);
+            uint32_t next = m.u32(node + 0xCu);
+            if (__builtin_expect(rec > PS2_RAM_SIZE - 0x28u, 0))
+            {
+                o.handOff = true, o.handNode = node, o.first = n == (1u << 20);
+                return;
+            }
+            __builtin_prefetch(m.at<uint8_t>(next)); // a hint
+            o.rec = rec;
+            o.flag = m.u32(rec + 0x24u);
+            if (__builtin_expect(o.flag != 0u, 0))
+            {
+                std::memset(m.at<uint8_t>(rec + 0x10u), 0, 16);
+                next = m.u32(node + 0xCu);
+            }
+            node = next;
+            if (!node)
+                return;
+            if (__builtin_expect(--n == 0u, 0))
+            {
+                o.handOff = true, o.handNode = node, o.first = false;
+                return;
+            }
+        }
+    }
+
+    void resetD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2TexReset.n;
+        if (sotc_decomp::switchOn(sotc_decomp::kTexr128) || !sotc_decomp::fastNativeOn())
+            return reset(rdram, ctx, runtime);
+        ResetOut o;
+        resetCore(d1::Mem{rdram}, o);
+        if (o.empty)
+        {
+            SET_GPR_S32(ctx, 2, 0x01190000);
+            SET_GPR_U64(ctx, 4, 0u);
+            return sotc_decomp::returnTo(ctx);
+        }
+        if (o.handOff)
+            return handOff(rdram, ctx, runtime, o.handNode, o.first);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.flag));
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.rec));
+        SET_GPR_U64(ctx, 4, 0u);
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void resetSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            resetD1(rdram, ctx, runtime);
+        else
+            reset(rdram, ctx, runtime);
+    }
+}

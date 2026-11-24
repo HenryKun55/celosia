@@ -6821,6 +6821,10 @@ namespace decomp_collision
     void finderLeafSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void clipKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void waterSurfaceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round D2 (the same switch)
+    void flushModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void flushWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void waterProbeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 namespace decomp_finderwalk
 {
@@ -6853,7 +6857,8 @@ SOTC_DECOMP_FUNCTION(0x01123A58u, CollisionPlaneJudgeCallbackCameraVisibility, d
 SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdr);
 SOTC_DECOMP_FUNCTION(0x01125DC8u, ClipCollisionFinder, decomp_collision::finderClip<false>);
 SOTC_DECOMP_FUNCTION(0x01125CC0u, ClipCollisionFinderCallBack, decomp_collision::finderClip<true>);
-SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModified);
+SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModifiedSw);
+D1_ALIAS(0x01147798u, FlushModifiedManager, decomp_collision::flushModifiedSw, decomp_collision::flushModified);
 SOTC_DECOMP_FUNCTION(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinder);
 // Round 39: the camera's segment tests (SOTC_CAMCOLL=0: all recompiled).
 SOTC_DECOMP_FUNCTION(0x0140EE60u, camera_collision_check_direct, decomp_collision::cameraCheckDirect);
@@ -6876,7 +6881,8 @@ SOTC_DECOMP_FUNCTION(0x013CB8E8u, gamecore_sub_013CB8E8, decomp_collision::filte
 SOTC_DECOMP_FUNCTION(0x013D5510u, AI_JudgeColAttrFunc, decomp_collision::filterEntry<12>);
 SOTC_DECOMP_FUNCTION(0x014383F0u, moveCtrlWallJudgeFunc, decomp_collision::filterEntry<13>);
 SOTC_DECOMP_FUNCTION(0x0137D1A0u, SCRGetCollisionCallBack, decomp_collision::scrCollision);
-SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbe);
+SOTC_DECOMP_FUNCTION(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbeSw);
+D1_ALIAS(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbeSw, decomp_collision::waterProbe);
 SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw);
 D1_ALIAS(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw, decomp_collision::waterSurface);
 SOTC_DECOMP_FUNCTION(0x01130490u, ClipCollisionDirectCallBackDoubleSide, decomp_collision::directDoubleSide);
@@ -6884,7 +6890,8 @@ SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisi
 // Round 42 (SOTC_LEAVES=0: recompiled).
 SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::filterEntry<14>);
 SOTC_DECOMP_FUNCTION(0x010DF8F0u, manager_sub_010DF8F0, decomp_collision::filterEntry<15>);
-SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWork);
+SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWorkSw);
+D1_ALIAS(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWorkSw, decomp_collision::flushWork);
 SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWork);
 
 // ---- Round D1 (SOTC_D1NATIVE): the collision natives' D1 bodies (d1_native.h) -------------------------------------
@@ -8074,5 +8081,428 @@ namespace decomp_finderwalk
             finderWalkD1(rdram, ctx, runtime);
         else
             finderWalk(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D2 (SOTC_D1NATIVE, the same switch and framework as D1): FlushModifiedManager, FlushCollisionWorkByWorkStruct,
+// the water probe (manager_sub_01117EA0) as native C++ ------------------------------------------------------------------
+// Full: each core takes C++ parameters and d1::Mem (typed guest memory), never the context; the adapters read the
+// arguments once, send the rare states (logs, checks, switches off, guest RAM outside the plain block, an index size the
+// old body hands to the recompiled code) to the old body before any side effect, and write back what the old body leaves
+// (v0, a0, f0, ra / sp). The host epoch bumps (coll125::flushed / flushedEnd, runsOf) stay in the adapters.
+namespace decomp_collision
+{
+    D1_COUNTER(c_d2Flush, "collision.flushModified");
+    D1_COUNTER(c_d2FlushWork, "collision.flushWork");
+    D1_COUNTER(c_d2WaterProbe, "collision.waterProbe");
+
+    // G::plain's test (main RAM below 32 MB, the size included).
+    PS2_FORCE_INLINE bool d2Plain(uint32_t a, uint32_t size) { return a < 0x02000000u - size; }
+    PS2_FORCE_INLINE float d2Fb(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+
+    // FlushModifiedManager's list (+0 the count, +8 the flags base, +0xc the index size, +0x10 the indices): 0 empty
+    // (nothing written; v0 2 for the caller), 1 flushed (the listed flag bytes cleared in order, the count zeroed, v0 the
+    // last index as the old body leaves it), -1 refused (nothing written: an index size the old body hands to the
+    // recompiled code, a list or flag byte outside the plain block, or a flag byte on the list's own header / indices,
+    // whose later reads it would change).
+    int d2FlushList(const d1::Mem &m, uint32_t list, uint64_t &v0)
+    {
+        if (!d2Plain(list, 0x14u))
+            return -1;
+        const int32_t count = m.s32(list);
+        if (count == 0)
+            return 0;
+        const uint32_t size = m.u32(list + 0xCu);
+        if (size != 1u && size != 2u && size != 4u)
+            return -1;
+        const uint32_t base = m.u32(list + 8u), at0 = m.u32(list + 0x10u);
+        if (count > 0)
+        {
+            if (count > 0x00100000)
+                return -1;
+            const uint32_t bytes = static_cast<uint32_t>(count) * size;
+            if (!d2Plain(at0, bytes))
+                return -1;
+            // [lo, hi) clear of the header and of the indices
+            auto d2Clear = [&](uint32_t lo, uint32_t hi) { return (hi <= list || lo >= list + 0x14u) && (hi <= at0 || lo >= at0 + bytes); };
+            const uint32_t span = size == 1u ? 0x100u : (size == 2u ? 0x10000u : 0u);
+            if (span == 0u || !d2Plain(base, span) || !d2Clear(base, base + span))
+            {
+                uint32_t at = at0;
+                for (int32_t i = 0; i < count; ++i, at += size)
+                {
+                    const uint32_t index = size == 1u ? m.get<uint8_t>(at) : (size == 2u ? m.get<uint16_t>(at) : m.u32(at));
+                    const uint32_t flag = base + index;
+                    if (!d2Plain(flag, 1u) || !d2Clear(flag, flag + 1u))
+                        return -1;
+                }
+            }
+        }
+        // the old body's loop (no flag byte touches the words it reads: the base and the indices stay as they were)
+        uint64_t r = size == 4u ? 4u : 1u;
+        uint32_t at = at0;
+        for (int32_t i = 0; i < count; ++i, at += size)
+        {
+            const uint32_t index = size == 1u ? m.get<uint8_t>(at) : (size == 2u ? m.get<uint16_t>(at) : m.u32(at));
+            r = size == 4u ? static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(index))) : index;
+            m.set<uint8_t>(base + index, 0u);
+        }
+        m.set<uint32_t>(list, 0u);
+        v0 = r;
+        return 1;
+    }
+    // FlushModifiedManager's core: v0 as the old body leaves it; false: refused (nothing written).
+    bool flushModifiedD2Core(const d1::Mem &m, uint32_t list, uint64_t &v0)
+    {
+        const int r = d2FlushList(m, list, v0);
+        if (r == 0)
+            v0 = 2u;
+        return r >= 0;
+    }
+
+    void flushModifiedD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t list = GPR_U32(ctx, 4);
+        const d1::Mem m{rdram};
+        if (!d2Plain(list, 0x14u))
+            return flushModified(rdram, ctx, runtime);
+        ++c_d2Flush.n;
+        ++runsOf(runtime); // (the old body's G)
+        // the old body's epoch bump for a non-empty list (before its flags change; the worker lane's end bump after)
+        const bool empty = m.u32(list) == 0u;
+        if (!empty)
+            coll125::flushed(runtime);
+        uint64_t v0 = 0u;
+        if (!flushModifiedD2Core(m, list, v0))
+            return flushModified(rdram, ctx, runtime); // refused before any write (one more epoch bump: host only)
+        if (!empty)
+            coll125::flushedEnd(runtime);
+        SET_GPR_U64(ctx, 2, v0);
+        returnTo(ctx);
+    }
+    void flushModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            flushModifiedD1(rdram, ctx, runtime);
+        else
+            flushModified(rdram, ctx, runtime);
+    }
+
+    // FlushCollisionWorkByWorkStruct's lists in the old body's order: each part's +0 / +0x30 / +0x48 / +0x18 (0x60-byte
+    // parts from the work's +0x24), then with a3 the work's +0x28 / +0x40, with a2 its +0x58 / +0x70.
+    struct D2WorkLists
+    {
+        uint32_t work, part0, parts;
+        bool withA, withB;
+        uint32_t d2Total() const { return parts * 4u + (withA ? 2u : 0u) + (withB ? 2u : 0u); }
+        uint32_t d2List(uint32_t k) const
+        {
+            if (k < parts * 4u)
+            {
+                const uint32_t j = k & 3u;
+                return part0 + (k >> 2) * 0x60u + (j == 0u ? 0u : j == 1u ? 0x30u : j == 2u ? 0x48u : 0x18u);
+            }
+            k -= parts * 4u;
+            if (withA)
+            {
+                if (k < 2u)
+                    return work + (k == 0u ? 0x28u : 0x40u);
+                k -= 2u;
+            }
+            return work + (k == 0u ? 0x58u : 0x70u);
+        }
+        // the jal site of list k (the old body's call return address less 8)
+        uint32_t d2Site(uint32_t k) const
+        {
+            if (k < parts * 4u)
+            {
+                const uint32_t j = k & 3u;
+                return j == 0u ? 0x0112444Cu : j == 1u ? 0x01124454u : j == 2u ? 0x0112445Cu : 0x01124464u;
+            }
+            k -= parts * 4u;
+            if (withA)
+            {
+                if (k < 2u)
+                    return k == 0u ? 0x0112447Cu : 0x01124484u;
+                k -= 2u;
+            }
+            return k == 0u ? 0x01124494u : 0x0112449Cu;
+        }
+    };
+    struct D2WorkOut
+    {
+        uint32_t next = 0u;    // the first list not flushed here (d2Total(): all of them)
+        uint32_t flushed = 0u; // non-empty lists flushed
+    };
+    // FlushCollisionWorkByWorkStruct's core: the lists flushed in order (FlushModifiedManager's core called directly), the
+    // round 67 prefetches as the old body asks for them; stops before a list FlushModifiedManager's core refuses (the
+    // adapter goes on from there as the old body does). The work's +0x1c is cleared when every list was flushed here.
+    D2WorkOut flushWorkD2Core(const d1::Mem &m, const D2WorkLists &w, bool w67)
+    {
+        D2WorkOut out;
+        const uint32_t total = w.d2Total();
+        if (w67)
+            for (uint32_t off = 0; off < 0xC0u && off < w.parts * 0x60u; off += 0x20u)
+                __builtin_prefetch(m.at<uint8_t>(w.part0 + off));
+        for (uint32_t k = 0; k < total; ++k)
+        {
+            if (w67 && k < w.parts * 4u && (k & 3u) == 0u)
+            {
+                // (no fault, no effect on guest state: the old body's asks two parts ahead and the next part's id arrays)
+                const uint32_t part = w.part0 + (k >> 2) * 0x60u, left = w.parts - (k >> 2);
+                if (left > 2u)
+                    for (uint32_t off = 0xC0u; off < 0x120u; off += 0x20u)
+                        __builtin_prefetch(m.at<uint8_t>(part + off));
+                if (left > 1u && d2Plain(part + 0x60u, 0xC0u))
+                    for (const uint32_t head : {0x60u, 0x90u, 0xA8u, 0x78u})
+                        if (m.u32(part + head) != 0u)
+                            __builtin_prefetch(m.at<uint8_t>(m.u32(part + head + 0x10u)));
+            }
+            uint64_t v0 = 0u;
+            const int r = d2FlushList(m, w.d2List(k), v0);
+            if (r < 0)
+            {
+                out.next = k;
+                return out;
+            }
+            out.flushed += r > 0 ? 1u : 0u;
+        }
+        out.next = total;
+        m.set<uint32_t>(w.work + 0x1Cu, 0u);
+        return out;
+    }
+
+    void flushWorkD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // the old body: the timing log, leaves off, the worker lane (its calls go through the worker's admit), the
+        // FlushModifiedManager slot held by something else (a checker, a profiler wrapper), odd works
+        const PS2Runtime::RecompiledFunction slot = sotc_decomp::guestFunction(runtime, kFlushModified);
+        const uint32_t work = GPR_U32(ctx, 4), withB = GPR_U32(ctx, 6), withA = GPR_U32(ctx, 7);
+        const int32_t parts = GPR_S32(ctx, 5);
+        const d1::Mem m{rdram};
+        if (__builtin_expect(coll115::params().log, 0) || !sotc_decomp::leavesOn() || sotc_decomp::onWorkerLane(runtime) ||
+            (slot != &flushModified && slot != &flushModifiedSw) || !d2Plain(work, 0x88u) || parts > 0x10000)
+            return flushWork(rdram, ctx, runtime);
+        const uint32_t part0 = m.u32(work + 0x24u);
+        const uint32_t nParts = parts > 0 ? static_cast<uint32_t>(parts) : 0u;
+        if (nParts != 0u && !d2Plain(part0, nParts * 0x60u))
+            return flushWork(rdram, ctx, runtime);
+        ++c_d2FlushWork.n;
+        ++runsOf(runtime); // (the old body's G)
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x30u;
+        const D2WorkLists w{work, part0, nParts, withA != 0u, withB != 0u};
+        const uint32_t total = w.d2Total();
+        coll125::g_curWork = work; // round 125: this work's epoch (the game thread: the worker lane went to the old body)
+        const D2WorkOut out = flushWorkD2Core(m, w, sotc_decomp::walk67On());
+        for (uint32_t i = 0; i < out.flushed; ++i)
+        {
+            ++runsOf(runtime); // (each FlushModifiedManager call's G)
+            coll125::flushed(runtime);
+        }
+        if (out.next == total)
+        {
+            if (total != 0u)
+                SET_GPR_U32(ctx, 4, w.d2List(total - 1u)); // a0: the last list handed over
+        }
+        else
+        {
+            // a list the core refused (nothing of it written): from there as the old body runs it
+            const bool skipEmpty = sotc_decomp::switchOn(sotc_decomp::kFlush119) && slot == &flushModified;
+            for (uint32_t k = out.next; k < total; ++k)
+            {
+                const uint32_t list = w.d2List(k);
+                SET_GPR_U32(ctx, 4, list);
+                if (skipEmpty && G::plain(list, 4u) && m.u32(list) == 0u)
+                {
+                    SET_GPR_U64(ctx, 2, 2u);
+                    continue;
+                }
+                sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, slot, w.d2Site(k) + 8u, sp);
+            }
+            m.set<uint32_t>(work + 0x1Cu, 0u);
+        }
+        coll125::g_curWork = 0u;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        SET_GPR_U64(ctx, 2, 1u);
+        returnTo(ctx);
+    }
+    void flushWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            flushWorkD1(rdram, ctx, runtime);
+        else
+            flushWork(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_01117EA0, the water surface under a segment (waterProbeBody's default S2 / S6 path) ----------------
+    // Lane moves (vopmula / vopmsub's operand orders): a NEON permute, no arithmetic.
+    template <int A, int B, int C, int D>
+    PS2_FORCE_INLINE __m128 d2Perm(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+        typedef int d2v4i __attribute__((vector_size(16)));
+        return __builtin_shuffle(v, d2v4i{A, B, C, D});
+#endif
+    }
+    // outer(): vopmula.xyz / vopmsub.xyz, a x b (w as the old helper's: 0 - 0 products of the w lanes)
+    PS2_FORCE_INLINE __m128 d2Outer(__m128 a, __m128 b)
+    {
+        return d1::vsub(d1::vmul(d2Perm<1, 2, 0, 3>(a), d2Perm<2, 0, 1, 3>(b)), d1::vmul(d2Perm<1, 2, 0, 3>(b), d2Perm<2, 0, 1, 3>(a)));
+    }
+    // dotX(): 0 + m.x, + 1 x m.y, + 1 x m.z on lane 0 (1 x a NEON result is that result: the products by one left out).
+    PS2_FORCE_INLINE float d2DotX(__m128 a, __m128 b)
+    {
+        const __m128 p = d1::vmul(a, b);
+        __m128 acc = d1::vadd(d1::zero4(), d1::bc<0>(p));
+        acc = d1::vadd(acc, d1::bc<1>(p));
+        return d1::lane<0>(d1::vadd(acc, d1::bc<2>(p)));
+    }
+    // vu::apply on clamped rows: the point's operand clamp kept (a caller's w lane may be unset), the rows' too (as the
+    // old body's clampRows; the same bits for the finite matrix the game writes).
+    PS2_FORCE_INLINE __m128 d2Apply(const d1::Mem &m, uint32_t mat, uint32_t point)
+    {
+        const __m128 c = ps2VuNormalize(m.q(point));
+        __m128 t = d1::vmul(ps2VuNormalize(m.q(mat)), d1::bc<0>(c));
+        t = d1::vmadd(t, ps2VuNormalize(m.q(mat + 0x10u)), d1::bc<1>(c));
+        t = d1::vmadd(t, ps2VuNormalize(m.q(mat + 0x20u)), d1::bc<2>(c));
+        return d1::vmadd(t, ps2VuNormalize(m.q(mat + 0x30u)), d1::bc<3>(c));
+    }
+    struct D2WaterIn
+    {
+        uint32_t cls, a1, a2; // the layout class, the segment's points
+        bool s2, s6;          // s2water::on / s6coll::active (the game thread's)
+    };
+    // f0 as the loop leaves it (in: the caller's f0); true: the old body's case (the point in a triangle with a point
+    // under its height: the recompiled code from the start; guest RAM outside the plain block): nothing written.
+    bool waterProbeD2Core(const d1::Mem &m, const D2WaterIn &in, std::vector<uint16_t> &cands, float &f0, uint32_t &fcr31)
+    {
+        if (!d2Plain(in.cls + 0x164u, 0x24u))
+            return true;
+        const uint32_t recAt = m.u32(in.cls + 0x184u), mat = m.u32(in.cls + 0x164u) & ~0xFu;
+        const uint32_t a1 = in.a1 & ~0xFu, a2 = in.a2 & ~0xFu;
+        if (!d2Plain(recAt + 0x20u, 4u) || !d2Plain(mat, 0x40u) || !d2Plain(a1, 16u) || !d2Plain(a2, 16u))
+            return true;
+        const uint32_t rec = m.u32(recAt + 0x20u);
+        if (!d2Plain(rec + 0x38u, 8u))
+            return true;
+        const __m128 p0 = d2Apply(m, mat, a1), p1 = d2Apply(m, mat, a2);
+        const float p0y = d1::lane<1>(p0), p1x = d1::lane<0>(p1), p1y = d1::lane<1>(p1), p1z = d1::lane<2>(p1);
+        const int32_t count = m.s32(rec + 0x38u);
+        const uint32_t t0 = m.u32(rec + 0x3Cu);
+        if (count > 0 && (count > 0x00100000 || !d2Plain(t0, 0x20u * static_cast<uint32_t>(count))))
+            return true;
+        const float lowLimit = d2Fb(0xB7A7C5ACu), highLimit = d2Fb(0x37A7C5ACu), one = d2Fb(0x3F800000u);
+        // one triangle as the loop runs it: true when it sends the call to the old body; f0 as the loop leaves it
+        auto d2Tri = [&](uint32_t t, float &fo) -> bool
+        {
+            const float vx = m.f32(t + 8u), vz = m.f32(t + 0xCu);
+            const __m128 a = d1::make(d1::sub(m.f32(t + 0x10u), vx), 0.0f, d1::sub(m.f32(t + 0x14u), vz), 0.0f);
+            const __m128 b = d1::make(d1::sub(m.f32(t + 0x18u), vx), 0.0f, d1::sub(m.f32(t + 0x1Cu), vz), 0.0f);
+            const __m128 c = d1::make(d1::sub(p1x, vx), 0.0f, d1::sub(p1z, vz), 0.0f);
+            const __m128 n = d2Outer(a, b);
+            const __m128 nb = d2Outer(n, b);
+            const float u = ps2FpuDivide(fcr31, d2DotX(nb, c), d2DotX(nb, a)); // div.s as generated
+            const __m128 na = d2Outer(n, a);
+            const float v = ps2FpuDivide(fcr31, d2DotX(na, c), d2DotX(na, b));
+            fo = u;
+            if (d1::lt(u, lowLimit))
+                return false;
+            fo = v;
+            if (d1::lt(v, lowLimit))
+                return false;
+            fo = d1::sub(d1::add(u, v), one);
+            if (d1::lt(highLimit, fo))
+                return false;
+            const float h = m.f32(t + 4u);
+            if (d1::lt(p1y, h))
+                return true;
+            fo = p0y;
+            if (d1::lt(p0y, h))
+                return true;
+            return false;
+        };
+        bool slow = false;
+        if (count > 0 && in.s2)
+        {
+            // round S2 / S6: the triangles that can send the call on, and the last one (its f0), as the old body's path
+            float f0n = f0;
+            const s6coll::Index *ix = in.s6 ? s6coll::find(m.base, t0, count) : nullptr;
+            if (ix && s6coll::pointCands(*ix, p1x, p1z, cands))
+            {
+                uint32_t visited = 0;
+                bool done = false;
+                for (const uint16_t i : cands)
+                {
+                    if (static_cast<int32_t>(i) + 1 >= count)
+                        break;
+                    const uint32_t t = t0 + 0x20u * i;
+                    if (s2water::outside(m.base, t, p1x, p1z))
+                        continue;
+                    ++visited;
+                    if (d2Tri(t, f0n))
+                    {
+                        slow = done = true;
+                        break;
+                    }
+                }
+                if (!done)
+                {
+                    ++visited;
+                    slow = d2Tri(t0 + 0x20u * static_cast<uint32_t>(count - 1), f0n);
+                }
+                s6coll::noteProbe(0, true, visited);
+            }
+            else
+                slow = s2water::probe(m.base, t0, count, p1x, p1z, [&](uint32_t t) { return d2Tri(t, f0n); });
+            f0 = f0n;
+        }
+        else
+            for (int32_t i = 0; i < count; ++i)
+                if (d2Tri(t0 + 0x20u * static_cast<uint32_t>(i), f0))
+                {
+                    slow = true;
+                    break;
+                }
+        return slow;
+    }
+
+    void waterProbeD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // the old body: a log / check mode, the stats, collprobe off, a relinked call site
+        if (s6coll::logOn() || s2water::logOn() || s2water::checkOn() || s6coll::checkOn() || g_statsOn || !sotc_decomp::collProbeOn() ||
+            sotc_decomp::jalTarget(rdram, 0x01117EE8u) != kGetLayoutClass)
+            return waterProbe(rdram, ctx, runtime);
+        uint32_t cls;
+        {
+            const G g{rdram, ctx, runtime}; // (the old body's G: its epoch bump)
+            if (!G::plain(GPR_U32(ctx, 7) + 8u, 1u) || !layoutClass(g, GPR_U32(ctx, 7), cls))
+                return waterProbe(rdram, ctx, runtime);
+        }
+        const bool s2 = s2water::on(runtime);
+        const D2WaterIn in{cls, GPR_U32(ctx, 5), GPR_U32(ctx, 6), s2, s2 && s6coll::active(runtime)};
+        float f0 = ctx->f[0];
+        uint32_t fcr31 = ctx->fcr31;
+        if (waterProbeD2Core(d1::Mem{rdram}, in, s6coll::scratch(), f0, fcr31))
+            return waterProbe(rdram, ctx, runtime); // nothing written: the old body from the start
+        ++c_d2WaterProbe.n;
+        ctx->fcr31 = fcr31;
+        ctx->f[0] = f0;
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+    void waterProbeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            waterProbeD1(rdram, ctx, runtime);
+        else
+            waterProbe(rdram, ctx, runtime);
     }
 }

@@ -23,6 +23,7 @@
 // native's frame (dead stack below the caller's sp; no guest code runs in
 // between). v0 as the original returns it.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 
 #include "ps2_runtime_macros.h"
@@ -339,5 +340,283 @@ namespace decomp_heap120
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x001ADDC0u, kernel_sub_001ADDC0, decomp_heap120::allocFn);
+namespace decomp_heap120
+{
+    void allocSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001ADDC0u, kernel_sub_001ADDC0, decomp_heap120::allocSw);
+D1_ALIAS(0x001ADDC0u, kernel_sub_001ADDC0, decomp_heap120::allocSw, decomp_heap120::allocFn);
 SOTC_DECOMP_FUNCTION(0x001ADBC0u, kernel_sub_001ADBC0, decomp_heap120::insertFn);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): the block allocator as a typed core ------------------------------------------
+// allocFn's steps on d1::Mem (the same class, the same first fitting block, the same split, the same words in the same
+// order; the split's free block into its class by 0x1adbc0's steps, inline as before). Integer only, 0 math. The adapter
+// reads a0..a3 once and writes v0 (sign-extended) as the old body; heap120 off or a heap outside main RAM: the old body.
+namespace decomp_heap120
+{
+    D1_COUNTER(c_d1Alloc, "kernel_sub_001ADDC0");
+
+    PS2_FORCE_INLINE uint32_t d1U32(const d1::Mem m, uint32_t a) { return m.get<uint32_t>(a); }
+    PS2_FORCE_INLINE void d1Put32(const d1::Mem m, uint32_t a, uint32_t v) { m.set<uint32_t>(a, v); }
+    PS2_FORCE_INLINE uint8_t d1U8(const d1::Mem m, uint32_t a) { return m.get<uint8_t>(a); }
+    PS2_FORCE_INLINE void d1Put8(const d1::Mem m, uint32_t a, uint8_t v) { m.set<uint8_t>(a, v); }
+
+    // allocClass on d1::Mem.
+    int32_t d1AllocClass(const d1::Mem m, uint32_t heap, uint32_t t1)
+    {
+        const int32_t s = static_cast<int32_t>(t1);
+        if (heap == kSmallHeap)
+        {
+            if (s < 0x401)
+            {
+                if (s < 0x81)
+                    return m.get<int8_t>(kSmallClass + t1);
+                if (s < 0xC1)
+                    return 8;
+                if (s < 0x101)
+                    return 9;
+                return s < 0x201 ? 0xA : 0xB;
+            }
+            const int32_t a0 = s < 0 ? s + 0x3FF : s;
+            int32_t v1 = a0 >> 10;
+            int32_t a1 = 0xC;
+            if ((v1 & 0xFF00) != 0)
+            {
+                v1 = a0 >> 18;
+                a1 = 0x14;
+            }
+            v1 >>= 1;
+            while (v1 != 0)
+            {
+                v1 >>= 1;
+                ++a1;
+            }
+            return a1;
+        }
+        const int32_t v0 = s < 0 ? s + 0x3FF : s;
+        int32_t v1 = v0 >> 11;
+        int32_t a1 = 1;
+        while (v1 != 0)
+        {
+            v1 >>= 1;
+            ++a1;
+        }
+        return a1;
+    }
+
+    // insertFree (0x1adbc0) on d1::Mem: block t0 into its class.
+    void d1InsertFree(const d1::Mem m, uint32_t t0, uint32_t classes, uint32_t count, uint32_t heap)
+    {
+        const uint32_t t1 = (d1U32(m, t0) & kIdx) << 2;
+        int32_t v0;
+        if (heap == kSmallHeap)
+        {
+            const int32_t s = static_cast<int32_t>(t1);
+            if (s < 0x401)
+            {
+                if (s < 0x81)
+                    v0 = m.get<int8_t>(kSmallClass + t1) - 1;
+                else if (s < 0xC1)
+                    v0 = 7;
+                else if (s < 0x101)
+                    v0 = 8;
+                else
+                    v0 = (s < 0x201 ? 0xA : 0xB) - 1;
+            }
+            else
+            {
+                const int32_t a0 = s;
+                int32_t v1 = a0 >> 10;
+                if ((v1 & 0xFF00) != 0)
+                {
+                    v1 = a0 >> 18;
+                    v0 = 0x14;
+                }
+                else
+                    v0 = 0xC;
+                v1 >>= 1;
+                while (v1 != 0)
+                {
+                    v1 >>= 1;
+                    ++v0;
+                }
+                v0 -= 1;
+            }
+        }
+        else
+        {
+            uint32_t v1 = t1 >> 11; // srl
+            int32_t n = 1;
+            int32_t w = static_cast<int32_t>(v1);
+            while (w != 0)
+            {
+                w >>= 1;
+                ++n;
+            }
+            v0 = n - 1;
+        }
+        if (!(static_cast<uint32_t>(v0) < count))
+            v0 = static_cast<int32_t>(count - 1u);
+        const uint32_t bin = classes + (static_cast<uint32_t>(v0) << 3);
+        uint32_t a2 = d1U32(m, bin);
+        if (a2 == 0u)
+        {
+            d1Put32(m, bin, t0);
+            d1Put32(m, bin + 4u, t0);
+            d1Put32(m, t0 + 0x1Cu, 0u);
+            d1Put32(m, t0 + 0x14u, d1U32(m, t0 + 0x14u) & kTop);
+            return;
+        }
+        const uint32_t words = static_cast<uint32_t>(sra(t1, 2));
+        const uint32_t self = static_cast<uint32_t>(sra(t0, 2)) & kIdx;
+        for (;;)
+        {
+            if (words < (d1U32(m, a2) & kIdx))
+            {
+                // Before a2.
+                const uint32_t prev = d1U32(m, a2 + 0x14u) & kIdx;
+                const uint32_t v1 = (d1U32(m, t0 + 0x14u) & kTop) | prev;
+                d1Put32(m, t0 + 0x14u, v1);
+                if (prev != 0u)
+                    d1Put32(m, ((v1 & kIdx) << 2) + 0x1Cu, t0);
+                else
+                    d1Put32(m, bin, t0);
+                d1Put32(m, t0 + 0x1Cu, a2);
+                d1Put32(m, a2 + 0x14u, (d1U32(m, a2 + 0x14u) & kTop) | self);
+                return;
+            }
+            const uint32_t next = d1U32(m, a2 + 0x1Cu);
+            if (next == 0u)
+                break;
+            a2 = next;
+        }
+        // At the end.
+        const uint32_t v1 = static_cast<uint32_t>(sra(a2, 2));
+        d1Put32(m, bin + 4u, t0);
+        d1Put32(m, a2 + 0x1Cu, t0);
+        d1Put32(m, t0 + 0x1Cu, 0u);
+        d1Put32(m, t0 + 0x14u, (d1U32(m, t0 + 0x14u) & kTop) | (v1 & kIdx));
+    }
+
+    // The allocation (a0 heap, a1 size, a2 alignment, a3 owner): the data address or 0.
+    uint32_t allocCore(const d1::Mem m, uint32_t heap, uint32_t size, uint32_t align, uint32_t owner)
+    {
+        uint32_t t1 = size;
+        if (t1 < 4u)
+            t1 = 4u;
+        int32_t t4 = static_cast<int32_t>(align);
+        if (t4 < 4)
+            t4 = 4;
+        const uint32_t classes = (d1U32(m, heap) & kIdx) << 2;
+        t1 = (t1 + 3u) & ~3u;
+        const int32_t cls = d1AllocClass(m, heap, t1);
+        const uint32_t count = m.get<uint16_t>(heap + 4u);
+        uint32_t index = static_cast<uint32_t>(cls - 1);
+        const uint32_t words = static_cast<uint32_t>(sra(t1, 2));
+        if (!(index < count))
+            return 0u;
+        const uint32_t a2 = static_cast<uint32_t>(t4 - 1), mask = ~a2;
+        uint32_t bin = classes + (index << 3);
+        uint32_t s0 = 0u, s1 = 0u, s2 = 0u, t3 = 0u;
+        bool found = false;
+        for (; index < count && !found; ++index, bin += 8u)
+        {
+            for (s0 = d1U32(m, bin); s0 != 0u; s0 = d1U32(m, s0 + 0x1Cu))
+            {
+                const uint32_t sz = d1U32(m, s0) & kIdx;
+                if (sz < words)
+                    continue;
+                t3 = s0 + 0x20u + (sz << 2);
+                s2 = (s0 + 0x24u + a2) & mask;
+                s1 = s2 + t1;
+                if (!(t3 < s1))
+                {
+                    d1Put32(m, s2 - 4u, s0);
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+                break;
+        }
+        if (!found)
+            return 0u;
+        // Off its class's list.
+        const uint32_t prev = (d1U32(m, s0 + 0x14u) & kIdx) << 2;
+        const uint32_t next = d1U32(m, s0 + 0x1Cu);
+        if (prev == 0u)
+            d1Put32(m, bin, next);
+        else
+            d1Put32(m, prev + 0x1Cu, next);
+        if (next != 0u)
+            d1Put32(m, next + 0x14u, (d1U32(m, next + 0x14u) & kTop) | (d1U32(m, s0 + 0x14u) & kIdx));
+        else
+            d1Put32(m, bin + 4u, prev);
+        // In use, its size in words wanted, the alignment's log.
+        d1Put32(m, s0 + 0xCu, (d1U32(m, s0 + 0xCu) | 0x01000000u) & 0xFDFFFFFFu);
+        d1Put32(m, s0 + 4u, (d1U32(m, s0 + 4u) & kTop) | (words & kIdx));
+        uint32_t lg = 0u;
+        if ((t4 >> 3) != 0)
+        {
+            lg = 1u;
+            while ((t4 >> (lg + 3u)) != 0)
+                ++lg;
+        }
+        d1Put32(m, s0 + 0xCu, (d1U32(m, s0 + 0xCu) & 0xE3FFFFFFu) | ((lg & 7u) << 26));
+        if (s1 + 0x20u < t3)
+        {
+            // The rest becomes a free block after the data.
+            const uint32_t self = static_cast<uint32_t>(sra(s0, 2)) & kIdx;
+            const uint32_t neu = static_cast<uint32_t>(sra(s1, 2)) & kIdx;
+            d1Put32(m, s1 + 0xCu, (d1U32(m, s1 + 0xCu) & kTop) | self);
+            d1Put32(m, s1 + 8u, (d1U32(m, s1 + 8u) & kTop) | (d1U32(m, s0 + 8u) & kIdx));
+            d1Put32(m, s0 + 8u, (d1U32(m, s0 + 8u) & kTop) | neu);
+            const uint32_t after = d1U32(m, s1 + 8u) & kIdx;
+            if (after != 0u)
+            {
+                const uint32_t at = after << 2;
+                d1Put32(m, at + 0xCu, (d1U32(m, at + 0xCu) & kTop) | neu);
+            }
+            const uint32_t flags = (static_cast<uint32_t>(d1U8(m, s0 + 0xBu)) << 16) | (static_cast<uint32_t>(d1U8(m, s0 + 7u)) << 8) | d1U8(m, s0 + 3u);
+            const uint32_t restWords = static_cast<uint32_t>(sra(t3 - s1 - 0x20u, 2)) & kIdx;
+            const uint32_t c = d1U32(m, s1 + 0xCu);
+            d1Put8(m, s1 + 3u, static_cast<uint8_t>(flags));
+            d1Put8(m, s1 + 0xBu, static_cast<uint8_t>(flags >> 16));
+            d1Put8(m, s1 + 7u, static_cast<uint8_t>(flags >> 8));
+            d1Put32(m, s1, (d1U32(m, s1) & kTop) | restWords);
+            d1Put32(m, s1 + 0xCu, c & 0xFEFFFFFFu);
+            d1InsertFree(m, s1, classes, m.get<uint16_t>(heap + 4u), heap);
+            const uint32_t used = static_cast<uint32_t>(sra(s1 - s0 - 0x20u, 2)) & kIdx;
+            d1Put32(m, s0, (d1U32(m, s0) & kTop) | used);
+        }
+        if (heap == kSmallHeap)
+            d1Put32(m, kSmallFree, d1U32(m, kSmallFree) - (d1U32(m, s0) & kIdx));
+        const uint32_t a0 = d1U32(m, s0 + 0x18u);
+        const uint32_t c = d1U32(m, s0 + 0xCu);
+        d1Put32(m, s0 + 0xCu, c & 0x9FFFFFFFu);
+        d1Put32(m, s0 + 0x18u, (a0 & kTop) | (static_cast<uint32_t>(sra(owner, 2)) & kIdx));
+        d1Put8(m, s0 + 0x13u, 0u);
+        d1Put8(m, s0 + 0x1Bu, 0u);
+        d1Put8(m, s0 + 0x17u, 0u);
+        return s2;
+    }
+
+    void allocD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t heap = GPR_U32(ctx, 4);
+        if (!sotc_decomp::switchOn(sotc_decomp::kHeap120) || heap >= PS2_RAM_SIZE)
+            return allocFn(rdram, ctx, runtime);
+        ++c_d1Alloc.n;
+        const uint32_t result = allocCore(d1::Mem{rdram}, heap, GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7));
+        SET_GPR_U64(ctx, 2, sx(result));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void allocSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            allocD1(rdram, ctx, runtime);
+        else
+            allocFn(rdram, ctx, runtime);
+    }
+}

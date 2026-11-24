@@ -99,6 +99,7 @@
 // walks isysDeleteObjManager makes after its passes (to the end of the kept
 // links and the kept objects: no store, no register it leaves that is read).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "s11rt.h"
 
 #include "ps2_runtime_macros.h"
@@ -866,7 +867,13 @@ namespace decomp_isys48
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x001C6DB8u, isysDeleteGroupAllObj, decomp_isys48::deleteGroupAllObj);
+namespace decomp_isys48
+{
+    void deleteGroupAllObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void discardLetterAllSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001C6DB8u, isysDeleteGroupAllObj, decomp_isys48::deleteGroupAllObjSw);
+D1_ALIAS(0x001C6DB8u, isysDeleteGroupAllObj, decomp_isys48::deleteGroupAllObjSw, decomp_isys48::deleteGroupAllObj);
 SOTC_DECOMP_FUNCTION(0x001C7260u, isysGroupForFirstForce, decomp_isys48::groupForFirstForce);
 SOTC_DECOMP_FUNCTION(0x001C76A8u, isysObjDeleteUnLock, decomp_isys48::objDeleteUnLock);
 SOTC_DECOMP_UNCHECKED(0x001C7A18u, isysObjWaitSema, decomp_isys48::objWaitSema);
@@ -878,5 +885,170 @@ SOTC_DECOMP_FUNCTION(0x001C79E0u, isysGetGroupSrhNext, decomp_isys48::groupSrhNe
 SOTC_DECOMP_FUNCTION(0x001C8900u, open_letter_post, decomp_isys48::openLetterPost);
 SOTC_DECOMP_FUNCTION(0x001C8888u, discard_all_letter_in_post, decomp_isys48::discardAllLetterInPost);
 SOTC_DECOMP_FUNCTION(0x001C8938u, close_letter_post, decomp_isys48::closeLetterPost);
-SOTC_DECOMP_FUNCTION(0x001C82D8u, isysLetterObjDiscardLetterAll, decomp_isys48::discardLetterAll);
+SOTC_DECOMP_FUNCTION(0x001C82D8u, isysLetterObjDiscardLetterAll, decomp_isys48::discardLetterAllSw);
+D1_ALIAS(0x001C82D8u, isysLetterObjDiscardLetterAll, decomp_isys48::discardLetterAllSw, decomp_isys48::discardLetterAll);
 SOTC_DECOMP_FUNCTION(0x010AAD48u, texTransRequest, decomp_isys48::texTransRequest);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): isysDeleteGroupAllObj / isysLetterObjDiscardLetterAll ------------------------
+// Partial (the lock and the letter-post calls stay as the old bodies make them):
+// - isysDeleteGroupAllObj: the lock (acquire: GetThreadId / PollSema; releaseTail: SignalSema, a scheduler call) and the
+//   frame's saves kept verbatim in the adapter; the group walk (marks, the being-removed list, the links' group words,
+//   the group emptied) a typed core on d1::Mem in the old order; LO / HI from the core's last index product. A group
+//   word outside main RAM goes to the old body before the lock.
+// - isysLetterObjDiscardLetterAll: the type's two jump tables decided, the frame's two saves and the post word read by a
+//   typed core (the same order: tables, saves, post); open / discard / close_letter_post stay callNative calls with the
+//   old registers, ra and sp. An unknown jump-table target, the object or the frame outside main RAM: the old body.
+namespace decomp_isys48
+{
+    D1_COUNTER(c_d2DeleteGroupAll, "isysDeleteGroupAllObj");
+    D1_COUNTER(c_d2DiscardLetterAll, "isysLetterObjDiscardLetterAll");
+
+    inline bool d2IsysInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
+
+    struct D2GroupOut
+    {
+        int64_t product; // the last index product (mult: LO / HI)
+        bool multiplied;
+    };
+
+    void deleteGroupCore(const d1::Mem m, uint32_t group, D2GroupOut &o)
+    {
+        o = {0, false};
+        for (uint32_t link = linkAt(m.get<uint16_t>(group)); link != 0u;)
+        {
+            if (m.get<uint8_t>(link + 0xCu) != 1u)
+            {
+                // Marked, pushed on the being-removed list (+0x16 the old head's index).
+                m.set<uint8_t>(link + 0xCu, 1u);
+                const uint32_t head = m.u32(kRemoving);
+                uint16_t index = 0u;
+                if (head != 0u)
+                {
+                    const int32_t d = static_cast<int32_t>(head - kBase) >> 3;
+                    o.product = static_cast<int64_t>(d) * static_cast<int64_t>(static_cast<int32_t>(0xAAAAAAABu));
+                    o.multiplied = true;
+                    index = static_cast<uint16_t>(static_cast<uint32_t>(o.product));
+                }
+                m.set<uint16_t>(link + 0x16u, index);
+                m.set<uint32_t>(kRemoving, link);
+            }
+            const uint32_t next = m.get<uint16_t>(link + 0xEu);
+            m.set<uint32_t>(link + 4u, 0u); // out of its group
+            link = linkAt(next);
+        }
+        m.set<uint16_t>(group, 0u);
+        m.set<uint16_t>(group + 2u, 0u);
+    }
+
+    void deleteGroupAllObjD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2DeleteGroupAll.n;
+        const uint64_t a0 = GPR_U64(ctx, 4);
+        const uint32_t group = static_cast<uint32_t>(a0);
+        if (!sotc_decomp::isysOn() || !d2IsysInRam(group, 4u))
+            return deleteGroupAllObj(rdram, ctx, runtime);
+        uint64_t tid;
+        if (acquire(rdram, ctx, runtime, tid) == Lock::No)
+        {
+            SET_GPR_U64(ctx, 4, a0);
+            return fallback(kDeleteGroupAllObj, rdram, ctx, runtime);
+        }
+        // The frame (sp - 0x30: s0..s3, ra at 0x20), as the old body writes it.
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x30u;
+        const SFrame f{rdram, ctx, sp, {0, 8, 0x10, 0x18, -1, -1, -1, -1, -1}};
+        f.save();
+        WRITE64(sp + 0x20u, GPR_U64(ctx, 31));
+        D2GroupOut o;
+        deleteGroupCore(d1::Mem{rdram}, group, o);
+        if (o.multiplied)
+        {
+            ctx->lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(o.product)));
+            ctx->hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(o.product >> 32)));
+        }
+        releaseTail(rdram, ctx, runtime, f, 0x20u, entrySp);
+    }
+
+    // -1: an unknown jump-table target or an address outside main RAM (nothing written); 0: a type without letters; 1: a
+    // post (in `post`). The frame's saves (s0 at sp, ra at sp + 8) written between the tables and the post's read.
+    int discardLetterCore(const d1::Mem m, uint32_t object, uint32_t sp, uint64_t s0, uint64_t ra, uint32_t &type, uint32_t &post)
+    {
+        constexpr uint32_t kHasLetters = 0x001E4060u, kPostBase = 0x001E40B0u; // the jump tables (types 6..22)
+        if (!d2IsysInRam(object, 0x20u) || !d2IsysInRam(sp, 0x10u))
+            return -1;
+        type = m.get<uint8_t>(object + 8u);
+        const uint32_t k = type - 6u;
+        bool letters = false;
+        uint32_t base = object;
+        if (k < 0x11u)
+        {
+            const uint32_t t1 = m.u32(kHasLetters + (k << 2));
+            if (t1 == 0x001C8310u)
+                letters = object != 0u;
+            else if (t1 != 0x001C8318u)
+                return -1;
+            if (letters)
+            {
+                const uint32_t t2 = m.u32(kPostBase + (k << 2));
+                if (t2 == 0x001C8348u)
+                    base = 0u;
+                else if (t2 != 0x001C834Cu)
+                    return -1;
+            }
+        }
+        m.set<uint64_t>(sp, s0);
+        m.set<uint64_t>(sp + 8u, ra);
+        if (!letters)
+            return 0;
+        post = m.u32(base + 0x1Cu);
+        return 1;
+    }
+
+    void discardLetterAllD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2DiscardLetterAll.n;
+        const uint64_t a0 = GPR_U64(ctx, 4);
+        // v0 = a0 (64 bits) is what the old body tests: a non-zero upper word with a zero lower one goes to the old body.
+        if (!sotc_decomp::isysOn() || (static_cast<uint32_t>(a0) == 0u && a0 != 0u))
+            return discardLetterAll(rdram, ctx, runtime);
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x10u;
+        const uint64_t ra = GPR_U64(ctx, 31);
+        uint32_t type = 0u, post = 0u;
+        const int r = discardLetterCore(d1::Mem{rdram}, static_cast<uint32_t>(a0), sp, GPR_U64(ctx, 16), ra, type, post);
+        if (r < 0)
+            return discardLetterAll(rdram, ctx, runtime);
+        SET_GPR_U64(ctx, 5, type);
+        if (r == 0)
+        {
+            SET_GPR_U64(ctx, 2, 0u);
+            returnTo(ctx);
+            return;
+        }
+        // s0 the post (+0x1c of the object, or of 0).
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(post));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        callNative(rdram, ctx, runtime, kOpenPost, &openLetterPost, 0x001C8358u, sp);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        callNative(rdram, ctx, runtime, kDiscardPost, &discardAllLetterInPost, 0x001C8360u, sp);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        SET_GPR_U64(ctx, 31, READ64(sp + 8u));
+        SET_GPR_U64(ctx, 16, READ64(sp));
+        // j close_letter_post (the frame popped).
+        callNative(rdram, ctx, runtime, kClosePost, &closeLetterPost, static_cast<uint32_t>(ra), entrySp);
+    }
+
+    void deleteGroupAllObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            deleteGroupAllObjD1(rdram, ctx, runtime);
+        else
+            deleteGroupAllObj(rdram, ctx, runtime);
+    }
+
+    void discardLetterAllSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            discardLetterAllD1(rdram, ctx, runtime);
+        else
+            discardLetterAll(rdram, ctx, runtime);
+    }
+}

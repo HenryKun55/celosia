@@ -1043,4 +1043,436 @@ namespace decomp_hot47i
 
 // manager_sub_010CF210 stays registered by decomp_motionpredict.cpp (round 41: the
 // no-match searches); its matches come here (they ran the recompiled code before).
-SOTC_DECOMP_FUNCTION(0x010BD3F8u, GetCharacterClassOptionNodeGeo, decomp_hot47i::optionNodeGeo);
+#include "d1_native.h"
+namespace decomp_hot47i
+{
+    void optionNodeGeoSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2 (d1native): below
+}
+SOTC_DECOMP_FUNCTION(0x010BD3F8u, GetCharacterClassOptionNodeGeo, decomp_hot47i::optionNodeGeoSw);
+D1_ALIAS(0x010BD3F8u, GetCharacterClassOptionNodeGeo, decomp_hot47i::optionNodeGeoSw, decomp_hot47i::optionNodeGeo);
+
+// ---- Round D2 (switch d1native, d1_native.h): GetCharacterClassOptionNodeGeo as native C++ (partial) ----------------------
+// The VU0 blocks (quatPoint / quatMul / matPoint / scaleXyz: ~45 PS2_V* statements) as d1 vec4 ops on a local register file
+// (loaded from the context where the block cluster starts, after the guest calls before it; written back before the guest
+// calls after it and at the exit, so the lanes the blocks keep are the live ones), the operand clamps kept (d2c: the
+// local positions' w lanes are read); the FPU compare as d1::lt; guest memory through d1::Mem. GetMotionOptionNodeParentId
+// is a direct typed read (calls direct 1: with ctl126 off its slot runs D5's lifted copy's typed leaf, A3, which leaves only
+// v0; the adapter gates on exactly that state). Kept as guest calls with the old body's registers: the recursion on a parent
+// option node, GetMotionMatrix (the latch), GetOptionNodePhysicalNodeId, GetMotionOptionNodeFloatFrame,
+// AddCharacterClassOptionNodeSubGeometries, AddCharacterClassOptionNodeSubGeometry. The frame (its saves, the node's local
+// frame and the outs the callees fill) is written as before: the callees get its addresses.
+namespace lift_d1
+{
+    void GetMotionOptionNodeParentId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace cam126
+{
+    void parentIdEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void parentIdSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+extern bool g_a3Typed;
+
+namespace decomp_hot47i
+{
+    D1_COUNTER(c_d2OptionNodeGeo, "GetCharacterClassOptionNodeGeo");
+
+#if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && !PS2X_A3_CHECK
+    constexpr bool kD2TypedLeaves = true;
+#else
+    constexpr bool kD2TypedLeaves = false;
+#endif
+
+    struct D2Vu
+    {
+        __m128 vf[19];
+        __m128 acc;
+    };
+    // PS2_VMUL / VADD / VSUB with their operand clamps (ps2VuOperand on the Vita) and the result clamp.
+    PS2_FORCE_INLINE __m128 d2c(__m128 v) { return ps2VuClampNF(v); }
+    PS2_FORCE_INLINE __m128 d2mul(__m128 a, __m128 b) { return d1::vmul(d2c(a), d2c(b)); }
+    PS2_FORCE_INLINE __m128 d2add(__m128 a, __m128 b) { return d1::vadd(d2c(a), d2c(b)); }
+    PS2_FORCE_INLINE __m128 d2sub(__m128 a, __m128 b) { return d1::vsub(d2c(a), d2c(b)); }
+    template <int A, int B, int C, int D>
+    PS2_FORCE_INLINE __m128 d2perm(__m128 v)
+    {
+#if defined(__clang__)
+        return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+        typedef int d2v4i __attribute__((vector_size(16)));
+        return __builtin_shuffle(v, d2v4i{A, B, C, D});
+#endif
+    }
+    PS2_FORCE_INLINE __m128 d2yzx(__m128 v) { return d2perm<1, 2, 0, 3>(v); }
+    PS2_FORCE_INLINE __m128 d2zxy(__m128 v) { return d2perm<2, 0, 1, 3>(v); }
+    PS2_FORCE_INLINE __m128 d2q(const d1::Mem &m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void d2putq(const d1::Mem &m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+
+    // 0x10bd46c-0x10bd4e4: vec through the rotation of quat (its rows in vf14..vf16) plus pos (w 1): vf10.
+    void d2QuatPoint(D2Vu &u, __m128 vec, __m128 pos, __m128 quat)
+    {
+        const __m128 z = d1::vf0();
+        const __m128 mXyz = d1::mask(1, 1, 1, 0), mW = d1::mask(0, 0, 0, 1), mY = d1::mask(0, 1, 0, 0), mZ = d1::mask(0, 0, 1, 0);
+        __m128 *const vf = u.vf;
+        vf[8] = vec;
+        vf[18] = d1::vsel(pos, z, mW);
+        vf[12] = d1::vsel(vf[12], d2add(z, d1::bc<3>(z)), mXyz);
+        vf[11] = quat;
+        const __m128 w0 = d2perm<1, 2, 3, 0>(z); // vmr32 of vf0: its w (0) to the rows' w
+        vf[14] = d1::vsel(vf[14], w0, mW);
+        vf[15] = d1::vsel(vf[15], w0, mW);
+        vf[16] = d1::vsel(vf[16], w0, mW);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[12])), mXyz);
+        vf[11] = d1::vsel(vf[11], d2add(u.acc, d2mul(z, z)), mXyz);
+        vf[10] = d1::vsel(vf[10], d2add(u.acc, d2mul(vf[11], vf[12])), mXyz);
+        vf[13] = d1::vsel(vf[13], d2mul(vf[11], vf[10]), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[10])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2add(u.acc, d2mul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+        vf[16] = d1::vsel(vf[16], d2sub(u.acc, d2mul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[13]), d2zxy(vf[12])), mXyz);
+        vf[17] = d1::vsel(vf[17], d2add(u.acc, d2mul(vf[13], vf[12])), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[15]), d2zxy(vf[12])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2add(u.acc, d2mul(z, z)), mXyz);
+        vf[14] = d1::vsel(vf[14], d2sub(vf[12], vf[17]), mXyz);
+        vf[17] = d1::vsel(vf[17], vf[14], d1::mask(0, 1, 1, 0));
+        vf[14] = d1::vsel(vf[14], vf[16], mY);
+        vf[16] = d1::vsel(vf[16], vf[15], mY);
+        vf[15] = d1::vsel(vf[15], vf[17], mY);
+        vf[14] = d1::vsel(vf[14], vf[15], mZ);
+        vf[15] = d1::vsel(vf[15], vf[16], mZ);
+        vf[16] = d1::vsel(vf[16], vf[17], mZ);
+        u.acc = d2mul(vf[14], d1::bc<0>(vf[8]));
+        u.acc = d2add(u.acc, d2mul(vf[15], d1::bc<1>(vf[8])));
+        u.acc = d2add(u.acc, d2mul(vf[16], d1::bc<2>(vf[8])));
+        vf[10] = d2add(u.acc, d2mul(vf[18], d1::bc<3>(vf[8])));
+    }
+    // 0x10bd5bc-0x10bd5e8: the quaternion product a x b (vf11, vf12): vf13.
+    void d2QuatMul(D2Vu &u, __m128 a, __m128 b)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1), mXyz = d1::mask(1, 1, 1, 0);
+        __m128 *const vf = u.vf;
+        vf[11] = a;
+        vf[12] = b;
+        vf[13] = d2mul(vf[11], vf[12]);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], d1::bc<1>(vf[13])), mX);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], d1::bc<2>(vf[13])), mX);
+        vf[13] = d1::vsel(vf[13], d2sub(vf[13], d1::bc<0>(vf[13])), mW);
+        vf[14] = d1::vsel(vf[14], d2mul(vf[12], d1::bc<3>(vf[11])), mXyz);
+        vf[15] = d1::vsel(vf[15], d2mul(vf[11], d1::bc<3>(vf[12])), mXyz);
+        u.acc = d1::vsel(u.acc, d2mul(d2yzx(vf[12]), d2zxy(vf[11])), mXyz);
+        vf[16] = d1::vsel(vf[16], d2sub(u.acc, d2mul(d2yzx(vf[11]), d2zxy(vf[12]))), mXyz);
+        vf[13] = d1::vsel(vf[13], d2add(vf[14], vf[15]), mXyz);
+        vf[13] = d1::vsel(vf[13], d2add(vf[13], vf[16]), mXyz);
+    }
+    // 0x10bd78c-0x10bd7ac: vec through the matrix rows r0..r3: vf10.
+    void d2MatPoint(D2Vu &u, __m128 vec, __m128 r0, __m128 r1, __m128 r2, __m128 r3)
+    {
+        __m128 *const vf = u.vf;
+        vf[8] = vec;
+        vf[14] = r0;
+        vf[15] = r1;
+        vf[16] = r2;
+        vf[17] = r3;
+        u.acc = d2mul(vf[14], d1::bc<0>(vf[8]));
+        u.acc = d2add(u.acc, d2mul(vf[15], d1::bc<1>(vf[8])));
+        u.acc = d2add(u.acc, d2mul(vf[16], d1::bc<2>(vf[8])));
+        vf[10] = d2add(u.acc, d2mul(vf[17], d1::bc<3>(vf[8])));
+    }
+    // 0x10bd8dc-0x10bd8f8: v.xyz x s.xyz (vf5 / vf6), stored back to v.
+    PS2_FORCE_INLINE void d2ScaleXyz(const d1::Mem &m, __m128 &vf5, __m128 &vf6, uint32_t v, uint32_t s)
+    {
+        vf5 = d2q(m, v);
+        vf6 = d2q(m, s);
+        vf5 = d1::vsel(vf5, d2mul(vf5, vf6), d1::mask(1, 1, 1, 0));
+        d2putq(m, v, vf5);
+    }
+    inline void d2LoadVu(const R5900Context *ctx, D2Vu &u)
+    {
+        for (int i = 8; i <= 18; ++i)
+            u.vf[i] = ctx->vu0_vf[i];
+        u.acc = ctx->vu0_acc;
+    }
+    inline void d2StoreVu(R5900Context *ctx, const D2Vu &u)
+    {
+        for (int i = 8; i <= 18; ++i)
+            if (i != 9)
+                ctx->vu0_vf[i] = u.vf[i];
+        ctx->vu0_acc = u.acc;
+    }
+    // GetMotionOptionNodeParentId's slot runs A3's typed leaf (v0 only): the state the direct read stands for.
+    inline bool d2ParentIdTyped(PS2Runtime *runtime)
+    {
+        if (!kD2TypedLeaves || sotc_decomp::switchOn(sotc_decomp::kCtl126) || !g_a3Typed)
+            return false;
+        const auto p = sotc_decomp::guestFunction(runtime, kParentId);
+        return (p == &cam126::parentIdEntry || p == &cam126::parentIdSw) && sotc_decomp::recompiled(kParentId) == &lift_d1::GetMotionOptionNodeParentId;
+    }
+    inline bool d2Ram(uint32_t a) { return a - 0x10000u < 0x1FE0000u; }
+
+    void optionNodeGeoD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t cls = GPR_U32(ctx, 7), node = GPR_U32(ctx, 8);
+        if (!sotc_decomp::hotList47On() || !d2Ram(cls) || !d2Ram(cls + 0xE00u) || !d2ParentIdTyped(runtime))
+            return optionNodeGeo(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        // The node's parent (GetMotionOptionNodeParentId(class +0x358, node), A3's leaf), read before anything is written.
+        const uint32_t nodeSet = m.u32(cls + 0x358u);
+        if (!d2Ram(nodeSet + 0x24u) || !d2Ram(m.u32(nodeSet + 0x24u) + (node << 6) + 0x30u))
+            return optionNodeGeo(rdram, ctx, runtime);
+        ++c_d2OptionNodeGeo.n;
+        const int32_t parentWord = static_cast<int32_t>(m.u32(m.u32(nodeSet + 0x24u) + (node << 6) + 0x30u));
+
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t sp = entrySp - 0xA0u;
+        Saved s;
+        s.load(ctx);
+        auto call = [&](uint32_t target, uint32_t ra)
+        {
+            s.sync(ctx);
+            callGuest(rdram, ctx, runtime, target, ra, sp);
+        };
+
+        // The prologue's saves; s2 = a3, s4 = a1, s5 = a0, s6 = t1, s7 = t0, fp = a2.
+        m.set<uint64_t>(sp + 0x60u, GPR_U64(ctx, 18));
+        m.set<uint64_t>(sp + 0x68u, GPR_U64(ctx, 19));
+        m.set<uint64_t>(sp + 0x70u, GPR_U64(ctx, 20));
+        m.set<uint64_t>(sp + 0x78u, GPR_U64(ctx, 21));
+        m.set<uint64_t>(sp + 0x80u, GPR_U64(ctx, 22));
+        m.set<uint64_t>(sp + 0x88u, GPR_U64(ctx, 23));
+        m.set<uint64_t>(sp + 0x90u, GPR_U64(ctx, 30));
+        m.set<uint64_t>(sp + 0x50u, GPR_U64(ctx, 16));
+        m.set<uint64_t>(sp + 0x58u, GPR_U64(ctx, 17));
+        m.set<uint64_t>(sp + 0x98u, GPR_U64(ctx, 31));
+        s.r[2] = GPR_U64(ctx, 7);
+        s.r[4] = GPR_U64(ctx, 5);
+        s.r[5] = GPR_U64(ctx, 4);
+        s.r[6] = GPR_U64(ctx, 9);
+        s.r[7] = GPR_U64(ctx, 8);
+        s.fp = GPR_U64(ctx, 6);
+        const uint32_t posOut = static_cast<uint32_t>(s.r[4]); // a1
+        const uint32_t rotOut = static_cast<uint32_t>(s.r[5]); // a0
+        const uint64_t layout = s.r[6];                         // t1
+        const uint32_t extraOut = static_cast<uint32_t>(s.fp); // a2
+
+        // The parent: the leaf's arguments and v0 as the call leaves them.
+        SET_GPR_U64(ctx, 5, s.r[7]);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(nodeSet));
+        SET_GPR_S32(ctx, 2, parentWord);
+        s.r[3] = GPR_U64(ctx, 2);
+        const int32_t parent = parentWord;
+
+        D2Vu u;
+        uint32_t v0; // as the code leaves it when there is no a2 out
+        if (parent < 0)
+        {
+            d2LoadVu(ctx, u);
+            if (layout != 0u)
+            {
+                // 0x10bd45c: a root node from the layout's tables.
+                const uint32_t local = (node << 4) + m.u32(cls + 0x34Cu);
+                d2QuatPoint(u, d2q(m, local), d2q(m, cls + 0x40u), d2q(m, cls + 0x80u));
+                d2putq(m, posOut, u.vf[10]);
+                v0 = (node << 4) + m.u32(cls + 0x2E4u);
+                const __m128 rot = d2q(m, v0);
+                std::memcpy(&ctx->r[3], &rot, 16);
+                d2putq(m, rotOut, rot);
+            }
+            else
+            {
+                // 0x10bd508: a root node from the motion's tables.
+                const __m128 lpos = d2q(m, (node << 4) + m.u32(cls + 0x2F0u));
+                std::memcpy(&ctx->r[3], &lpos, 16);
+                const uint32_t rotAt = (node << 4) + m.u32(cls + 0x2ECu);
+                d2putq(m, sp + 0x10u, lpos);
+                d2putq(m, sp + 0u, d2q(m, rotAt));
+                d2QuatPoint(u, d2q(m, sp + 0x10u), d2q(m, cls + 0x40u), d2q(m, cls + 0x80u));
+                d2putq(m, posOut, u.vf[10]);
+                d2QuatMul(u, d2q(m, cls + 0x80u), d2q(m, sp));
+                d2putq(m, rotOut, u.vf[13]);
+                v0 = cls + 0x80u;
+            }
+            d2StoreVu(ctx, u);
+        }
+        else
+        {
+            // 0x10bd5f8: the node's local quaternion / position into the frame.
+            const __m128 lpos = d2q(m, (node << 4) + m.u32(cls + 0x2F0u));
+            std::memcpy(&ctx->r[3], &lpos, 16);
+            const uint32_t rotAt = (node << 4) + m.u32(cls + 0x2ECu);
+            d2putq(m, sp + 0x10u, lpos);
+            d2putq(m, sp + 0u, d2q(m, rotAt));
+            const uint64_t optionBit = s.r[3] & 0x10000u;
+            if (parent > 0 && optionBit != 0u)
+            {
+                // 0x10bd62c: another option node: this function on it (a guest call: its slot, this dispatcher).
+                s.r[0] = sx(sp + 0x20u);
+                s.r[1] = sx(sp + 0x30u);
+                SET_GPR_U64(ctx, 2, optionBit);
+                SET_GPR_U64(ctx, 8, s.r[3] & 0xFFFFFFFFFFFEFFFFull);
+                SET_GPR_U64(ctx, 9, s.r[6]);
+                SET_GPR_U64(ctx, 4, s.r[0]);
+                SET_GPR_U64(ctx, 5, s.r[1]);
+                SET_GPR_U64(ctx, 6, s.fp);
+                SET_GPR_U64(ctx, 7, s.r[2]);
+                call(kOptionNodeGeo, 0x010BD654u);
+                d2LoadVu(ctx, u);
+                d2QuatPoint(u, d2q(m, sp + 0x10u), d2q(m, sp + 0x30u), d2q(m, sp + 0x20u));
+                d2putq(m, posOut, u.vf[10]);
+                d2QuatMul(u, d2q(m, sp + 0x20u), d2q(m, sp));
+                d2putq(m, rotOut, u.vf[13]);
+                d2StoreVu(ctx, u);
+                v0 = sp + 0x20u;
+            }
+            else
+            {
+                // 0x10bd718: a bone: its matrix and quaternion tables.
+                s.r[0] = sx(sp + 0x40u);
+                uint32_t quats;
+                if (layout != 0u)
+                    quats = m.u32(cls + 0x154u);
+                else if (m.get<int8_t>(cls + 0x533u) != 0)
+                    quats = m.u32(cls + 0x348u);
+                else
+                {
+                    // The motion's matrices, made once (latch +0x533).
+                    SET_GPR_U64(ctx, 2, 0u);
+                    SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(cls + 0x344u)));
+                    SET_GPR_S32(ctx, 8, static_cast<int32_t>(cls + 0x40u));
+                    SET_GPR_S32(ctx, 5, static_cast<int32_t>(m.u32(cls + 0x348u)));
+                    SET_GPR_S32(ctx, 9, static_cast<int32_t>(cls + 0x90u));
+                    SET_GPR_S32(ctx, 6, static_cast<int32_t>(m.u32(cls + 0x358u)));
+                    SET_GPR_S32(ctx, 7, static_cast<int32_t>(m.u32(cls + 0x340u)));
+                    call(kMotionMatrix, 0x010BD750u);
+                    m.set<uint8_t>(cls + 0x533u, 1u);
+                    quats = m.u32(cls + 0x348u);
+                }
+                const uint32_t bone = static_cast<uint32_t>(parent);
+                const uint32_t quatAt = quats + (bone << 4);
+                const uint32_t mats = layout != 0u ? m.u32(cls + 0x158u) : m.u32(cls + 0x344u);
+                m.set<uint32_t>(sp + 0x40u, mats + (bone << 6));
+                const uint32_t mm = m.u32(sp + 0x40u);
+                d2LoadVu(ctx, u);
+                d2MatPoint(u, d2q(m, sp + 0x10u), d2q(m, mm), d2q(m, mm + 16u), d2q(m, mm + 32u), d2q(m, mm + 48u));
+                d2putq(m, posOut, u.vf[10]);
+                d2QuatMul(u, d2q(m, quatAt), d2q(m, sp));
+                d2putq(m, rotOut, u.vf[13]);
+                d2StoreVu(ctx, u);
+                v0 = sp + 0x10u;
+            }
+        }
+
+        // 0x10bd7e8: the second out (the node's frame, its sub-geometries, both scaled by the class's +0x90).
+        s.r[3] = sx(cls + 0x1C0u);
+        if (s.fp != 0u)
+        {
+            const uint32_t phys = static_cast<uint32_t>(s.r[3]);
+            const uint32_t motion = m.u32(cls + 0x358u);
+            const uint32_t physData = m.u32(phys);
+            s.r[0] = sx(physData);
+            const uint32_t nodes = m.u32(motion + 0x24u);
+            s.r[4] = sx(sp + 0x30u);
+            const uint32_t nodeRec = nodes + (node << 6);
+            s.r[1] = sx(nodeRec);
+            int32_t physId = -1;
+            SET_GPR_S32(ctx, 8, -1);
+            if (physData != 0u && physData + 0x50u != 0u)
+            {
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(nodes));
+                SET_GPR_S32(ctx, 3, static_cast<int32_t>(node << 6));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(motion));
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(physData + 0x50u));
+                SET_GPR_U64(ctx, 6, s.r[7]);
+                call(kPhysicalNodeId, 0x010BD824u);
+                SET_GPR_U64(ctx, 8, GPR_U64(ctx, 2));
+                physId = GPR_S32(ctx, 8);
+            }
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(physData + 0x50u));
+            if (physId >= 0)
+            {
+                ctx->f[12] = m.f32(phys + 8u);
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(sp + 0x30u));
+                SET_GPR_U64(ctx, 6, s.fp);
+                call(kNodeFloatFrame, 0x010BD844u);
+            }
+            else
+            {
+                // 0x10bd850: the node's defaults and the default frame.
+                const __m128 rot = d2q(m, nodeRec + 0x20u);
+                const uint32_t defaults = relocated(rdram, kDefaultHi, kDefaultLo);
+                d2putq(m, sp + 0x20u, rot);
+                const __m128 def = d2q(m, defaults);
+                std::memcpy(&ctx->r[3], &def, 16);
+                const __m128 pos = d2q(m, nodeRec + 0x10u);
+                d2putq(m, extraOut, def);
+                d2putq(m, sp + 0x30u, pos);
+            }
+            const int8_t subs = m.get<int8_t>(cls + 0x52Eu);
+            if (subs != 0)
+            {
+                SET_GPR_S32(ctx, 2, static_cast<int32_t>(subs));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(sp + 0x30u));
+                SET_GPR_U64(ctx, 6, s.r[2]);
+                SET_GPR_U64(ctx, 7, s.r[7]);
+                call(kSubGeometries, 0x010BD88Cu);
+                bool one = false;
+                if (m.get<uint8_t>(cls + 0xD90u) == 2u)
+                {
+                    const uint32_t sub = m.u32(cls + 0xD20u);
+                    if (sub != 0u)
+                    {
+                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(sub));
+                        one = true;
+                    }
+                    else
+                    {
+                        const float blend = m.f32(cls + 0x734u);
+                        ctx->f[1] = blend;
+                        ctx->f[0] = 1.0f;
+                        one = d1::lt(blend, 1.0f);
+                        setC(ctx, one);
+                        SET_GPR_S32(ctx, 2, static_cast<int32_t>(cls + 0x90u));
+                    }
+                    SET_GPR_S32(ctx, 3, 2);
+                }
+                if (one)
+                {
+                    SET_GPR_U64(ctx, 8, s.r[7]);
+                    SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x20u));
+                    SET_GPR_S32(ctx, 5, static_cast<int32_t>(sp + 0x30u));
+                    SET_GPR_U64(ctx, 6, s.r[2]);
+                    SET_GPR_S32(ctx, 7, static_cast<int32_t>(cls + 0xD20u));
+                    call(kSubGeometry, 0x010BD8D8u);
+                }
+            }
+            v0 = cls + 0x90u;
+            __m128 vf5, vf6;
+            d2ScaleXyz(m, vf5, vf6, sp + 0x30u, v0);
+            d2ScaleXyz(m, vf5, vf6, extraOut, v0);
+            ctx->vu0_vf[5] = vf5;
+            ctx->vu0_vf[6] = vf6;
+        }
+
+        // The epilogue.
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x50u));
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 0x58u));
+        SET_GPR_U64(ctx, 18, m.get<uint64_t>(sp + 0x60u));
+        SET_GPR_U64(ctx, 19, m.get<uint64_t>(sp + 0x68u));
+        SET_GPR_U64(ctx, 20, m.get<uint64_t>(sp + 0x70u));
+        SET_GPR_U64(ctx, 21, m.get<uint64_t>(sp + 0x78u));
+        SET_GPR_U64(ctx, 22, m.get<uint64_t>(sp + 0x80u));
+        SET_GPR_U64(ctx, 23, m.get<uint64_t>(sp + 0x88u));
+        SET_GPR_U64(ctx, 30, m.get<uint64_t>(sp + 0x90u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x98u));
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(entrySp));
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void optionNodeGeoSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            optionNodeGeoD1(rdram, ctx, runtime);
+        else
+            optionNodeGeo(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot47i

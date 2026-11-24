@@ -166,7 +166,12 @@ namespace decomp_math
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x001BDDB0u, iosGetSinCosf, decomp_math::getSinCos);
+namespace decomp_math
+{
+    void sinCosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2 (d1native): the dispatcher (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x001BDDB0u, iosGetSinCosf, decomp_math::sinCosSw);
+D1_ALIAS(0x001BDDB0u, iosGetSinCosf, decomp_math::sinCosSw, decomp_math::getSinCos);
 
 // iosGetSinf (0x1bdf00) and iosGetCosf (0x1be020), round 10: the same VU0
 // polynomial as iosGetSinCosf, one value in f0. The player's life bar calls
@@ -728,7 +733,12 @@ namespace decomp_libm
             acosExactOld(rdram, ctx, runtime);
     }
 }
-SOTC_DECOMP_FLOAT_FUNCTION(0x001BE388u, iosGetACosfExact, decomp_libm::acosExact);
+namespace decomp_libm
+{
+    void acosExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D2 (d1native): the dispatcher (end of file)
+}
+SOTC_DECOMP_FLOAT_FUNCTION(0x001BE388u, iosGetACosfExact, decomp_libm::acosExactSw);
+D1_ALIAS(0x001BE388u, iosGetACosfExact, decomp_libm::acosExactSw, decomp_libm::acosExact);
 
 // ---- Round D1 (d1native, SOTC_D1NATIVE; d1_native.h): iosGetSinf / iosGetCosf / iosCopyMatrix as native C++ ----
 // iosGetSinf / iosGetCosf: the angle reduction in d1:: scalar math (the divide by 2 pi rounds to nearest, as
@@ -928,5 +938,78 @@ namespace decomp_copymatrix
             copyMatrixD1(rdram, ctx, runtime);
         else
             copyMatrix(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D2 (d1native): iosGetSinCosf / iosGetACosfExact for the default configuration (quat122 on) ----
+// Round 122's host cores (typed_a9_core.h: sinCosCore, acosCore) called directly with the arguments read once: what
+// char122::quat::sinCos / acos do in the slots' natives (the output qword / f0; those paths leave no other register).
+// quat122 off, its check mode (SOTC_CHAR122_CHECK), an output outside round 122's guest-RAM test or an angle outside
+// sinCosCore's domain: the old body, before any side effect.
+#include "typed_a9_core.h"
+
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+}
+namespace decomp_math
+{
+    namespace
+    {
+        D1_COUNTER(c_d2SinCos, "iosGetSinCosf");
+        // round 122's guest-RAM test (decomp_char122.cpp inRam): not in the first page, no wrap.
+        inline bool d2in122(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a + bytes <= PS2_RAM_SIZE && a + bytes > a; }
+    }
+
+    // iosGetSinCosf(out, x): out (aligned down to 16) = (sin, cos, 0, 0); false (nothing written) outside the core's domain.
+    bool sinCosD1Core(const d1::Mem m, uint32_t out, float x)
+    {
+        float r[4];
+        if (!char122::quat::sinCosCore(m.base, x, r))
+            return false;
+        std::memcpy(m.at<uint8_t>(out & ~0xFu), r, 16);
+        return true;
+    }
+
+    void sinCosD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4);
+        if (!char122::quat::on() || char122::checkEvery() > 0 || !d2in122(out, 16u) || !sinCosD1Core(d1::Mem{rdram}, out, ctx->f[12]))
+            return getSinCos(rdram, ctx, runtime);
+        ++c_d2SinCos.n;
+        returnTo(ctx);
+    }
+    void sinCosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            sinCosD1(rdram, ctx, runtime);
+        else
+            getSinCos(rdram, ctx, runtime);
+    }
+}
+
+namespace decomp_libm
+{
+    namespace
+    {
+        D1_COUNTER(c_d2AcosExactL, "iosGetACosfExact");
+    }
+    // iosGetACosfExact(x): f0 (1 and over: 0, -1 and under: pi's float, else acos).
+    float acosExactD1Core(float x) { return char122::quat::acosCore(x); }
+
+    void acosExactD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!char122::quat::on() || char122::checkEvery() > 0)
+            return acosExact(rdram, ctx, runtime);
+        ++c_d2AcosExactL.n;
+        ctx->f[0] = acosExactD1Core(ctx->f[12]);
+        returnTo(ctx);
+    }
+    void acosExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            acosExactD1(rdram, ctx, runtime);
+        else
+            acosExact(rdram, ctx, runtime);
     }
 }

@@ -52,6 +52,7 @@
 // return; v1 / at / t0 in between are not, except t0 where vf6 is made from
 // it) and the loop's EE checkpoint (left out).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -488,4 +489,214 @@ namespace decomp_hot47f
 }
 
 SOTC_DECOMP_FUNCTION(0x0138BA70u, doit_expression, decomp_hot47f::doitExpression);
-SOTC_DECOMP_FUNCTION(0x013BA790u, gamecore_sub_013BA790, decomp_hot47f::stringKeep);
+namespace decomp_hot47f
+{
+    void stringKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x013BA790u, gamecore_sub_013BA790, decomp_hot47f::stringKeepSw);
+D1_ALIAS(0x013BA790u, gamecore_sub_013BA790, decomp_hot47f::stringKeepSw, decomp_hot47f::stringKeep);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): gamecore_sub_013BA790 (a string point's length keep) as a typed core --------
+// The old body's steps on a register-state struct (vf5-vf8, vf10, vf14-vf17, ACC, Q, status, f0-f3, fcr31, v0 / t0's
+// 128 bits) the adapter loads at the entry and stores at the exit: PS2_VSUB / VMUL / VADD -> d1::vsub / vmul / vadd,
+// blends -> d1::vsel, broadcasts -> d1::bc; VU0 RSQRT kept as ps2VuRsqrt (its status), the xy push's sqrt / divide kept
+// as ps2FpuSqrt / ps2FpuDivide (round to nearest, fcr31's flags); FPU_C_OLT_S -> d1::lt, FPU_MUL_S -> d1::mul. Operand
+// clamps: dropped only on VU0 results (the clamp is idempotent: the same bits); KEPT on every lane loaded from RAM (the
+// positions' and matrices' w), from an FPU result through t0 (qmtc2) and on the stale lanes the code carries. Memory
+// through d1::Mem (the old body's READ128 / WRITE128 at 16-aligned addresses: the same & ~0xf here). The adapter checks
+// every address the call reaches is in main RAM (else the old body, nothing written).
+namespace decomp_hot47f
+{
+    D1_COUNTER(c_d1StringKeep, "gamecore_sub_013BA790");
+
+    struct SkRegs
+    {
+        __m128 vf0, vf5, vf6, vf7, vf8, vf10, vf14, vf15, vf16, vf17, acc;
+        float q, f0, f1, f2, f3;
+        uint32_t fcr31;
+        uint16_t status;
+        uint64_t v0[2], t0[2]; // the GPRs' 128 bits (low, high doubleword)
+    };
+
+    // The operand clamp of PS2_VADD / VSUB / VMUL (kept on lanes not known to be VU0 results).
+    PS2_FORCE_INLINE __m128 skO(__m128 v) { return ps2VuOperand(v); }
+    PS2_FORCE_INLINE uint32_t skBits(float f)
+    {
+        uint32_t b;
+        std::memcpy(&b, &f, 4);
+        return b;
+    }
+    PS2_FORCE_INLINE float skFloat(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    // mfc1 r, f (r's low doubleword = the word sign-extended, its high one kept).
+    PS2_FORCE_INLINE void skSetLow32(uint64_t (&r)[2], uint32_t bits) { r[0] = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(bits))); }
+    // qmtc2 r, vf: the GPR's 128 bits.
+    PS2_FORCE_INLINE __m128 skQmtc2(const uint64_t (&r)[2])
+    {
+        __m128 v;
+        std::memcpy(&v, r, 16);
+        return v;
+    }
+    PS2_FORCE_INLINE void skCond(SkRegs &s, bool c) { s.fcr31 = c ? (s.fcr31 | 0x800000u) : (s.fcr31 & ~0x800000u); }
+    PS2_FORCE_INLINE __m128 skQ(const d1::Mem m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void skPutQ(const d1::Mem m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+
+    // lengthKeep's steps: vf8 = point - anchor (stored at `save`), Q its inverse length; Q < the limit (f2): the point =
+    // anchor + vf8 x (length (f3) x Q).
+    void skLengthKeepCore(const d1::Mem m, SkRegs &s, uint32_t point, uint32_t anchor, uint32_t save)
+    {
+        s.vf5 = skQ(m, point);
+        s.vf6 = skQ(m, anchor);
+        s.vf8 = d1::vsub(skO(s.vf5), skO(s.vf6));
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(s.vf8, s.vf8), d1::mask(1, 1, 1, 0));
+        // x = x + y, then x + z (lanes x, y, z are VU0 results; only x is kept).
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<1>(s.vf7)), d1::mask(1, 0, 0, 0));
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<2>(s.vf7)), d1::mask(1, 0, 0, 0));
+        s.q = ps2VuRsqrt(s.status, d1::lane<3>(s.vf0), d1::lane<0>(s.vf7));
+        skPutQ(m, save, s.vf8);
+        skSetLow32(s.v0, skBits(s.q)); // cfc2 v0, Q
+        s.f0 = s.q;                    // mtc1 v0, f0
+        const bool c = d1::lt(s.f0, s.f2);
+        skCond(s, c);
+        if (!c)
+            return;
+        s.f0 = d1::mul(s.f3, s.f0);
+        s.vf7 = skQ(m, anchor);
+        s.vf5 = skQ(m, save);
+        skSetLow32(s.t0, skBits(s.f0)); // mfc1 t0; qmtc2 t0, vf6
+        s.vf6 = skQmtc2(s.t0);
+        s.vf5 = d1::vsel(s.vf5, d1::vmul(s.vf5, skO(d1::bc<0>(s.vf6))), d1::mask(1, 1, 1, 0));
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(skO(s.vf7), s.vf5), d1::mask(1, 1, 1, 0));
+        skPutQ(m, point, s.vf7);
+    }
+
+    // xform's steps: (out) = the matrix at `mat` x (in) (vf8 in, vf14-vf17 the rows, ACC, vf10 the product).
+    void skXformCore(const d1::Mem m, SkRegs &s, uint32_t in, uint32_t mat, uint32_t out)
+    {
+        s.vf8 = skQ(m, in);
+        s.vf14 = skQ(m, mat);
+        s.vf15 = skQ(m, mat + 0x10u);
+        s.vf16 = skQ(m, mat + 0x20u);
+        s.vf17 = skQ(m, mat + 0x30u);
+        s.acc = d1::vmul(skO(s.vf14), skO(d1::bc<0>(s.vf8)));
+        s.acc = d1::vadd(s.acc, d1::vmul(skO(s.vf15), skO(d1::bc<1>(s.vf8))));
+        s.acc = d1::vadd(s.acc, d1::vmul(skO(s.vf16), skO(d1::bc<2>(s.vf8))));
+        s.vf10 = d1::vadd(s.acc, d1::vmul(skO(s.vf17), skO(d1::bc<3>(s.vf8))));
+        skPutQ(m, out, s.vf10);
+    }
+
+    // The call: a0 the record, cls the layout class, sp the frame (entry sp - 0x30).
+    void stringKeepCore(const d1::Mem m, SkRegs &s, uint32_t a0, uint32_t cls, uint32_t sp)
+    {
+        const uint32_t anchor = m.get<uint32_t>(m.get<uint32_t>(a0 + 0xCu) + 0x10u);
+        const uint32_t point = anchor + 0x10u;
+        const uint32_t limits = m.get<uint32_t>(m.get<uint32_t>(a0) + 0x28u);
+        s.f2 = m.get<float>(limits + 8u); // the inverse reach limit
+        s.f3 = m.get<float>(limits + 4u); // the length
+
+        skLengthKeepCore(m, s, point, anchor, sp);
+
+        // The point in the class's space (+0x164) at sp + 0x10; its squared xy length.
+        const uint32_t local = sp + 0x10u;
+        skXformCore(m, s, point, m.get<uint32_t>(cls + 0x164u), local);
+        s.vf7 = skQ(m, local);
+        s.vf7 = d1::vsel(s.vf7, d1::vmul(s.vf7, s.vf7), d1::mask(1, 1, 0, 0));
+        s.vf7 = d1::vsel(s.vf7, d1::vadd(s.vf7, d1::bc<1>(s.vf7)), d1::mask(1, 0, 0, 0));
+        std::memcpy(s.v0, &s.vf7, 16); // qmfc2 v0, vf7
+        s.f1 = skFloat(static_cast<uint32_t>(s.v0[0]));
+        s.f0 = skFloat(0x3CB851EAu); // 0.0225
+        const bool near = d1::lt(s.f1, s.f0);
+        skCond(s, near);
+        if (!near)
+            return;
+        // Pushed out to 0.15 in xy, back through +0x158 into the point.
+        s.f0 = ps2FpuSqrt(s.fcr31, s.f1);
+        s.f1 = skFloat(0x3E199999u);
+        s.f1 = ps2FpuDivide(s.fcr31, s.f1, s.f0);
+        s.vf5 = skQ(m, local);
+        skSetLow32(s.t0, skBits(s.f1));
+        s.vf6 = skQmtc2(s.t0);
+        s.vf5 = d1::vsel(s.vf5, d1::vmul(s.vf5, skO(d1::bc<0>(s.vf6))), d1::mask(1, 1, 0, 0));
+        skPutQ(m, local, s.vf5);
+        skXformCore(m, s, local, m.get<uint32_t>(cls + 0x158u), point);
+        skLengthKeepCore(m, s, point, anchor, sp + 0x20u);
+    }
+
+    inline bool skRam(uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && a + n <= PS2_RAM_SIZE; }
+
+    void stringKeepD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList47On())
+            return stringKeep(rdram, ctx, runtime);
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x30u;
+        const uint32_t a0 = GPR_U32(ctx, 4), cls = GPR_U32(ctx, 5);
+        const d1::Mem m{rdram};
+        // Every address the call reaches in main RAM (reads only), else the old body.
+        bool ok = skRam(a0, 0x10u) && skRam(cls, 0x168u) && skRam(sp & ~0xFu, 0x30u) && skRam(m.get<uint32_t>(a0 + 0xCu), 0x14u) &&
+                  skRam(m.get<uint32_t>(a0), 0x2Cu);
+        if (ok)
+        {
+            const uint32_t anchor = m.get<uint32_t>(m.get<uint32_t>(a0 + 0xCu) + 0x10u);
+            ok = skRam(anchor & ~0xFu, 0x20u) && skRam(m.get<uint32_t>(m.get<uint32_t>(a0) + 0x28u), 0xCu) &&
+                 skRam(m.get<uint32_t>(cls + 0x164u) & ~0xFu, 0x40u) && skRam(m.get<uint32_t>(cls + 0x158u) & ~0xFu, 0x40u);
+        }
+        if (!ok)
+            return stringKeep(rdram, ctx, runtime);
+        ++c_d1StringKeep.n;
+        SkRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.vf16 = ctx->vu0_vf[16];
+        s.vf17 = ctx->vu0_vf[17];
+        s.acc = ctx->vu0_acc;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.f3 = ctx->f[3];
+        s.fcr31 = ctx->fcr31;
+        std::memcpy(s.v0, &ctx->r[2], 16);
+        std::memcpy(s.t0, &ctx->r[8], 16);
+        stringKeepCore(m, s, a0, cls, sp);
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->f[3] = s.f3;
+        ctx->fcr31 = s.fcr31;
+        std::memcpy(&ctx->r[2], s.v0, 16);
+        std::memcpy(&ctx->r[8], s.t0, 16);
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(entrySp));
+        returnTo(ctx);
+    }
+
+    void stringKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            stringKeepD1(rdram, ctx, runtime);
+        else
+            stringKeep(rdram, ctx, runtime);
+    }
+}

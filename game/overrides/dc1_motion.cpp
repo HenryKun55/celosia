@@ -906,6 +906,9 @@ namespace dc1mot
     // Round D1 (d1native): the dispatchers (the D1 bodies at the end of this file).
     void entryBasePosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void entryOptionNodesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round D2 (d1native)
+    void entryBaseQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entrySubGeometriesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 
 SOTC_DECOMP_FUNCTION(0x010B28E0u, getBlendLastMotion, dc1mot::entryBlendLast);
@@ -913,10 +916,12 @@ SOTC_DECOMP_FUNCTION(0x010B3810u, GetMotionOptionNodePhysicalId, dc1mot::entryPh
 SOTC_DECOMP_FUNCTION(0x010B39B0u, GetMotionVersion, dc1mot::entryVersion);
 SOTC_DECOMP_FUNCTION(0x010B6E80u, GetMotionNodeBasePos, dc1mot::entryBasePosSw);
 D1_ALIAS(0x010B6E80u, GetMotionNodeBasePos, dc1mot::entryBasePosSw, dc1mot::entryBasePos);
-SOTC_DECOMP_FUNCTION(0x010B6F60u, GetMotionNodeBaseQuaternion, dc1mot::entryBaseQuat);
+SOTC_DECOMP_FUNCTION(0x010B6F60u, GetMotionNodeBaseQuaternion, dc1mot::entryBaseQuatSw);
+D1_ALIAS(0x010B6F60u, GetMotionNodeBaseQuaternion, dc1mot::entryBaseQuatSw, dc1mot::entryBaseQuat);
 SOTC_DECOMP_FUNCTION(0x010B36C8u, GetMotionNbOptionNodes, dc1mot::entryNbOptionNodes);
 SOTC_DECOMP_FUNCTION(0x010C6710u, GetOptionNodePhysicalNodeId, dc1mot::entryOptionNodeId);
-SOTC_DECOMP_FUNCTION(0x010C6798u, AddCharacterClassOptionNodeSubGeometries, dc1mot::entrySubGeometries);
+SOTC_DECOMP_FUNCTION(0x010C6798u, AddCharacterClassOptionNodeSubGeometries, dc1mot::entrySubGeometriesSw);
+D1_ALIAS(0x010C6798u, AddCharacterClassOptionNodeSubGeometries, dc1mot::entrySubGeometriesSw, dc1mot::entrySubGeometries);
 SOTC_DECOMP_FUNCTION(0x010BC4F0u, manager_sub_010BC4F0, dc1mot::entryOptionNodesSw);
 D1_ALIAS(0x010BC4F0u, manager_sub_010BC4F0, dc1mot::entryOptionNodesSw, dc1mot::entryOptionNodes);
 
@@ -1148,5 +1153,111 @@ namespace dc1mot
             entryOptionNodesD1(rdram, ctx, runtime);
         else
             entryOptionNodes(rdram, ctx, runtime);
+    }
+} // namespace dc1mot
+
+// ---- Round D2 (d1native, d1_native.h): GetMotionNodeBaseQuaternion and the option node's sub geometries ------------------
+// GetMotionNodeBaseQuaternion (full): the adapter reads the four arguments, the core baseQuatD1 is the chain of quaternion
+// products as d1 vec4 ops (the old body's PS2_VMUL / ps2VuAddK / ps2VuSubK in the same order, lane moves as NEON permutes,
+// dest masks as d1::vsel; the operand clamps of its PS2_VMULs dropped: the quaternions are the game's rest rotations and
+// products of them, every lane written), typed guest memory. The old body leaves no register but pc: neither does this one.
+// AddCharacterClassOptionNodeSubGeometries (partial): the anime slot walk on typed memory, the guest call
+// (AddCharacterClassOptionNodeSubGeometry) as the old body makes it.
+namespace dc1mot
+{
+    D1_COUNTER(c_d2BaseQuat, "GetMotionNodeBaseQuaternion");
+    D1_COUNTER(c_d2SubGeos, "AddCharacterClassOptionNodeSubGeometries");
+
+    // quatMul as d1 vec4 ops: q x p (the w dot as vmul + two adds + a sub, xyz = p q.w + q p.w + p.yzx q.zxy - q.yzx p.zxy).
+    PS2_FORCE_INLINE __m128 d1QuatMul(__m128 q, __m128 p)
+    {
+        const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1), mXyz = d1::mask(1, 1, 1, 0);
+        __m128 r = d1::vmul(q, p);
+        r = d1::vsel(r, d1::vadd(r, d1::bc<1>(r)), mX);
+        r = d1::vsel(r, d1::vadd(r, d1::bc<2>(r)), mX);
+        r = d1::vsel(r, d1::vsub(r, d1::bc<0>(r)), mW);
+        const __m128 a = d1::vmul(p, d1::bc<3>(q));
+        const __m128 b = d1::vmul(q, d1::bc<3>(p));
+        const __m128 c = d1::vsub(d1::vmul(d1yzx(p), d1zxy(q)), d1::vmul(d1yzx(q), d1zxy(p)));
+        r = d1::vsel(r, d1::vadd(a, b), mXyz);
+        return d1::vsel(r, d1::vadd(r, c), mXyz);
+    }
+    // GetMotionNodeBaseQuaternion(out, skel, quats, node): out = (0, 0, 0, 1), then out = quats[node] x out up the chain.
+    void baseQuatD1(const d1::Mem m, uint32_t out, uint32_t skel, uint32_t quats, uint64_t node64)
+    {
+        __m128 o = d1::vf0();
+        if (node64 != ~0ull)
+        {
+            const uint32_t bones = m.at<chara::Skeleton>(skel)->bones;
+            uint32_t node = static_cast<uint32_t>(node64);
+            do
+            {
+                o = d1QuatMul(d1q(m, quats + (node << 4)), o);
+                node = *m.at<u32>(bones + (node << 6) + offsetof(chara::Bone, parent));
+            } while (node != 0xFFFFFFFFu);
+        }
+        d1putq(m, out, o);
+    }
+    void entryBaseQuatD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!on() || checking(), 0))
+            return entryBaseQuat(rdram, ctx, runtime);
+        const Links &k = links(rdram, runtime);
+        if (__builtin_expect(!k.ok || !sotc_decomp::motionOn(), 0))
+            return entryBaseQuat(rdram, ctx, runtime);
+        ++c_d2BaseQuat.n;
+        ++g_st.calls[kFBaseQuat];
+        baseQuatD1(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U64(ctx, 7));
+        ret(ctx);
+    }
+    void entryBaseQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryBaseQuatD1(rdram, ctx, runtime);
+        else
+            entryBaseQuat(rdram, ctx, runtime);
+    }
+
+    // AddCharacterClassOptionNodeSubGeometries(quat, pos, chara, index): each live anime slot's sub geometry (guest), the
+    // count re-read after each call.
+    void subGeometriesD1(const d1::Mem m, const Guest &g, uint32_t quat, uint32_t pos, uint32_t chara, uint64_t index, uint32_t sp0)
+    {
+        const uint32_t sp = sp0 - 0x40u;
+        int32_t n = *m.at<s32>(chara + cls::kAnimeSlotCount);
+        uint32_t slot = *m.at<u32>(chara + cls::kAnimeSlots);
+        for (int32_t i = 0; i < n; ++i, slot += sizeof(AnimeSlot))
+        {
+            if (m.at<AnimeSlot>(slot)->state == kEmptySlot)
+                continue;
+            g.a(4, quat);
+            g.a(5, pos);
+            g.a(6, chara);
+            g.a(7, slot + offsetof(AnimeSlot, sub));
+            g.a64(8, index);
+            g.call(kSubGeometry, 0x010C67F8u, sp);
+            n = *m.at<s32>(chara + cls::kAnimeSlotCount);
+        }
+    }
+    void entrySubGeometriesD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!on(), 0))
+            return entrySubGeometries(rdram, ctx, runtime);
+        const Links &k = links(rdram, runtime);
+        if (__builtin_expect(!k.ok || !sotc_decomp::motionOn(), 0))
+            return entrySubGeometries(rdram, ctx, runtime);
+        ++c_d2SubGeos.n;
+        ++g_st.calls[kFSubGeos];
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        subGeometriesD1(d1::Mem{rdram}, Guest{rdram, ctx, runtime}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U64(ctx, 7), sp0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        ret(ctx);
+    }
+    void entrySubGeometriesSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entrySubGeometriesD1(rdram, ctx, runtime);
+        else
+            entrySubGeometries(rdram, ctx, runtime);
     }
 } // namespace dc1mot

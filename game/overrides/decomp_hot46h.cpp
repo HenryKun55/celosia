@@ -59,6 +59,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "a9sweep.h"
+#include "d1_native.h"
 
 namespace decomp_curve
 {
@@ -1286,10 +1287,589 @@ namespace decomp_hot46h
 #undef storeF
 
 SOTC_DECOMP_FUNCTION(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3);
-SOTC_DECOMP_FUNCTION(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerp);
-SOTC_DECOMP_FUNCTION(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSample);
+namespace decomp_hot46h // round D2
+{
+    void posKeyLerpSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void optionNodeSampleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerpSw);
+D1_ALIAS(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerpSw, decomp_hot46h::posKeyLerp);
+SOTC_DECOMP_FUNCTION(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSampleSw);
+D1_ALIAS(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSampleSw, decomp_hot46h::optionNodeSample);
 SOTC_DECOMP_FUNCTION(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSample);
 // Round 106 (default off: SOTC_OAN106=1 the natives; exact, but the sampler found them no faster than the recompiled code).
 SOTC_DECOMP_FUNCTION(0x010AF2A0u, manager_sub_010AF2A0, decomp_hot46h::alphaAnimSample);
 SOTC_DECOMP_FUNCTION(0x010AF4D8u, manager_sub_010AF4D8, decomp_hot46h::vecAnimSample);
 SOTC_DECOMP_FUNCTION(0x010B06A8u, manager_sub_010B06A8, decomp_hot46h::colorAnimSample);
+
+// ---- Round D2 (switch d1native, d1_native.h): manager_sub_010AEAF8 (posKeyLerp, full) and manager_sub_010AE128 -------------
+// (optionNodeSample, partial) as native C++.
+// posKeyLerp: the old body's statements on a local register set (f0-f7, at, v0, v1, t0's 128 bits, vf5-vf8, ACC, the
+// condition bit), the key loaders on d1::Mem, the FPU products / sums as d1::mul / d1::add, the lerp's VU0 block as d1::
+// NEON vec4 (operand clamps dropped: the lanes read are the keys' xyz, game data, and the fraction; the case that lerps the
+// frame's stale contents, no table with a fraction, goes to the old body). The adapter writes every register back.
+// optionNodeSample: the frame loop (FPU), the position keys and the closing dot / sign / lerp / normalise / lerps block as
+// typed cores on locals; the curve decoder and the vec3 key calls kept as the old body makes them (callNative, the
+// registers they read set as the old body sets them, the cores' registers stored before and reloaded after each call).
+namespace decomp_hot46h
+{
+    D1_COUNTER(c_d2PosKeyLerp, "manager_sub_010AEAF8");
+    D1_COUNTER(c_d2OptionNode, "manager_sub_010AE128");
+
+    namespace d2h
+    {
+        PS2_FORCE_INLINE uint64_t d2sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+        PS2_FORCE_INLINE float d2bitsF(uint32_t b)
+        {
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f;
+        }
+        PS2_FORCE_INLINE uint32_t d2fBits(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+
+        // f0-f7 and at / v0 / v1 as the key loaders leave them.
+        struct KeyRegs
+        {
+            float f[8];
+            uint64_t at, v0, v1;
+        };
+
+        // A position key straight into out (w = 1.0): positionKey's statements.
+        void d2PosKey(const d1::Mem &m, uint32_t table, uint64_t format, uint32_t index, uint32_t out, KeyRegs &k)
+        {
+            k.at = d2sx(kOne);
+            k.f[0] = d2bitsF(kOne);
+            m.set<uint32_t>(out + 0xCu, kOne);
+            if (format == 0)
+            {
+                k.f[0] = m.f32(table);
+                m.set<float>(out, k.f[0]);
+                k.f[1] = m.f32(table + 4u);
+                m.set<float>(out + 4u, k.f[1]);
+                k.f[0] = m.f32(table + 8u);
+                m.set<float>(out + 8u, k.f[0]);
+                return;
+            }
+            k.v0 = d2sx(index << 1);
+            if (format == 2)
+            {
+                k.v1 = d2sx(m.u32(table + 0x18u));
+                k.v0 = d2sx(static_cast<uint32_t>(k.v0) + index);
+                k.f[2] = m.f32(table + 4u);
+                k.v0 = d2sx(static_cast<uint32_t>(k.v0) << 1);
+                k.at = d2sx(kS16Scale);
+                k.f[3] = d2bitsF(kS16Scale);
+                const uint32_t key = static_cast<uint32_t>(k.v1) + static_cast<uint32_t>(k.v0);
+                k.v1 = d2sx(key);
+                k.f[1] = m.f32(table);
+                for (uint32_t c = 0; c < 3u; ++c)
+                {
+                    k.v0 = static_cast<uint64_t>(static_cast<int64_t>(m.get<int16_t>(key + 2u * c)));
+                    if (c != 0)
+                        k.f[1] = m.f32(table + 4u + 8u * c);
+                    k.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(k.v0)));
+                    if (c != 0)
+                        k.f[2] = m.f32(table + 8u * c);
+                    if (c == 0)
+                    {
+                        k.f[0] = d1::mul(k.f[0], k.f[2]);
+                        k.f[0] = d1::mul(k.f[0], k.f[3]);
+                        k.f[0] = d1::add(k.f[0], k.f[1]);
+                    }
+                    else
+                    {
+                        k.f[0] = d1::mul(k.f[0], k.f[1]);
+                        k.f[0] = d1::mul(k.f[0], k.f[3]);
+                        k.f[0] = d1::add(k.f[0], k.f[2]);
+                    }
+                    m.set<float>(out + 4u * c, k.f[0]);
+                }
+                return;
+            }
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) + index);
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) << 2);
+            const uint32_t key = table + static_cast<uint32_t>(k.v0);
+            k.v0 = d2sx(key);
+            k.f[0] = m.f32(key);
+            m.set<float>(out, k.f[0]);
+            k.f[1] = m.f32(key + 4u);
+            m.set<float>(out + 4u, k.f[1]);
+            k.f[0] = m.f32(key + 8u);
+            m.set<float>(out + 8u, k.f[0]);
+        }
+
+        // One key into the frame for the lerp: lerpKey's statements.
+        void d2LerpKey(const d1::Mem &m, uint32_t table, uint64_t format, uint32_t index, uint32_t dst, bool second, KeyRegs &k)
+        {
+            k.at = d2sx(kOne);
+            k.f[0] = d2bitsF(kOne);
+            m.set<uint32_t>(dst + 0xCu, kOne);
+            if (format == 0)
+            {
+                if (!second)
+                {
+                    k.f[1] = m.f32(table + 4u);
+                    k.f[2] = m.f32(table + 8u);
+                    k.f[0] = m.f32(table);
+                    m.set<float>(dst + 4u, k.f[1]);
+                    m.set<float>(dst, k.f[0]);
+                    m.set<float>(dst + 8u, k.f[2]);
+                }
+                else
+                {
+                    k.f[0] = m.f32(table + 8u);
+                    k.f[2] = m.f32(table + 4u);
+                    k.f[1] = m.f32(table);
+                    m.set<float>(dst + 4u, k.f[2]);
+                    m.set<float>(dst, k.f[1]);
+                    m.set<float>(dst + 8u, k.f[0]);
+                }
+                return;
+            }
+            k.v0 = d2sx(index << 1);
+            if (format == 2)
+            {
+                k.v1 = d2sx(m.u32(table + 0x18u));
+                k.v0 = d2sx(static_cast<uint32_t>(k.v0) + index);
+                k.f[3] = m.f32(table + 4u);
+                k.v0 = d2sx(static_cast<uint32_t>(k.v0) << 1);
+                k.at = d2sx(kS16Scale);
+                k.f[1] = d2bitsF(kS16Scale);
+                const uint32_t key = static_cast<uint32_t>(k.v1) + static_cast<uint32_t>(k.v0);
+                k.v1 = d2sx(key);
+                k.f[2] = m.f32(table);
+                k.v0 = static_cast<uint64_t>(static_cast<int64_t>(m.get<int16_t>(key)));
+                k.f[4] = m.f32(table + 0xCu);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(k.v0)));
+                k.f[5] = m.f32(table + 8u);
+                k.f[6] = m.f32(table + 0x14u);
+                k.f[7] = m.f32(table + 0x10u);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(dst, k.f[0]);
+                k.v0 = static_cast<uint64_t>(static_cast<int64_t>(m.get<int16_t>(key + 2u)));
+                k.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(k.v0)));
+                k.f[0] = d1::mul(k.f[0], k.f[4]);
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::add(k.f[0], k.f[5]);
+                m.set<float>(dst + 4u, k.f[0]);
+                k.v0 = static_cast<uint64_t>(static_cast<int64_t>(m.get<int16_t>(key + 4u)));
+                k.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(k.v0)));
+                k.f[0] = d1::mul(k.f[0], k.f[6]);
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::add(k.f[0], k.f[7]);
+                m.set<float>(dst + 8u, k.f[0]);
+                return;
+            }
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) + index);
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) << 2);
+            const uint32_t key = table + static_cast<uint32_t>(k.v0);
+            k.v0 = d2sx(key);
+            k.f[2] = m.f32(key + 8u);
+            k.f[0] = m.f32(key);
+            k.f[1] = m.f32(key + 4u);
+            m.set<float>(dst, k.f[0]);
+            m.set<float>(dst + 4u, k.f[1]);
+            m.set<float>(dst + 8u, k.f[2]);
+        }
+
+        // The VU0 registers the lerps / the quaternion block leave, and t0's 128 bits (qmtc2 t0's source).
+        struct LerpRegs
+        {
+            __m128 vf5, vf6, vf7, vf8, vf9, vf14, vf15, acc, t0;
+            float q;
+            uint16_t status;
+        };
+
+        // out.xyz(w) = [next] x t + [cur] x (1 - t): lerpKeys' block (t0 = t's bits, vf7 = t0, vf5 / vf6 the keys,
+        // vf8.w = 1 - t, ACC, dst), stored to out (all four lanes).
+        template <bool kXyzw>
+        void d2LerpKeys(const d1::Mem &m, float t, uint32_t next, uint32_t cur, __m128 &dst, uint32_t out, LerpRegs &v)
+        {
+            const uint64_t low = d2sx(d2fBits(t));
+            std::memcpy(&v.t0, &low, 8);
+            v.vf7 = v.t0;
+            v.vf5 = m.q(next & ~0xFu);
+            v.vf6 = m.q(cur & ~0xFu);
+            const __m128 lanes = kXyzw ? d1::mask(1, 1, 1, 1) : d1::mask(1, 1, 1, 0);
+            v.vf8 = d1::vsel(v.vf8, d1::vsub(d1::vf0(), d1::bc<0>(v.vf7)), d1::mask(0, 0, 0, 1));
+            v.acc = d1::vsel(v.acc, d1::vmul(v.vf5, d1::bc<0>(v.vf7)), lanes);
+            dst = d1::vsel(dst, d1::vadd(v.acc, d1::vmul(v.vf6, d1::bc<3>(v.vf8))), lanes);
+            m.putq(out & ~0xFu, dst);
+        }
+
+        struct PosKeyLerpRegs
+        {
+            KeyRegs k;
+            LerpRegs v;
+            uint32_t fcr31;
+        };
+
+        // manager_sub_010AEAF8: fraction 0: key i0 into out; else keys i0 / i1 into the frame (sp, sp + 0x10) and the lerp.
+        // hasTable false with a fraction is the adapter's (the old body's) case.
+        void posKeyLerpCore(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t table, bool hasTable, uint32_t i0, uint32_t i1, float frac,
+                            uint32_t sp, PosKeyLerpRegs &r)
+        {
+            r.k.f[0] = d2bitsF(0u);
+            const bool c = d1::eq(frac, r.k.f[0]);
+            r.fcr31 = c ? (r.fcr31 | kCondBit) : (r.fcr31 & ~kCondBit);
+            if (c)
+            {
+                if (hasTable)
+                    d2PosKey(m, table, format, i0, out, r.k);
+                return;
+            }
+            r.k.v0 = d2sx(sp + 0x10u);
+            d2LerpKey(m, table, format, i0, sp, false, r.k);
+            r.k.v0 = d2sx(sp + 0x10u);
+            d2LerpKey(m, table, format, i1, sp + 0x10u, true, r.k);
+            r.k.v0 = d2sx(sp + 0x10u);
+            d2LerpKeys<false>(m, frac, sp + 0x10u, sp, r.v.vf5, out, r.v);
+        }
+
+        // ---- optionNodeSample's cores --------------------------------------------------------------------------------
+        // A frame past the count, looped (loopFrame's statements): count the GPR's 64 bits (cnt64), v0 / v1 / lo / hi /
+        // f0 / f1 / f12 as the old code leaves them.
+        struct LoopRegs
+        {
+            uint64_t v0, v1, lo, hi;
+            float f0, f1, f12;
+            uint32_t fcr31;
+        };
+        void d2LoopFrame(uint64_t cnt64, LoopRegs &l)
+        {
+            l.v0 = d2sx(1u);
+            if (cnt64 != l.v0)
+            {
+                l.v0 = d2sx(static_cast<uint32_t>(cnt64) - 1u);
+                l.f0 = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(l.v0)));
+                l.f0 = ps2FpuDivide(l.fcr31, l.f12, l.f0);
+                const int32_t w = ps2FpuConvertToWord(l.f0);
+                std::memcpy(&l.f1, &w, 4);
+                l.v1 = d2sx(d2fBits(l.f1));
+                const int64_t product = static_cast<int64_t>(static_cast<int32_t>(l.v0)) * static_cast<int64_t>(static_cast<int32_t>(l.v1));
+                l.lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product)));
+                l.hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product >> 32)));
+                l.v0 = d2sx(static_cast<uint32_t>(product));
+            }
+            else
+            {
+                const int32_t w = ps2FpuConvertToWord(l.f12);
+                std::memcpy(&l.f0, &w, 4);
+                l.v0 = d2sx(d2fBits(l.f0));
+            }
+            l.f0 = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(l.v0)));
+            l.f12 = d1::sub(l.f12, l.f0);
+        }
+
+        // 0x10ae540..0x10ae630: the two rotations' dot (through sp + 0x70 for its sign), the first one negated when it is
+        // negative, the quaternion lerped by f20 into vf9 and normalised (vrsqrt) into quatOut, the positions and scales
+        // lerped into posOut / scaleOut. v0 / v1 / a0 / a1 / at / f0 / f1 as the old code leaves them.
+        struct BlendRegs
+        {
+            LerpRegs v;
+            uint64_t at, v0, v1, a0, a1;
+            float f0, f1;
+            __m128 v1q; // v1's 128 bits after `lq v1, 0(sp)` (the low 64 replaced by v1 at the exit)
+            __m128 v0q; // v0's 128 bits after `qmfc2 v0, vf15` (likewise)
+        };
+        void d2OptionBlend(const d1::Mem &m, uint32_t sp, float f20, uint32_t quatOut, uint32_t posOut, uint32_t scaleOut, BlendRegs &b)
+        {
+            b.v1q = m.q(sp);
+            b.a0 = d2sx(sp + 0x60u);
+            b.a1 = d2sx(sp + 0x10u);
+            m.putq(sp + 0x60u, b.v1q);
+            b.v.vf14 = m.q(sp + 0x10u);
+            b.v.vf15 = m.q(sp + 0x60u);
+            b.v.vf15 = d1::vmul(b.v.vf14, b.v.vf15);
+            const __m128 kX = d1::mask(1, 0, 0, 0);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<1>(b.v.vf15)), kX);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<2>(b.v.vf15)), kX);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<3>(b.v.vf15)), kX);
+            // qmfc2 v0, vf15 (v0's 128 bits), mtc1 v0, f1.
+            b.v0q = b.v.vf15;
+            b.f1 = d1::lane<0>(b.v.vf15);
+            m.set<float>(sp + 0x70u, b.f1);
+            b.v0 = d2sx(m.u32(sp + 0x70u));
+            if (static_cast<int32_t>(static_cast<uint32_t>(b.v0)) < 0)
+            {
+                // The long way round: the first rotation negated (vmulx by -1).
+                b.at = d2sx(kMinusOne);
+                b.f0 = d2bitsF(kMinusOne);
+                b.v1 = d2sx(d2fBits(b.f0));
+                b.v.vf5 = m.q(sp + 0x60u);
+                std::memcpy(&b.v1q, &b.v1, 8); // mfc1 v1: the low 64 bits; qmtc2 v1, vf6
+                b.v.vf6 = b.v1q;
+                b.v.vf5 = d1::vmul(b.v.vf5, d1::bc<0>(b.v.vf6));
+                m.putq(sp + 0x60u, b.v.vf5);
+            }
+            else
+            {
+                std::memcpy(&b.v1, &b.v1q, 8);
+            }
+            d2LerpKeys<true>(m, f20, sp + 0x10u, sp + 0x60u, b.v.vf9, quatOut, b.v);
+            b.v.vf14 = m.q(quatOut & ~0xFu);
+            b.v.vf15 = d1::vmul(b.v.vf14, b.v.vf14);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<1>(b.v.vf15)), kX);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<2>(b.v.vf15)), kX);
+            b.v.vf15 = d1::vsel(b.v.vf15, d1::vadd(b.v.vf15, d1::bc<3>(b.v.vf15)), kX);
+            b.v.q = ps2VuRsqrt(b.v.status, d1::lane<3>(d1::vf0()), d1::lane<0>(b.v.vf15));
+            b.v.vf15 = d1::vmul(b.v.vf14, d1::splat(b.v.q));
+            m.putq(quatOut & ~0xFu, b.v.vf15);
+            b.v1 = d2sx(sp + 0x30u);
+            b.v0 = d2sx(sp + 0x20u);
+            d2LerpKeys<false>(m, f20, sp + 0x30u, sp + 0x20u, b.v.vf5, posOut, b.v);
+            b.a0 = d2sx(sp + 0x50u);
+            b.v0 = d2sx(sp + 0x40u);
+            d2LerpKeys<false>(m, f20, sp + 0x50u, sp + 0x40u, b.v.vf5, scaleOut, b.v);
+        }
+    } // namespace d2h
+
+    void posKeyLerpD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t sp0 = GPR_U32(ctx, 29), out = GPR_U32(ctx, 4), table = GPR_U32(ctx, 6);
+        const bool hasTable = GPR_U64(ctx, 6) != 0;
+        const float frac = ctx->f[12];
+        // Pointers outside main RAM (the old body's slow paths), or the lerp of the frame's stale contents (no table, a
+        // fraction): the old body.
+        if (!sotc_decomp::hotList46On() || out > PS2_RAM_SIZE - 16u || sp0 < 0x20u || sp0 > PS2_RAM_SIZE ||
+            (hasTable && table > PS2_RAM_SIZE - 0x20u) || (!hasTable && !d1::eq(frac, 0.0f)))
+            return posKeyLerp(rdram, ctx, runtime);
+        ++c_d2PosKeyLerp.n;
+        d2h::PosKeyLerpRegs r;
+        for (int i = 0; i < 8; ++i)
+            r.k.f[i] = ctx->f[i];
+        r.k.at = GPR_U64(ctx, 1);
+        r.k.v0 = GPR_U64(ctx, 2);
+        r.k.v1 = GPR_U64(ctx, 3);
+        r.v.t0 = _mm_castsi128_ps(ctx->r[8]);
+        r.v.vf5 = ctx->vu0_vf[5];
+        r.v.vf6 = ctx->vu0_vf[6];
+        r.v.vf7 = ctx->vu0_vf[7];
+        r.v.vf8 = ctx->vu0_vf[8];
+        r.v.acc = ctx->vu0_acc;
+        r.fcr31 = ctx->fcr31;
+        d2h::posKeyLerpCore(d1::Mem{rdram}, out, GPR_U64(ctx, 5), table, hasTable, GPR_U32(ctx, 7), GPR_U32(ctx, 8), frac, sp0 - 0x20u, r);
+        for (int i = 0; i < 8; ++i)
+            ctx->f[i] = r.k.f[i];
+        SET_GPR_U64(ctx, 1, r.k.at);
+        SET_GPR_U64(ctx, 2, r.k.v0);
+        SET_GPR_U64(ctx, 3, r.k.v1);
+        ctx->r[8] = _mm_castps_si128(r.v.t0);
+        ctx->vu0_vf[5] = r.v.vf5;
+        ctx->vu0_vf[6] = r.v.vf6;
+        ctx->vu0_vf[7] = r.v.vf7;
+        ctx->vu0_vf[8] = r.v.vf8;
+        ctx->vu0_acc = r.v.acc;
+        ctx->fcr31 = r.fcr31;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp0));
+        returnTo(ctx);
+    }
+    void posKeyLerpSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            posKeyLerpD1(rdram, ctx, runtime);
+        else
+            posKeyLerp(rdram, ctx, runtime);
+    }
+
+    // manager_sub_010AE128 (partial): the guest calls (curve decoder, vec3 key) kept with the old body's registers; the
+    // rest on d1::Mem and the d2h cores.
+    void optionNodeSampleD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t sp0 = GPR_U32(ctx, 29);
+        const uint32_t quatOut = GPR_U32(ctx, 4), posOut = GPR_U32(ctx, 5), scaleOut = GPR_U32(ctx, 6), record = GPR_U32(ctx, 7);
+        if (!sotc_decomp::hotList46On() || sp0 < 0xC0u || sp0 > PS2_RAM_SIZE || quatOut > PS2_RAM_SIZE - 16u || posOut > PS2_RAM_SIZE - 16u ||
+            scaleOut > PS2_RAM_SIZE - 16u || record > PS2_RAM_SIZE - 0x10u)
+            return optionNodeSample(rdram, ctx, runtime);
+        ++c_d2OptionNode.n;
+        const d1::Mem m{rdram};
+        ctx->f[0] = static_cast<float>(GPR_S32(ctx, 8));
+        const uint32_t sp = sp0 - 0xC0u;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp));
+        m.set<uint64_t>(sp + 0x80u, GPR_U64(ctx, 16));
+        SET_GPR_U64(ctx, 16, GPR_U64(ctx, 7));
+        m.set<uint64_t>(sp + 0x90u, GPR_U64(ctx, 18));
+        SET_GPR_U64(ctx, 18, GPR_U64(ctx, 5));
+        m.set<uint64_t>(sp + 0x98u, GPR_U64(ctx, 19));
+        SET_GPR_U64(ctx, 19, GPR_U64(ctx, 4));
+        setCond(ctx, d1::lt(ctx->f[0], ctx->f[12]));
+        m.set<uint64_t>(sp + 0xA8u, GPR_U64(ctx, 21));
+        m.set<uint64_t>(sp + 0x88u, GPR_U64(ctx, 17));
+        SET_GPR_U64(ctx, 21, GPR_U64(ctx, 6));
+        m.set<uint64_t>(sp + 0xA0u, GPR_U64(ctx, 20));
+        m.set<uint64_t>(sp + 0xB0u, GPR_U64(ctx, 31));
+        m.set<float>(sp + 0xB8u, ctx->f[20]);
+        if (cond(ctx))
+        {
+            d2h::LoopRegs l{GPR_U64(ctx, 2), GPR_U64(ctx, 3), ctx->lo, ctx->hi, ctx->f[0], ctx->f[1], ctx->f[12], ctx->fcr31};
+            d2h::d2LoopFrame(GPR_U64(ctx, 8), l);
+            SET_GPR_U64(ctx, 2, l.v0);
+            SET_GPR_U64(ctx, 3, l.v1);
+            ctx->lo = l.lo;
+            ctx->hi = l.hi;
+            ctx->f[0] = l.f0;
+            ctx->f[1] = l.f1;
+            ctx->f[12] = l.f12;
+            ctx->fcr31 = l.fcr31;
+        }
+        // 0x10ae1b4: the key index and the fraction.
+        {
+            const int32_t w = ps2FpuConvertToWord(ctx->f[12]);
+            std::memcpy(&ctx->f[0], &w, 4);
+            SET_GPR_S32(ctx, 17, w);
+        }
+        setBits(ctx, 1, 0u);
+        ctx->f[0] = static_cast<float>(GPR_S32(ctx, 17));
+        ctx->f[20] = d1::sub(ctx->f[12], ctx->f[0]);
+        setCond(ctx, d1::eq(ctx->f[20], ctx->f[1]));
+        SET_GPR_S32(ctx, 20, static_cast<int32_t>(GPR_U32(ctx, 17) + 1u));
+
+        const uint32_t key = GPR_U32(ctx, 17), nextKey = GPR_U32(ctx, 20);
+        // a0 = +4; with a table its key into out (d2PosKey on the registers); then a2 = +8.
+        auto position = [&](uint32_t index, uint32_t out)
+        {
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(record + 4u)));
+            if (GPR_U64(ctx, 4) != 0)
+            {
+                SET_GPR_ZE32(ctx, 3, m.get<uint8_t>(record + 2u));
+                d2h::KeyRegs k;
+                for (int i = 0; i < 8; ++i)
+                    k.f[i] = ctx->f[i];
+                k.at = GPR_U64(ctx, 1);
+                k.v0 = GPR_U64(ctx, 2);
+                k.v1 = GPR_U64(ctx, 3);
+                d2h::d2PosKey(m, GPR_U32(ctx, 4), GPR_U64(ctx, 3), index, out, k);
+                for (int i = 0; i < 4; ++i)
+                    ctx->f[i] = k.f[i];
+                SET_GPR_U64(ctx, 1, k.at);
+                SET_GPR_U64(ctx, 2, k.v0);
+                SET_GPR_U64(ctx, 3, k.v1);
+            }
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(m.u32(record + 8u)));
+        };
+
+        if (cond(ctx))
+        {
+            // No fraction: the keys straight into the outs.
+            position(key, posOut);
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 19));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 1u));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 17));
+                curveCall(rdram, ctx, runtime, 0x010AE2E0u, sp);
+            }
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(m.u32(record + 0xCu)));
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 21));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 0u));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 17));
+                vec3Call(rdram, ctx, runtime, 0x010AE2F8u, sp);
+            }
+        }
+        else
+        {
+            // 0x10ae300: both keys into the frame (+0 / +0x10 the rotations, +0x20 / +0x30 the positions, +0x40 / +0x50
+            // the scales).
+            position(key, sp + 0x20u);
+            SET_GPR_U64(ctx, 4, GPR_U64(ctx, 29));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 1u));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 17));
+                curveCall(rdram, ctx, runtime, 0x010AE408u, sp);
+            }
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(m.u32(record + 0xCu)));
+            SET_GPR_U64(ctx, 7, GPR_U64(ctx, 17));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 0u));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x40u));
+                vec3Call(rdram, ctx, runtime, 0x010AE420u, sp);
+            }
+            position(nextKey, sp + 0x30u);
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x10u));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 1u));
+                SET_GPR_U64(ctx, 7, GPR_U64(ctx, 20));
+                curveCall(rdram, ctx, runtime, 0x010AE528u, sp);
+            }
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(m.u32(record + 0xCu)));
+            SET_GPR_U64(ctx, 7, GPR_U64(ctx, 20));
+            if (GPR_U64(ctx, 6) != 0)
+            {
+                SET_GPR_ZE32(ctx, 5, m.get<uint8_t>(record + 0u));
+                SET_GPR_S32(ctx, 4, static_cast<int32_t>(sp + 0x50u));
+                vec3Call(rdram, ctx, runtime, 0x010AE540u, sp);
+            }
+            // 0x10ae540..: the closing block as a core on the registers.
+            d2h::BlendRegs b;
+            b.v.vf5 = ctx->vu0_vf[5];
+            b.v.vf6 = ctx->vu0_vf[6];
+            b.v.vf7 = ctx->vu0_vf[7];
+            b.v.vf8 = ctx->vu0_vf[8];
+            b.v.vf9 = ctx->vu0_vf[9];
+            b.v.vf14 = ctx->vu0_vf[14];
+            b.v.vf15 = ctx->vu0_vf[15];
+            b.v.acc = ctx->vu0_acc;
+            b.v.t0 = _mm_castsi128_ps(ctx->r[8]);
+            b.v.q = ctx->vu0_q;
+            b.v.status = ctx->vu0_status;
+            b.at = GPR_U64(ctx, 1);
+            b.v0 = GPR_U64(ctx, 2);
+            b.v1 = GPR_U64(ctx, 3);
+            b.a0 = GPR_U64(ctx, 4);
+            b.a1 = GPR_U64(ctx, 5);
+            b.f0 = ctx->f[0];
+            b.f1 = ctx->f[1];
+            d2h::d2OptionBlend(m, sp, ctx->f[20], quatOut, posOut, scaleOut, b);
+            ctx->vu0_vf[5] = b.v.vf5;
+            ctx->vu0_vf[6] = b.v.vf6;
+            ctx->vu0_vf[7] = b.v.vf7;
+            ctx->vu0_vf[8] = b.v.vf8;
+            ctx->vu0_vf[9] = b.v.vf9;
+            ctx->vu0_vf[14] = b.v.vf14;
+            ctx->vu0_vf[15] = b.v.vf15;
+            ctx->vu0_acc = b.v.acc;
+            ctx->r[8] = _mm_castps_si128(b.v.t0);
+            ctx->vu0_q = b.v.q;
+            ctx->vu0_status = b.v.status;
+            SET_GPR_U64(ctx, 1, b.at);
+            ctx->r[2] = _mm_castps_si128(b.v0q);
+            SET_GPR_U64(ctx, 2, b.v0);
+            ctx->r[3] = _mm_castps_si128(b.v1q);
+            SET_GPR_U64(ctx, 3, b.v1);
+            SET_GPR_U64(ctx, 4, b.a0);
+            SET_GPR_U64(ctx, 5, b.a1);
+            ctx->f[0] = b.f0;
+            ctx->f[1] = b.f1;
+        }
+        // 0x10ae630
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x80u));
+        SET_GPR_U64(ctx, 17, m.get<uint64_t>(sp + 0x88u));
+        SET_GPR_U64(ctx, 18, m.get<uint64_t>(sp + 0x90u));
+        SET_GPR_U64(ctx, 19, m.get<uint64_t>(sp + 0x98u));
+        SET_GPR_U64(ctx, 20, m.get<uint64_t>(sp + 0xA0u));
+        SET_GPR_U64(ctx, 21, m.get<uint64_t>(sp + 0xA8u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0xB0u));
+        ctx->f[20] = m.f32(sp + 0xB8u);
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0xC0u));
+        returnTo(ctx);
+    }
+    void optionNodeSampleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            optionNodeSampleD1(rdram, ctx, runtime);
+        else
+            optionNodeSample(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot46h

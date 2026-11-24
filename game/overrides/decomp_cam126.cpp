@@ -852,8 +852,21 @@ namespace cam126
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x01131D80u, GetGeometryPointerPosition, cam126::geoPos);
-SOTC_DECOMP_FUNCTION(0x01132098u, GetGeometryPointerQuaternion, cam126::geoQuat);
+#include "d1_native.h"
+namespace cam126
+{
+    // Round D2 (d1native): the dispatchers (the D2 bodies at the end of this file).
+    void geoPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void geoQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void rootKeySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void parentIdSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void localQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
+SOTC_DECOMP_FUNCTION(0x01131D80u, GetGeometryPointerPosition, cam126::geoPosSw);
+D1_ALIAS(0x01131D80u, GetGeometryPointerPosition, cam126::geoPosSw, cam126::geoPos);
+SOTC_DECOMP_FUNCTION(0x01132098u, GetGeometryPointerQuaternion, cam126::geoQuatSw);
+D1_ALIAS(0x01132098u, GetGeometryPointerQuaternion, cam126::geoQuatSw, cam126::geoQuat);
 SOTC_DECOMP_FUNCTION(0x01132270u, GetGeometryPointerQuatPos, cam126::geoQuatPos);
 SOTC_DECOMP_FUNCTION(0x01135720u, GetMatrixFromQuatPos, cam126::matFromQuatPos);
 SOTC_DECOMP_FUNCTION(0x011357A8u, ExchangeLWQuaternion, cam126::exchangeLWEntry);
@@ -861,6 +874,389 @@ SOTC_DECOMP_FUNCTION(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNode
 SOTC_DECOMP_FUNCTION(0x010C1580u, GetCharacterClassNodeQuaternionPos, cam126::ccNodeQP);
 SOTC_DECOMP_FUNCTION(0x013A74E8u, MVHIST_Update, cam126::mvhist);
 SOTC_DECOMP_FUNCTION(0x013D3C68u, AI_GetYRotQuaternion, cam126::yRot);
-SOTC_DECOMP_FUNCTION(0x010AD048u, manager_sub_010AD048, cam126::rootKeyEntry);
-SOTC_DECOMP_FUNCTION(0x010B63C0u, GetMotionOptionNodeParentId, cam126::parentIdEntry);
-SOTC_DECOMP_FUNCTION(0x010C10E0u, GetCharacterClassOptionNodeLocalQuaternionPos, cam126::localQPEntry);
+SOTC_DECOMP_FUNCTION(0x010AD048u, manager_sub_010AD048, cam126::rootKeySw);
+D1_ALIAS(0x010AD048u, manager_sub_010AD048, cam126::rootKeySw, cam126::rootKeyEntry);
+SOTC_DECOMP_FUNCTION(0x010B63C0u, GetMotionOptionNodeParentId, cam126::parentIdSw);
+D1_ALIAS(0x010B63C0u, GetMotionOptionNodeParentId, cam126::parentIdSw, cam126::parentIdEntry);
+SOTC_DECOMP_FUNCTION(0x010C10E0u, GetCharacterClassOptionNodeLocalQuaternionPos, cam126::localQPSw);
+D1_ALIAS(0x010C10E0u, GetCharacterClassOptionNodeLocalQuaternionPos, cam126::localQPSw, cam126::localQPEntry);
+
+// ---- Round D2 (switch d1native, d1_native.h): the geometry pointers' getters and the option nodes' / root track's getters
+// as native C++ ------------------------------------------------------------------------------------------------------------
+// GetGeometryPointerPosition / Quaternion (partial): the geo126 path's kinds as typed cores on d1::Mem (the same host frame /
+// quaternion helpers, the same NEON ops in the same order: geo126's plain-float math is the old body's own); the character
+// node kinds keep their guest call (manager_sub_010AC4A0, nodeFrame) in the adapter, the core reads its frame after it.
+// GetMotionOptionNodeParentId / GetCharacterClassOptionNodeLocalQuaternionPos / manager_sub_010AD048 (full): with ctl126
+// off (the default) the old body runs the recompiled function, D5's lifted copy whose typed leaf (rounds A3 / A4) is what
+// runs: the cores are those leaves on d1::Mem, the adapters write back what the leaves' adapters leave (v0, the extra
+// outputs, the 128-bit halves). Any other state (ctl126 or s13mot's root on, a3typed / a4typed off, another function in the
+// recompiled slot, a check build, a misaligned sp, an address outside main RAM) runs the old body.
+namespace lift_d1
+{
+    void GetMotionOptionNodeParentId(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GetCharacterClassOptionNodeLocalQuaternionPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_010AD048(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+extern bool g_a3Typed;
+extern bool g_a4Typed;
+
+namespace cam126
+{
+    D1_COUNTER(c_d2GeoPos, "GetGeometryPointerPosition");
+    D1_COUNTER(c_d2GeoQuat, "GetGeometryPointerQuaternion");
+    D1_COUNTER(c_d2RootKey, "manager_sub_010AD048");
+    D1_COUNTER(c_d2ParentId, "GetMotionOptionNodeParentId");
+    D1_COUNTER(c_d2LocalQP, "GetCharacterClassOptionNodeLocalQuaternionPos");
+
+    // The typed leaves' adapters run (A3_GO_LEAF / A4_GO_LEAF are the switches) only in this configuration.
+#if defined(PS2_N4_SP) && PS2X_N4_NATIVE && PS2X_N6_NOCHK && !PS2X_DIFFTRACE && !PS2X_A3_CHECK && !PS2X_A4_CHECK
+    constexpr bool kD2TypedLeaves = true;
+#else
+    constexpr bool kD2TypedLeaves = false;
+#endif
+    // Main RAM as the typed leaves' fast accessors take it (PS2_N1_BASE_OK).
+    PS2_FORCE_INLINE bool d2Ram(uint32_t a) { return a - 0x10000u < 0x1FE0000u; }
+
+    // ---- GetGeometryPointerPosition ---------------------------------------------------------------------------------
+    // k: geo126's kind (0 a copy of +0x10, 1 / 2 +0x20 / +0x10 in the frame (*+0, *+4), 3 +0x20 in the node's frame the
+    // adapter's guest call left at fq / fp, -1 nothing but w).
+    void geoPosD2Core(const d1::Mem &m, int k, uint32_t out, uint32_t gp, uint32_t fq, uint32_t fp)
+    {
+        switch (k)
+        {
+        case 0:
+            cpq(m.base, out, gp + 0x10u);
+            break;
+        case 1:
+        case 2:
+        {
+            const Frame f = frameOf(ldq(m.base, m.u32(gp)), ldq(m.base, m.u32(gp + 4u)));
+            stq(m.base, out, apply(f, ldq(m.base, gp + (k == 1 ? 0x20u : 0x10u))));
+            break;
+        }
+        case 3:
+        {
+            const Frame f = frameOf(ldq(m.base, fq), ldq(m.base, fp));
+            stq(m.base, out, apply(f, ldq(m.base, gp + 0x20u)));
+            break;
+        }
+        default:
+            break;
+        }
+        m.set<float>(out + 0xCu, 1.0f);
+    }
+    void geoPosD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!geoOn() || checkEvery() != 0)
+            return geoPos(rdram, ctx, runtime);
+        const uint32_t out = GPR_U32(ctx, 4), gp = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29);
+        if (!okAddr(gp) || !okAddr(out))
+            return geoPos(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t kind = m.u32(gp + 0x30u);
+        const uint32_t label = kind < 11u ? m.u32(kPosTable + kind * 4u) : 0x0113206Cu;
+        int k;
+        switch (label)
+        {
+        case 0x01131DC8u: k = 0; break;
+        case 0x01131DD8u: k = 1; break;
+        case 0x01131E90u: k = 2; break;
+        case 0x01131FA8u:
+        case 0x01131FD0u: k = 3; break;
+        case 0x0113206Cu: k = -1; break;
+        default:
+            return geoPos(rdram, ctx, runtime); // (the recompiled kinds: the old body counts and runs them)
+        }
+        ++c_d2GeoPos.n;
+        const uint32_t sp = sp0 - 0x170u;
+        if (k == 3)
+            nodeFrame(rdram, ctx, runtime, gp, sp + 0x80u, sp + 0x90u, 0x01131FC4u, sp);
+        geoPosD2Core(m, k, out, gp, sp + 0x80u, sp + 0x90u);
+        ctx->f[0] = 1.0f;
+        returnTo(ctx);
+    }
+    void geoPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            geoPosD1(rdram, ctx, runtime);
+        else
+            geoPos(rdram, ctx, runtime);
+    }
+
+    // ---- GetGeometryPointerQuaternion -------------------------------------------------------------------------------
+    // k: 0 / 4 / 5 copies of +0 / +0x20 / +0x10, 1 (*+0) then +0x10, 2 the node's rotation (the adapter's guest call left
+    // it at fq) then +0x10, 3 a quarter turn about y (axis: the axis qword's address; setF0: the f0 it leaves).
+    float geoQuatD2Core(const d1::Mem &m, int k, uint32_t out, uint32_t gp, uint32_t fq, uint32_t axis, bool &setF0)
+    {
+        setF0 = false;
+        switch (k)
+        {
+        case 0: cpq(m.base, out, gp); break;
+        case 4: cpq(m.base, out, gp + 0x20u); break;
+        case 5: cpq(m.base, out, gp + 0x10u); break;
+        case 1: stq(m.base, out, qmulVu(ldq(m.base, m.u32(gp)), ldq(m.base, gp + 0x10u))); break;
+        case 2: stq(m.base, out, qmulVu(ldq(m.base, fq), ldq(m.base, gp + 0x10u))); break;
+        case 3:
+        {
+            const float id[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            const float32x4_t r = axisRotateQ(m.base, 0x4000u, ldq(m.base, axis));
+            stq(m.base, out, qmulVu(vld1q_f32(id), r));
+            setF0 = true;
+            return vgetq_lane_f32(r, 3);
+        }
+        default: break;
+        }
+        return 0.0f;
+    }
+    void geoQuatD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!geoOn())
+            return geoQuat(rdram, ctx, runtime);
+        const uint32_t out = GPR_U32(ctx, 4), gp = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29);
+        if (!okAddr(gp) || !okAddr(out))
+            return geoQuat(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t kind = m.u32(gp + 0x30u);
+        if (kind >= 11u) // the original writes nothing
+        {
+            ++c_d2GeoQuat.n;
+            return returnTo(ctx);
+        }
+        if (checkEvery() != 0)
+            return geoQuat(rdram, ctx, runtime);
+        int k;
+        switch (m.u32(kQuatTable + kind * 4u))
+        {
+        case 0x011320F8u: k = 0; break;
+        case 0x01132108u: k = 1; break;
+        case 0x01132158u: k = 4; break;
+        case 0x01132180u: k = 2; break;
+        case 0x011321E0u: k = 5; break;
+        case 0x01132208u: k = 3; break;
+        default:
+            return geoQuat(rdram, ctx, runtime);
+        }
+        ++c_d2GeoQuat.n;
+        const uint32_t sp = sp0 - 0x50u;
+        uint32_t axis = 0u;
+        if (k == 2)
+            nodeFrame(rdram, ctx, runtime, gp, sp + 0x10u, sp, 0x0113219Cu, sp);
+        else if (k == 3)
+            axis = sotc_decomp::relocated(rdram, 0x0113220Cu, 0x01132210u);
+        bool setF0;
+        const float f0 = geoQuatD2Core(m, k, out, gp, sp + 0x10u, axis, setF0);
+        if (setF0)
+            ctx->f[0] = f0;
+        returnTo(ctx);
+    }
+    void geoQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            geoQuatD1(rdram, ctx, runtime);
+        else
+            geoQuat(rdram, ctx, runtime);
+    }
+
+    // ---- GetMotionOptionNodeParentId (A3's typed leaf: v0 only) -----------------------------------------------------
+    // The node table's (*(nodes + 0x24) + index * 64) +0x30 word; false: the word is outside main RAM (nothing read).
+    bool parentIdD2Core(const d1::Mem &m, uint32_t nodes, uint32_t index, uint32_t &v0)
+    {
+        const uint32_t rec = m.u32(nodes + 0x24u) + (index << 6);
+        if (!d2Ram(rec + 0x30u))
+            return false;
+        v0 = m.u32(rec + 0x30u);
+        return true;
+    }
+    inline bool parentIdTyped()
+    {
+        return kD2TypedLeaves && !ctlOn() && g_a3Typed && sotc_decomp::recompiled(kParentId) == &lift_d1::GetMotionOptionNodeParentId;
+    }
+    void parentIdD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t nodes = GPR_U32(ctx, 4), index = GPR_U32(ctx, 5);
+        uint32_t v0 = 0u;
+        if (!parentIdTyped() || !d2Ram(nodes + 0x24u) || !parentIdD2Core(d1::Mem{rdram}, nodes, index, v0))
+            return parentIdEntry(rdram, ctx, runtime);
+        ++c_d2ParentId.n;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(v0));
+        returnTo(ctx);
+    }
+    void parentIdSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            parentIdD1(rdram, ctx, runtime);
+        else
+            parentIdEntry(rdram, ctx, runtime);
+    }
+
+    // ---- GetCharacterClassOptionNodeLocalQuaternionPos (A4's typed leaf) --------------------------------------------
+    // a0 / a1 the quaternion / position out, a2 the class, a3 the option node: the class's +0x2f0 / +0x2ec arrays' qwords
+    // (position first), v0 the node's +0x30 word. The leaf's extra outputs: a1 the +0x2ec word, a3 node * 64, t0 / t1
+    // (the position qword, the rotation's address), v1's upper half the rotation's (its lower half kept).
+    struct LocalQPD2
+    {
+        float32x4_t pos, rot;
+        uint32_t v0, a1, a3, t1;
+    };
+    bool localQPD2Core(const d1::Mem &m, uint32_t qOut, uint32_t pOut, uint32_t cls, uint32_t node, LocalQPD2 &o)
+    {
+        const uint32_t t1 = node << 4;
+        const uint32_t nodes = m.u32(cls + 0x358u);
+        // (everything the leaf reads checked before its first store; the +0x2ec word is read again after it, as the leaf does)
+        if (!d2Ram(nodes + 0x24u))
+            return false;
+        const uint32_t posAt = t1 + m.u32(cls + 0x2F0u);
+        const uint32_t rec = m.u32(nodes + 0x24u) + (node << 6);
+        if (!d2Ram(posAt & ~0xFu) || !d2Ram(rec + 0x30u) || !d2Ram((t1 + m.u32(cls + 0x2ECu)) & ~0xFu) || !d2Ram(pOut & ~0xFu) ||
+            !d2Ram(qOut & ~0xFu))
+            return false;
+        o.pos = m.q(posAt & ~0xFu);
+        o.v0 = m.u32(rec + 0x30u);
+        m.putq(pOut & ~0xFu, o.pos);
+        o.a1 = m.u32(cls + 0x2ECu);
+        o.t1 = t1 + o.a1;
+        if (!d2Ram(o.t1 & ~0xFu)) // (the store above changed the +0x2ec word: not seen; the leaf's slow accessor then)
+            return false;
+        o.rot = m.q(o.t1 & ~0xFu);
+        m.putq(qOut & ~0xFu, o.rot);
+        o.a3 = node << 6;
+        return true;
+    }
+    void localQPD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t qOut = GPR_U32(ctx, 4), pOut = GPR_U32(ctx, 5), cls = GPR_U32(ctx, 6), node = GPR_U32(ctx, 7);
+        if (!kD2TypedLeaves || ctlOn() || !g_a4Typed || sotc_decomp::recompiled(kLocalQP) != &lift_d1::GetCharacterClassOptionNodeLocalQuaternionPos ||
+            !d2Ram(cls) || !d2Ram(cls + 0x400u))
+            return localQPEntry(rdram, ctx, runtime);
+        LocalQPD2 o;
+        if (!localQPD2Core(d1::Mem{rdram}, qOut, pOut, cls, node, o))
+            return localQPEntry(rdram, ctx, runtime);
+        ++c_d2LocalQP.n;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.v0));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(o.a1));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(o.a3));
+        std::memcpy(&ctx->r[8], &o.pos, 16);
+        SET_GPR_S32(ctx, 9, static_cast<int32_t>(o.t1));
+        std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[3]) + 8, reinterpret_cast<const uint8_t *>(&o.rot) + 8, 8);
+        returnTo(ctx);
+    }
+    void localQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            localQPD1(rdram, ctx, runtime);
+        else
+            localQPEntry(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_010AD048: a motion root track's key (A4's typed leaf) ------------------------------------------
+    // out the key (w 1), tr the track, frame the integer frame. Kind (+0, s16) below 6: the float3 at *(tr + 0xc) +
+    // frame * 12 as one qword (x, y, z, 1) at out & ~0xf; v0 x | y << 32, v0's upper half z | 1.0 << 32. Else 1.0 to
+    // out + 0xc, then by +6's low 4 bits: 0 the three floats at D = *(tr + 0xc) (v0 the +6 halfword), 2 the int16 x3 at
+    // *(D + 0x18) + frame * 6, each (float) x its scale (D +4 / +0xc / +0x14) x 2^-15 (1 + 2^-15) + its base (D +0 / +8 /
+    // +0x10) (v0 the last int16), others the float3 at D + frame * 12 (v0 its address). f0 the last float written.
+    // false: an address outside main RAM (checked before the first store).
+    struct RootKeyD2
+    {
+        uint64_t v0, h2;
+        float f0;
+        bool full;
+    };
+    bool rootKeyD2Core(const d1::Mem &m, uint32_t out, uint32_t tr, uint32_t frame, RootKeyD2 &o)
+    {
+        const int16_t kind = m.get<int16_t>(tr);
+        const uint32_t data = m.u32(tr + 0xCu);
+        o.full = false;
+        if (kind < 6)
+        {
+            const uint32_t p = data + frame * 12u;
+            if (!d2Ram(p) || !d2Ram(p + 8u) || !d2Ram(out & ~0xFu))
+                return false;
+            const uint32_t x = m.u32(p), y = m.u32(p + 4u), z = m.u32(p + 8u);
+            const float key[4] = {m.f32(p), m.f32(p + 4u), m.f32(p + 8u), 1.0f};
+            m.putq(out & ~0xFu, vld1q_f32(key));
+            o.v0 = static_cast<uint64_t>(x) | (static_cast<uint64_t>(y) << 32);
+            o.h2 = static_cast<uint64_t>(z) | (static_cast<uint64_t>(0x3F800000u) << 32);
+            o.f0 = key[2];
+            o.full = true;
+            return true;
+        }
+        const uint16_t enc16 = m.get<uint16_t>(tr + 6u);
+        const uint32_t enc = enc16 & 0xFu;
+        if (!d2Ram(out) || !d2Ram(out + 0xCu) || !d2Ram(data))
+            return false;
+        if (enc == 0u)
+        {
+            if (!d2Ram(data + 8u))
+                return false;
+            m.set<float>(out + 0xCu, 1.0f);
+            m.set<uint32_t>(out, m.u32(data));
+            m.set<uint32_t>(out + 4u, m.u32(data + 4u));
+            const float z = m.f32(data + 8u);
+            m.set<float>(out + 8u, z);
+            o.v0 = enc16;
+            o.f0 = z;
+            return true;
+        }
+        if (enc == 2u)
+        {
+            if (!d2Ram(data + 0x18u))
+                return false;
+            m.set<float>(out + 0xCu, 1.0f);
+            // (the table word read after the store, as the leaf does; a refusal after it: the old body stores the same 1.0)
+            const uint32_t p = m.u32(data + 0x18u) + frame * 6u;
+            if (!d2Ram(p) || !d2Ram(p + 4u))
+                return false;
+            const uint32_t scaleBits = 0x38000100u; // 2^-15 (1 + 2^-15)
+            float scale;
+            std::memcpy(&scale, &scaleBits, 4);
+            int16_t last = 0;
+            float f0 = 0.0f;
+            for (uint32_t i = 0; i < 3u; ++i)
+            {
+                // (the leaf's order: the int16, the scale, the base, then cvt / mul / mul / add)
+                last = m.get<int16_t>(p + 2u * i);
+                const float s = m.f32(data + 4u + 8u * i), base = m.f32(data + 8u * i);
+                f0 = d1::add(d1::mul(d1::mul(static_cast<float>(static_cast<int32_t>(last)), s), scale), base);
+                m.set<float>(out + 4u * i, f0);
+            }
+            o.v0 = static_cast<uint64_t>(static_cast<int64_t>(last));
+            o.f0 = f0;
+            return true;
+        }
+        const uint32_t p = data + frame * 12u;
+        if (!d2Ram(p) || !d2Ram(p + 8u))
+            return false;
+        m.set<float>(out + 0xCu, 1.0f);
+        m.set<uint32_t>(out, m.u32(p));
+        m.set<uint32_t>(out + 4u, m.u32(p + 4u));
+        const float z = m.f32(p + 8u);
+        m.set<float>(out + 8u, z);
+        o.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(p)));
+        o.f0 = z;
+        return true;
+    }
+    void rootKeyD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), tr = GPR_U32(ctx, 5), frame = GPR_U32(ctx, 6);
+        if (!kD2TypedLeaves || ctlOn() || s13mot::on(s13mot::kRoot) || !g_a4Typed || ctx->pc != kRootKey || (GPR_U32(ctx, 29) & 15u) != 0u ||
+            !d2Ram(tr) || !d2Ram(tr + 0xCu) || sotc_decomp::recompiled(kRootKey) != &lift_d1::manager_sub_010AD048)
+            return rootKeyEntry(rdram, ctx, runtime);
+        RootKeyD2 o;
+        if (!rootKeyD2Core(d1::Mem{rdram}, out, tr, frame, o))
+            return rootKeyEntry(rdram, ctx, runtime);
+        ++c_d2RootKey.n;
+        SET_GPR_U64(ctx, 2, o.v0);
+        if (o.full)
+            std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &o.h2, 8);
+        ctx->f[0] = o.f0;
+        SET_GPR_U64(ctx, 7, GPR_U64(ctx, 4));
+        returnTo(ctx);
+    }
+    void rootKeySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rootKeyD1(rdram, ctx, runtime);
+        else
+            rootKeyEntry(rdram, ctx, runtime);
+    }
+} // namespace cam126

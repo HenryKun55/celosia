@@ -55,6 +55,7 @@
 // half not kept), and the s-registers in the context during the calls
 // (the callees save and restore them).
 #include "sotc_decomp.h"
+#include "d1_native.h" // round D2: movedPoint's D1 body
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -737,4 +738,263 @@ namespace decomp_hot44a
 // plane and the first test natively, the rest the recompiled code from the
 // start); clipKeepTest is for that rest() to call (declared there,
 // declaration), not a table entry of its own.
-SOTC_DECOMP_FUNCTION(0x01118B88u, manager_sub_01118B88, decomp_hot44a::movedPoint);
+namespace decomp_hot44a
+{
+    void movedPointSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01118B88u, manager_sub_01118B88, decomp_hot44a::movedPointSw);
+D1_ALIAS(0x01118B88u, manager_sub_01118B88, decomp_hot44a::movedPointSw, decomp_hot44a::movedPoint);
+
+// =====================================================================================================================
+// Round D2 (switch d1native, docs/decomp_d1.md's framework): manager_sub_01118B88 (movedPoint) with its math as d1 vec4
+// on locals. Partial: GetLayoutClass, the vertex fetcher (01116108) and EntryModifiedManager stay guest calls with the
+// register state the old body gives them (the VU0 / FPU locals stored into the context before each call and read back
+// after it); the frame's scratch qwords / words (sp + 0 .. 0x60) and the register saves (below the entry sp: dead at
+// the return; the callees' frames are below sp) are locals; the VU0 registers, ACC, f0 / f1, the condition bit and
+// v0's 128 bits written back at the exit as the old body leaves them. The operand clamps on raw loads (the point's,
+// the vertices' and the matrices' lanes: a caller's w may be unset) are kept (ps2VuOperand, PS2_V*'s own); the ones on
+// VU0 results (already clamped) are left out.
+namespace decomp_hot44a
+{
+    D1_COUNTER(c_d2MovedPoint, "manager_sub_01118B88");
+
+    // The VU0 / FPU registers the old body writes.
+    struct D2MvRegs
+    {
+        __m128 vf5, vf6, vf7, vf8, vf10, vf14, vf15, vf16, vf17, acc;
+        float f0, f1;
+        __m128i r2;
+        uint32_t fcr31;
+    };
+    PS2_FORCE_INLINE __m128 d2Op(__m128 v) { return ps2VuOperand(v); }
+    // transform(): vf8 the point, vf14 - vf17 the rows (raw, as loaded), ACC the first three products' sum, vf10.
+    PS2_FORCE_INLINE void d2MvXform(D2MvRegs &r, __m128 point, __m128 r0, __m128 r1, __m128 r2, __m128 r3)
+    {
+        r.vf8 = point;
+        r.vf14 = r0;
+        r.vf15 = r1;
+        r.vf16 = r2;
+        r.vf17 = r3;
+        const __m128 c = d2Op(point);
+        __m128 acc = d1::vmul(d2Op(r0), d1::bc<0>(c));
+        acc = d1::vadd(acc, d1::vmul(d2Op(r1), d1::bc<1>(c)));
+        acc = d1::vadd(acc, d1::vmul(d2Op(r2), d1::bc<2>(c)));
+        r.acc = acc;
+        r.vf10 = d1::vadd(acc, d1::vmul(d2Op(r3), d1::bc<3>(c)));
+    }
+    // squaredDistance(): vf5 / vf6 the two points (raw), vf7 the difference, its xyz squared, x summed; v0's 128 bits vf7.
+    PS2_FORCE_INLINE float d2MvSqDist(D2MvRegs &r, __m128 a, __m128 b)
+    {
+        r.vf5 = a;
+        r.vf6 = b;
+        __m128 v = d1::vsub(d2Op(a), d2Op(b));
+        v = d1::vsel(v, d1::vmul(v, v), d1::mask(1, 1, 1, 0));
+        v = d1::vsel(v, d1::vadd(v, d1::bc<1>(v)), d1::mask(1, 0, 0, 0));
+        v = d1::vsel(v, d1::vadd(v, d1::bc<2>(v)), d1::mask(1, 0, 0, 0));
+        r.vf7 = v;
+        std::memcpy(&r.r2, &v, 16);
+        return d1::lane<0>(v);
+    }
+
+    void movedPointD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On())
+            return movedPoint(rdram, ctx, runtime);
+        ++c_d2MovedPoint.n;
+        const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0xC0u;
+        const uint32_t out = GPR_U32(ctx, 4), id = GPR_U32(ctx, 5), point = GPR_U32(ctx, 6), which = GPR_U32(ctx, 7);
+        const d1::Mem mem{rdram};
+        // guest memory: main RAM through d1::Mem, anything else (never on the routes) through the runtime as before
+        auto w = [&](uint32_t a) -> uint32_t { return a < 0x02000000u - 4u ? mem.u32(a) : READ32(a); };
+        auto q = [&](uint32_t a) -> __m128 {
+            a &= ~0xFu;
+            return a < 0x02000000u - 16u ? mem.q(a) : _mm_castsi128_ps(READ128(a));
+        };
+        auto put = [&](uint32_t a, __m128 v)
+        {
+            a &= ~0xFu;
+            if (a < 0x02000000u - 16u)
+                mem.putq(a, v);
+            else
+                WRITE128(a, _mm_castps_si128(v));
+        };
+        auto u8 = [&](uint32_t a) -> uint32_t { return a < 0x02000000u - 1u ? mem.get<uint8_t>(a) : READ8(a); };
+        auto call = [&](uint32_t target, uint32_t ra) { callGuest(rdram, ctx, runtime, target, ra, sp); };
+        D2MvRegs r;
+        auto load = [&]()
+        {
+            r.vf5 = ctx->vu0_vf[5];
+            r.vf6 = ctx->vu0_vf[6];
+            r.vf7 = ctx->vu0_vf[7];
+            r.vf8 = ctx->vu0_vf[8];
+            r.vf10 = ctx->vu0_vf[10];
+            r.vf14 = ctx->vu0_vf[14];
+            r.vf15 = ctx->vu0_vf[15];
+            r.vf16 = ctx->vu0_vf[16];
+            r.vf17 = ctx->vu0_vf[17];
+            r.acc = ctx->vu0_acc;
+            r.f0 = ctx->f[0];
+            r.f1 = ctx->f[1];
+            r.r2 = ctx->r[2];
+            r.fcr31 = ctx->fcr31;
+        };
+        auto store = [&]()
+        {
+            ctx->vu0_vf[5] = r.vf5;
+            ctx->vu0_vf[6] = r.vf6;
+            ctx->vu0_vf[7] = r.vf7;
+            ctx->vu0_vf[8] = r.vf8;
+            ctx->vu0_vf[10] = r.vf10;
+            ctx->vu0_vf[14] = r.vf14;
+            ctx->vu0_vf[15] = r.vf15;
+            ctx->vu0_vf[16] = r.vf16;
+            ctx->vu0_vf[17] = r.vf17;
+            ctx->vu0_acc = r.acc;
+            ctx->f[0] = r.f0;
+            ctx->f[1] = r.f1;
+            ctx->r[2] = r.r2;
+            ctx->fcr31 = r.fcr31;
+        };
+        auto xform = [&](__m128 p, uint32_t m) { d2MvXform(r, p, q(m), q(m + 16u), q(m + 32u), q(m + 48u)); };
+        const uint64_t saved[10] = {GPR_U64(ctx, 16), GPR_U64(ctx, 17), GPR_U64(ctx, 18), GPR_U64(ctx, 19), GPR_U64(ctx, 20),
+                                    GPR_U64(ctx, 21), GPR_U64(ctx, 22), GPR_U64(ctx, 23), GPR_U64(ctx, 30), GPR_U64(ctx, 31)};
+        SET_GPR_U32(ctx, 29, sp);
+
+        const uint32_t a1 = w(id + 4u);
+        const uint32_t s3 = a1 & 0x00FFFFFFu;
+        const uint32_t s1 = (a1 >> 24) & 0x7Fu;
+        SET_GPR_U32(ctx, 4, w(id));
+        call(kLayoutClass, 0x01118BE4u);
+        const uint32_t cls = GPR_U32(ctx, 2);
+        uint32_t k = 0xFFFFFFFFu; // the frame's +0x54 word: v0
+        const uint32_t fp = w(cls + (which == 0u ? 0x170u : 0x16Cu));
+        if (static_cast<int32_t>(w(id + 4u)) < 0)
+        {
+            // Not skinned: the point through the part's matrix, v0 -1.
+            load();
+            xform(q(point), (s1 << 6) + fp);
+            put(out, r.vf10);
+        }
+        else
+        {
+            const uint32_t s2 = cls + 0x154u;
+            const uint32_t s1r = w(w(cls + 0x184u) + 0x20u);
+            const uint32_t a2 = w(s2 + 0x20u);
+            const uint32_t t1 = w(s1r + 8u);
+            k = 0u;
+            const uint32_t v1 = w(s1 * 144u + t1 + 0x54u);
+            const uint32_t t3 = w(s1r + 0x18u);
+            const uint32_t s0 = t3 + (w((s3 << 2) + v1) << 6);
+            SET_GPR_U32(ctx, 4, sp + 0x20u);
+            SET_GPR_U32(ctx, 5, 0u);
+            SET_GPR_U32(ctx, 6, a2 + 0x28u);
+            SET_GPR_U32(ctx, 7, w(a2 + 0x24u));
+            SET_GPR_U32(ctx, 8, w(s2 + 8u));
+            SET_GPR_U32(ctx, 9, t1);
+            SET_GPR_U32(ctx, 10, w(s1r + 0x14u));
+            SET_GPR_U32(ctx, 11, s0);
+            call(kVertices, 0x01118CACu);
+            load();
+            // The nearest of the three vertices (the fetcher's three pointers at sp + 0x20 / 0x24 / 0x28).
+            const uint32_t vert[3] = {w(sp + 0x20u), w(sp + 0x24u), w(sp + 0x28u)};
+            float f1 = d2MvSqDist(r, q(point), q(vert[0]));
+            r.f1 = f1;
+            float f0 = d2MvSqDist(r, q(point), q(vert[1]));
+            r.f0 = f0;
+            bool c = d1::lt(f0, f1);
+            if (c)
+            {
+                f1 = f0;
+                r.f1 = f1;
+                k = 1u;
+            }
+            f0 = d2MvSqDist(r, q(point), q(vert[2]));
+            r.f0 = f0;
+            c = d1::lt(f0, f1);
+            if (c)
+                k = 2u;
+            r.fcr31 = c ? (r.fcr31 | 0x800000u) : (r.fcr31 & ~0x800000u);
+            const uint32_t t2 = k << 3;
+            const uint32_t part = w(s0 + t2);
+            const __m128 vertex = q(vert[k]); // (the frame's sp + 0 copy)
+            __m128 moved;                     // (the frame's sp + 0x10)
+            if (part != 0xFFFFFFFFu)
+            {
+                xform(vertex, (part << 6) + fp);
+                moved = r.vf10;
+            }
+            else
+            {
+                // The weighted sum over the vertex's influences.
+                const uint32_t nodes = w(s2 + 0x20u);
+                const uint32_t s2b = w(s2 + 8u);
+                const uint32_t a1b = w(s1r + 0x14u);
+                const uint32_t idx = w(s0 + t2 + 4u);
+                const uint32_t a0b = w(nodes + 0x24u);
+                const uint32_t s1c = w(s1r + 8u);
+                const uint32_t list = w((idx << 2) + a1b);
+                uint32_t inf = list + 4u;
+                int32_t n = static_cast<int32_t>(w(list)) - 1;
+                moved = d1::vf0();
+                while (n != -1)
+                {
+                    const uint32_t node = w(inf);
+                    const uint32_t t1b = w(inf + 4u);
+                    const uint32_t t0 = node * 96u + a0b;
+                    const uint32_t flags = w(t0 + 8u) + t1b;
+                    const uint32_t posTable = w(node * 144u + s1c + 4u);
+                    const uint32_t s3b = node << 6;
+                    const uint32_t cacheAt = w(t0 + 0x14u) + (t1b << 4);
+                    const uint32_t src = (t1b << 4) + posTable;
+                    if (u8(flags) == 0u)
+                    {
+                        xform(q(src), s3b + s2b);
+                        put(cacheAt, r.vf10);
+                        SET_GPR_U32(ctx, 4, t0);
+                        SET_GPR_U32(ctx, 5, t1b);
+                        store();
+                        call(kEntryModified, 0x01118E9Cu);
+                        load();
+                    }
+                    xform(q(cacheAt), s3b + fp);
+                    const __m128 pos = r.vf10; // (the frame's sp + 0x30)
+                    r.vf5 = moved;
+                    r.vf6 = pos;
+                    // vadd.xyz (PS2_VADD's operand clamps: the identity on these VU0 results on the Vita, kept)
+                    moved = d1::vsel(moved, d1::vadd(d2Op(moved), d2Op(pos)), d1::mask(1, 1, 1, 0));
+                    r.vf5 = moved;
+                    --n;
+                    inf += 8u;
+                }
+            }
+            // out = point + (moved - vertex).
+            r.vf6 = vertex;
+            const __m128 diff = d1::vsel(moved, d1::vsub(d2Op(moved), d2Op(vertex)), d1::mask(1, 1, 1, 0));
+            r.vf6 = diff;
+            const __m128 pEnd = q(point); // (read again, as the old body does)
+            r.vf5 = d1::vsel(pEnd, d1::vadd(d2Op(pEnd), d2Op(diff)), d1::mask(1, 1, 1, 0));
+            put(out, r.vf5);
+        }
+        store();
+        SET_GPR_U32(ctx, 2, k);
+        SET_GPR_U64(ctx, 16, saved[0]);
+        SET_GPR_U64(ctx, 17, saved[1]);
+        SET_GPR_U64(ctx, 18, saved[2]);
+        SET_GPR_U64(ctx, 19, saved[3]);
+        SET_GPR_U64(ctx, 20, saved[4]);
+        SET_GPR_U64(ctx, 21, saved[5]);
+        SET_GPR_U64(ctx, 22, saved[6]);
+        SET_GPR_U64(ctx, 23, saved[7]);
+        SET_GPR_U64(ctx, 30, saved[8]);
+        SET_GPR_U64(ctx, 31, saved[9]);
+        SET_GPR_U32(ctx, 29, sp0);
+        returnTo(ctx);
+    }
+    void movedPointSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            movedPointD1(rdram, ctx, runtime);
+        else
+            movedPoint(rdram, ctx, runtime);
+    }
+}

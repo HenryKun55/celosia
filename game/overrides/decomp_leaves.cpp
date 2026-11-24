@@ -36,6 +36,7 @@
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "a9cmp.h"
 #include "s9rt.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -394,9 +395,114 @@ namespace decomp_leaves
 SOTC_DECOMP_FUNCTION(0x014274A8u, gamecore_sub_014274A8, decomp_leaves::cameraParamCopy);
 SOTC_DECOMP_FUNCTION(0x01160F68u, get_cur_camera_context, decomp_leaves::curCameraContext);
 SOTC_DECOMP_FUNCTION(0x0108F518u, iosgluGetCameraContext, decomp_leaves::gluCameraContext);
-SOTC_DECOMP_FUNCTION(0x001C0210u, iosDlPushLayer, decomp_leaves::pushLayer);
-SOTC_DECOMP_FUNCTION(0x001BF8C0u, iosDlPopLayer, decomp_leaves::popLayer);
+namespace decomp_leaves
+{
+    void pushLayerSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void popLayerSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x001C0210u, iosDlPushLayer, decomp_leaves::pushLayerSw);
+D1_ALIAS(0x001C0210u, iosDlPushLayer, decomp_leaves::pushLayerSw, decomp_leaves::pushLayer);
+SOTC_DECOMP_FUNCTION(0x001BF8C0u, iosDlPopLayer, decomp_leaves::popLayerSw);
+D1_ALIAS(0x001BF8C0u, iosDlPopLayer, decomp_leaves::popLayerSw, decomp_leaves::popLayer);
 SOTC_DECOMP_FUNCTION(0x001C5110u, spriteNoTexFast, decomp_leaves::sprite);
 SOTC_DECOMP_FLOAT_FUNCTION(0x001E0010u, floorf, decomp_leaves::floorF);
 SOTC_DECOMP_FUNCTION(0x00128E6Cu, strcmp, decomp_leaves::strCmp);
 SOTC_DECOMP_FUNCTION(0x001BE700u, iosFTOI4Vector, decomp_leaves::ftoi4);
+
+// ---- Round D2 (d1native, SOTC_D1NATIVE=1): the layer stack as typed cores ----------------------------------------------
+// iosDlPushLayer / iosDlPopLayer on d1::Mem: the depth, the saved layers and the display list's current layer / count
+// (all at fixed boot-ELF addresses in main RAM, apart: 0x1e10b0, 0x213308.., 0x2132d8..), the same stores in the same
+// order, the same registers at the exit. The old bodies' error cases (a full stack, a negative layer, an empty stack, a
+// negative saved layer) and a depth outside 0..0xff (the saved slot could leave main RAM) go to the old body before
+// anything is written. sotc_native's pushLayerHook / popLayerHook call these dispatchers (behindHook).
+// (iosgluGetCameraContext stays the old function: sotc_native's a10CamHookHolds and the typed adapters' A8_HOLDS test its
+// slot / hook target against &gluCameraContext itself.)
+namespace decomp_leaves
+{
+    D1_COUNTER(c_d2PushLayer, "iosDlPushLayer");
+    D1_COUNTER(c_d2PopLayer, "iosDlPopLayer");
+
+    struct LayerOut
+    {
+        uint32_t current; // push: the layer saved; pop: the word at the new top
+        int32_t depth;    // the depth after the call
+        uint32_t top;     // pop: the top slot's address
+    };
+
+    bool pushLayerCore(const d1::Mem m, int32_t layer, LayerOut &out)
+    {
+        const int32_t depth = m.s32(kDepth);
+        if (depth < 0 || depth + 1 >= 0x100 || layer < 0)
+            return false;
+        const uint32_t current = m.u32(kDl + 0x1Cu);
+        m.set<uint32_t>(kSaved + static_cast<uint32_t>(depth) * 4u, current);
+        m.set<uint32_t>(kDepth, static_cast<uint32_t>(depth + 1));
+        const int32_t count = m.s32(kDl + 0x14u);
+        const int32_t set = layer < count ? layer : count - 1;
+        m.set<uint32_t>(kDl + 0x1Cu, static_cast<uint32_t>(set));
+        out = {current, depth + 1, 0u};
+        return true;
+    }
+
+    bool popLayerCore(const d1::Mem m, LayerOut &out)
+    {
+        const int32_t depth = m.s32(kDepth) - 1;
+        if (depth < 0 || depth >= 0x100)
+            return false;
+        const uint32_t top = kSaved + static_cast<uint32_t>(depth) * 4u;
+        int32_t layer = m.s32(top);
+        if (layer < 0)
+            return false;
+        m.set<uint32_t>(kDepth, static_cast<uint32_t>(depth));
+        const int32_t count = m.s32(kDl + 0x14u);
+        if (!(layer < count))
+            layer = count - 1;
+        m.set<uint32_t>(kDl + 0x1Cu, static_cast<uint32_t>(layer));
+        out = {m.u32(top), depth, top};
+        return true;
+    }
+
+    void pushLayerD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2PushLayer.n;
+        const int32_t layer = GPR_S32(ctx, 4);
+        LayerOut r;
+        if (!sotc_decomp::leavesOn() || !pushLayerCore(d1::Mem{rdram}, layer, r))
+            return pushLayer(rdram, ctx, runtime);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(kDl));
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(kDepth));
+        SET_GPR_S32(ctx, 4, 0x001E0000);
+        SET_GPR_S32(ctx, 5, r.depth);
+        SET_GPR_S32(ctx, 6, layer);
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(r.current));
+        returnTo(ctx);
+    }
+
+    void popLayerD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d2PopLayer.n;
+        LayerOut r;
+        if (!sotc_decomp::leavesOn() || !popLayerCore(d1::Mem{rdram}, r))
+            return popLayer(rdram, ctx, runtime);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.current));
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(r.top));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(kDl));
+        returnTo(ctx);
+    }
+
+    void pushLayerSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            pushLayerD1(rdram, ctx, runtime);
+        else
+            pushLayer(rdram, ctx, runtime);
+    }
+
+    void popLayerSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            popLayerD1(rdram, ctx, runtime);
+        else
+            popLayer(rdram, ctx, runtime);
+    }
+}
