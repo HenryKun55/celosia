@@ -1,0 +1,19 @@
+celosia_k2:
+  attributes: 0
+  version:
+    major: 1
+    minor: 0
+  main:
+    start: module_start
+    stop: module_stop
+  libraries:
+    CelosiaK2:
+      syscall: true
+      nid: 0xC2C2C201
+      functions:
+        - celosiaK2Hello: 0xC2C20001
+        - celosiaK2PmuArm: 0xC2C20002
+        - celosiaK2PmuRead: 0xC2C20003
+        - celosiaK2Walk: 0xC2C20004
+        - celosiaK2Remap: 0xC2C20005
+        - celosiaK2Restore: 0xC2C20006

@@ -17,6 +17,9 @@
 #include <psp2/kernel/threadmgr.h>
 #include <taihen.h>
 #include "../../vita/k1/celosia_k1.h" // round K1: the kernel module's argument / result blocks
+#include "../../vita/k2/celosia_k2.h" // round K2: the resident module's syscall blocks
+#include <psp2/kernel/modulemgr.h>
+#include <psp2/power.h>
 // libgcc's ARM EHABI unwinder (the SDK ships no unwind.h).
 extern "C"
 {
@@ -272,15 +275,9 @@ namespace k1
             g_path[n++] = *q;
         g_path[n] = 0;
     }
-    // At boot (before libc): the switches; with SOTC_K1 / SOTC_K1RAM one load for PMU / RAM / CP15. Returns the guest
-    // RAM block's base when SOTC_K1RAM gave one.
-    void *boot()
+    // SOTC_K1_EVENTS=e0,...,e5 (K1 and K2)
+    void parseEvents()
     {
-        g_on = bootenv::on("SOTC_K1=");
-        g_ramOn = bootenv::on("SOTC_K1RAM=");
-        g_probeOn = bootenv::on("SOTC_K1PROBE=");
-        if (!g_on && !g_ramOn)
-            return nullptr;
         char v[96];
         if (bootenv::get("SOTC_K1_EVENTS=", v, sizeof(v)))
         {
@@ -298,6 +295,18 @@ namespace k1
             g_events = ev[0] | ev[1] << 8 | ev[2] << 16 | ev[3] << 24;
             g_eventsHi = ev[4] | ev[5] << 8;
         }
+    }
+    // At boot (before libc): the switches; with SOTC_K1 / SOTC_K1RAM one load for PMU / RAM / CP15. Returns the guest
+    // RAM block's base when SOTC_K1RAM gave one.
+    void *boot()
+    {
+        g_on = bootenv::on("SOTC_K1=");
+        g_ramOn = bootenv::on("SOTC_K1RAM=");
+        g_probeOn = bootenv::on("SOTC_K1PROBE=");
+        if (!g_on && !g_ramOn)
+            return nullptr;
+        char v[96];
+        parseEvents();
         if (bootenv::get("SOTC_K1RAM_TYPES=", v, sizeof(v)))
         {
             const char *s = v;
@@ -342,9 +351,130 @@ namespace k1
         return nullptr;
     }
 }
+// Round K2 (docs/decomp_k2.md; SOTC_K2=1 / SOTC_K2REMAP=... in env.txt, off by default): the resident kernel module
+// celosia_k2.skprx (vita/k2/celosia_k2.c) and its user bridge celosia_k2u.suprx, both packed in module/. K1 learned on
+// the console that the kernel keeps the PMU registers per thread (PMUSERENR / PMCR / the counters are part of each
+// thread's saved context), so K1's per-core setup never reached the game thread; K2's module stays loaded and the game
+// thread asks it, through syscalls, to program and read the counters in its own context.
+//   SOTC_K2=1        boot: the module + the bridge; first frame: the process's own translation tables walked
+//                    ("[k2] walk": 4 KB / 64 KB / 1 MB per region), the PMU on the game thread ("[k2] pmu": what a
+//                    thread switch keeps), the TLB probes with these counters; with SOTC_M1PMU=<n> M1's "[m1pmu]"
+//                    lines from them (read in the kernel every frame, re-armed if a frame finds them gone).
+//   SOTC_K2REMAP=ram|text|ram,text  boot (implies SOTC_K2): the guest RAM (M1's own 33 MB block, taken for it) and / or
+//                    the eboot's text re-mapped with 1 MB sections where their 4 KB / 64 KB pages allow it (same PA and
+//                    attributes, every chunk verified, any failure undone); the module puts the original entries back
+//                    when the game exits or is killed. SOTC_K2REMAP_DRY=1: check only, change nothing.
+//   SOTC_K1_EVENTS   the six events, as K1.
+// Read at boot only. Vita3K never runs the module (no answer): the bridge is never loaded there and K2 is off.
+namespace k2
+{
+    bool g_on = false;       // any K2 switch
+    uint32_t g_remapOps = 0; // 1: guest RAM, 2: text
+    bool g_dry = false;
+    bool g_ok = false; // module answered + bridge + hello
+    K2Bridge g_br;
+    K2StartRes g_start;
+    uint32_t g_nonce = 0;
+    int g_load = 0, g_startRc = 0, g_startRes = -1, g_bridge = 0, g_bridgeStatus = -1, g_hello = 0;
+    uint32_t g_hello4[4];
+    char g_path[96], g_upath[96];
+    K2Remap g_remapRam, g_remapText;
+    int g_remapRamRc = 1, g_remapTextRc = 1; // 1: not tried
+    uint32_t g_textVa = 0, g_textSize = 0;
+    void paths()
+    {
+        if (!bootenv::get("SOTC_K2_PATH=", g_path, sizeof(g_path)) || !g_path[0])
+        {
+            // k1::path() gives ux0:app/<title id>/module/celosia_k1.skprx: the same with k2
+            k1::path();
+            int n = 0;
+            for (; k1::g_path[n] && n < static_cast<int>(sizeof(g_path)) - 1; ++n)
+                g_path[n] = k1::g_path[n];
+            g_path[n] = 0;
+            for (int i = 0; i + 1 < n; ++i)
+                if (g_path[i] == 'k' && g_path[i + 1] == '1')
+                    g_path[i + 1] = '2';
+        }
+        const char *u = "app0:module/celosia_k2u.suprx";
+        int n = 0;
+        for (; u[n]; ++n)
+            g_upath[n] = u[n];
+        g_upath[n] = 0;
+    }
+    void bridge()
+    {
+        std::memset(&g_br, 0, sizeof(g_br));
+        K2Bridge *bp = &g_br;
+        g_bridge = sceKernelLoadStartModule(g_upath, sizeof(bp), &bp, 0, nullptr, &g_bridgeStatus);
+        if (g_bridge < 0 || g_br.magic != K2_BRIDGE_MAGIC || g_br.version != K2_VERSION || !g_br.hello)
+            return;
+        std::memset(g_hello4, 0, sizeof(g_hello4));
+        g_hello = g_br.hello(g_nonce, g_hello4);
+        g_ok = g_hello >= 0 && g_hello4[0] == (K2_RES_MAGIC ^ g_nonce) && g_hello4[1] == K2_VERSION;
+    }
+    // At boot (before libc), from __wrap__init_vita_heap.
+    void boot()
+    {
+        g_on = bootenv::on("SOTC_K2=");
+        char v[32];
+        if (bootenv::get("SOTC_K2REMAP=", v, sizeof(v)))
+            for (int i = 0; v[i]; ++i)
+            {
+                if (v[i] == 'r' && v[i + 1] == 'a' && v[i + 2] == 'm')
+                    g_remapOps |= 1u;
+                if (v[i] == 't' && v[i + 1] == 'e' && v[i + 2] == 'x' && v[i + 3] == 't')
+                    g_remapOps |= 2u;
+            }
+        g_dry = bootenv::on("SOTC_K2REMAP_DRY=");
+        g_on = g_on || g_remapOps;
+        if (!g_on)
+            return;
+        k1::parseEvents();
+        paths();
+        g_nonce = (static_cast<uint32_t>(sceKernelGetProcessTimeWide()) * 2246822519u) | 1u;
+        K2Start a;
+        std::memset(&a, 0, sizeof(a));
+        std::memset(&g_start, 0, sizeof(g_start));
+        a.magic = K2_MAGIC;
+        a.version = K2_VERSION;
+        a.nonce = g_nonce;
+        a.result_va = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&g_start));
+        // Two steps as K1 (Vita3K's taiLoadStartKernelModule HLE hangs; its taiStartKernelModule never runs the module).
+        g_load = taiLoadKernelModule(g_path, 0, nullptr);
+        if (g_load >= 0)
+        {
+            g_startRc = taiStartKernelModule(g_load, sizeof(a), &a, 0, nullptr, &g_startRes);
+            const volatile uint32_t *m = &g_start.magic, *n = &g_start.nonce;
+            if (*m == K2_RES_MAGIC && *n == g_nonce && g_start.version == K2_VERSION)
+                bridge();
+        }
+        else
+            bridge(); // the console only (Vita3K's load succeeds): a K2 module left resident by an earlier, killed run
+    }
+    void remapText()
+    {
+        if (!g_ok || !(g_remapOps & 2u))
+            return;
+        SceKernelMemBlockInfo info;
+        std::memset(&info, 0, sizeof(info));
+        info.size = sizeof(info);
+        if (sceKernelGetMemBlockInfoByAddr(reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(&remapText) & ~static_cast<uintptr_t>(1)), &info) < 0)
+            return;
+        g_textVa = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info.mappedBase));
+        g_textSize = static_cast<uint32_t>(info.mappedSize);
+        g_remapTextRc = g_br.remap(g_textVa, g_textSize, K2_REMAP_TEXT | (g_dry ? K2_REMAP_DRYRUN : 0u), &g_remapText);
+    }
+    void remapRam(void *block, uint32_t bytes)
+    {
+        if (!g_ok || !(g_remapOps & 1u) || !block)
+            return;
+        g_remapRamRc = g_br.remap(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(block)), bytes, g_dry ? K2_REMAP_DRYRUN : 0u, &g_remapRam);
+    }
+}
 extern "C" void __wrap__init_vita_heap(void)
 {
     void *k1base = k1::boot();
+    k2::boot(); // round K2: nothing unless SOTC_K2 / SOTC_K2REMAP
     if (k1base && !(_newlib_heap_size_user > m1ram::kBlockBytes + (64u << 20)))
     {
         sceKernelFreeMemBlock(k1::g_res.ram_uid); // (never with the 176 MB heap)
@@ -357,7 +487,7 @@ extern "C" void __wrap__init_vita_heap(void)
         ps2x_m1_guest_block_aligned = 2;
         _newlib_heap_size_user -= m1ram::kBlockBytes;
     }
-    else if (bootenv::on("SOTC_M1RAM=") && _newlib_heap_size_user > m1ram::kBlockBytes + (64u << 20))
+    else if ((bootenv::on("SOTC_M1RAM=") || (k2::g_ok && (k2::g_remapOps & 1u))) && _newlib_heap_size_user > m1ram::kBlockBytes + (64u << 20))
     {
         SceKernelAllocMemBlockOpt opt;
         std::memset(&opt, 0, sizeof(opt));
@@ -376,6 +506,10 @@ extern "C" void __wrap__init_vita_heap(void)
             _newlib_heap_size_user -= m1ram::kBlockBytes;
         }
     }
+    // Round K2: the re-maps, while this is the only thread of the process (nothing else touches these pages yet).
+    if (ps2x_m1_guest_block && ps2x_m1_guest_block_aligned)
+        k2::remapRam(ps2x_m1_guest_block, ps2x_m1_guest_block_bytes);
+    k2::remapText();
     __real__init_vita_heap();
 }
 
@@ -1182,6 +1316,24 @@ namespace k1probe
         return s;
     }
     volatile uint32_t g_sink;
+    // Round K2: the counters read through the K2 module (in the kernel, this thread's core) instead of in user mode.
+    int (*g_k2read)(K2Pmu *) = nullptr;
+    void snap(uint32_t *c, uint32_t &y)
+    {
+        if (g_k2read)
+        {
+            K2Pmu p;
+            std::memset(&p, 0, sizeof(p));
+            g_k2read(&p);
+            for (uint32_t k = 0; k < 4; ++k)
+                c[k] = p.cnt[k];
+            y = p.ccnt;
+            return;
+        }
+        for (uint32_t k = 0; k < 4; ++k)
+            c[k] = k1pmu::counter(k);
+        y = k1pmu::cycles();
+    }
     // stride 4 KB / 64 KB with a cache line's shift per load (lineStep 64); C: stride 16, no shift (4 KB, one page).
     Out run(const uint8_t *base, uint32_t stride, uint32_t lineStep, bool pmu)
     {
@@ -1189,20 +1341,17 @@ namespace k1probe
         g_sink += walk(base, stride, lineStep, 1);
         uint32_t c0[4] = {}, y0 = 0;
         if (pmu)
-        {
-            for (uint32_t k = 0; k < 4; ++k)
-                c0[k] = k1pmu::counter(k);
-            y0 = k1pmu::cycles();
-        }
+            snap(c0, y0);
         const uint64_t t0 = sceKernelGetProcessTimeWide();
         g_sink += walk(base, stride, lineStep, kPasses);
         const uint64_t t1 = sceKernelGetProcessTimeWide();
         const double n = static_cast<double>(kTouches) * kPasses;
         if (pmu)
         {
-            const uint32_t y1 = k1pmu::cycles();
+            uint32_t c1[4] = {}, y1 = 0;
+            snap(c1, y1);
             for (uint32_t k = 0; k < 4; ++k)
-                o.ev[k] = static_cast<uint32_t>(k1pmu::counter(k) - c0[k]) / n;
+                o.ev[k] = static_cast<uint32_t>(c1[k] - c0[k]) / n;
             o.cyc = static_cast<uint32_t>(y1 - y0) / n;
         }
         o.ns = static_cast<double>(t1 - t0) * 1000.0 / n;
@@ -1228,8 +1377,10 @@ namespace k1probe
 }
 
 // Round K1: the boot load's answer in err.txt (ps2_memory.cpp calls this after its "[mem] guest RAM" line: libc is up).
+extern "C" void ps2x_k2_boot_log();
 extern "C" void ps2x_k1_boot_log()
 {
+    ps2x_k2_boot_log(); // round K2
     using namespace k1;
     static bool logged = false;
     if ((!g_on && !g_ramOn) || logged)
@@ -1359,6 +1510,249 @@ extern "C" bool ps2x_k1_first_frame(unsigned long long frame)
     return pmu;
 }
 
+// Round K2: the boot's answers (from ps2x_k1_boot_log: libc is up).
+namespace k2
+{
+    const char *kindName(int k)
+    {
+        switch (k)
+        {
+        case K2_PAGE_FAULT: return "unmapped";
+        case K2_PAGE_4K: return "4 KB";
+        case K2_PAGE_64K: return "64 KB";
+        case K2_PAGE_1M: return "1 MB section";
+        case K2_PAGE_16M: return "16 MB supersection";
+        case K2_PAGE_TABLE_UNREADABLE: return "table not readable";
+        default: return "?";
+        }
+    }
+    const char *howName(int h)
+    {
+        return h == K2_HOW_IDENTITY ? "identity" : h == K2_HOW_LINEAR ? "kernel linear map" : h == K2_HOW_ALIAS ? "alias" : "none";
+    }
+    void logRemap(const char *what, int rc, const K2Remap &r)
+    {
+        if (rc == 1)
+            return;
+        std::fprintf(stderr, "[k2] remap %s 0x%08x + %u KB%s: rc %d, 1 MB chunks %u, eligible %u, now sections %u (skipped: not a page table %u, "
+                             "L2 unreadable %u, not one aligned run %u, mixed attributes %u, full %u); table access %s PAR %08x; sample L1 %08x -> %08x "
+                             "(L2 %08x); held %u; first failed check va %08x got %08x want %08x rc %d\n",
+                     what, static_cast<unsigned>(r.va), static_cast<unsigned>(r.size >> 10), g_dry ? " (dry run)" : "", rc,
+                     static_cast<unsigned>(r.chunks), static_cast<unsigned>(r.eligible), static_cast<unsigned>(r.done),
+                     static_cast<unsigned>(r.skip_notcoarse), static_cast<unsigned>(r.skip_l2), static_cast<unsigned>(r.skip_contig),
+                     static_cast<unsigned>(r.skip_attr), static_cast<unsigned>(r.skip_full), howName(r.how), static_cast<unsigned>(r.l1_par),
+                     static_cast<unsigned>(r.sample_l1_old), static_cast<unsigned>(r.sample_l1_new), static_cast<unsigned>(r.sample_l2),
+                     static_cast<unsigned>(r.held), static_cast<unsigned>(r.verify_va), static_cast<unsigned>(r.verify_got),
+                     static_cast<unsigned>(r.verify_want), static_cast<int>(r.verify_rc));
+    }
+}
+extern "C" void ps2x_k2_boot_log()
+{
+    using namespace k2;
+    static bool logged = false;
+    if (!g_on || logged)
+        return;
+    logged = true;
+    std::fprintf(stderr, "[k2] load %s: taiLoadKernelModule 0x%08x, taiStartKernelModule 0x%08x, module_start %d, answer %s (instance %08x, "
+                         "process-event handler 0x%08x); bridge %s: 0x%08x status %d; hello 0x%08x held %u: %s\n",
+                 g_path, static_cast<unsigned>(g_load), static_cast<unsigned>(g_startRc), g_startRes,
+                 g_start.magic == K2_RES_MAGIC && g_start.nonce == g_nonce ? "yes" : "no", static_cast<unsigned>(g_start.instance),
+                 static_cast<unsigned>(g_start.procevent_rc), g_upath, static_cast<unsigned>(g_bridge), g_bridgeStatus,
+                 static_cast<unsigned>(g_hello), static_cast<unsigned>(g_hello4[3]),
+                 g_ok ? "K2 on" : "K2 off (no answer: Vita3K / not found / unsafe homebrew off), the game as without it");
+    logRemap("guest RAM", g_remapRamRc, g_remapRam);
+    logRemap("text", g_remapTextRc, g_remapText);
+    if ((g_remapOps & 1u) && g_remapRamRc == 1)
+        std::fprintf(stderr, "[k2] remap guest RAM: not tried (%s)\n", !g_ok ? "K2 off" : "no own 1 MB-aligned block");
+}
+
+// Round K2, first frame (game thread, from m1pmu::start): the walk, the PMU's behaviour across a thread switch, the
+// probes with K2's counters. Returns true when the per-frame counters can run (SOTC_M1PMU then counts through K2).
+namespace k2
+{
+    struct Region
+    {
+        const char *name;
+        uint32_t va, size;
+    };
+    void walkRegion(const Region &g)
+    {
+        // every MB (at most 96) and the first MB's 16 64 KB steps: how many of each mapping size
+        uint32_t va[128];
+        uint32_t n = 0;
+        for (uint32_t off = 0; off < g.size && n < 96u; off += 0x100000u)
+            va[n++] = g.va + off;
+        for (uint32_t off = 0x10000u; off < 0x100000u && off < g.size && n < 128u; off += 0x10000u)
+            va[n++] = g.va + off;
+        uint32_t count[7] = {}, mismatch = 0;
+        K2Walk w;
+        K2WalkEnt first{};
+        bool haveFirst = false;
+        int how = 0;
+        uint32_t l1par = 0;
+        for (uint32_t i = 0; i < n; i += K2_WALK_MAX)
+        {
+            const uint32_t m = n - i < K2_WALK_MAX ? n - i : K2_WALK_MAX;
+            std::memset(&w, 0, sizeof(w));
+            if (g_br.walk(&va[i], m, &w) < 0)
+                break;
+            how = w.how;
+            l1par = w.l1_par;
+            if (i == 0u && g.name[0] == 't')
+                std::fprintf(stderr, "[k2] walk: TTBCR %08x TTBR0 %08x TTBR1 %08x CONTEXTIDR %08x SCTLR %08x; L1 table read through %s at 0x%08x "
+                                     "(write PAR %08x); module data VA %08x PA %08x\n",
+                             static_cast<unsigned>(w.ttbcr), static_cast<unsigned>(w.ttbr0), static_cast<unsigned>(w.ttbr1),
+                             static_cast<unsigned>(w.contextidr), static_cast<unsigned>(w.sctlr), howName(w.how), static_cast<unsigned>(w.l1_kva),
+                             static_cast<unsigned>(w.l1_par), static_cast<unsigned>(w.mod_va), static_cast<unsigned>(w.mod_pa));
+            for (uint32_t k = 0; k < m && k < w.nent; ++k)
+            {
+                const K2WalkEnt &e = w.ent[k];
+                const int idx = e.kind >= 0 && e.kind <= 4 ? e.kind : 5;
+                ++count[idx];
+                if (e.kind > 0 && (e.sys_rc < 0 || e.pa_walk != e.pa_sys))
+                    ++mismatch;
+                if (!haveFirst)
+                {
+                    first = e;
+                    haveFirst = true;
+                }
+            }
+        }
+        std::fprintf(stderr, "[k2] walk %s 0x%08x + %u KB (%u samples: every MB + 64 KB steps in the first): 1 MB sections %u, 64 KB pages %u, "
+                             "4 KB pages %u, 16 MB %u, unmapped %u, unreadable %u; walk PA != system PA %u; first: L1 %08x L2 %08x PA %08x/%08x "
+                             "user PAR %08x (%s); access %s, PAR %08x\n",
+                     g.name, static_cast<unsigned>(g.va), static_cast<unsigned>(g.size >> 10), static_cast<unsigned>(n), count[K2_PAGE_1M],
+                     count[K2_PAGE_64K], count[K2_PAGE_4K], count[K2_PAGE_16M], count[K2_PAGE_FAULT], count[5], mismatch,
+                     static_cast<unsigned>(first.l1), static_cast<unsigned>(first.l2), static_cast<unsigned>(first.pa_walk),
+                     static_cast<unsigned>(first.pa_sys), static_cast<unsigned>(first.par), kindName(first.kind), howName(how),
+                     static_cast<unsigned>(l1par));
+    }
+    void pmuLine(const char *tag, const K2Pmu &p)
+    {
+        std::fprintf(stderr, " %s: cpu %u PMCR %08x USERENR %x CNTENSET %08x INTENSET %08x events %02x %02x %02x %02x %02x %02x cycles %u",
+                     tag, static_cast<unsigned>(p.cpu), static_cast<unsigned>(p.pmcr), static_cast<unsigned>(p.userenr),
+                     static_cast<unsigned>(p.cntenset), static_cast<unsigned>(p.intenset), static_cast<unsigned>(p.evtype[0] & 0xFFu),
+                     static_cast<unsigned>(p.evtype[1] & 0xFFu), static_cast<unsigned>(p.evtype[2] & 0xFFu), static_cast<unsigned>(p.evtype[3] & 0xFFu),
+                     static_cast<unsigned>(p.evtype[4] & 0xFFu), static_cast<unsigned>(p.evtype[5] & 0xFFu), static_cast<unsigned>(p.ccnt));
+    }
+    uint32_t g_cpu = 0;
+    // Programmed the way we asked (enabled, six + cycle counters on, our events, same core)?
+    bool intact(const K2Pmu &p, uint32_t lo, uint32_t hi)
+    {
+        if (!(p.pmcr & 1u) || (p.cntenset & 0x8000003Fu) != 0x8000003Fu || p.cpu != g_cpu)
+            return false;
+        for (uint32_t k = 0; k < 6u; ++k)
+            if ((p.evtype[k] & 0xFFu) != (k < 4u ? (lo >> (8u * k)) & 0xFFu : (hi >> (8u * (k - 4u))) & 0xFFu))
+                return false;
+        return true;
+    }
+    bool g_pmuOk = false;
+}
+extern "C" bool ps2x_k2_first_frame(unsigned long long frame)
+{
+    using namespace k2;
+    if (!g_ok)
+        return false;
+    // 1) the walk
+    Region reg[4];
+    int nreg = 0;
+    SceKernelMemBlockInfo info;
+    std::memset(&info, 0, sizeof(info));
+    info.size = sizeof(info);
+    if (sceKernelGetMemBlockInfoByAddr(reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(&ps2x_k2_first_frame) & ~static_cast<uintptr_t>(1)), &info) >= 0)
+        reg[nreg++] = {"text", static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info.mappedBase)), static_cast<uint32_t>(info.mappedSize)};
+    if (ps2x_k1_guest_ram)
+        reg[nreg++] = {"guest RAM", static_cast<uint32_t>(reinterpret_cast<uintptr_t>(ps2x_k1_guest_ram)), 32u << 20};
+    void *heapPtr = std::malloc(64);
+    std::memset(&info, 0, sizeof(info));
+    info.size = sizeof(info);
+    if (heapPtr && sceKernelGetMemBlockInfoByAddr(heapPtr, &info) >= 0)
+        reg[nreg++] = {"heap", static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info.mappedBase)), static_cast<uint32_t>(info.mappedSize)};
+    std::free(heapPtr);
+    uint32_t local = 0;
+    reg[nreg++] = {"game thread stack", static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&local)) & ~0xFFFu, 0x1000u};
+    const uint64_t tw0 = sceKernelGetProcessTimeWide();
+    for (int i = 0; i < nreg; ++i)
+        walkRegion(reg[i]);
+    std::fprintf(stderr, "[k2] frame %llu: walk took %.1f ms\n", frame, static_cast<double>(sceKernelGetProcessTimeWide() - tw0) / 1000.0);
+    // 2) the PMU on this (the game) thread: armed in its own context, then read straight away and after a 2 ms sleep
+    // (other threads run on the core meanwhile): what the thread switch keeps.
+    const uint32_t lo = k1::g_events, hi = k1::g_eventsHi;
+    K2Pmu ab[2], r0, r1;
+    std::memset(ab, 0, sizeof(ab));
+    std::memset(&r0, 0, sizeof(r0));
+    std::memset(&r1, 0, sizeof(r1));
+    const int arm = g_br.pmuArm(lo, hi, K2_ARM_RESET | K2_ARM_USERENR, ab);
+    g_br.pmuRead(&r0);
+    const uint32_t u0 = k1pmu::userenr(); // the console allows this read at PL0; never reached in Vita3K (no module)
+    const uint64_t t0 = sceKernelGetProcessTimeWide();
+    sceKernelDelayThread(2000);
+    const uint64_t t1 = sceKernelGetProcessTimeWide();
+    g_br.pmuRead(&r1);
+    const uint32_t u1 = k1pmu::userenr();
+    g_cpu = ab[1].cpu;
+    const int mhz = scePowerGetArmClockFrequency();
+    const double coreCyc = static_cast<double>(t1 - t0) * (mhz > 0 ? mhz : 444);
+    const bool kept = intact(r1, lo, hi);
+    std::fprintf(stderr, "[k2] pmu frame %llu: arm 0x%08x |", frame, static_cast<unsigned>(arm));
+    pmuLine("before", ab[0]);
+    pmuLine("| armed", ab[1]);
+    pmuLine("| read", r0);
+    pmuLine("| after a 2 ms sleep", r1);
+    std::fprintf(stderr, " | user-mode PMUSERENR %x -> %x | %s; cycles over the sleep %u = %.2f of the core's %.0f (%d MHz): %s\n",
+                 static_cast<unsigned>(u0), static_cast<unsigned>(u1), kept ? "kept across the switch" : "LOST across the switch (re-armed per frame)",
+                 static_cast<unsigned>(r1.ccnt - r0.ccnt), static_cast<double>(static_cast<uint32_t>(r1.ccnt - r0.ccnt)) / coreCyc, coreCyc, mhz,
+                 static_cast<uint32_t>(r1.ccnt - r0.ccnt) < coreCyc * 0.2 ? "per-thread counters (stopped while this thread slept)" : "core-wide counters");
+    g_pmuOk = arm >= 0 && intact(ab[1], lo, hi);
+    // 3) the TLB probes with these counters (counters 0-3: dTLB refill / d main-TLB stall / dcache refill / dcache access)
+    if (g_pmuOk)
+    {
+        const uint32_t plo = 0x04038305u;
+        g_br.pmuArm(plo, hi, 0u, ab);
+        k1probe::g_k2read = g_br.pmuRead;
+        for (int i = 0; i < nreg - 1; ++i)
+            k1probe::probe(reg[i].name, reinterpret_cast<const void *>(static_cast<uintptr_t>(reg[i].va)), reg[i].size, true);
+        k1probe::g_k2read = nullptr;
+        g_br.pmuArm(lo, hi, K2_ARM_RESET, ab);
+    }
+    return g_pmuOk;
+}
+// Per frame (mode 3 of m1pmu): read in the kernel; a frame whose counters are not as armed is not counted, and they are
+// armed again.
+namespace k2
+{
+    K2Pmu g_prev;
+    unsigned g_lost = 0, g_valid = 0;
+    bool g_havePrev = false;
+    bool tick(uint64_t *sum, uint64_t &sumCyc)
+    {
+        K2Pmu p;
+        if (g_br.pmuRead(&p) < 0)
+            return false;
+        const uint32_t lo = k1::g_events, hi = k1::g_eventsHi;
+        if (intact(p, lo, hi) && g_havePrev)
+        {
+            for (int k = 0; k < 6; ++k)
+                sum[k] += static_cast<uint32_t>(p.cnt[k] - g_prev.cnt[k]);
+            sumCyc += static_cast<uint32_t>(p.ccnt - g_prev.ccnt);
+            ++g_valid;
+            g_prev = p;
+            return true;
+        }
+        if (!intact(p, lo, hi))
+        {
+            ++g_lost;
+            K2Pmu ab[2];
+            if (g_br.pmuArm(lo, hi, 0u, ab) < 0)
+                return false;
+            p = ab[1];
+        }
+        g_prev = p;
+        g_havePrev = true;
+        return true;
+    }
+}
+
 // Round M1 (SOTC_M1PMU=<n>, off by default): the Cortex-A9's performance counters on the game thread, if this firmware
 // lets a game read them. At the first call (sotc_native's endFrame, the game thread): PMUSERENR (readable at PL0 on
 // ARMv7: bit 0 says whether user code may read the counters itself), then ScePerf (libperf, loaded with
@@ -1384,10 +1778,26 @@ namespace m1pmu
     {
         const char *e = std::getenv("SOTC_M1PMU");
         g_every = e ? static_cast<unsigned>(std::atoi(e)) : 0u;
+        const bool k2counting = ps2x_k2_first_frame(frame); // round K2: walk, PMU on this thread, probes
         const bool k1counting = ps2x_k1_first_frame(frame); // round K1: layouts + probes; true: the counters are ours
         if (!g_every)
             return false;
-        if (k1counting)
+        if (k2counting)
+        {
+            for (int i = 0; i < kN; ++i)
+                g_sum[i] = 0u;
+            g_sumCyc = 0u;
+            k2::g_havePrev = false;
+            k2::tick(g_sum, g_sumCyc);
+            k2::g_valid = k2::g_lost = 0u;
+            g_t0 = sceKernelGetProcessTimeWide();
+            g_f0 = frame;
+            g_mode = 3;
+            std::fprintf(stderr, "[m1pmu] frame %llu: counting with K2's counters on the game thread (events %s / %s / %s / %s / %s / %s + cycles)\n", frame,
+                         k1pmu::name(0), k1pmu::name(1), k1pmu::name(2), k1pmu::name(3), k1pmu::name(4), k1pmu::name(5));
+            return true;
+        }
+        if (k1counting && !k2::g_ok)
         {
             for (int i = 0; i < kN; ++i)
                 g_sum[i] = 0u;
@@ -1448,7 +1858,16 @@ extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
         return;
     }
     uint32_t cyc = 0u;
-    if (g_mode == 2)
+    if (g_mode == 3)
+    {
+        if (!k2::tick(g_sum, g_sumCyc))
+        {
+            std::fprintf(stderr, "[m1pmu] frame %llu: K2 counters unreadable: off\n", frame);
+            g_state = -1;
+            return;
+        }
+    }
+    else if (g_mode == 2)
     {
         // Round K1: the counters themselves. PMUSERENR is checked first every frame: a core reset (suspend / resume)
         // clears it, and a counter read without it would be an undefined instruction.
@@ -1486,7 +1905,19 @@ extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
         return;
     const uint64_t t = sceKernelGetProcessTimeWide();
     const double dn = static_cast<double>(n);
-    if (g_mode == 2)
+    if (g_mode == 3)
+    {
+        const double dv = k2::g_valid ? static_cast<double>(k2::g_valid) : 1.0;
+        const double ms = static_cast<double>(t - g_t0) / 1000.0 / dn;
+        const int mhz = scePowerGetArmClockFrequency();
+        std::fprintf(stderr, "[m1pmu] frames %llu-%llu (%.2f ms/frame wall): per frame %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f, cycles %.0f "
+                             "(= %.1f ms at %d MHz) (k2, game thread; %u of %llu frames counted, %u re-armed)\n",
+                     g_f0, frame, ms, k1pmu::name(0), g_sum[0] / dv, k1pmu::name(1), g_sum[1] / dv, k1pmu::name(2), g_sum[2] / dv, k1pmu::name(3),
+                     g_sum[3] / dv, k1pmu::name(4), g_sum[4] / dv, k1pmu::name(5), g_sum[5] / dv, static_cast<double>(g_sumCyc) / dv,
+                     mhz > 0 ? static_cast<double>(g_sumCyc) / dv / (mhz * 1000.0) : 0.0, mhz, k2::g_valid, n, k2::g_lost);
+        k2::g_valid = k2::g_lost = 0u;
+    }
+    else if (g_mode == 2)
         std::fprintf(stderr, "[m1pmu] frames %llu-%llu (%.2f ms/frame wall): per frame %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f, cycles %.0f (k1, core 0 counters)\n",
                      g_f0, frame, static_cast<double>(t - g_t0) / 1000.0 / dn, k1pmu::name(0), g_sum[0] / dn, k1pmu::name(1), g_sum[1] / dn,
                      k1pmu::name(2), g_sum[2] / dn, k1pmu::name(3), g_sum[3] / dn, k1pmu::name(4), g_sum[4] / dn, k1pmu::name(5), g_sum[5] / dn,
