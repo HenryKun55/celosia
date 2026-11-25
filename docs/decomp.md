@@ -24363,3 +24363,22 @@ game thread saw `PMUSERENR here off` (probes 0.0 cycles). Nothing changes a comp
 - **Checks**: spalign 0 of 2 430; ELF room 122 880; no overlap. 89 MB ride7 boots 600 s: off (no `[k2]` / `[k1]` line; mounted
   5 513, to 18 918), K2 + K2REMAP=ram,text + M1PMU + K1 (no answer in Vita3K, bridge never loaded, clean fallback; mounted 4 221,
   to 18 078); pictures normal. Console runs pending (README: env-k2-pmu first, then dry, m1ram, remap-ram, remap-all, tlbstall, off).
+
+## Decomp D3: 64 more hand natives' native C++ bodies, 20 D1 / D2 partials made full; the difftest's ride7 (2026-11-25)
+
+docs/decomp_d3.md (method: docs/decomp_d1.md / decomp_d2.md; same switch d1native, off by default).
+
+- **Bodies**: 64 new natives (56 full, 8 partial; 7.3% of the console game thread: GetMotionMatrix, GetMotionFloatFrameNoCaribration,
+  charaLinks, the controlDef condition, 010AC4A0, the collision leaves, spring3D, light blend / cube / inverse, VRAM / letter / script /
+  reloc leaves ...) and **20 D1 / D2 partials made full** (5.5%: their blocking guest calls now go to D cores or rounds A1-A14's typed
+  functions, the callees' register leftovers carried in state structs). D1 + D2 + D3: 175 natives, 139 full. Alias table 512 slots.
+- **Count**: (d) 4 578 (50.73%), 25.00% of the bytes, **41.33% of the console time** (D2: 30.07%).
+- **Harness**: `SOTC_FIXED_STEP` (on under SOTC_DIFFTEST: the game's frameRateMode 1/30 s step) and `SOTC_DIFFTEST_KEEP1` (default on:
+  the first leg's other-thread writes the second leg did not redo are kept). With both, the old-vs-old control on ride7 loads and
+  **mounts** (frame 3 253; D2's never did). The D-on ride7 check with the whole 84-name list still stops in the save's load (every third
+  of the list alone loads, with or without the fixed step): not resolved, no single body implicated (decomp_d3.md section 3).
+- **Checks**: attract difftest (p1, D on) ran through: differences only in rootBlend (1 RAM byte), lightPass (vf4 / vf8, RAM), ptclGeodisp
+  (particle RAM) and the 0x29126c noise byte; rootBlend and lightPass also differ between two runs of their own old body (the A/A's kept
+  bytes). spalign 0 of 2 884; no "segment 1 overlaps".
+- **Boots** (89 MB, ride7 600 s, no difftest): d1native on mounted 11 128 / 2 227, default 2 219; pictures normal.
+- **Speed**: Vita3K A/B not run this round. Package celosia-d3.vpk + env-ab.txt (d1native = D1 + D2 + D3), not installed.
