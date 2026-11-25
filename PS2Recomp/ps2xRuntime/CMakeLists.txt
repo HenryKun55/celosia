@@ -691,10 +691,10 @@ if(PS2X_IS_VITA)
             COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
                     "${PS2X_K2_DIR}/celosia_k2.c" -o "${PS2X_K2_OUT}.elf" "-L${PS2X_VITASDK}/arm-vita-eabi/lib"
                     -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub -lSceSysclibForDriver_stub -lSceProcEventForDriver_stub
-                    -ltaihenForKernel_stub -ltaihenModuleUtils_stub -lgcc
+                    -ltaihenForKernel_stub -ltaihenModuleUtils_stub -lSceIntrmgrForDriver_stub -lgcc
             COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/exports.yml" "${PS2X_K2_OUT}.elf" "${PS2X_K2_OUT}.velf"
             COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_K2_OUT}.velf" "${PS2X_K2_OUT}.skprx"
-            DEPENDS "${PS2X_K2_DIR}/celosia_k2.c" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/exports.yml"
+            DEPENDS "${PS2X_K2_DIR}/celosia_k2.c" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/celosia_p2.c" "${PS2X_K2_DIR}/celosia_p2.h" "${PS2X_K2_DIR}/exports.yml"
             COMMENT "Building the K2 kernel module celosia_k2.skprx"
             VERBATIM)
         add_custom_command(OUTPUT "${PS2X_K2_OUT}u.suprx"
@@ -718,6 +718,18 @@ if(PS2X_IS_VITA)
             COMMENT "Building the C1 bridge celosia_c1u.suprx"
             VERBATIM)
         list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_C1_OUT}.suprx" "module/celosia_c1u.suprx")
+        # Round P2 (docs/decomp_p2.md): the bridge to K2's library CelosiaK2P2 (PMU overflow sampling), loaded by the game only
+        # with SOTC_P2PMUSAMPLE in env.txt, packed as module/celosia_p2u.suprx.
+        set(PS2X_P2_OUT "${CMAKE_CURRENT_BINARY_DIR}/celosia_p2u")
+        add_custom_command(OUTPUT "${PS2X_P2_OUT}.suprx"
+            COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
+                    "${PS2X_K2_DIR}/celosia_p2u.c" "${PS2X_K2_DIR}/p2u_stubs.S" -o "${PS2X_P2_OUT}.elf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/p2u_exports.yml" "${PS2X_P2_OUT}.elf" "${PS2X_P2_OUT}.velf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_P2_OUT}.velf" "${PS2X_P2_OUT}.suprx"
+            DEPENDS "${PS2X_K2_DIR}/celosia_p2u.c" "${PS2X_K2_DIR}/p2u_stubs.S" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/celosia_p2.h" "${PS2X_K2_DIR}/p2u_exports.yml"
+            COMMENT "Building the P2 bridge celosia_p2u.suprx"
+            VERBATIM)
+        list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_P2_OUT}.suprx" "module/celosia_p2u.suprx")
 
         vita_create_self(eboot.bin ps2EntryRunner UNSAFE)
         vita_create_vpk(ps2EntryRunner.vpk ${PS2X_VITA_TITLEID} eboot.bin
@@ -991,8 +1003,8 @@ if(PS2X_IS_VITA)
         target_link_options(ps2EntryRunner PRIVATE
             "-Wl,--wrap=sceKernelGetProcessTimeWide,--wrap=sceKernelGetProcessTimeLow,--wrap=getenv,--wrap=sceKernelGetThreadInfo,--wrap=vsnprintf,--wrap=snprintf,--wrap=fprintf,--wrap=sceKernelSignalSema,--wrap=sceKernelLibcGettimeofday,--wrap=memcpy,--wrap=memmove,--wrap=memset,--wrap=malloc,--wrap=free")
     endif()
-    target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp)
-    set_source_files_properties(src/lib/ps2_vita_runtime.cpp PROPERTIES
+    target_sources(ps2EntryRunner PRIVATE src/lib/ps2_vita_runtime.cpp src/lib/ps2_vita_p2.cpp) # P2: the PMU sampler's game side
+    set_source_files_properties(src/lib/ps2_vita_runtime.cpp src/lib/ps2_vita_p2.cpp PROPERTIES
         SKIP_UNITY_BUILD_INCLUSION TRUE
         COMPILE_OPTIONS "-fno-lto"
     )

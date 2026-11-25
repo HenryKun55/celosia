@@ -1484,6 +1484,11 @@ namespace k1probe
 
 // Round K1: the boot load's answer in err.txt (ps2_memory.cpp calls this after its "[mem] guest RAM" line: libc is up).
 extern "C" void ps2x_k2_boot_log();
+// Round P2 (src/lib/ps2_vita_p2.cpp)
+extern "C" void ps2x_p2_prepare();
+extern "C" void ps2x_p2_start(unsigned long long frame, bool k2ok);
+extern "C" void ps2x_p2_tick(unsigned long long frame);
+extern "C" int ps2x_p2_skip;
 extern "C" void ps2x_k1_boot_log()
 {
     ps2x_k2_boot_log(); // round K2
@@ -1840,7 +1845,8 @@ namespace k2
         if (intact(p, lo, hi) && g_havePrev)
         {
             for (int k = 0; k < 6; ++k)
-                sum[k] += static_cast<uint32_t>(p.cnt[k] - g_prev.cnt[k]);
+                if (k != ps2x_p2_skip) // round P2: the sampler's counter is reloaded by its interrupts
+                    sum[k] += static_cast<uint32_t>(p.cnt[k] - g_prev.cnt[k]);
             sumCyc += static_cast<uint32_t>(p.ccnt - g_prev.ccnt);
             ++g_valid;
             g_prev = p;
@@ -1885,7 +1891,9 @@ namespace m1pmu
     {
         const char *e = std::getenv("SOTC_M1PMU");
         g_every = e ? static_cast<unsigned>(std::atoi(e)) : 0u;
+        ps2x_p2_prepare(); // round P2: the sampled event into K2's counter 3 (SOTC_P2PMUSAMPLE; nothing when off)
         const bool k2counting = ps2x_k2_first_frame(frame); // round K2: walk, PMU on this thread, probes
+        ps2x_p2_start(frame, k2counting); // round P2: the sampler / the brackets (SOTC_P2PMUSAMPLE / SOTC_P2BRACKET)
         const bool k1counting = ps2x_k1_first_frame(frame); // round K1: layouts + probes; true: the counters are ours
         if (!g_every)
             return false;
@@ -1957,6 +1965,7 @@ namespace m1pmu
 extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
 {
     using namespace m1pmu;
+    ps2x_p2_tick(frame); // round P2 (two loads and a branch when off)
     if (__builtin_expect(g_state < 0, 1))
         return;
     if (g_state == 0)

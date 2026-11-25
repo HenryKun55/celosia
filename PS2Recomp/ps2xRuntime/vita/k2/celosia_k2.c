@@ -271,6 +271,8 @@ static void pmuRead(K2Pmu *p)
     irqRestore(s);
 }
 
+#include "celosia_p2.c" /* round P2: PMU overflow sampling (its own library CelosiaK2P2) */
+
 static int pmuArm(uint32_t evLo, uint32_t evHi, uint32_t flags)
 {
     uint32_t pmcr, inten;
@@ -286,7 +288,7 @@ static int pmuArm(uint32_t evLo, uint32_t evHi, uint32_t flags)
         MCR(0u, 0, c9, c14, 0);   /* PMUSERENR */
         ISB();
     }
-    else if (inten != 0u)
+    else if (p2ArmInten(inten) != 0u) /* P2: our own sampling bit is not someone else's */
         rc = K2_ERR_BUSY; /* someone uses the overflow interrupt here: left alone */
     else
     {
@@ -310,6 +312,7 @@ static int pmuArm(uint32_t evLo, uint32_t evHi, uint32_t flags)
         if (flags & K2_ARM_USERENR)
             MCR(1u, 0, c9, c14, 0);
         ISB();
+        p2AfterArm(); /* P2: the sampling counter reloaded */
     }
     irqRestore(s);
     return rc;
@@ -723,6 +726,7 @@ static int onGone(SceUID pid)
     if (pid != g_owner)
         return 0;
     g_c3pid = -1; /* C1: the hook stops answering for this pid at once */
+    p2Gone(pid); /* P2: sampling stopped, the interrupt handler released */
     if (lock())
     {
         putBack(0);
@@ -1038,6 +1042,11 @@ int module_stop(SceSize args, void *argp)
     (void)args;
     (void)argp;
     g_c3pid = -1;
+    if (g_p2.active || g_p2.registered) /* P2 */
+    {
+        p2Halt(P2_STOP_ASKED);
+        p2Release();
+    }
     if (lock())
     {
         putBack(0);
