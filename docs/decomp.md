@@ -24336,3 +24336,30 @@ Nothing changes a computation.
 - **Checks**: spalign 0 of 2 430; ELF room 122 880; no overlap. 89 MB ride7 boots 600 s: off (no `[k1]` line; mounted 3 261, to
   11 118), K1 + K1RAM + probe + M1PMU (no answer, clean fallback; mounted 3 511, to 11 298); pictures normal. Console runs pending
   (README: env-k1-pmu first, then tlbstall, ram, m1ram, off).
+
+## Decomp K2: a resident kernel module: the PMU on the game thread, the real page tables, 1 MB section re-maps (SOTC_K2 / SOTC_K2REMAP off by default) (2026-11-25)
+
+docs/decomp_k2.md. Packages, env files, README: `build/agent-scratch/k2/`. Why: K1's console run loaded its module on retail but the
+game thread saw `PMUSERENR here off` (probes 0.0 cycles). Nothing changes a computation.
+
+- **Cause**: SceThreadmgr saves PMCR / PMUSERENR / PMCNTENSET / the event types and counts in every thread's register context
+  (shoui520/psp2's reimplementation of the kernel); a new thread starts from the process defaults (0). K1's per-core writes lasted
+  until the next switch.
+- **celosia_k2.skprx** (PS2Recomp/ps2xRuntime/vita/k2/, 8.5 KB, `module/celosia_k2.skprx`): loaded by the game at boot (K1's two
+  steps, never ur0:tai/config.txt), answers with this boot's nonce, registers a process-event handler and **stays loaded**,
+  exporting the syscall library CelosiaK2 (NIDs fixed). The eboot cannot import a library loaded after it started, so a 4.5 KB user
+  bridge (`module/celosia_k2u.suprx`, loaded with sceKernelLoadStartModule only after the answer) hands the game the stubs. Not
+  unloaded at exit (a kill runs none of the game's code); a reboot removes it, a later launch reuses it.
+- **SOTC_K2=1**: the game thread arms and reads the PMU of its own core inside its own syscall (so the settings and counts follow the
+  game thread: per-thread counters); `[k2] pmu` at the first frame says what a 2 ms sleep kept; K1's probes run with these counters;
+  with SOTC_M1PMU=n, `[m1pmu] ... cycles N (= y ms at 444 MHz) (k2, game thread; v of n frames counted, r re-armed)`. `[k2] walk`:
+  the process's own L1 / L2 tables (kernel VA found by identity, linear offset or an ATS scan of the kernel half; nothing allocated)
+  give each region's mapping sizes (text, guest RAM, heap, stack), checked against `ksceKernelVAtoPA`.
+- **SOTC_K2REMAP=ram|text** (+ `SOTC_K2REMAP_DRY=1`): at boot, single-threaded, 1 MB chunks of the guest RAM (M1's own block) / the
+  text whose 256 pages are one aligned PA run with one attribute set become 1 MB sections (same bits; break before make with the
+  table domain open, cache line clean, TLBIALLIS); each chunk verified (VAtoPA, ATS1CUR, VARangeToPARange, a word read back) or the
+  whole call undone; the original L1 entries put back at exit / kill (handler) and module stop. SceSysmem already maps VA+PA-aligned
+  memory with sections / 64 KB pages itself, so this only acts where the walk finds smaller pages.
+- **Checks**: spalign 0 of 2 430; ELF room 122 880; no overlap. 89 MB ride7 boots 600 s: off (no `[k2]` / `[k1]` line; mounted
+  5 513, to 18 918), K2 + K2REMAP=ram,text + M1PMU + K1 (no answer in Vita3K, bridge never loaded, clean fallback; mounted 4 221,
+  to 18 078); pictures normal. Console runs pending (README: env-k2-pmu first, then dry, m1ram, remap-ram, remap-all, tlbstall, off).
