@@ -24493,3 +24493,20 @@ Nothing changes a computation; with the switches off the game is main's.
   lines, mounted 2 681, 12 279 frames, heap 108.8 MB), on (K2 off in Vita3K, `[p2] off` / `[p2b] off` cleanly, 22 wrappers
   pass-through, mounted 2 427, 14 236 frames, heap 102.0 MB); pictures normal. Console runs pending (README: reboot, dmiss first;
   bracket if the probe refuses).
+
+## Decomp I2: the hot order regenerated on main, the lifted code's guest calls out of line (PS2X_VITA_LIFTED_OUTLINE, off by default) (2026-11-25)
+
+docs/decomp_i2.md. Packages, env files, README: `build/agent-scratch/i2/pkg` (base / I2a / I2b). Exact: only the link order
+(I2a) and the form of the lifted files' calls (I2b, by construction) change.
+
+- **Hot order** (M1's procedure on main c553cbb: ride7 default + d1native, lake6, attract): 2 932 functions (M1's 2 754), 10.2 MB;
+  533 of them (D3's bodies and PGO-renamed functions) lay outside M1's cluster. The game thread's 90% set now spans 10.5 MB
+  instead of 49-59 MB, 7-9 1 MB sections instead of 15-17, 64 KB pages -10..-33% (tools/hot_layout.py).
+- **PS2X_VITA_LIFTED_OUTLINE=ON**: `game/overrides/lift_outline.h` force-included into decomp_liftd*.cpp redefines the 8 call /
+  tail / jump macros (21 297 sites): ctx->pc, three argument registers, a static per-site descriptor and one `bl` into a shared
+  helper (`ps2lift_*`, noinline + noipa, first in the order file) that calls the same always_inline runtime function. .text 69.14
+  -> 66.46 MB, veneers 13 216 -> 9 960, game thread's 90% set 4 693 -> 4 392 KB (-6.4%), lifted part -13%. With I1's lifted -Os
+  on top (p2s, no package): .text 59.21 MB, 90% set -17.1%, 99% -20.6%. Mac builds refuse the header (the difftest's hooks read
+  ctx->pc at the call event).
+- **Checks**: spalign 0 (p0, p1, p2, p2o, p2s), ELF room 122 880, no overlap. 89 MB ride7 boots of base / I2a / I2b normal
+  (pictures looked at). Console A/B: env-i2.txt (K2 counters); icache miss / stall / cycles per frame decide.
