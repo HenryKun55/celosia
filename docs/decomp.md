@@ -24444,3 +24444,22 @@ where threads run.
   `[threads]` lines; mounted 5 355), C1CORE3 + map 2 (K2 off in Vita3K, core 3 off, map 2 -> 1 applied; mounted 2 219, 18 211
   frames), map 4 / 5 forced (Vita3K refuses 0x80000 with 0x80028025, as the console without the hook), p2 map 5 forced (render
   0x80000 refused, 0x40000 instead) and p2 as the console env; pictures normal. Console runs pending (README: reboot, probe first).
+
+## Decomp I1: the game thread's instruction-cache misses: PGO that never reached the natives, the lifted D code at -Os, PGO retrained (2026-11-25)
+
+Details: docs/decomp_i1.md. K2's console counters: ~8 ms a frame of I-side stalls (431 k L1I misses, mostly L2 hits), so the
+lever is the bytes of code the game thread runs.
+
+- **Where the bytes are** (tools/hot_bytes.py, M1's Vita3K profiles): the lifted D files (decomp_liftd*.cpp) are 18% of the game
+  thread's time but 10.2 of the 15.2 MB of code it samples (2.9 of the 5.5 MB 90% set); hand natives 69% of the time in 2.9 MB.
+- **Bug fixed: no PGO on the natives.** pgo-use-<hash> was named by the profile only and created once; build directories copied
+  between worktrees kept the first tree's .gcda names, so `-fprofile-use` found none of the overrides' profiles (silently) in
+  every D-round build (0 `.text.hot` sections in M1's override objects). The directory is now named by profile + tree path and
+  configure prints how many override profiles it found. `-DPS2X_VITA_PGO_OVERRIDES=OFF` = the old build.
+- **PS2X_VITA_LIFTED_OPT** (CMake, empty by default): extra options for the lifted files only; -Os: lifted text -36%, .text
+  -11 MB, the game thread's 90% set -17%.
+- **PGO retrained** on D3's code (Vita3K: ride7 default + d1native, attract d1native, lake6; 100 424 functions, the lifted files
+  and D bodies included): the new game/pgo/vita-pgo.tar.xz.
+- **Packages** (b70fbc3 + I1, build/agent-scratch/i1/pkg): A (shipped flags) 71.06 MB .text, C (retrained PGO) 70.07 MB, C2
+  (C + lifted -Os) 63.54 MB; game thread's 90% set 5 000 / 4 872 / 4 351 KB. spalign 0, no overlap, 89 MB ride7 boots normal.
+  Console A/B with env-i1.txt (K2 counters): icache miss / stall / cycles per frame decide; if C2 wins, -Os becomes the default.
