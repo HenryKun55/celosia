@@ -24399,3 +24399,23 @@ docs/decomp_r1.md. Switch `SOTC_R1CHAR` (A/B `r1char`), acts inside d1native's D
   frame-deterministic in Vita3K (async loads), so not comparable. 89 MB boots off (mounted 6 448) and on (3 431), pictures normal.
 - **Speed**: console only (Vita3K has no caches): celosia-r1.vpk + env-r1-ab / off / on / r1p1-on (K2 base env + D1NATIVE).
   Estimate 0.05-0.2 ms (1-2 k fewer refills a frame).
+
+## Decomp G1: vitaGL's build flags read and tried; the render thread's own uniform sends inlined (SOTC_GL_G1, SOTC_VGL_GC off by default) (2026-11-25)
+
+Full write-up: docs/decomp_g1.md. Scratch: `build/agent-scratch/g1/`.
+
+- **Flags** (vitaGL 464876a + celosia.patch, each built alone and its changed code read): `BUFFERS_SPEEDHACK` and
+  `INDICES_DRAW_SPEEDHACK` change only paths we never run (no `glBufferSubData` on the Vita, every indexed draw has
+  an element buffer); `SAMPLERS_SPEEDHACK` drops a NULL check a texture unit a draw; `NO_TILE_CLIPPER` one region-clip
+  call a scene (we set no scissor). Rejected: `TEXTURES_SPEEDHACK` (raylib's `UpdateTexture` would write live
+  textures in place), `CIRCULAR_POOL_SPEEDHACK` (one ring for all frames, no gain), `DRAW_SPEEDHACK` (does not
+  compile with celosia.patch, and it removes the vertex layout cache and the single stream). None touches what the
+  render thread spends on (`sceGxmDraw` 23%, the draw loop 14%, planFrame 13%, the uniform buffer copies).
+- **Ours**: `SOTC_GL_G1=1` (2: A/B every 600 frames) sends the draw loop's 28 uniforms through an inlined copy of
+  `uniform4` (4.8% of the render thread in two clones and a veneer); `SOTC_VGL_GC=<prio>,<mask>` places vitaGL's
+  garbage collector (default: priority 160, any core, i.e. the game thread's too). Same GL calls, same picture.
+- **Checks** (Vita3K 222 MHz, 89 MB, ride7): frozen-frame runs of base, g1 (G1 toggling 15 times: 13 captures pixel
+  for pixel identical) and g1flags (boots, all 71 programs x 12 blends warmed, frozen captures identical), the altar
+  intro and a 600 s ride on g1flags with everything on: pictures as the baseline. Vita3K speed: no change beyond noise.
+- **Console**: celosia-g1.vpk (+ env-g1-base / -on / -ab) and celosia-g1flags.vpk; the console decides. Expected:
+  within noise. vitaGL flags stay as they are in `./celosia` unless the console shows a gain.

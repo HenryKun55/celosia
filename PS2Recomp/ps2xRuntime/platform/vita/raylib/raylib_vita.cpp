@@ -1017,6 +1017,21 @@ void InitWindow(int, int, const char *)
         vglCeloDepthTiled(std::atoi(e) != 0 ? 1 : 0);
         std::fprintf(stderr, "[vita] vitaGL depth / stencil surfaces %s (SOTC_VGL_DEPTH_TILED=%s)\n", std::atoi(e) != 0 ? "tiled" : "linear", e);
     }
+    // Round G1 (off by default): vitaGL's garbage collector thread (woken at
+    // every swap) placed by SOTC_VGL_GC=<priority>,<core mask>, e.g.
+    // 191,0x40000 (the render thread's core and priority). vitaGL's default
+    // (unset): priority 0x10000100 (the user default, 160: above the game
+    // thread's 191) and affinity 0 (any core, the game thread's core 0 too).
+    // Frees memory only: the picture does not change. Set before vglInit.
+    if (const char *e = std::getenv("SOTC_VGL_GC"))
+    {
+        int prio = 0, mask = 0;
+        if (std::sscanf(e, "%i,%i", &prio, &mask) == 2 && prio > 0)
+        {
+            vglSetupGarbageCollector(prio, mask);
+            std::fprintf(stderr, "[vita] vitaGL garbage collector: priority %d, cores 0x%x (SOTC_VGL_GC)\n", prio, static_cast<unsigned>(mask));
+        }
+    }
     const char *pools = std::getenv("SOTC_VGL_POOLS");
     if (pools && std::strcmp(pools, "console") == 0)
     {

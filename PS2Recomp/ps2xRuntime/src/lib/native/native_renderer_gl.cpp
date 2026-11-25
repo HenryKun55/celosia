@@ -2425,6 +2425,37 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             m.lastCount[slot] = count;
             glUniform4fv(m.location[slot], count, v);
         }
+        // Round G1 (SOTC_GL_G1, off by default; 2: on and off every 600
+        // frames, for A/B in one run): the main draw loop's uniform sends
+        // through this copy of uniform4, inlined into the loop (no call, no
+        // long-branch veneer: uniform4 and its veneers were ~4.8% of the
+        // render thread in M1's Vita3K ride profile), its compare all words
+        // or-ed together without a branch a word. The same bits compared,
+        // the same glUniform4fv calls with the same values: the same picture.
+        bool g1Fast = false;
+        __attribute__((always_inline)) inline void uniform4g1(MainUniform slot, const float *v, int count)
+        {
+            MainSlot &m = mains[mainSlot];
+            const GLint location = m.location[slot];
+            if (location < 0)
+                return;
+            float *last = m.last[slot];
+            if (m.lastCount[slot] == count)
+            {
+                typedef uint32_t __attribute__((may_alias)) word;
+                const word *a = reinterpret_cast<const word *>(last), *b = reinterpret_cast<const word *>(v);
+                uint32_t diff = 0;
+                const int n = count * 4;
+                for (int i = 0; i < n; ++i)
+                    diff |= a[i] ^ b[i];
+                if (!diff)
+                    return;
+            }
+            std::memcpy(last, v, static_cast<size_t>(count) * 4u * sizeof(float));
+            m.lastCount[slot] = count;
+            glUniform4fv(location, count, v);
+        }
+#define G1U4(slot, v, count) (g1Fast ? uniform4g1((slot), (v), (count)) : uniform4((slot), (v), (count)))
         // This frame's dynamic vertices (and the indices of the indexed ones).
         // Grown without clearing what is added (frameMesh hands out room
         // that is written once, in place).
@@ -6061,6 +6092,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static const bool phaseLog = ps2_diag::env("SOTC_GL_PHASE_LOG") && std::atoi(ps2_diag::env("SOTC_GL_PHASE_LOG")) != 0;
         phases.on = phaseLog;
         phases.start = phaseLog ? native_renderer::nowUs() : 0u;
+        {
+            // Round G1: SOTC_GL_G1=1 the inlined uniform sends (uniform4g1);
+            // 2: on in odd 600-frame windows, off in even ones ([g1] lines).
+            static const int g1Mode = ps2_diag::env("SOTC_GL_G1") ? std::atoi(ps2_diag::env("SOTC_GL_G1")) : 0;
+            static uint64_t g1Frames = 0;
+            const bool g1Now = g1Mode == 1 || (g1Mode == 2 && ((g1Frames++ / 600u) & 1u) != 0u);
+            if (g1Now != g1Fast || (g1Mode && g1Frames == 1u))
+                std::fprintf(stderr, "[g1] render %llu: inlined uniform sends %s\n", (unsigned long long)g1Frames, g1Now ? "on" : "off");
+            g1Fast = g1Now;
+        }
         // Round 87 (Tuning glInflight87, a console A/B candidate): the frame
         // begins its scenes only once the GPU has finished the frame before
         // (at most this frame on the GPU, instead of the 2-3 the display
@@ -6784,11 +6825,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 };
                 sendPalette();
-                uniform4(uClip, d.clip, 4);
+                G1U4(uClip, d.clip, 4);
                 if (d.state.lit || d.state.fresnel) // read by the vertex program only then
                 {
-                    uniform4(uDirections, d.state.light, 4);
-                    uniform4(uColours, d.state.light + 16, 4);
+                    G1U4(uDirections, d.state.light, 4);
+                    G1U4(uColours, d.state.light + 16, 4);
                 }
                 if (d.state.shadowVolume)
                 {
@@ -6796,12 +6837,12 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         continue;
                     // The count where the faces pass the depth test: front +1, back -1.
                     const float misc[4] = {0, 1, 0, 0}, none[4] = {0, 0, 0, 0};
-                    uniform4(uMisc, misc, 1);
-                    uniform4(uFogB, none, 1);
-                    uniform4(uFogC, none, 1);
-                    uniform4(uFogA, none, 1);
-                    uniform4(uFogColour, none, 1);
-                    uniform4(uDebug, none, 1);
+                    G1U4(uMisc, misc, 1);
+                    G1U4(uFogB, none, 1);
+                    G1U4(uFogC, none, 1);
+                    G1U4(uFogA, none, 1);
+                    G1U4(uFogColour, none, 1);
+                    G1U4(uDebug, none, 1);
                     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 #if defined(PS2X_NATIVE_VITA)
                     // Round 87 (Tuning glVol87, a console A/B candidate): the
@@ -7055,19 +7096,19 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                     ++tintIndex;
                 }
-                uniform4(uMisc, misc, 1);
-                uniform4(uFogA, fogA, 1);
-                uniform4(uFogB, fogB, 1);
-                uniform4(uFogC, fogC, 1);
-                uniform4(uFogColour, fogColour, 1);
-                uniform4(uDebug, debug, 1);
-                uniform4(uGuard, guard, 1);
+                G1U4(uMisc, misc, 1);
+                G1U4(uFogA, fogA, 1);
+                G1U4(uFogB, fogB, 1);
+                G1U4(uFogC, fogC, 1);
+                G1U4(uFogColour, fogColour, 1);
+                G1U4(uDebug, debug, 1);
+                G1U4(uGuard, guard, 1);
                 const float alphaCut[4] = {atSecond ? aref : 0.0f, atAllUnder ? aref : 0.0f, 0.0f, 0.0f};
                 if (atAllUnder)
                     ++alphaStats.merged;
                 if (atSecond && !planned.minAlpha)
                     ++alphaStats.secondUnknown;
-                uniform4(uAlphaTest, alphaCut, 1);
+                G1U4(uAlphaTest, alphaCut, 1);
                 {
                     // SOTC_GL_LAYER_LOG=<layer> (debugging, round 55): every 120
                     // frames, the first draws of that layer as the GPU gets them.
@@ -7230,24 +7271,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         // Round 75: through the SOFT program (its own uniforms).
                         useProgram(softSecond);
                         sendPalette();
-                        uniform4(uClip, d.clip, 4);
+                        G1U4(uClip, d.clip, 4);
                         if (d.state.lit || d.state.fresnel)
                         {
-                            uniform4(uDirections, d.state.light, 4);
-                            uniform4(uColours, d.state.light + 16, 4);
+                            G1U4(uDirections, d.state.light, 4);
+                            G1U4(uColours, d.state.light + 16, 4);
                         }
-                        uniform4(uMisc, misc, 1);
-                        uniform4(uFogA, fogA, 1);
-                        uniform4(uFogB, fogB, 1);
-                        uniform4(uFogC, fogC, 1);
-                        uniform4(uFogColour, fogColour, 1);
-                        uniform4(uDebug, debug, 1);
-                        uniform4(uGuard, guard, 1);
+                        G1U4(uMisc, misc, 1);
+                        G1U4(uFogA, fogA, 1);
+                        G1U4(uFogB, fogB, 1);
+                        G1U4(uFogC, fogC, 1);
+                        G1U4(uFogColour, fogColour, 1);
+                        G1U4(uDebug, debug, 1);
+                        G1U4(uGuard, guard, 1);
                         ++drawStats.soft;
                     }
                     else if (cutUsed)
                         ++drawStats.cut;
-                    uniform4(uAlphaTest, under, 1);
+                    G1U4(uAlphaTest, under, 1);
                     if (static_cast<int>(d.state.blend) != cache.blend) // round 93: the first pass drawn opaque (atop93); the second blends
                     {
                         setBlend(d.state.blend, keepAlpha);
