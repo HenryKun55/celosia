@@ -273,6 +273,17 @@ namespace
 
 const std::align_val_t PS2Memory::kGsVramAlignment{16384};
 namespace { const std::align_val_t kRdramAlignment{4096}; } // round 66: guest RAM, page aligned
+#if defined(PLATFORM_VITA)
+// Round M1 (SOTC_M1RAM=1, ps2_vita_runtime.cpp): the guest RAM + scratchpad block taken before newlib's heap (null: off).
+extern "C" void *ps2x_m1_guest_block;
+extern "C" unsigned int ps2x_m1_guest_block_bytes;
+extern "C" int ps2x_m1_guest_block_aligned;
+#endif
+namespace
+{
+    bool s_ramInBlock = false; // m_rdram / m_scratchpad point into ps2x_m1_guest_block (never freed)
+    constexpr uint32_t kM1ScratchOffset = PS2_RAM_SIZE + 0x10000u;
+}
 
 bool PS2Memory::onVu1Worker()
 {
@@ -471,14 +482,16 @@ PS2Memory::~PS2Memory()
         m_mtvuThread.join();
     if (m_rdram)
     {
-        ::operator delete[](m_rdram, kRdramAlignment);
+        if (!s_ramInBlock)
+            ::operator delete[](m_rdram, kRdramAlignment);
         m_rdram = nullptr;
     }
 
     if (m_scratchpad)
     {
         ps2SetScratchpadHostPtr(nullptr);
-        delete[] m_scratchpad;
+        if (!s_ramInBlock)
+            delete[] m_scratchpad;
         m_scratchpad = nullptr;
     }
 
@@ -520,9 +533,10 @@ bool PS2Memory::initialize(size_t ramSize)
 {
     auto cleanup = [this]()
     {
-        if (m_rdram)
+        if (m_rdram && !s_ramInBlock)
             ::operator delete[](m_rdram, kRdramAlignment);
-        delete[] m_scratchpad;
+        if (!s_ramInBlock)
+            delete[] m_scratchpad;
         delete[] iop_ram;
         if (m_gsVRAM)
             ::operator delete[](m_gsVRAM, kGsVramAlignment);
@@ -569,14 +583,25 @@ bool PS2Memory::initialize(size_t ramSize)
         // malloc on the Vita): a guest qword then straddled two of the
         // Cortex-A9's 32-byte cache lines one time in two, and a guest
         // 64-byte record touched three lines instead of two.
-        m_rdram = static_cast<uint8_t *>(::operator new[](ramSize + 16u, kRdramAlignment));
+        s_ramInBlock = false;
+#if defined(PLATFORM_VITA)
+        // Round M1: the block of its own when SOTC_M1RAM=1 gave one (ps2_vita_runtime.cpp); the scratchpad after it.
+        if (ps2x_m1_guest_block && ramSize == PS2_RAM_SIZE && ps2x_m1_guest_block_bytes >= kM1ScratchOffset + PS2_SCRATCHPAD_SIZE)
+        {
+            s_ramInBlock = true;
+            m_rdram = static_cast<uint8_t *>(ps2x_m1_guest_block);
+        }
+        else
+#endif
+            m_rdram = static_cast<uint8_t *>(::operator new[](ramSize + 16u, kRdramAlignment));
         std::memset(m_rdram, 0, ramSize + 16u);
 #if defined(PLATFORM_VITA)
-        std::fprintf(stderr, "[mem] guest RAM at %p (%u KB)\n", static_cast<void *>(m_rdram), static_cast<unsigned>(ramSize / 1024u));
+        std::fprintf(stderr, "[mem] guest RAM at %p (%u KB)%s\n", static_cast<void *>(m_rdram), static_cast<unsigned>(ramSize / 1024u),
+                     !s_ramInBlock ? "" : ps2x_m1_guest_block_aligned ? ", m1ram: own 33 MB block, 1 MB aligned" : ", m1ram: own 33 MB block (alignment option refused)");
 #endif
 
         // Allocate scratchpad
-        m_scratchpad = new uint8_t[PS2_SCRATCHPAD_SIZE];
+        m_scratchpad = s_ramInBlock ? m_rdram + kM1ScratchOffset : new uint8_t[PS2_SCRATCHPAD_SIZE];
         std::memset(m_scratchpad, 0, PS2_SCRATCHPAD_SIZE);
         ps2SetScratchpadHostPtr(m_scratchpad);
 

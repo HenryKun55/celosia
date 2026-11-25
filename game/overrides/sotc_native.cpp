@@ -103,6 +103,7 @@ extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" void ps2x_vita_pace_ab(int on);                // raylib_vita.cpp (round 110)
 extern "C" void ps2x_vita_pace132_ab(int on);             // raylib_vita.cpp (round 132)
 extern "C" void ps2x_vita_pace143_ab(int on);             // raylib_vita.cpp (round 143)
+extern "C" void ps2x_m1_pmu_tick(unsigned long long frame); // ps2_vita_runtime.cpp (round M1, SOTC_M1PMU)
 #endif
 #include <vector>
 #include "a9sweep.h"
@@ -4466,6 +4467,9 @@ namespace sotc_native
     {
         if (g_frame == 0)
             return;
+#if defined(__vita__)
+        ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
+#endif
         if (mdsTraceOn())
             mdsTraceFrame();
         lines67::frame(g_frame);

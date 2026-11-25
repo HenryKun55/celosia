@@ -183,6 +183,8 @@ if(PS2X_IS_VITA AND PS2X_VITA_SDL2_SHIM)
         SceSysmodule_stub SceHid_stub SceMotion_stub SceAppMgr_stub SceAppUtil_stub
         SceCommonDialog_stub SceIme_stub ScePower_stub SceLibKernel_stub SceProcessmgr_stub
         SceKernelDmacMgr_stub SceIofilemgr_stub SceRtc_stub
+        # Round M1 (SOTC_M1PMU): libperf, loaded at run time only when asked (weak: a firmware without it still boots).
+        ScePerf_stub_weak
         # Whole archive: libstdc++ checks for pthread through weak symbols;
         # without them std::call_once / std::thread throw "Unknown error".
         -Wl,--whole-archive pthread -Wl,--no-whole-archive
@@ -897,6 +899,8 @@ if(PS2X_IS_VITA)
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--allow-multiple-definition")
     # Round mem99: malloc & co. through ps2_vita_runtime.cpp (SOTC_HEAP_PROF).
     target_link_options(ps2EntryRunner PRIVATE "-Wl,--wrap=malloc,--wrap=free,--wrap=realloc,--wrap=calloc,--wrap=memalign")
+    # Round M1: crt0's heap set-up through ps2_vita_runtime.cpp (SOTC_M1RAM: the guest RAM's own block, taken first).
+    target_link_options(ps2EntryRunner PRIVATE "-Wl,--wrap=_init_vita_heap")
     # Round 130: PS2X_VITA_RELEASE=ON: the build the player plays. SOTC_RELEASE=1 (runtime/ps2_diag.h): the
     # diagnostics' switches (checks, verifies, per-subsystem logs and stats, the difftest, the A/B rotation, the
     # profilers) read as off at compile time and their paths dropped; no per-call timers. The frame summary

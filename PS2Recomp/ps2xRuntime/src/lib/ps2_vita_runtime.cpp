@@ -10,6 +10,9 @@
 #include <new>
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/processmgr.h>
+#include <psp2/perf.h>
+#include <psp2/sysmodule.h>
 // libgcc's ARM EHABI unwinder (the SDK ships no unwind.h).
 extern "C"
 {
@@ -45,6 +48,83 @@ extern "C" unsigned int sceUserMainThreadStackSize = 8u * 1024u * 1024u;
 // The pthread default stack (vitasdk reads it at each pthread_create; 32 KB
 // when left undefined). Raised around the game thread's creation only.
 extern "C" unsigned int _pthread_stack_default_user = 32u * 1024u;
+
+// Round M1 (SOTC_M1RAM=1 in env.txt, off by default; docs/decomp_m1.md): the guest RAM (32 MB + the 16-byte tail) and
+// the scratchpad in a memory block of their own, 1 MB aligned and 33 MB long, taken BEFORE newlib's heap and paid for by
+// a heap 33 MB smaller (the guest RAM is no longer in it): the same memory in all, the 89 MB boot test unchanged. Off,
+// the guest RAM is a 4 KB aligned new[] inside the 176 MB heap block as before. The heap block is allocated by
+// _init_vita_heap (crt0, before any constructor or env.txt read), so this switch is read here, from env.txt itself with
+// sceIo (no libc yet), and only at boot: SOTC_AB_FLAG cannot rotate it (A/B it with two env files). The block is never
+// freed (workers keep raw pointers into the guest RAM). ps2_memory.cpp takes it (ps2x_m1_guest_block).
+extern "C" void __real__init_vita_heap(void);
+extern "C" void *ps2x_m1_guest_block = nullptr;
+extern "C" unsigned int ps2x_m1_guest_block_bytes = 0u;
+extern "C" int ps2x_m1_guest_block_aligned = 0;
+namespace m1ram
+{
+    constexpr unsigned kBlockBytes = 33u << 20; // 32 MB RAM, its tail, the scratchpad at +32 MB + 64 KB; 1 MB multiple
+    // A line "SOTC_M1RAM=<v>" with v not starting with '0' (the last such line wins), streamed in 4 KB chunks.
+    bool envOn()
+    {
+        const SceUID fd = sceIoOpen("ux0:data/celosia/env.txt", SCE_O_RDONLY, 0);
+        if (fd < 0)
+            return false;
+        static char buf[4096];
+        static const char key[] = "SOTC_M1RAM=";
+        constexpr int kKey = sizeof(key) - 1;
+        int matched = 0; // characters of key matched at a line start; -1: not at a matching line
+        bool on = false;
+        for (;;)
+        {
+            const int n = sceIoRead(fd, buf, sizeof(buf));
+            if (n <= 0)
+                break;
+            for (int i = 0; i < n; ++i)
+            {
+                const char c = buf[i];
+                if (c == '\n' || c == '\r')
+                {
+                    matched = 0;
+                    continue;
+                }
+                if (matched < 0)
+                    continue;
+                if (matched < kKey)
+                    matched = c == key[matched] ? matched + 1 : -1;
+                else
+                {
+                    on = c != '0';
+                    matched = -1;
+                }
+            }
+        }
+        sceIoClose(fd);
+        return on;
+    }
+}
+extern "C" void __wrap__init_vita_heap(void)
+{
+    if (m1ram::envOn() && _newlib_heap_size_user > m1ram::kBlockBytes + (64u << 20))
+    {
+        SceKernelAllocMemBlockOpt opt;
+        std::memset(&opt, 0, sizeof(opt));
+        opt.size = sizeof(opt);
+        opt.attr = SCE_KERNEL_ALLOC_MEMBLOCK_ATTR_HAS_ALIGNMENT;
+        opt.alignment = 1u << 20;
+        SceUID block = sceKernelAllocMemBlock("celosia_guest_ram", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, m1ram::kBlockBytes, &opt);
+        ps2x_m1_guest_block_aligned = block >= 0;
+        if (block < 0)
+            block = sceKernelAllocMemBlock("celosia_guest_ram", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, m1ram::kBlockBytes, nullptr);
+        void *base = nullptr;
+        if (block >= 0 && sceKernelGetMemBlockBase(block, &base) >= 0 && base)
+        {
+            ps2x_m1_guest_block = base;
+            ps2x_m1_guest_block_bytes = m1ram::kBlockBytes;
+            _newlib_heap_size_user -= m1ram::kBlockBytes;
+        }
+    }
+    __real__init_vita_heap();
+}
 
 // memcpy / memset: newlib's on the Vita are a branch to sceClibMemcpy /
 // sceClibMemset, a call into another module for every copy (in Vita3K an HLE
@@ -485,12 +565,18 @@ extern "C" void ps2x_vita_heap_report(double now)
     static uint16_t order[kSites];
     uint32_t n = 0;
     for (uint32_t i = 0; i < kSites; ++i)
-        if (copy[i].pc[0] && (copy[i].liveBytes || copy[i].lastBytes))
+        if (copy[i].pc[0] && (copy[i].liveBytes || copy[i].lastBytes || copy[i].allocs != copy[i].lastAllocs))
             order[n++] = static_cast<uint16_t>(i);
+    // which 2 (round M1, "made"): the sites that allocated the most blocks since the last report, freed or not (the
+    // per-frame allocations: a frame's new / delete pairs never show as live bytes).
     auto pick = [&](uint32_t top, int which, const char *what)
     {
         auto key = [which](const Site &s) -> int64_t
-        { return which == 0 ? static_cast<int64_t>(s.liveBytes) : static_cast<int64_t>(s.liveBytes) - static_cast<int64_t>(s.lastBytes); };
+        {
+            return which == 0   ? static_cast<int64_t>(s.liveBytes)
+                   : which == 1 ? static_cast<int64_t>(s.liveBytes) - static_cast<int64_t>(s.lastBytes)
+                                : static_cast<int64_t>(s.allocs - s.lastAllocs);
+        };
         for (uint32_t r = 0; r < top && r < n; ++r)
         {
             uint32_t best = r;
@@ -512,6 +598,7 @@ extern "C" void ps2x_vita_heap_report(double now)
     };
     pick(kTop, 0, "live");
     pick(kGrow, 1, "grew");
+    pick(kTop, 2, "made");
 }
 
 namespace
@@ -744,6 +831,102 @@ extern "C"
         ttyPuts(line);
         return 0;
     }
+}
+
+// Round M1 (SOTC_M1PMU=<n>, off by default): the Cortex-A9's performance counters on the game thread, if this firmware
+// lets a game read them. At the first call (sotc_native's endFrame, the game thread): PMUSERENR (readable at PL0 on
+// ARMv7: bit 0 says whether user code may read the counters itself), then ScePerf (libperf, loaded with
+// sceSysmoduleLoadModule; per-thread counters kept by the system) with six events; every call adds the counters' growth,
+// every n frames one "[m1pmu]" line of per-frame means. Every return code is logged once; any failure turns it off.
+// Nothing is installed: a console that refuses says so in err.txt.
+namespace m1pmu
+{
+    constexpr int kN = 6;
+    const SceUInt8 kEvent[kN] = {SCE_PERF_ARM_PMON_ICACHE_MISS, SCE_PERF_ARM_PMON_ITLB_MISS, SCE_PERF_ARM_PMON_DCACHE_MISS,
+                                 SCE_PERF_ARM_PMON_DTLB_MISS, SCE_PERF_ARM_PMON_ICACHE_STALL, SCE_PERF_ARM_PMON_DCACHE_STALL};
+    const char *const kName[kN] = {"icache miss", "itlb miss", "dcache miss", "dtlb miss", "icache stall cyc", "dcache stall cyc"};
+    int g_state = 0; // 0: not started, 1: counting, -1: off
+    unsigned g_every = 0;
+    SceUInt32 g_last[kN];
+    uint64_t g_sum[kN];
+    uint64_t g_t0 = 0;
+    unsigned long long g_f0 = 0;
+    bool start(unsigned long long frame)
+    {
+        const char *e = std::getenv("SOTC_M1PMU");
+        g_every = e ? static_cast<unsigned>(std::atoi(e)) : 0u;
+        if (!g_every)
+            return false;
+        // PMUSERENR only with SOTC_M1PMU_USERENR=1: Vita3K aborts on the CP15 read ("Unhandled CP15 MRC"), the console
+        // allows it at PL0 (ARMv7).
+        uint32_t userenr = 0xFFFFFFFFu;
+        const char *ue = std::getenv("SOTC_M1PMU_USERENR");
+        if (ue && std::atoi(ue) != 0)
+            asm volatile("mrc p15, 0, %0, c9, c14, 0" : "=r"(userenr));
+        const int load = sceSysmoduleLoadModule(SCE_SYSMODULE_PERF);
+        int rc[kN + 2] = {};
+        bool ok = load >= 0;
+        if (ok)
+        {
+            rc[0] = scePerfArmPmonReset(SCE_PERF_ARM_PMON_THREAD_ID_SELF);
+            for (int i = 0; i < kN; ++i)
+                rc[1 + i] = scePerfArmPmonSelectEvent(SCE_PERF_ARM_PMON_THREAD_ID_SELF, static_cast<SceUInt32>(i), kEvent[i]);
+            rc[kN + 1] = scePerfArmPmonStart(SCE_PERF_ARM_PMON_THREAD_ID_SELF);
+            for (int i = 0; i < kN + 2; ++i)
+                ok = ok && rc[i] >= 0;
+        }
+        std::fprintf(stderr, "[m1pmu] frame %llu: PMUSERENR 0x%08x (user access %s; 0xffffffff: not read), sysmodule perf 0x%08x, reset 0x%08x, select %08x %08x %08x %08x %08x %08x, start 0x%08x: %s\n",
+                     frame, static_cast<unsigned>(userenr), userenr == 0xFFFFFFFFu ? "?" : (userenr & 1u) ? "on" : "off", static_cast<unsigned>(load), static_cast<unsigned>(rc[0]),
+                     static_cast<unsigned>(rc[1]), static_cast<unsigned>(rc[2]), static_cast<unsigned>(rc[3]), static_cast<unsigned>(rc[4]),
+                     static_cast<unsigned>(rc[5]), static_cast<unsigned>(rc[6]), static_cast<unsigned>(rc[7]), ok ? "counting" : "off");
+        if (!ok)
+            return false;
+        for (int i = 0; i < kN; ++i)
+        {
+            g_last[i] = 0u;
+            if (scePerfArmPmonGetCounterValue(SCE_PERF_ARM_PMON_THREAD_ID_SELF, static_cast<SceUInt32>(i), &g_last[i]) < 0)
+                return false;
+            g_sum[i] = 0u;
+        }
+        g_t0 = sceKernelGetProcessTimeWide();
+        g_f0 = frame;
+        return true;
+    }
+}
+extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
+{
+    using namespace m1pmu;
+    if (__builtin_expect(g_state < 0, 1))
+        return;
+    if (g_state == 0)
+    {
+        g_state = start(frame) ? 1 : -1;
+        return;
+    }
+    for (int i = 0; i < kN; ++i)
+    {
+        SceUInt32 v = 0u;
+        if (scePerfArmPmonGetCounterValue(SCE_PERF_ARM_PMON_THREAD_ID_SELF, static_cast<SceUInt32>(i), &v) < 0)
+        {
+            std::fprintf(stderr, "[m1pmu] frame %llu: counter %d unreadable: off\n", frame, i);
+            g_state = -1;
+            return;
+        }
+        g_sum[i] += static_cast<SceUInt32>(v - g_last[i]); // 32-bit counters: read every frame, the growth summed
+        g_last[i] = v;
+    }
+    const unsigned long long n = frame - g_f0;
+    if (n < g_every)
+        return;
+    const uint64_t t = sceKernelGetProcessTimeWide();
+    std::fprintf(stderr, "[m1pmu] frames %llu-%llu (%.2f ms/frame wall): per frame %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f, %s %.0f\n",
+                 g_f0, frame, static_cast<double>(t - g_t0) / 1000.0 / static_cast<double>(n), kName[0], g_sum[0] / static_cast<double>(n),
+                 kName[1], g_sum[1] / static_cast<double>(n), kName[2], g_sum[2] / static_cast<double>(n), kName[3], g_sum[3] / static_cast<double>(n),
+                 kName[4], g_sum[4] / static_cast<double>(n), kName[5], g_sum[5] / static_cast<double>(n));
+    for (int i = 0; i < kN; ++i)
+        g_sum[i] = 0u;
+    g_t0 = t;
+    g_f0 = frame;
 }
 
 #endif // PLATFORM_VITA

@@ -3395,14 +3395,38 @@ void EeScheduler::processPendingEvents()
             dispatchIrq(false, 9u + timer);
         }
     }
-    std::deque<EeEvent> pending;
+    // Round M1 (SOTC_M1ALLOC=1, read once, off by default): a std::deque allocates its map and a first node when it is
+    // constructed, empty or not: the swap below cost two mallocs and two frees at every checkpoint that got this far
+    // (~6 a frame on the ride, SOTC_HEAP_PROF). With m1alloc the local queue is made only when there are events; the
+    // same events are processed in the same order.
+    static const bool m1alloc = []
     {
-        std::lock_guard lock(m_eventMutex);
-        pending.swap(m_events);
+        const char *e = std::getenv("SOTC_M1ALLOC");
+        return e && std::atoi(e) != 0;
+    }();
+    if (m1alloc)
+    {
+        std::unique_lock lock(m_eventMutex);
+        if (!m_events.empty())
+        {
+            std::deque<EeEvent> pending;
+            pending.swap(m_events);
+            lock.unlock();
+            for (const EeEvent &event : pending)
+                processEvent(event);
+        }
     }
-    for (const EeEvent &event : pending)
+    else
     {
-        processEvent(event);
+        std::deque<EeEvent> pending;
+        {
+            std::lock_guard lock(m_eventMutex);
+            pending.swap(m_events);
+        }
+        for (const EeEvent &event : pending)
+        {
+            processEvent(event);
+        }
     }
 
     {
