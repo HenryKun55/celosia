@@ -24382,3 +24382,20 @@ docs/decomp_d3.md (method: docs/decomp_d1.md / decomp_d2.md; same switch d1nativ
   bytes). spalign 0 of 2 884; no "segment 1 overlaps".
 - **Boots** (89 MB, ride7 600 s, no difftest): d1native on mounted 11 128 / 2 227, default 2 219; pictures normal.
 - **Speed**: Vita3K A/B not run this round. Package celosia-d3.vpk + env-ab.txt (d1native = D1 + D2 + D3), not installed.
+
+## Decomp R1: the characters' per-frame data walks for the A9's caches (r1char, off by default) (2026-11-25)
+
+docs/decomp_r1.md. Switch `SOTC_R1CHAR` (A/B `r1char`), acts inside d1native's D bodies (needs `SOTC_D1NATIVE=1`).
+
+- **Census** (`SOTC_R1CHAR_CENSUS=1`, Vita3K ride7, a frame riding): pose 10-23 calls, 540-1 480 lines touched first in the frame;
+  cloth step 23-31 calls, 460-525 (+ pins 228-246, flip 94); charaLinks 3-7 calls over 2 600-9 700 entries but only ~330 cold
+  lines. ~1.6-2.7 k cold lines in all (2% of the console's ~106 k L1 D refills).
+- **Layout**: the pose over S3's host rig trusted for the frame after its first compare, offsets from the rig's host array,
+  outputs PLD'd two bones ahead; the cloth step / flip PLD the next row's buffers, row records and pin lists (no hardware
+  prefetcher on the Vita); charaLinks PLDs entries four ahead with a table cache per handle column; CheckControlDef PLDs the next
+  condition. Same values, same order of guest accesses.
+- **Checks**: spalign 0 of 2 888, no overlap. Difftest ride7 (SELF, SWITCH=r1char, VU0): clothStep / getClothDynamics /
+  GetMotionMatrix 100 checks each, 0 mismatches; mounted 2 512, rode to 15 987. Fixed-step position runs are not
+  frame-deterministic in Vita3K (async loads), so not comparable. 89 MB boots off (mounted 6 448) and on (3 431), pictures normal.
+- **Speed**: console only (Vita3K has no caches): celosia-r1.vpk + env-r1-ab / off / on / r1p1-on (K2 base env + D1NATIVE).
+  Estimate 0.05-0.2 ms (1-2 k fewer refills a frame).
