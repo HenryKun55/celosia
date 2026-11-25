@@ -475,6 +475,7 @@ namespace k2
     uint32_t g_remapOps = 0; // 1: guest RAM, 2: text
     bool g_dry = false;
     bool g_ok = false; // module answered + bridge + hello
+    bool g_resident = false; // round P3: the start failed, the bridge was tried on the resident module
     K2Bridge g_br;
     K2StartRes g_start;
     uint32_t g_nonce = 0;
@@ -551,9 +552,22 @@ namespace k2
             const volatile uint32_t *m = &g_start.magic, *n = &g_start.nonce;
             if (*m == K2_RES_MAGIC && *n == g_nonce && g_start.version == K2_VERSION)
                 bridge();
+            else if (g_startRc < 0)
+            {
+                // Round P3: the second launch without a reboot. The module is still resident (an earlier game exited:
+                // its process-event handler released that game's state), so the load hands back the resident module's id
+                // and the start fails (0x8002d013 on the console); the bridge binds to the resident module's syscalls and
+                // its hello says whether it is this build's version (a module of an older version: K2 off, reboot).
+                // Vita3K's start returns 0 without running the module: not reached there.
+                g_resident = true;
+                bridge();
+            }
         }
         else
+        {
+            g_resident = true;
             bridge(); // the console only (Vita3K's load succeeds): a K2 module left resident by an earlier, killed run
+        }
         if (g_ok)
             c1::boot(); // round C1: SOTC_C1CORE3 (core 3 for this process)
     }
@@ -1670,7 +1684,15 @@ extern "C" void ps2x_k2_boot_log()
                  g_start.magic == K2_RES_MAGIC && g_start.nonce == g_nonce ? "yes" : "no", static_cast<unsigned>(g_start.instance),
                  static_cast<unsigned>(g_start.procevent_rc), g_upath, static_cast<unsigned>(g_bridge), g_bridgeStatus,
                  static_cast<unsigned>(g_hello), static_cast<unsigned>(g_hello4[3]),
-                 g_ok ? "K2 on" : "K2 off (no answer: Vita3K / not found / unsafe homebrew off), the game as without it");
+                 g_ok ? (g_resident ? "K2 on (the module resident from an earlier launch, bridged: no reboot needed)" : "K2 on")
+                 : g_resident && g_bridge >= 0 && g_br.magic == K2_BRIDGE_MAGIC && g_hello4[0] == (K2_RES_MAGIC ^ g_nonce) && g_hello4[1] != K2_VERSION
+                     ? "K2 off (the resident module is an older version: reboot the console once)"
+                 : g_resident ? "K2 off (the resident module did not answer the bridge: reboot the console)"
+                              : "K2 off (no answer: Vita3K / not found / unsafe homebrew off), the game as without it");
+    if (g_resident)
+        std::fprintf(stderr, "[k2] resident module: hello rc 0x%08x answer %08x version %u (this build %u) instance %08x held %u\n", static_cast<unsigned>(g_hello),
+                     static_cast<unsigned>(g_hello4[0] ^ g_nonce), static_cast<unsigned>(g_hello4[1]), static_cast<unsigned>(K2_VERSION),
+                     static_cast<unsigned>(g_hello4[2]), static_cast<unsigned>(g_hello4[3]));
     c1::log();
     logRemap("guest RAM", g_remapRamRc, g_remapRam);
     logRemap("text", g_remapTextRc, g_remapText);

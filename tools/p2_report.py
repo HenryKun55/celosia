@@ -104,7 +104,9 @@ def parse(path, args):
                 run['p2bcost'] = v
                 run['p2bevents'] = [int(x, 16) for x in m.group(3).split()]
                 continue
-            m = re.match(r'w (\d+) frames (\d+)-(\d+): (\S+) calls/f ([\d.]+) early (\d+) \| incl ([\d. ]+) \| self ([\d. ]+)', s)
+            if 'clock: the cycles column is microseconds' in s:
+                run['p2bclock'] = True
+            m = re.match(r'w (\d+) frames (\d+)-(\d+): (\S+) calls/f ([\d.]+) early (\d+)(?: nest ([\d.]+))? \| incl ([\d. ]+) \| self ([\d. ]+?)(?: par=(\S+))?(?: \(off|$)', s)
             if m:
                 w = int(m.group(1))
                 if args.windows and not (rng(args.windows)[0] <= w <= rng(args.windows)[1]):
@@ -113,10 +115,15 @@ def parse(path, args):
                 d = run['p2b'][m.group(4)]
                 d['calls'] += float(m.group(5)) * nf
                 d['early'] += int(m.group(6))
-                inc = [float(x) for x in m.group(7).split()]; sel = [float(x) for x in m.group(8).split()[:7]]
+                if m.group(7) is not None:
+                    d['nested'] = d.get('nested', 0.0) + float(m.group(7)) * nf
+                    run['p2bnest'] = True  # round P3: a closed child charged its parent with its count + one read
+                inc = [float(x) for x in m.group(8).split()]; sel = [float(x) for x in m.group(9).split()[:7]]
                 for k in range(7):
                     d['incl'][k] += inc[k] * nf; d['self'][k] += sel[k] * nf
                 d['n'] += nf
+                if m.group(10) and m.group(10) != '-':
+                    d.setdefault('par', Counter())[m.group(10)] += nf
                 run['p2bwins'].add((w, nf))
     return run
 
@@ -267,28 +274,55 @@ def main():
             continue
         cost = r['p2bcost'] or [0.0] * 7
         evn = r['p2bevents'] or []
-        names = [EVNAME.get(e, hex(e)) for e in evn] + ['cycles']
-        print(f'\n== {r["path"]}: counter brackets (per frame; one K2 read subtracted per call: {", ".join(f"{x:.0f}" for x in cost)})')
+        clock = r.get('p2bclock', False)
+        nest = r.get('p2bnest', False)
+        names = ([EVNAME.get(e, hex(e)) for e in evn] if not clock else ['-'] * 6) + (['us (clock)'] if clock else ['cycles'])
+        print(f'\n== {r["path"]}: counter brackets (per frame; reads subtracted: {", ".join(f"{x:.0f}" for x in cost)} each; '
+              + ('inclusive - (calls + 2 x nested calls) reads, self - one read a call)' if nest else 'one read a call (P2 build: a parent\'s self still holds one read per child call)'))
         print(f'  {"bracket":44s} {"calls/f":>8s} ' + ' '.join(f'{n[:16]:>16s}' for n in names) + '   (inclusive, then self)')
         rows = []
+        tot_calls = 0.0
         for name, d in r['p2b'].items():
             if not d['n']:
                 continue
             nf = d['n']
             cpf = d['calls'] / nf
-            inc = [max(0.0, d['incl'][k] / nf - cpf * cost[k]) for k in range(7)]
+            npf = d.get('nested', 0.0) / nf
+            tot_calls += cpf
+            inc = [max(0.0, d['incl'][k] / nf - (cpf + 2.0 * npf) * cost[k]) for k in range(7)]
             sel = [max(0.0, d['self'][k] / nf - cpf * cost[k]) for k in range(7)]
-            rows.append((name, cpf, inc, sel))
-        for name, cpf, inc, sel in sorted(rows, key=lambda x: -x[3][6]):
+            par = d['par'].most_common(1)[0][0] if d.get('par') else None
+            rows.append((name, cpf, inc, sel, par))
+        for name, cpf, inc, sel, par in sorted(rows, key=lambda x: -x[3][6]):
             print(f'  {name[:44]:44s} {cpf:8.1f} ' + ' '.join(f'{v:16.0f}' for v in inc))
-            print(f'  {"":44s} {"self":>8s} ' + ' '.join(f'{v:16.0f}' for v in sel))
+            print(f'  {"":44s} {"self":>8s} ' + ' '.join(f'{v:16.0f}' for v in sel) + (f'   in {par}' if par else ''))
         sub = defaultdict(lambda: [0.0] * 7)
-        for name, cpf, inc, sel in rows:
+        for name, cpf, inc, sel, par in rows:
             for k in range(7):
                 sub[name.split(':')[0]][k] += sel[k]
         print('  by subsystem (sum of self):')
         for s, v in sorted(sub.items(), key=lambda x: -x[1][6]):
             print(f'  {s[:44]:44s} {"":8s} ' + ' '.join(f'{x:16.0f}' for x in v))
+        # Round P3: the cost of the brackets themselves (two reads a call) and the tree by caller bracket
+        unit = 'us' if clock else 'cycles'
+        print(f'  bracket cost: {tot_calls:.1f} bracket calls a frame x 2 reads x {cost[6]:.0f} {unit} = {2 * tot_calls * cost[6]:.0f} {unit} a frame'
+              + ('' if clock else f' (~{2 * tot_calls * cost[6] / 444e3:.2f} ms at 444 MHz); one bracket call costs ~{2 * cost[6]:.0f} cycles'))
+        if any(x[4] for x in rows):
+            byname = {x[0]: x for x in rows}
+            kids = defaultdict(list)
+            for x in rows:
+                kids[x[4] if x[4] in byname else None].append(x)
+            print(f'  tree (by caller bracket; self {unit} a frame, its share of the parent\'s inclusive; calls a frame):')
+
+            def show(x, dep, parent_incl):
+                name, cpf, inc, sel, par = x
+                share = f'{100 * inc[6] / parent_incl:5.1f}%' if parent_incl else '     '
+                print(f'  {"  " * dep}{name[:60]:60s} incl {inc[6]:11.0f} {share}  self {sel[6]:11.0f}  calls {cpf:7.1f}')
+                for k in sorted(kids.get(name, []), key=lambda y: -y[2][6]):
+                    if k[0] != name and dep < 8:
+                        show(k, dep + 1, inc[6])
+            for x in sorted(kids[None], key=lambda y: -y[2][6]):
+                show(x, 0, 0.0)
 
 
 if __name__ == '__main__':

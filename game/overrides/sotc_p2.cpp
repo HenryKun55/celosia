@@ -3,7 +3,8 @@
 // natives calling natives directly are inside their caller's bracket). On entry and exit the game thread's six K2
 // counters + cycles are read (src/lib/ps2_vita_p2.cpp: ps2x_p2b_enter / leave, a K2 syscall each); inclusive and self
 // (minus the brackets opened inside) per frame, every window, as "[p2b] w ..." lines. SOTC_P2BRACKET_EXTRA=0xaddr:name,...
-// adds functions. With the switch off nothing is wrapped (one getenv at install).
+// adds functions. With the switch off nothing is wrapped (one getenv at install). Round P3: SOTC_P2BRACKET=2 adds kTargetsP3
+// (one level down); SOTC_P2BRACKET_CLOCK=1 runs them without K2 (Vita3K: call counts and the tree, microseconds).
 #include "sotc_p2.h"
 
 #include "ps2_runtime.h"
@@ -18,6 +19,7 @@
 
 #if defined(__vita__)
 extern "C" bool ps2x_p2b_wanted();
+extern "C" int ps2x_p2b_level();
 extern "C" int ps2x_p2b_register(const char *name);
 extern "C" uint32_t ps2x_p2b_enter(int id);
 extern "C" void ps2x_p2b_leave(uint32_t token);
@@ -32,7 +34,7 @@ namespace sotc_p2
             PS2Runtime::RecompiledFunction inner;
             int id;
         };
-        constexpr int kMax = 48;
+        constexpr int kMax = 128; // (ps2_vita_p2.cpp's p2b::kMax)
         std::array<Wrapped, kMax> g_w;
 
         struct Bracket
@@ -88,6 +90,78 @@ namespace sotc_p2
             {0x0113E940u, "particles:particleDraw"},
             {0x011462A0u, "particles:doit_wind_manager"},
         };
+        // Round P3 (SOTC_P2BRACKET=2; docs/decomp_p3.md): one level down, where the P2 console run's self cycles were
+        // (execScript 4.1M, ExecCharaGeometry 2.76M, DispDispObjGroupModel 2.76M a frame). Chosen from the console's own
+        // prof129 (pc, ra) pairs of that run (each function's caller chain: what runs inside those brackets' self) and
+        // kept only if Vita3K's clock brackets (SOTC_P2BRACKET_CLOCK) count fewer than ~200 calls a frame on the ride.
+        // Only functions entered through the table (a guest call / callGuest / callNative) can be bracketed: a native's
+        // direct C++ callees ("...Sw" helpers) stay in their caller's self. Left out after the Vita3K count (ride7, calls a
+        // frame): isysGroupForNext 323, iosDlLockObj 171, ClipLayoutObjModel 168 (no guest callees: it is most of
+        // DispDispObjGroupModel's remaining self), isysGroupForExit 122, clip_particle_geodisp 75, isysLetterObjDiscardLetterAll
+        // 72, the particle-display gate 0113ACB8 71 (its emitter is kept); never entered through the table on the ride:
+        // manager_sub_010BC4F0, manager_sub_010F3FB0 (DispLayoutObjModel's recompiled callee), DispCloth.
+        constexpr Target kTargetsP3[] = {
+            // execScript's self: the script pass, the sub-thread wakes (the script bodies run inside), the frame end's work
+            {0x01102638u, "scripts:scriptPass"},
+            {0x001C9A40u, "scripts:isysWakeupSubThread"},
+            {0x013CFBE0u, "scripts:frameEndCharaGeometry"},
+            {0x0110A130u, "scripts:ExecObjectAnimation"},
+            {0x01365450u, "scripts:StageManagerCheckAreaExist"},
+            {0x010CABA0u, "characters:charaCtrl"},
+            {0x010D37C8u, "characters:GetMainAnimation"},
+            {0x010D38B0u, "characters:GetSubAnimation"},
+            {0x010C71D8u, "characters:ctrlTurn"},
+            {0x010CA230u, "characters:ctrlWalk"},
+            {0x01391E30u, "characters:horseStep"},
+            {0x010C9B10u, "characters:ctrlReactions"},
+            {0x013B0EB8u, "characters:playerStep_013B0EB8"},
+            {0x0108FBE8u, "display:graphFrameInit"},
+            {0x0108F8D8u, "display:graphFrameFinish"},
+            {0x010F5820u, "display:InitLayoutObjMatrix"},
+            {0x010EC2E8u, "display:ExecFogColMan"},
+            {0x01164710u, "camera:update_clip_screen"},
+            {0x01160570u, "camera:update_camera_context"},
+            {0x0135EF18u, "particles:updateSpecialEffectManager"},
+            // ExecCharaGeometry's self
+            {0x010D9FC0u, "characters:GetCharaRootDynamics"},
+            {0x010D9AA0u, "characters:norootdynamics"},
+            {0x010D43E8u, "collision:charrootdyn_getCollisionDB"},
+            {0x01124C88u, "collision:GetCollisionDBCallBack"},
+            {0x010DC7C0u, "collision:charrootdyn_getLandingSurface"},
+            {0x010DC020u, "collision:charrootdyn_slidecollision"},
+            {0x01116958u, "collision:finder"},
+            {0x01137A68u, "characters:GetClothDynamics"},
+            {0x013BA2D8u, "characters:nico_execPlayerFringe"},
+            {0x011399E0u, "characters:getClothDynamics"},
+            {0x01137640u, "characters:clothVelocity_01137640"},
+            {0x010BBA60u, "characters:CalcNodeQuaternionWithIK"},
+            {0x010E7610u, "characters:xz"},
+            {0x010E1808u, "characters:sub_010E1808"},
+            {0x010E0558u, "characters:sub_010E0558"},
+            {0x010E1068u, "characters:aimIk"},
+            {0x01169020u, "characters:ExecAnimeTableInfo"},
+            {0x011688A8u, "characters:sub_011688A8"},
+            {0x011696A8u, "particles:SequenceKickParticle"},
+            {0x010C4CA8u, "characters:AddCharacterClassSubGeometries"},
+            {0x010C4220u, "characters:rootBlend"},
+            {0x013BC278u, "characters:nico_playerExpression"},
+            {0x010C6C80u, "characters:GazeAddMotions"},
+            {0x010C6238u, "characters:gaze"},
+            // DispDispObjGroupModel's self
+            {0x010F5920u, "display:DispLayoutObjModel"},
+            {0x010F3A08u, "display:solidDisp"},
+            {0x010F3CF0u, "display:skinned"},
+            {0x010F4FB8u, "display:lightPass"},
+            {0x010F4D48u, "display:CalcLightLayoutObj"},
+            {0x010F64C0u, "display:SetGeoDispClassLightColMan"},
+            {0x010F8728u, "display:ExecGlobalLightMan"},
+            {0x010F1A20u, "display:GetLayoutClass"},
+            {0x0113D988u, "particles:disp_particle_emitter"},
+            {0x013FDD68u, "display:DispWithSwordBlur"},
+            {0x0108D730u, "display:glVertexKick"},
+            {0x0108FCC8u, "display:graphFsEffectReset"},
+            {0x010998B8u, "display:modelSetEnviroment"},
+        };
     }
 
     void install(PS2Runtime &runtime)
@@ -115,6 +189,9 @@ namespace sotc_p2
         };
         for (const Target &t : kTargets)
             wrap(t.address, t.name);
+        if (ps2x_p2b_level() >= 2)
+            for (const Target &t : kTargetsP3)
+                wrap(t.address, t.name);
         static std::vector<std::string> extraNames;
         if (const char *extra = std::getenv("SOTC_P2BRACKET_EXTRA"))
         {
@@ -138,7 +215,7 @@ namespace sotc_p2
                 }
             }
         }
-        std::fprintf(stderr, "[p2b] %d functions wrapped (counters read when K2's counters run on the game thread)\n", slot);
+        std::fprintf(stderr, "[p2b] %d functions wrapped, level %d (counters read when K2's counters run on the game thread)\n", slot, ps2x_p2b_level());
     }
 }
 #else

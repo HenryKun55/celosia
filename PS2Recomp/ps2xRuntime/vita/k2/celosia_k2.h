@@ -25,7 +25,7 @@
 #define K2_MAGIC 0x3232324Bu     /* "K222" */
 #define K2_RES_MAGIC 0x5232324Bu /* "K22R" */
 #define K2_BRIDGE_MAGIC 0x4232324Bu
-#define K2_VERSION 1u
+#define K2_VERSION 2u /* 2: round P3 (hello releases a previous owner's state; the P2 probe's extended checks) */
 
 /* Syscall library NIDs (fixed in exports.yml; the bridge's stubs carry the same numbers). */
 #define K2_LIB_NID 0xC2C2C201u

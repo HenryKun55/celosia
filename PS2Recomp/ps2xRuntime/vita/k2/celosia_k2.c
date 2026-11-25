@@ -727,6 +727,7 @@ static int onGone(SceUID pid)
         return 0;
     g_c3pid = -1; /* C1: the hook stops answering for this pid at once */
     p2Gone(pid); /* P2: sampling stopped, the interrupt handler released */
+    p2Forget();  /* P3: its probe results forgotten (the next launch probes again) */
     if (lock())
     {
         putBack(0);
@@ -796,7 +797,19 @@ int celosiaK2Hello(uint32_t nonce, uint32_t *out4)
     else
     {
         if (g_owner != pid && g_nheld == 0u)
-            g_owner = pid; /* a new game (the last one exited or was killed without the handler: nothing held) */
+        {
+            /* a new game (the last one exited or was killed without the handler: nothing held). Round P3: whatever the
+             * last owner left (normally released by onGone already) is released here too: C1's hook, P2's handler and
+             * probe results belong to that process. */
+            if (g_owner >= 0)
+            {
+                g_c3pid = -1;
+                p2Gone(g_owner);
+                c3Release();
+            }
+            p2Forget();
+            g_owner = pid;
+        }
         rc = g_owner == pid ? 0 : K2_ERR_NOT_OWNER;
         unlock();
     }

@@ -27,7 +27,7 @@
  * celosia_p2u.suprx fail to load, and the game runs without sampling). */
 #define P2_LIB_NID 0xC2C2C2F2u
 #define P2_MAGIC 0x3250324Bu /* "K2P2" */
-#define P2_VERSION 1u
+#define P2_VERSION 2u /* 2: round P3 (P2Probe's PPI / CPU-interface fields) */
 
 #define P2_OP_PROBE 1u
 #define P2_OP_START 2u
@@ -67,7 +67,15 @@ typedef struct P2Probe
     uint32_t line;                /* the chosen SPI (0: none) */
     uint32_t line_enabled, line_after, line_cfg;
     uint32_t noise;               /* lines that rose in some trial but not all (other devices) */
+    /* Round P3 (always filled): the banked word 0 of the pending bits (SGIs 0-15, PPIs 16-31 of this core: the A9's
+     * private lines 27 global timer, 28 legacy FIQ, 29 private timer, 30 watchdog, 31 legacy IRQ), as the SPI words */
+    uint32_t ppi_all, ppi_any, ppi_before, ppi_during, ppi_after;
+    /* P2_PROBE_EXT only: the CPU interface (PERIPHBASE + 0x100): its kernel VA, IIDR, the highest pending interrupt
+     * (GICC_HPPIR: never the acknowledge register) and the running priority before / during each trial, PMR */
+    uint32_t ext, gicc_pa, gicc_kva, gicc_par, gicc_iidr, gicc_pmr, hppir_before, rpr_before;
+    uint32_t hppir_during[3], rpr_during[3];
 } P2Probe;
+#define P2_PROBE_EXT 0x100u /* PROBE's arg: | this = the extended checks (the CPU interface) */
 
 typedef struct P2Cfg
 {

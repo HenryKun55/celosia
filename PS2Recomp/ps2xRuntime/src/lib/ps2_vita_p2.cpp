@@ -18,6 +18,11 @@
 //        counters + cycles are read through K2 (a syscall each); inclusive and self per frame every window:
 //          [p2b] w <k> frames a-b: <name> calls/f C | incl e0 e1 e2 e3 e4 e5 cyc | self ...
 //        The read's own cost (calibrated at start: "[p2b] read cost") is in every pair; p2_report.py subtracts it.
+//   Round P3 (docs/decomp_p3.md): SOTC_P2BRACKET=2 adds ~40 brackets one level down (execScript's, ExecCharaGeometry's
+//        and DispDispObjGroupModel's children: game/overrides/sotc_p2.cpp); "nest" (bracket calls inside) and "par=" (the
+//        caller bracket) on every line. SOTC_P2BRACKET_CLOCK=1: brackets without K2 (Vita3K: microseconds only).
+//        SOTC_P2PMUSAMPLE=probe: the probe alone with its extended checks (this core's PPIs, the GIC CPU interface), never
+//        started ("[p2] probe ppi" line).
 // Vita3K never runs the module: K2 is off there and both stay off (one getenv at the first frame).
 #if defined(PLATFORM_VITA)
 
@@ -50,6 +55,7 @@ namespace p2
     __attribute__((noinline, used)) void anchor() { asm volatile(""); }
 
     int g_state = 0; // 0 not asked, 1 prepared, 2 sampling, 3 stopped, -1 off
+    bool g_probeOnly = false; // round P3: SOTC_P2PMUSAMPLE=probe
     uint32_t g_event = 0, g_period = 0, g_counter = P2_COUNTER_DEFAULT, g_window = 600, g_prio = 0;
     P2Bridge g_br;
     int g_bridge = 0, g_bridgeStatus = -1;
@@ -252,7 +258,15 @@ namespace p2
 
 namespace p2b
 {
-    bool g_want = false, g_on = false;
+    bool g_want = false, g_on = false, g_clock = false;
+    uintptr_t g_tp = 0;
+    // TPIDRURO (the thread's TLS pointer, one per thread): which thread is in a bracket (user-readable, no syscall)
+    inline uintptr_t threadPointer()
+    {
+        uintptr_t v;
+        asm volatile("mrc p15, 0, %0, c13, c0, 3" : "=r"(v));
+        return v;
+    }
     void calibrate();
     void tick(unsigned long long frame);
 }
@@ -264,6 +278,8 @@ extern "C" void ps2x_p2_prepare()
     const char *v = std::getenv("SOTC_P2PMUSAMPLE");
     const char *b = std::getenv("SOTC_P2BRACKET");
     p2b::g_want = b && std::atoi(b) != 0;
+    const char *bc = std::getenv("SOTC_P2BRACKET_CLOCK");
+    p2b::g_clock = p2b::g_want && bc && std::atoi(bc) != 0;
     if (!v || !*v || !std::strcmp(v, "0"))
     {
         g_state = -1;
@@ -275,7 +291,14 @@ extern "C" void ps2x_p2_prepare()
         g_state = -1;
         return;
     }
-    if (!parse(v))
+    if (!std::strcmp(v, "probe"))
+    {
+        // Round P3: the probe alone, with the extended checks (this core's PPIs, the GIC CPU interface); never started
+        g_probeOnly = true;
+        g_event = 0x03u;
+        g_period = 250u;
+    }
+    else if (!parse(v))
     {
         std::fprintf(stderr, "[p2] off: SOTC_P2PMUSAMPLE=%s not understood (<event>[:<period>], period >= 64)\n", v);
         g_state = -1;
@@ -285,7 +308,8 @@ extern "C" void ps2x_p2_prepare()
         g_window = std::max(60, std::atoi(w));
     if (const char *p = std::getenv("SOTC_P2PMUSAMPLE_PRIO"))
         g_prio = static_cast<uint32_t>(std::strtoul(p, nullptr, 0)) & 0xF0u;
-    k1::g_events = (k1::g_events & ~(0xFFu << (8u * g_counter))) | (g_event << (8u * g_counter));
+    if (!g_probeOnly) // (the probe alone leaves K2's six events as they are)
+        k1::g_events = (k1::g_events & ~(0xFFu << (8u * g_counter))) | (g_event << (8u * g_counter));
     g_state = 1;
 }
 
@@ -293,8 +317,10 @@ extern "C" void ps2x_p2_prepare()
 extern "C" void ps2x_p2_start(unsigned long long frame, bool k2ok)
 {
     using namespace p2;
-    if (p2b::g_want && k2ok)
+    if (p2b::g_want && (k2ok || p2b::g_clock))
     {
+        p2b::g_clock = !k2ok; // round P3: SOTC_P2BRACKET_CLOCK=1 without K2 (Vita3K): the clock alone
+        p2b::g_tp = p2b::threadPointer();
         p2b::calibrate();
         p2b::g_on = true;
     }
@@ -329,7 +355,10 @@ extern "C" void ps2x_p2_start(unsigned long long frame, bool k2ok)
     sceKernelDelayThread(1000);
     std::memset(&g_probe, 0, sizeof(g_probe));
     const uint64_t tp = sceKernelGetProcessTimeWide();
-    const int prc = g_br.p2(P2_OP_PROBE, g_counter, nullptr, &g_probe);
+    const int prc = g_br.p2(P2_OP_PROBE, g_counter | (g_probeOnly ? P2_PROBE_EXT : 0u), nullptr, &g_probe);
+    // Round P3: the console handed -4 back as 0xbffffffc (the syscall return path clears bit 30 of a negative result):
+    // the probe's own code is read with that bit set again
+    const int pcode = prc < 0 ? static_cast<int>(static_cast<uint32_t>(prc) | 0x40000000u) : prc;
     const P2Probe &o = g_probe;
     std::fprintf(stderr, "[p2] probe frame %llu (%.1f ms): rc %d ok 0x%03x cpu %u thread %08x ctx %08x | ctx TPIDRURW %08x/%08x TTBR1 %08x/%08x PMCR %08x CNTENSET %08x/%08x "
                          "types %08x.%04x/%08x.%04x | CBAR %08x GICD pa %08x kva %08x PAR %08x IIDR %08x TYPER %08x | trials %u spins %u candidates %u (%u %u %u %u) noise %u | "
@@ -338,10 +367,26 @@ extern "C" void ps2x_p2_start(unsigned long long frame, bool k2ok)
                  o.live_ttbr1, o.ctx_pmcr, o.ctx_cntenset, o.live_cntenset, o.ctx_types, o.ctx_types_hi, o.live_types, o.live_types_hi, o.cbar, o.gicd_pa, o.gicd_kva,
                  o.gicd_par, o.gicd_iidr, o.gicd_typer, o.trials, o.spins, o.cand_n, o.cand[0], o.cand[1], o.cand[2], o.cand[3], o.noise, o.line,
                  o.line ? static_cast<int>(o.line) - 32 : -1, o.line_enabled, o.line_after, o.line_cfg, (o.ok & P2_OK_LEVEL) ? " (level)" : "");
+    // Round P3: this core's SGI / PPI word (always) and, probe-only, the CPU interface while the overflow line was up
+    std::fprintf(stderr, "[p2] probe ppi: word 0 rose in every trial %08x, in some %08x (before %08x during %08x after %08x; A9 private lines 27-31 = bits 0x%08x)%s",
+                 o.ppi_all, o.ppi_any, o.ppi_before, o.ppi_during, o.ppi_after, 0xF8000000u,
+                 o.ppi_all & 0xF8000000u ? ": A PRIVATE LINE ROSE" : o.ppi_all ? ": a banked line rose" : ": none rose");
+    if (o.ext)
+        std::fprintf(stderr, " | cpu interface %s: pa %08x kva %08x PAR %08x IIDR %08x PMR %08x | HPPIR before %08x (id %u) during %08x %08x %08x (ids %u %u %u) | RPR before %08x during %08x %08x %08x\n",
+                     (o.ext & 2u) ? "found" : "NOT found", o.gicc_pa, o.gicc_kva, o.gicc_par, o.gicc_iidr, o.gicc_pmr, o.hppir_before, o.hppir_before & 0x3FFu,
+                     o.hppir_during[0], o.hppir_during[1], o.hppir_during[2], o.hppir_during[0] & 0x3FFu, o.hppir_during[1] & 0x3FFu, o.hppir_during[2] & 0x3FFu,
+                     o.rpr_before, o.rpr_during[0], o.rpr_during[1], o.rpr_during[2]);
+    else
+        std::fprintf(stderr, "\n");
+    if (g_probeOnly)
+    {
+        std::fprintf(stderr, "[p2] probe only (SOTC_P2PMUSAMPLE=probe): rc %d, not started\n", pcode);
+        return;
+    }
     if (prc < 0)
     {
-        std::fprintf(stderr, "[p2] off: the probe refused (%s)\n", prc == -2 ? "the thread context does not look as expected" : prc == -3 ? "no GIC distributor"
-                                                                     : prc == -4 ? "no single PMU interrupt line" : prc == -5 ? "the line is already in use" : "?");
+        std::fprintf(stderr, "[p2] off: the probe refused (rc %d: %s)\n", pcode, pcode == -2 ? "the thread context does not look as expected" : pcode == -3 ? "no GIC distributor"
+                                                                     : pcode == -4 ? "no single PMU interrupt line" : pcode == -5 ? "the line is already in use" : "?");
         return;
     }
     g_buf = static_cast<P2Sample *>(std::malloc(sizeof(P2Sample) * P2_RING));
@@ -400,15 +445,25 @@ extern "C" void ps2x_p2_tick(unsigned long long frame)
         flush(frame);
 }
 
-// ---------------------------------------------------------------- counter brackets (SOTC_P2BRACKET=1)
+// ---------------------------------------------------------------- counter brackets (SOTC_P2BRACKET=1 / 2)
+// Round P3: up to 128 brackets (P2's 22 at level 1, P3's children of execScript / ExecCharaGeometry /
+// DispDispObjGroupModel at level 2: game/overrides/sotc_p2.cpp); the game thread only (another thread calling a wrapped
+// function, the guest worker, passes through untimed); a closed bracket charges its parent with its inclusive count +
+// one read (the read that opened it), so a parent's self holds one read per call of its own, as a leaf's; nested
+// bracket calls are counted (inclusive - (calls + 2 x nested) reads = the work); each bracket's caller bracket is
+// kept ("par=<name>": the most frequent, for the report's tree). SOTC_P2BRACKET_CLOCK=1: without K2's counters (Vita3K)
+// the brackets still run, on sceKernelGetProcessTimeLow (us in the cycles column, the six events 0): call counts and
+// the tree for choosing brackets, no console numbers.
 namespace p2b
 {
-    constexpr int kMax = 64, kDepth = 32, kEv = 7; // six counters + cycles
+    constexpr int kMax = 128, kDepth = 32, kEv = 7, kPar = 3; // six counters + cycles
     struct Acc
     {
         const char *name;
-        uint64_t calls, early;
+        uint64_t calls, early, nested;
         uint64_t incl[kEv], self[kEv];
+        int par[kPar];
+        uint32_t parN[kPar];
         bool off;
     };
     Acc g_acc[kMax];
@@ -416,7 +471,7 @@ namespace p2b
     struct Open
     {
         int id;
-        uint32_t serial;
+        uint32_t serial, nested;
         uint32_t start[kEv];
         uint64_t child[kEv];
     };
@@ -424,12 +479,21 @@ namespace p2b
     int g_depth = 0;
     uint32_t g_serial = 0;
     double g_cost[kEv];
+    uint32_t g_charge[kEv]; // the read cost charged to a parent per closed child (rounded)
     unsigned long long g_f0 = 0;
     bool g_started = false;
     unsigned g_win = 0;
+    uint64_t g_foreign = 0; // enters from another thread (passed through)
 
     inline void read(uint32_t *v)
     {
+        if (__builtin_expect(g_clock, 0))
+        {
+            for (int k = 0; k < 6; ++k)
+                v[k] = 0u;
+            v[6] = static_cast<uint32_t>(sceKernelGetProcessTimeLow());
+            return;
+        }
         K2Pmu p;
         k2::g_br.pmuRead(&p);
         for (int k = 0; k < 6; ++k)
@@ -444,10 +508,23 @@ namespace p2b
         for (int i = 0; i < n; ++i)
             read(b);
         for (int k = 0; k < kEv; ++k)
+        {
             g_cost[k] = static_cast<double>(static_cast<uint32_t>(b[k] - a[k])) / n;
-        std::fprintf(stderr, "[p2b] read cost (one K2 read, the events counted by it): %.1f %.1f %.1f %.1f %.1f %.1f cyc %.1f (events %02x %02x %02x %02x %02x %02x)\n",
+            g_charge[k] = static_cast<uint32_t>(g_cost[k] + 0.5);
+        }
+        std::fprintf(stderr, "[p2b] read cost (one K2 read, the events counted by it): %.1f %.1f %.1f %.1f %.1f %.1f cyc %.1f (events %02x %02x %02x %02x %02x %02x)%s\n",
                      g_cost[0], g_cost[1], g_cost[2], g_cost[3], g_cost[4], g_cost[5], g_cost[6], k1::g_events & 0xFFu, (k1::g_events >> 8) & 0xFFu,
-                     (k1::g_events >> 16) & 0xFFu, k1::g_events >> 24, k1::g_eventsHi & 0xFFu, (k1::g_eventsHi >> 8) & 0xFFu);
+                     (k1::g_events >> 16) & 0xFFu, k1::g_events >> 24, k1::g_eventsHi & 0xFFu, (k1::g_eventsHi >> 8) & 0xFFu,
+                     g_clock ? " clock: the cycles column is microseconds (SOTC_P2BRACKET_CLOCK, no K2)" : "");
+    }
+    const char *parentName(const Acc &a)
+    {
+        int best = -1;
+        uint32_t n = 0;
+        for (int j = 0; j < kPar; ++j)
+            if (a.parN[j] > n)
+                n = a.parN[j], best = a.par[j];
+        return best >= 0 ? g_acc[best].name : "-";
     }
     void tick(unsigned long long frame)
     {
@@ -461,25 +538,31 @@ namespace p2b
         if (frame - g_f0 < window)
             return;
         const double nf = static_cast<double>(frame - g_f0);
+        double callsF = 0.0;
         for (int i = 0; i < g_n; ++i)
         {
             Acc &a = g_acc[i];
             if (!a.calls)
                 continue;
-            std::fprintf(stderr, "[p2b] w %u frames %llu-%llu: %s calls/f %.2f early %llu | incl %.0f %.0f %.0f %.0f %.0f %.0f %.0f | self %.0f %.0f %.0f %.0f %.0f %.0f %.0f%s\n",
-                         g_win, g_f0, frame, a.name, a.calls / nf, static_cast<unsigned long long>(a.early), a.incl[0] / nf, a.incl[1] / nf, a.incl[2] / nf,
-                         a.incl[3] / nf, a.incl[4] / nf, a.incl[5] / nf, a.incl[6] / nf, a.self[0] / nf, a.self[1] / nf, a.self[2] / nf, a.self[3] / nf,
-                         a.self[4] / nf, a.self[5] / nf, a.self[6] / nf, a.off ? " (off: too many calls)" : "");
+            callsF += a.calls / nf;
+            std::fprintf(stderr, "[p2b] w %u frames %llu-%llu: %s calls/f %.2f early %llu nest %.2f | incl %.0f %.0f %.0f %.0f %.0f %.0f %.0f | self %.0f %.0f %.0f %.0f %.0f %.0f %.0f par=%s%s\n",
+                         g_win, g_f0, frame, a.name, a.calls / nf, static_cast<unsigned long long>(a.early), a.nested / nf, a.incl[0] / nf, a.incl[1] / nf,
+                         a.incl[2] / nf, a.incl[3] / nf, a.incl[4] / nf, a.incl[5] / nf, a.incl[6] / nf, a.self[0] / nf, a.self[1] / nf, a.self[2] / nf,
+                         a.self[3] / nf, a.self[4] / nf, a.self[5] / nf, a.self[6] / nf, parentName(a), a.off ? " (off: too many calls)" : "");
             if (a.calls / nf > 600.0)
                 a.off = true;
-            a.calls = a.early = 0;
+            a.calls = a.early = a.nested = 0;
             std::memset(a.incl, 0, sizeof(a.incl));
             std::memset(a.self, 0, sizeof(a.self));
+            for (int j = 0; j < kPar; ++j)
+                a.parN[j] >>= 1; // (the caller kept across windows, halved)
         }
-        std::fprintf(stderr, "[p2b] w %u frames %llu-%llu: events %02x %02x %02x %02x %02x %02x + cycles%s; read cost %.1f %.1f %.1f %.1f %.1f %.1f %.1f\n", g_win, g_f0,
-                     frame, k1::g_events & 0xFFu, (k1::g_events >> 8) & 0xFFu, (k1::g_events >> 16) & 0xFFu, k1::g_events >> 24, k1::g_eventsHi & 0xFFu,
-                     (k1::g_eventsHi >> 8) & 0xFFu, ps2x_p2_skip >= 0 ? " (the sampler's counter: not meaningful)" : "", g_cost[0], g_cost[1], g_cost[2], g_cost[3],
-                     g_cost[4], g_cost[5], g_cost[6]);
+        std::fprintf(stderr, "[p2b] w %u frames %llu-%llu: events %02x %02x %02x %02x %02x %02x + cycles%s; read cost %.1f %.1f %.1f %.1f %.1f %.1f %.1f; "
+                             "bracket calls/f %.1f = %.0f reads/f (~%.0f cycles/f); foreign %llu\n",
+                     g_win, g_f0, frame, k1::g_events & 0xFFu, (k1::g_events >> 8) & 0xFFu, (k1::g_events >> 16) & 0xFFu, k1::g_events >> 24, k1::g_eventsHi & 0xFFu,
+                     (k1::g_eventsHi >> 8) & 0xFFu, ps2x_p2_skip >= 0 ? " (the sampler's counter: not meaningful)" : g_clock ? " (clock: cycles = us)" : "", g_cost[0],
+                     g_cost[1], g_cost[2], g_cost[3], g_cost[4], g_cost[5], g_cost[6], callsF, 2.0 * callsF, 2.0 * callsF * g_cost[6],
+                     static_cast<unsigned long long>(g_foreign));
         g_f0 = frame;
         ++g_win;
     }
@@ -492,6 +575,8 @@ extern "C" int ps2x_p2b_register(const char *name)
         return -1;
     std::memset(&g_acc[g_n], 0, sizeof(Acc));
     g_acc[g_n].name = name;
+    for (int j = 0; j < kPar; ++j)
+        g_acc[g_n].par[j] = -1;
     return g_n++;
 }
 extern "C" bool ps2x_p2b_wanted()
@@ -499,16 +584,48 @@ extern "C" bool ps2x_p2b_wanted()
     const char *b = std::getenv("SOTC_P2BRACKET");
     return b && std::atoi(b) != 0;
 }
+// Round P3: the bracket set (1: P2's 22 top-level functions, 2: + P3's children).
+extern "C" int ps2x_p2b_level()
+{
+    const char *b = std::getenv("SOTC_P2BRACKET");
+    return b ? std::atoi(b) : 0;
+}
 // A bracket opened: returns a token (0: not timed).
 extern "C" uint32_t ps2x_p2b_enter(int id)
 {
     using namespace p2b;
     if (!g_on || id < 0 || g_acc[id].off || g_depth >= kDepth)
         return 0u;
+    if (__builtin_expect(threadPointer() != g_tp, 0))
+    {
+        ++g_foreign;
+        return 0u;
+    }
     Open &o = g_stack[g_depth];
     o.id = id;
     o.serial = ++g_serial;
+    o.nested = 0;
     std::memset(o.child, 0, sizeof(o.child));
+    // the caller bracket (kPar slots, the most frequent kept)
+    Acc &a = g_acc[id];
+    const int p = g_depth > 0 ? g_stack[g_depth - 1].id : -1;
+    if (p >= 0)
+    {
+        int j = 0;
+        for (; j < kPar && a.par[j] != p; ++j)
+        {
+        }
+        if (j == kPar)
+        {
+            j = 0;
+            for (int k = 1; k < kPar; ++k)
+                if (a.parN[k] < a.parN[j])
+                    j = k;
+            a.par[j] = p;
+            a.parN[j] = 0;
+        }
+        ++a.parN[j];
+    }
     read(o.start);
     ++g_depth;
     return (o.serial << 6) | static_cast<uint32_t>(g_depth);
@@ -530,14 +647,17 @@ extern "C" void ps2x_p2b_leave(uint32_t token)
     Open &o = g_stack[g_depth];
     Acc &a = g_acc[o.id];
     ++a.calls;
+    a.nested += o.nested;
     for (int k = 0; k < kEv; ++k)
     {
         const uint64_t d = static_cast<uint32_t>(now[k] - o.start[k]);
         a.incl[k] += d;
         a.self[k] += d > o.child[k] ? d - o.child[k] : 0u;
         if (g_depth > 0)
-            g_stack[g_depth - 1].child[k] += d;
+            g_stack[g_depth - 1].child[k] += d + g_charge[k];
     }
+    if (g_depth > 0)
+        g_stack[g_depth - 1].nested += o.nested + 1u;
 }
 
 #endif // PLATFORM_VITA

@@ -187,8 +187,9 @@ static int p2FindGicd(P2Probe *o)
 }
 
 /* One trial: the counter made to overflow with interrupts off; the distributor's pending words before (b), with the
- * overflow interrupt enabled (d) and after it was cleared (a). Words 1.. (SPIs). */
-static uint32_t p2Trial(uint32_t nw, uint32_t cnt, uint32_t *b, uint32_t *d, uint32_t *a)
+ * overflow interrupt enabled (d) and after it was cleared (a). Words 1.. (SPIs); word 0 (this core's SGIs / PPIs) too since
+ * round P3, and with the CPU interface (gicc) its highest pending interrupt / running priority while the line is up. */
+static uint32_t p2Trial(uint32_t nw, uint32_t cnt, uint32_t *b, uint32_t *d, uint32_t *a, volatile uint32_t *gicc, uint32_t *hppir, uint32_t *rpr)
 {
     volatile uint32_t *g = g_gicd;
     const uint32_t bit = 1u << cnt;
@@ -202,7 +203,7 @@ static uint32_t p2Trial(uint32_t nw, uint32_t cnt, uint32_t *b, uint32_t *d, uin
     MRC(cnten, 0, c9, c12, 1);
     MRC(inten, 0, c9, c14, 1);
     MRC(pmcr, 0, c9, c12, 0);
-    for (uint32_t i = 1; i < nw; ++i)
+    for (uint32_t i = 0; i < nw; ++i)
         b[i] = g[P2_GICD_ISPENDR + i];
     MCR(bit, 0, c9, c14, 2); /* PMINTENCLR */
     MCR(bit, 0, c9, c12, 2); /* PMCNTENCLR */
@@ -224,14 +225,19 @@ static uint32_t p2Trial(uint32_t nw, uint32_t cnt, uint32_t *b, uint32_t *d, uin
     DSB();
     ISB();
     p2Delay(4000u);
-    for (uint32_t i = 1; i < nw; ++i)
+    for (uint32_t i = 0; i < nw; ++i)
         d[i] = g[P2_GICD_ISPENDR + i];
+    if (gicc)
+    {
+        *hppir = gicc[0x18u / 4u]; /* GICC_HPPIR (read-only; the acknowledge register is never read) */
+        *rpr = gicc[0x14u / 4u];   /* GICC_RPR */
+    }
     MCR(bit, 0, c9, c14, 2); /* PMINTENCLR */
     MCR(bit, 0, c9, c12, 3); /* PMOVSR: flag cleared */
     DSB();
     ISB();
     p2Delay(4000u);
-    for (uint32_t i = 1; i < nw; ++i)
+    for (uint32_t i = 0; i < nw; ++i)
         a[i] = g[P2_GICD_ISPENDR + i];
     /* the counter as it was */
     MCR(cnt, 0, c9, c12, 5);
@@ -251,7 +257,37 @@ static uint32_t p2Trial(uint32_t nw, uint32_t cnt, uint32_t *b, uint32_t *d, uin
 }
 
 #define P2_TRIALS 3u
-static void p2Probe(P2Probe *o, uint32_t cnt)
+/* Round P3 (P2_PROBE_EXT): the GIC CPU interface (PERIPHBASE + 0x100) through a kernel VA of device / strongly-ordered
+ * memory; only read (HPPIR / RPR / PMR / IIDR), never the acknowledge register. */
+static volatile uint32_t *p2FindGicc(P2Probe *o)
+{
+    const uint32_t pa = (o->cbar & 0xFFFFE000u) + 0x100u;
+    o->gicc_pa = pa;
+    uint32_t kva = 0u;
+    const uint32_t guess = o->gicd_kva - o->gicd_pa + pa; /* the distributor's offset (both in PERIPHBASE's 8 KB) */
+    if (o->gicd_kva && parOk(ats(guess, 0)) && parPa(ats(guess, 0), guess) == pa)
+        kva = guess;
+    else if (!kvaOf(pa, &kva))
+        return NULL;
+    o->gicc_kva = kva;
+    const uint32_t par = ats(kva, 0);
+    o->gicc_par = par;
+    if (!parOk(par) || parPa(par, kva) != pa)
+        return NULL;
+    const uint32_t inner = (par >> 4) & 7u;
+    if (inner != 1u && inner != 3u)
+        return NULL;
+    if (!p2Readable(kva + 0xFCu) || parPa(ats(kva + 0xFCu, 0), kva + 0xFCu) != pa + 0xFCu)
+        return NULL;
+    volatile uint32_t *c = (volatile uint32_t *)kva;
+    o->gicc_iidr = c[0xFCu / 4u];
+    o->gicc_pmr = c[0x04u / 4u];
+    o->hppir_before = c[0x18u / 4u];
+    o->rpr_before = c[0x14u / 4u];
+    return c;
+}
+
+static void p2Probe(P2Probe *o, uint32_t cnt, uint32_t ext)
 {
     memset(o, 0, sizeof(*o));
     o->rc = -1;
@@ -273,9 +309,22 @@ static void p2Probe(P2Probe *o, uint32_t cnt)
     uint32_t all[8], any[8], b[8], d[8], a[8], lev[8];
     for (uint32_t i = 0; i < 8u; ++i)
         all[i] = 0xFFFFFFFFu, any[i] = 0u, lev[i] = 0xFFFFFFFFu, b[i] = d[i] = a[i] = 0u;
+    o->ext = ext ? 1u : 0u;
+    volatile uint32_t *gicc = ext ? p2FindGicc(o) : NULL;
+    if (gicc)
+        o->ext |= 2u;
     for (uint32_t t = 0; t < P2_TRIALS; ++t)
     {
-        o->spins += p2Trial(nw, cnt, b, d, a);
+        uint32_t hp = 0u, rp = 0u;
+        o->spins += p2Trial(nw, cnt, b, d, a, gicc, &hp, &rp);
+        o->hppir_during[t] = hp;
+        o->rpr_during[t] = rp;
+        /* word 0: this core's SGIs / PPIs (reported, never chosen as the line) */
+        o->ppi_before |= b[0];
+        o->ppi_during |= d[0];
+        o->ppi_after |= a[0];
+        o->ppi_all = t == 0u ? (d[0] & ~b[0]) : (o->ppi_all & d[0] & ~b[0]);
+        o->ppi_any |= d[0] & ~b[0];
         for (uint32_t i = 1; i < nw; ++i)
         {
             const uint32_t rose = d[i] & ~b[i];
@@ -567,6 +616,15 @@ static void p2Gone(SceUID pid)
     p2Halt(P2_STOP_OWNER_GONE);
     p2Release();
 }
+/* Round P3: a new owner (the next launch without a reboot): the last process's probe results (its thread, context, line)
+ * are forgotten, so a START needs this process's own probe. Sampling itself was stopped by p2Gone. */
+static void p2Forget(void)
+{
+    if (g_p2.active || g_p2.registered)
+        return;
+    g_p2.probed_ok = 0u;
+    g_p2.probed_line = g_p2.probed_thread = g_p2.probed_ctx = g_p2.probed_cpu = 0u;
+}
 
 int celosiaK2P2(uint32_t op, uint32_t arg, void *buf, void *out)
 {
@@ -581,13 +639,13 @@ int celosiaK2P2(uint32_t op, uint32_t arg, void *buf, void *out)
         {
         case P2_OP_PROBE:
         {
-            const uint32_t cnt = arg <= 5u ? arg : P2_COUNTER_DEFAULT;
+            const uint32_t cnt = (arg & 0xFFu) <= 5u ? (arg & 0xFFu) : P2_COUNTER_DEFAULT;
             if (g_p2.active || g_p2.registered)
             {
                 rc = K2_ERR_BUSY;
                 break;
             }
-            p2Probe(&g_p2probe, cnt);
+            p2Probe(&g_p2probe, cnt, arg & P2_PROBE_EXT);
             g_p2.probed_ok = g_p2probe.ok;
             g_p2.probed_line = g_p2probe.line;
             g_p2.probed_thread = g_p2probe.thread;
