@@ -1250,6 +1250,46 @@ namespace sotc_decomp
                 std::memcpy(nativeAfter.ram.data() + range.first, rdram + range.first, range.second - range.first);
             compareMemory(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE, 0u, "ram");
             compareMemory(scratch, nativeAfter.scratch.data(), PS2_SCRATCHPAD_SIZE, 0x70000000u, "scratchpad");
+            // Round D3: SOTC_DIFFTEST_KEEP1 (default on, =0 off): the first leg's writes that the second leg left at their
+            // value before the check are put back after it. A leg's guest code runs other EE threads (a wake's sub-thread,
+            // the loader carrier's jobs, a semaphore round trip): what they write in the first leg (a loaded segment, a
+            // job's status, a queue link) is undone by the restore, and the second leg does not run them again (their host
+            // side, the CD read or the queue, is already consumed), so the game lost those writes: with D3's list (84
+            // natives, many first checked during the save's load) ride7 never left the load (chkR / bisNoFix / bisNoG7;
+            // either half of the list alone loaded: bisA / bisB / bisG7) and the old-vs-old control went black after it.
+            // The checked function's own writes are the same in both legs (or reported above), so only such other writes
+            // differ in this way.
+            static const bool keep1 = [] {
+                const char *e = ps2_diag::env("SOTC_DIFFTEST_KEEP1");
+                return !e || std::atoi(e) != 0;
+            }();
+            if (keep1)
+            {
+                const uint8_t *b = before.ram.data(), *a = nativeAfter.ram.data();
+                uint64_t kept = 0;
+                for (size_t k = 0; k < PS2_RAM_SIZE; k += 8)
+                {
+                    uint64_t wb, wa, wl;
+                    std::memcpy(&wb, b + k, 8);
+                    std::memcpy(&wa, a + k, 8);
+                    if (wa == wb)
+                        continue;
+                    std::memcpy(&wl, rdram + k, 8);
+                    if (wl == wa)
+                        continue;
+                    for (size_t j = k; j < k + 8; ++j)
+                        if (a[j] != b[j] && rdram[j] == b[j])
+                        {
+                            rdram[j] = a[j];
+                            ++kept;
+                        }
+                }
+                static uint64_t keptAll = 0, keptChecks = 0;
+                keptAll += kept;
+                if (kept && (keptChecks++ < 8u || (keptChecks & 255u) == 0u))
+                    std::fprintf(stderr, "[difftest] %s: %llu bytes the first leg wrote and the second did not, kept (%llu in all)\n", c.function->name,
+                                 (unsigned long long)kept, (unsigned long long)keptAll);
+            }
 #if !defined(__vita__)
             static const bool watch = ps2_diag::env("SOTC_DIFFTEST_WATCH") != nullptr;
             if (bad && watch && depth == 0 && !c.function->switches && std::memcmp(rdram, nativeAfter.ram.data(), PS2_RAM_SIZE) != 0)
