@@ -1510,7 +1510,18 @@ namespace native_renderer
             override("SOTC_THREAD_CORES", [&](int v)
                      { mask = ((v & 1) ? SCE_KERNEL_CPU_MASK_USER_0 : 0) | ((v & 2) ? SCE_KERNEL_CPU_MASK_USER_1 : 0) | ((v & 4) ? SCE_KERNEL_CPU_MASK_USER_2 : 0) |
                               ((v & 8) ? SCE_KERNEL_CPU_MASK_SYSTEM : 0); }); // (bit 3, core 3: round C1, only with SOTC_C1CORE3's hook)
-            const int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
+            int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
+            // Round C1: a mask with core 3 refused (no hook): the same mask without core 3 (core 2 if nothing is left),
+            // never the default "any core" the refusal leaves, which includes the game thread's core 0.
+            if (maskResult < 0 && (mask & SCE_KERNEL_CPU_MASK_SYSTEM))
+            {
+                const int fallback = (mask & ~SCE_KERNEL_CPU_MASK_SYSTEM) ? (mask & ~SCE_KERNEL_CPU_MASK_SYSTEM) : SCE_KERNEL_CPU_MASK_USER_2;
+                const int again = sceKernelChangeThreadCpuAffinityMask(self, fallback);
+                if (again >= 0)
+                    std::fprintf(stderr, "[threads] %s: cores 0x%x refused (0x%08x), 0x%x instead\n", kNames[kind], static_cast<unsigned>(mask),
+                                 static_cast<unsigned>(maskResult), static_cast<unsigned>(fallback));
+                maskResult = again;
+            }
             const int prioResult = prio >= 64 && prio <= 191 ? sceKernelChangeThreadPriority(self, prio) : 0;
             SceKernelThreadInfo info{};
             info.size = sizeof(info);
