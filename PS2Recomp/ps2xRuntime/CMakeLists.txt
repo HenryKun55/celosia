@@ -849,14 +849,16 @@ if(PS2X_IS_VITA)
         string(REGEX REPLACE "^/" "" PS2X_PGO_ROOT "${PS2X_PGO_TREE}")
         string(REPLACE "/" "#" PS2X_PGO_ROOT "${PS2X_PGO_ROOT}")
         # The build directory's copy is named by the profiles' contents: a new profile changes the flags, so
-        # ninja rebuilds what it covers.
+        # ninja rebuilds what it covers. Round I1: and by the tree's path, which the overrides' file names carry
+        # (@ROOT@ above): a build directory copied to another worktree kept the first tree's names, so GCC found
+        # none of the overrides' profiles there (-Wno-missing-profile is silent) and built the natives without PGO.
         file(GLOB PS2X_PGO_FILES RELATIVE "${PS2X_PGO_SRC}" "${PS2X_PGO_SRC}/*.gcda")
         set(PS2X_PGO_SUM "")
         foreach(PS2X_PGO_FILE IN LISTS PS2X_PGO_FILES)
             file(SHA1 "${PS2X_PGO_SRC}/${PS2X_PGO_FILE}" PS2X_PGO_ONE)
             string(APPEND PS2X_PGO_SUM "${PS2X_PGO_ONE}")
         endforeach()
-        string(SHA1 PS2X_PGO_SUM "${PS2X_PGO_SUM}")
+        string(SHA1 PS2X_PGO_SUM "${PS2X_PGO_SUM}|${PS2X_PGO_ROOT}")
         string(SUBSTRING "${PS2X_PGO_SUM}" 0 12 PS2X_PGO_SUM)
         set(PS2X_PGO_DIR "${CMAKE_BINARY_DIR}/pgo-use-${PS2X_PGO_SUM}")
         if(NOT EXISTS "${PS2X_PGO_DIR}")
@@ -866,6 +868,9 @@ if(PS2X_IS_VITA)
                 configure_file("${PS2X_PGO_SRC}/${PS2X_PGO_FILE}" "${PS2X_PGO_DIR}/${PS2X_PGO_NAME}" COPYONLY)
             endforeach()
         endif()
+        file(GLOB PS2X_PGO_MINE RELATIVE "${PS2X_PGO_DIR}" "${PS2X_PGO_DIR}/*${PS2X_PGO_ROOT}#*.gcda")
+        list(LENGTH PS2X_PGO_MINE PS2X_PGO_MINE_N)
+        message(STATUS "Vita: PGO profiles in ${PS2X_PGO_DIR}: ${PS2X_PGO_MINE_N} for this tree's overrides")
         set(PS2X_VITA_PGO_FLAGS -fprofile-use=${PS2X_PGO_DIR} -fprofile-prefix-path=${CMAKE_BINARY_DIR}
             -fprofile-partial-training -fprofile-correction -fno-profile-values -fno-profile-reorder-functions -fno-vpt
             -Wno-missing-profile -Wno-coverage-mismatch)
@@ -886,7 +891,15 @@ if(PS2X_IS_VITA)
             target_compile_options(ps2EntryRunner PRIVATE ${PS2X_VITA_PGO_GAME_FLAGS})
         endif()
     endif()
-    set(PS2X_VITA_OVERRIDE_OPTS -O3 ${PS2X_VITA_PGO_FLAGS})
+    # Round I1: PS2X_VITA_PGO_OVERRIDES=OFF builds the overrides without the profile (the runtime keeps it): what every
+    # build made in a copied build directory shipped before the fix above (the console A/B's "old" package).
+    option(PS2X_VITA_PGO_OVERRIDES "Vita: apply the PGO profile to the game overrides too" ON)
+    if(PS2X_VITA_PGO_OVERRIDES)
+        set(PS2X_VITA_OVERRIDE_OPTS -O3 ${PS2X_VITA_PGO_FLAGS})
+    else()
+        message(STATUS "Vita: overrides without PGO (PS2X_VITA_PGO_OVERRIDES=OFF)")
+        set(PS2X_VITA_OVERRIDE_OPTS -O3)
+    endif()
     # Round 130: PS2X_VITA_RELEASE (below, with the --wrap lines): the runtime, the sound side and the game
     # overrides with SOTC_RELEASE=1 (not the recompiled game: it reads no switch).
     option(PS2X_VITA_RELEASE "Vita: release build (diagnostics compiled out)" OFF)
@@ -899,6 +912,14 @@ if(PS2X_IS_VITA)
             endif()
         endforeach()
     endif()
+    # Round I1: the lifted D files (decomp_liftd*.cpp, tools/lift_d1.py: guest functions on host locals, long
+    # straight-line bodies with the call protocol inline at every call) hold ~10 of the game thread's ~15 MB of
+    # sampled code for ~18% of its time: the console's game thread waits ~8 ms a frame for instructions. Extra
+    # options for them only (after the overrides' -O3, so -Os wins); empty: built like the other overrides.
+    set(PS2X_VITA_LIFTED_OPT "" CACHE STRING "Vita: extra options for game/overrides/decomp_liftd*.cpp (e.g. -Os); empty: as the other overrides")
+    if(PS2X_VITA_LIFTED_OPT)
+        message(STATUS "Vita: lifted D files with ${PS2X_VITA_LIFTED_OPT}")
+    endif()
     get_target_property(PS2X_RUNNER_SOURCES ps2EntryRunner SOURCES)
     foreach(PS2X_SOURCE IN LISTS PS2X_RUNNER_SOURCES)
         if(PS2X_SOURCE MATCHES "/overrides/lean_part[^/]*\\.cpp$")
@@ -908,6 +929,8 @@ if(PS2X_IS_VITA)
             # The instrumented build's text ends elsewhere: its own room for vita-elf-create (sotc_native.cpp).
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS
                 "${PS2X_VITA_OVERRIDE_OPTS};-DSOTC_VITA_ELF_ROOM=${PS2X_VITA_PGO_ELF_ROOM}")
+        elseif(PS2X_SOURCE MATCHES "/overrides/decomp_liftd[^/]*\\.cpp$" AND PS2X_VITA_LIFTED_OPT)
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "${PS2X_VITA_OVERRIDE_OPTS};${PS2X_VITA_LIFTED_OPT}")
         elseif(PS2X_SOURCE MATCHES "/overrides/[^/]*\\.cpp$")
             set_source_files_properties(${PS2X_SOURCE} PROPERTIES COMPILE_OPTIONS "${PS2X_VITA_OVERRIDE_OPTS}")
         elseif(PS2X_SOURCE MATCHES "vu1rec_[^/]*\\.cpp$")
