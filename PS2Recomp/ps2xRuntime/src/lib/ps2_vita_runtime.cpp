@@ -379,7 +379,7 @@ namespace c1
 {
     bool g_want = false, g_probe = false;
     uint32_t g_expect = 0;
-    int g_bridge = 0, g_bridgeStatus = -1, g_rc = 1, g_offRc = 1;
+    int g_bridge = 1, g_bridgeStatus = -1, g_rc = 1, g_offRc = 1; // g_bridge 1: not tried (K2 off)
     int g_testCreate = 1, g_testStart = 1, g_testEnd = 1, g_testRan = 0, g_testMask = 0;
     bool g_core3 = false;
     K2C1Bridge g_br;
@@ -458,7 +458,8 @@ namespace c1
                      static_cast<unsigned>(r.calls), static_cast<unsigned>(r.ours), static_cast<unsigned>(g_testCreate), g_testMask,
                      static_cast<unsigned>(g_testStart), static_cast<unsigned>(g_testEnd), g_testRan, g_offRc == 1 ? "no" : "yes", g_offRc,
                      g_core3 ? "CORE 3 ON (SOTC_C1MAP may use 0x80000)"
-                     : g_bridge < 0 ? "core 3 off (no C1 bridge: K2 off, or an older K2 module still resident: reboot the console)"
+                     : g_bridge == 1 ? "core 3 off (K2 off: the C1 bridge was not tried; Vita3K / unsafe homebrew off), the game on cores 0-2"
+                     : g_bridge < 0 ? "core 3 off (the C1 bridge did not load: an older K2 module still resident? reboot the console)"
                      : g_probe ? "core 3 off (probe only)"
                                : "core 3 off (hook or test failed), the game on cores 0-2");
     }
