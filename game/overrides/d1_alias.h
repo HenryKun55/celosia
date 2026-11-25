@@ -16,9 +16,11 @@ namespace d1
         GuestFn sw;
         GuestFn old;
     };
-    inline constexpr uint32_t kAliasSlots = 256u; // round D2: 128 -> 256 (D1's 56 + D2's)
+    // round D2: 128 -> 256 (D1's 56 + D2's); round D3: 256 -> 512 (D1 + D2 + D3's pairs stay under a third full: aliasOf is on the
+    // typed adapters' hot slot tests, and an unsuccessful lookup's linear probe grows with the load)
+    inline constexpr uint32_t kAliasSlots = 512u;
     inline AliasSlot g_alias[kAliasSlots] = {};
-    inline uint32_t aliasHash(GuestFn f) { return static_cast<uint32_t>((reinterpret_cast<uintptr_t>(f) >> 2) * 2654435761u) >> 24; }
+    inline uint32_t aliasHash(GuestFn f) { return static_cast<uint32_t>((reinterpret_cast<uintptr_t>(f) >> 2) * 2654435761u) >> 23; }
     inline GuestFn aliasOf(GuestFn f)
     {
         for (uint32_t i = aliasHash(f), n = 0; n < kAliasSlots; ++n, i = (i + 1u) & (kAliasSlots - 1u))
@@ -58,6 +60,8 @@ namespace d1
     // Puts the dispatchers (d1native on) or the old functions (off) in the table where the slot holds the other one (a
     // difftest checker, a profiler wrapper ... is left alone). Called once a frame and at install.
     void syncTable(PS2Runtime *runtime, bool on);
+    // Round D3: the difftest's fixed game step (d1_native.cpp). Called at the game thread's frame end.
+    void fixedStepFrameEnd(uint8_t *rdram, unsigned long long frame);
 } // namespace d1
 
 // After a native's registration line: D1_ALIAS(0x..., <name>, dispatcher, old function).

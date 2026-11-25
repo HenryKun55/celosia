@@ -4603,6 +4603,8 @@ namespace sotc_native
                 d1::report((unsigned long long)g_frame);
             // The D1 natives' slots: the dispatchers with d1native on, the old functions with it off (d1_alias.h).
             d1::syncTable(g_runtimeForLog, d1::on());
+            // Round D3: the difftest's fixed game step (SOTC_FIXED_STEP; on by default under SOTC_DIFFTEST).
+            d1::fixedStepFrameEnd(g_runtimeForLog ? g_runtimeForLog->memory().getRDRAM() : nullptr, (unsigned long long)g_frame);
         }
         if (g_a1Log && g_frame % g_a1Log == 0u)
         {
