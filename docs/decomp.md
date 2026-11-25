@@ -24463,3 +24463,33 @@ lever is the bytes of code the game thread runs.
 - **Packages** (b70fbc3 + I1, build/agent-scratch/i1/pkg): A (shipped flags) 71.06 MB .text, C (retrained PGO) 70.07 MB, C2
   (C + lifted -Os) 63.54 MB; game thread's 90% set 5 000 / 4 872 / 4 351 KB. spalign 0, no overlap, 89 MB ride7 boots normal.
   Console A/B with env-i1.txt (K2 counters): icache miss / stall / cycles per frame decide; if C2 wins, -Os becomes the default.
+
+## Decomp P2: a console profiler for cache misses and stall cycles: PMU overflow sampling of the game thread + counter brackets (SOTC_P2PMUSAMPLE / SOTC_P2BRACKET off by default) (2026-11-25)
+
+docs/decomp_p2.md. Packages, env files, README: `build/agent-scratch/p2/` (celosia-p2.vpk, built on 58858c0 with I1's PGO).
+Nothing changes a computation; with the switches off the game is main's.
+
+- **Research** (shoui520/psp2's 3.65 intrmgr_asm.S): the IRQ entry stops the PMU counters, saves the interrupted thread's state
+  into its context record (`*(thread + 12)`: pc / cpsr at +0xC0 / +0xC4, the six {type, count} at +0x78, PMCNTENSET +0xF0) and
+  keeps a 0x40-byte frame on the IRQ stack (thread +0x10, pc +0x38, cpsr +0x3C); handlers run in System mode with interrupts on;
+  counters are restored from the record. PMINTENSET is per core, not per thread: on core 0 only the game thread (armed by K2)
+  can overflow. No public source names the Vita's PMU interrupt line (vita.dtsi has no PMU node): the module finds it.
+- **Kernel**: K2's module gets a third library `CelosiaK2P2` (celosiaK2P2 PROBE / START / DRAIN / STOP; bridge
+  `module/celosia_p2u.suprx`; an older resident K2 has no such library: P2 off, reboot first). PROBE on the game thread checks the
+  context record against live registers, finds the GIC distributor (CBAR + 0x1000, device memory, IIDR ARM) and the PMU's SPI
+  (counter 3 forced to overflow with interrupts off, pending bits before / during / after, 3 trials, exactly one free line).
+  START registers the handler on that line for core 0; each overflow: flag cleared, the game thread's saved counter reloaded
+  with -period in the context record, frame pc == record pc checked, {pc (+kernel bit), user lr} into a 16 384-entry ring.
+  Safety stops (storm, layout, frame mismatch) mask the line; released at exit / kill / module stop; K2's arm tolerates and
+  reloads our bit.
+- **Game**: `SOTC_P2PMUSAMPLE=dmiss|imiss|dstall|istall|<event>[:<period>]` (250 / 1 000 / 10 000 / 8 000: ~500 samples a riding
+  frame) uses K2's counter 3 (M1's dtlb slot); drained every frame into pc (16 B buckets) and (pc, lr) tables, `[p2] w / h / c`
+  lines every 600 frames. `SOTC_P2BRACKET=1`: 22 top-level guest functions (display, characters, collision, camera, scripts,
+  particles) read the counters through K2 on entry / exit, inclusive / self per frame (`[p2b]`), read cost calibrated. The
+  "prof129 + counters" idea is impossible: the sampler thread cannot read another thread's per-thread counters.
+- **Report**: `tools/p2_report.py err-dmiss.txt err-imiss.txt err-dstall.txt err-istall.txt --elf celosia-p2.elf`: subsystems and
+  functions by % of each event and events a frame, callers (lr), kernel / system-module samples charged to their caller; brackets.
+- **Checks**: spalign 0 of 3 008, ELF room 122 880, no overlap; k2.skprx 12 855 B, p2u 4 396 B. 89 MB ride7 boots: off (no P2
+  lines, mounted 2 681, 12 279 frames, heap 108.8 MB), on (K2 off in Vita3K, `[p2] off` / `[p2b] off` cleanly, 22 wrappers
+  pass-through, mounted 2 427, 14 236 frames, heap 102.0 MB); pictures normal. Console runs pending (README: reboot, dmiss first;
+  bracket if the probe refuses).
