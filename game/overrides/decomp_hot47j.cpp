@@ -1793,6 +1793,9 @@ namespace decomp_hot47j
 namespace decomp_hot47j
 {
     void areaExistSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round D3 (the same switch)
+    void interpValueSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void skeletonFocusNodeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 SOTC_DECOMP_FUNCTION(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExistSw);
 D1_ALIAS(0x01365450u, StageManagerCheckAreaExist, decomp_hot47j::areaExistSw, decomp_hot47j::areaExist);
@@ -1800,8 +1803,10 @@ SOTC_DECOMP_FUNCTION(0x01118340u, manager_sub_01118340, decomp_hot47j::groundPro
 // Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
 // SOTC_DECOMP_FUNCTION(0x011399E0u, getClothDynamics, decomp_hot47j::clothStep);
 SOTC_DECOMP_FUNCTION(0x01124C88u, GetCollisionDBCallBack, decomp_hot47j::collisionDB);
-SOTC_DECOMP_FLOAT_FUNCTION(0x01084450u, GAMEUTIL_doit_interp_value_cntrl, decomp_hot47j::interpValue);
-SOTC_DECOMP_FUNCTION(0x01100BD8u, GetSkeletonFocusNode, decomp_hot47j::skeletonFocusNode);
+SOTC_DECOMP_FLOAT_FUNCTION(0x01084450u, GAMEUTIL_doit_interp_value_cntrl, decomp_hot47j::interpValueSw);
+D1_ALIAS(0x01084450u, GAMEUTIL_doit_interp_value_cntrl, decomp_hot47j::interpValueSw, decomp_hot47j::interpValue);
+SOTC_DECOMP_FUNCTION(0x01100BD8u, GetSkeletonFocusNode, decomp_hot47j::skeletonFocusNodeSw);
+D1_ALIAS(0x01100BD8u, GetSkeletonFocusNode, decomp_hot47j::skeletonFocusNodeSw, decomp_hot47j::skeletonFocusNode);
 
 // =====================================================================================================================
 // Round D2 (switch d1native, docs/decomp_d1.md's framework): StageManagerCheckAreaExist as native C++. The core takes the
@@ -1966,5 +1971,156 @@ namespace decomp_hot47j
             areaExistD1(rdram, ctx, runtime);
         else
             areaExist(rdram, ctx, runtime);
+    }
+}
+
+// =====================================================================================================================
+// Round D3 (switch d1native, the D1 / D2 framework): GetSkeletonFocusNode and GAMEUTIL_doit_interp_value_cntrl as native
+// C++. Each core takes C++ parameters and d1::Mem (D2's d2FocusNode for the focus walk) and returns what the old body
+// leaves (v0, a0, HI / LO; f0 - f3 and fcr31's condition bit) in a struct the adapter writes back; the frame words the old
+// body stores are stored by the core too. Guest RAM outside the plain block or hotlist47 off: the old body (the core then
+// has written at most the frame words the old body writes again).
+namespace decomp_hot47j
+{
+    D1_COUNTER(c_d3Focus, "GetSkeletonFocusNode");
+    D1_COUNTER(c_d3Interp, "GAMEUTIL_doit_interp_value_cntrl");
+
+    // ---- GetSkeletonFocusNode (0x1100bd8) ----------------------------------------------------------------------------
+    // The frame's ra word, the focus node (0: none), v0 the node's +8 (sign-extended) or -1; -1 returned: the old body.
+    int focusD3Core(const d1::Mem &m, uint32_t record, uint32_t frame, uint64_t ra, D2AreaRegs &r, uint32_t &node, uint64_t &v0)
+    {
+        if (!d2Plain(frame, 8u))
+            return -1;
+        m.set<uint64_t>(frame, ra);
+        if (d2FocusNode(m, r, record, kFocusEmptyHi, kFocusEmptyLo, node) < 0)
+            return -1;
+        if (node == 0u)
+        {
+            v0 = ~0ull;
+            return 0;
+        }
+        if (!d2Plain(node + 8u, 4u))
+            return -1;
+        v0 = sx(m.u32(node + 8u));
+        return 0;
+    }
+    void skeletonFocusNodeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList47On())
+            return skeletonFocusNode(rdram, ctx, runtime);
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        D2AreaRegs r;
+        r.hi = ctx->hi;
+        r.lo = ctx->lo;
+        uint32_t node = 0u;
+        uint64_t v0 = 0u;
+        if (focusD3Core(d1::Mem{rdram}, GPR_U32(ctx, 4), static_cast<uint32_t>(entrySp) - 0x10u, ra, r, node, v0) < 0)
+            return skeletonFocusNode(rdram, ctx, runtime);
+        ++c_d3Focus.n;
+        ctx->hi = r.hi;
+        ctx->lo = r.lo;
+        SET_GPR_S32(ctx, 4, node);
+        SET_GPR_U64(ctx, 2, v0);
+        finish(ctx, ra, entrySp);
+    }
+    void skeletonFocusNodeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            skeletonFocusNodeD3(rdram, ctx, runtime);
+        else
+            skeletonFocusNode(rdram, ctx, runtime);
+    }
+
+    // ---- GAMEUTIL_doit_interp_value_cntrl (0x1084450) ----------------------------------------------------------------
+    struct D3InterpRegs
+    {
+        float f[4];
+        uint32_t fcr31;
+        uint64_t v0;
+    };
+    PS2_FORCE_INLINE void d3InterpC(D3InterpRegs &r, bool c) { r.fcr31 = c ? (r.fcr31 | 0x800000u) : (r.fcr31 & ~0x800000u); }
+    // The value (+0 the previous target, +4 the current, +8 the target), the control (+0 the mode, +8 the previous mode,
+    // +0x10 t), f12 the new target; the frame's s0 / ra words; FPU_C_OLE_S / C_EQ_S -> d1::le / eq (the condition bit
+    // at each), FPU_SUB / MUL / ADD -> d1::sub / mul / add. false: the old body.
+    bool interpD3Core(const d1::Mem &m, uint32_t value, uint32_t control, float f12, uint32_t frame, uint64_t s0, uint64_t ra, D3InterpRegs &r)
+    {
+        if (!d2Plain(frame, 0x10u) || !d2Plain(value, 0xCu) || !d2Plain(control, 0x14u))
+            return false;
+        float *f = r.f;
+        m.set<uint64_t>(frame, s0);
+        m.set<uint64_t>(frame + 8u, ra);
+        const uint32_t mode = m.u32(control);
+        if (mode != 1u)
+        {
+            m.set<uint32_t>(value + 8u, bf(f12));
+            m.set<uint32_t>(value + 0u, bf(f12));
+            m.set<uint32_t>(value + 4u, bf(f12));
+            r.v0 = 1u;
+        }
+        else
+        {
+            const uint32_t before = m.u32(control + 8u);
+            r.v0 = sx(before);
+            if (before == mode)
+            {
+                f[0] = m.f32(value + 4u);
+                m.set<uint32_t>(value + 0u, bf(f[0]));
+            }
+            m.set<uint32_t>(value + 8u, bf(f12));
+            f[0] = fb(0u);
+            f[2] = m.f32(control + 0x10u); // t
+            f[3] = m.f32(value + 0u);      // the previous
+            bool c = d1::le(f[2], f[0]);
+            d3InterpC(r, c);
+            f[1] = f[3];
+            if (!c)
+            {
+                f[0] = fb(kOneBits);
+                c = d1::le(f[0], f[2]);
+                d3InterpC(r, c);
+                f[1] = f12;
+                if (!c)
+                {
+                    c = d1::eq(f12, f[3]);
+                    d3InterpC(r, c);
+                    if (!c)
+                    {
+                        f[0] = d1::sub(f[0], f[2]);
+                        f[1] = d1::mul(f[2], f12);
+                        f[0] = d1::mul(f[0], f[3]);
+                        f[1] = d1::add(f[1], f[0]);
+                    }
+                }
+            }
+            m.set<uint32_t>(value + 4u, bf(f[1]));
+        }
+        f[0] = m.f32(value + 4u); // the tail's f0
+        return true;
+    }
+    void interpValueD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList47On())
+            return interpValue(rdram, ctx, runtime);
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        D3InterpRegs r;
+        for (int i = 0; i < 4; ++i)
+            r.f[i] = ctx->f[i];
+        r.fcr31 = ctx->fcr31;
+        r.v0 = 0u;
+        if (!interpD3Core(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), ctx->f[12], static_cast<uint32_t>(entrySp) - 0x10u, GPR_U64(ctx, 16), ra, r))
+            return interpValue(rdram, ctx, runtime);
+        ++c_d3Interp.n;
+        for (int i = 0; i < 4; ++i)
+            ctx->f[i] = r.f[i];
+        ctx->fcr31 = r.fcr31;
+        SET_GPR_U64(ctx, 2, r.v0);
+        finish(ctx, ra, entrySp);
+    }
+    void interpValueSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            interpValueD3(rdram, ctx, runtime);
+        else
+            interpValue(rdram, ctx, runtime);
     }
 }

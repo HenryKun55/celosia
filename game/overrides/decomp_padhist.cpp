@@ -20,6 +20,7 @@
 // absolute in the generated code (no relocation). v0 as SignalSema leaves
 // it; no float register is written.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -149,4 +150,132 @@ namespace decomp_padhist
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x0114B0A8u, FlushPadHistory, decomp_padhist::flush);
+namespace decomp_padhist
+{
+    void flushSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x0114B0A8u, FlushPadHistory, decomp_padhist::flushSw);
+D1_ALIAS(0x0114B0A8u, FlushPadHistory, decomp_padhist::flushSw, decomp_padhist::flush);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): FlushPadHistory ---------------------------------------------------------------
+// Partial: the fold (both pads' per-frame words, the ring's new samples, the hold counters, the analog runs, the count
+// cleared) as a typed core on d1::Mem, flush's statements in their order, integer only, 0 math; the pad semaphore's
+// WaitSema / SignalSema (the relocated jal / j: scheduler calls that can switch EE threads) stay the guest calls with the
+// old registers, ra and sp. Not difftest-checkable (the semaphore calls), as the old body.
+namespace decomp_padhist
+{
+    D1_COUNTER(c_d3PadFlush, "FlushPadHistory");
+
+    void d3PadFoldCore(const d1::Mem m)
+    {
+        for (uint32_t b = kBlocks; b < kBlocks + 0x1F30u; b += 0xF98u)
+        {
+            m.set<uint32_t>(b + 8u, 0u);
+            m.set<uint32_t>(b + 0xCu, 0u);
+            m.set<uint32_t>(b + 0x10u, 0u);
+        }
+        if (m.u32(kCount) == 0u)
+            return;
+        for (uint32_t pad = 0; pad < 2u; ++pad)
+        {
+            const uint32_t t0 = kBlocks + pad * 0xF98u, t7 = t0 + 8u;
+            int32_t t6 = static_cast<int32_t>(m.u32(kHead) - m.u32(kCount));
+            if (t6 < 0)
+                t6 += 0x1E;
+            m.set<uint32_t>(t0, 0u);
+            for (uint32_t a = t0 + 0xF84u; a >= t0 + 0xF08u; a -= 4u)
+                m.set<uint32_t>(a, 0u);
+            for (int32_t s0 = 0; s0 < static_cast<int32_t>(m.u32(kCount)); ++s0)
+            {
+                int32_t idx = s0 + t6;
+                if (!(idx < 0x1E))
+                    idx -= 0x1E;
+                const uint32_t sample = t7 + static_cast<uint32_t>(idx) * 0x78u;
+                const uint32_t prev = m.u32(t0 + 4u), pressed = m.u32(t7);
+                const uint32_t t1 = m.u32(sample + 0x70u);
+                const uint32_t changed = t1 ^ prev;
+                m.set<uint32_t>(t7, pressed | (changed & t1));
+                m.set<uint32_t>(t0 + 4u, t1);
+                const uint32_t c = m.u32(t0 + 0xCu), held = m.u32(t0);
+                m.set<uint32_t>(t0 + 0xCu, c | (changed & ~t1));
+                m.set<uint32_t>(t0, held | t1);
+                m.set<uint32_t>(t0 + 0x10u, m.u32(t0 + 0x10u) | m.u32(sample + 0x80u));
+                const uint32_t src = t0 + 0xCu + static_cast<uint32_t>(idx) * 0x78u + 0xC0u;
+                for (uint32_t k = 0; k < 4u; ++k)
+                    m.set<uint8_t>(t0 + 0x54u + k, m.get<uint8_t>(src + k));
+                uint32_t a1 = t7 + 0xE80u, a2 = t7 + 0xF00u;
+                for (uint32_t bit = 0; bit < 32u; ++bit, a1 += 4u, a2 += 4u)
+                {
+                    if ((t1 >> bit) & 1u)
+                        m.set<uint32_t>(a1, m.u32(a1) + 1u);
+                    else
+                    {
+                        const uint32_t run = m.u32(a1);
+                        uint32_t best = m.u32(a1 + 0x80u);
+                        if (best < run)
+                            best = run;
+                        m.set<uint32_t>(a2, best);
+                        m.set<uint32_t>(a1, 0u);
+                    }
+                }
+            }
+            // the analog bytes against the ring back from the head
+            const int32_t head = static_cast<int32_t>(m.u32(kHead));
+            const uint32_t t5 = t0 + 0xCu;
+            for (uint32_t t4 = 0; t4 < 4u; ++t4)
+            {
+                const uint32_t a3 = m.get<uint8_t>(t0 + 0x54u + t4);
+                uint32_t n = 0u;
+                bool far = false;
+                int32_t a1 = head - 1;
+                for (int32_t a2 = 2;; ++a2)
+                {
+                    const int32_t i = a1 + 0x1E < 0x1E ? a1 + 0x1E : a1;
+                    const uint32_t v1 = m.get<uint8_t>(t4 + static_cast<uint32_t>(i) * 0x78u + t5 + 0xC0u);
+                    const int32_t d = static_cast<int32_t>(v1 - a3);
+                    const int32_t dn = static_cast<int32_t>(a3 - v1);
+                    if (d < 0 ? !(dn < 0x61) : !(d < 0x61))
+                    {
+                        far = true;
+                        break;
+                    }
+                    ++n;
+                    if (!(a2 < 0x1E))
+                        break;
+                    a1 = head - a2;
+                }
+                if (!far)
+                    n = 0x1Eu;
+                m.set<uint32_t>(t0 + 0xF88u + 4u * t4, n);
+            }
+        }
+        m.set<uint32_t>(kCount, 0u);
+    }
+
+    void flushD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::motionOn())
+            return flush(rdram, ctx, runtime);
+        ++c_d3PadFlush.n;
+        const d1::Mem m{rdram};
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x50u;
+        // WaitSema(*0x121b04c)
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(kSema)));
+        sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, kWaitSite), kWaitSite + 8u, sp);
+        d3PadFoldCore(m);
+        // SignalSema(*0x121b04c): the original's tail jump, returning to its caller.
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(m.u32(kSema)));
+        sotc_decomp::callGuest(rdram, ctx, runtime, sotc_decomp::jalTarget(rdram, kSignalSite), ra0, sp0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void flushSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            flushD3(rdram, ctx, runtime);
+        else
+            flush(rdram, ctx, runtime);
+    }
+}

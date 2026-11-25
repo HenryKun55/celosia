@@ -433,9 +433,25 @@ namespace decomp_copymatrix
         sotc_decomp::callNative(rdram, ctx, runtime, 0x01132EC8u, &copyMulti, GPR_U32(ctx, 31), sp0);
     }
 }
-SOTC_DECOMP_FUNCTION(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMulti);
-SOTC_DECOMP_FUNCTION(0x010F24D8u, UpdateLayoutClassPastSimpleGeometry, decomp_copymatrix::pastSimple);
-SOTC_DECOMP_FUNCTION(0x001B9C88u, iosGetScaleMatrixV, decomp_copymatrix::scaleMatrixV);
+namespace decomp_copymatrix
+{
+    // round D3 (d1native): the dispatchers (end of file)
+    void copyMultiSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void pastSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void scaleMatrixVSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // iosGetScaleMatrixV's core's out-registers (also declared, identically, by decomp_layoutsimple.cpp's D3 body).
+    struct D3ScaleMatrixOut
+    {
+        __m128 rows[4];
+        uint32_t f0, f1;
+    };
+}
+SOTC_DECOMP_FUNCTION(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMultiSw);
+D1_ALIAS(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMultiSw, decomp_copymatrix::copyMulti);
+SOTC_DECOMP_FUNCTION(0x010F24D8u, UpdateLayoutClassPastSimpleGeometry, decomp_copymatrix::pastSimpleSw);
+D1_ALIAS(0x010F24D8u, UpdateLayoutClassPastSimpleGeometry, decomp_copymatrix::pastSimpleSw, decomp_copymatrix::pastSimple);
+SOTC_DECOMP_FUNCTION(0x001B9C88u, iosGetScaleMatrixV, decomp_copymatrix::scaleMatrixVSw);
+D1_ALIAS(0x001B9C88u, iosGetScaleMatrixV, decomp_copymatrix::scaleMatrixVSw, decomp_copymatrix::scaleMatrixV);
 
 // __ieee754_sqrtf (0x1df480) and sqrtf (0x1dda40, its wrapper: a frame and a
 // j), round 11: fdlibm's bit-by-bit square root, correctly rounded (to
@@ -1011,5 +1027,203 @@ namespace decomp_libm
             acosExactD1(rdram, ctx, runtime);
         else
             acosExact(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native): CopyMultiMatrix, UpdateLayoutClassPastSimpleGeometry, iosGetScaleMatrixV ---------------------
+// CopyMultiMatrix's iosCopyMatrix calls (round 42's callNative) as copyMatrixCore directly (calls direct 1; the slot holding
+// iosCopyMatrix's old function or its D1 dispatcher); UpdateLayoutClassPastSimpleGeometry's tail call of CopyMultiMatrix as
+// the same core (calls direct 1); iosGetScaleMatrixV's rows / diagonal on typed memory. The registers the old bodies leave
+// (a0 / a1 the last pair, a2..t1 the last matrix's rows, v0 / v1, f0 / f1, the frame's ra) written back by the adapters.
+// leaves off, a jal site naming another function, a matrix outside main RAM, a count past 0x10000 (or negative), the
+// worker lane or an unexpected slot: the old body, before any side effect.
+namespace decomp_copymatrix
+{
+    namespace
+    {
+        D1_COUNTER(c_d3CopyMulti, "CopyMultiMatrix");
+        D1_COUNTER(c_d3PastSimple, "UpdateLayoutClassPastSimpleGeometry");
+        D1_COUNTER(c_d3ScaleMatrixV, "iosGetScaleMatrixV");
+    }
+
+    // The last iosCopyMatrix's registers (a0 / a1 its pair, a2..t1 its rows); copied = false when the count is 0.
+    struct D3CopyMultiOut
+    {
+        __m128 rows[4];
+        uint32_t to, from;
+        bool copied;
+    };
+    // count matrices, from to to, 0x40 apart, each as iosCopyMatrix does it (aligned down to 16, rows 3..0).
+    void copyMultiD3Core(d1::Mem m, uint32_t to, uint32_t from, uint32_t count, D3CopyMultiOut &o)
+    {
+        o.copied = false;
+        for (uint32_t i = 0; i < count; ++i, to += 0x40u, from += 0x40u)
+        {
+            copyMatrixCore(m, to & ~0xFu, from & ~0xFu, o.rows);
+            o.to = to;
+            o.from = from;
+            o.copied = true;
+        }
+    }
+    // iosCopyMatrix's own range test for every matrix of the run (aligned down, below 32 MB - 0x40), the count's bound.
+    inline bool d3CopyMultiOk(uint32_t to, uint32_t from, uint64_t count)
+    {
+        if (count > 0x10000u)
+            return false;
+        if (count == 0u)
+            return true;
+        const uint64_t last = (count - 1u) * 0x40u;
+        return static_cast<uint64_t>(to & ~0xFu) + last < PS2_RAM_SIZE - 0x40u && static_cast<uint64_t>(from & ~0xFu) + last < PS2_RAM_SIZE - 0x40u;
+    }
+    inline bool d3CopyMatrixSlotOk(PS2Runtime *runtime)
+    {
+        const PS2Runtime::RecompiledFunction fn = sotc_decomp::guestFunction(runtime, 0x001B9148u);
+        return fn == &copyMatrix || fn == &copyMatrixSw;
+    }
+    inline void d3CopyMultiExit(R5900Context *ctx, const D3CopyMultiOut &o)
+    {
+        if (!o.copied)
+            return;
+        SET_GPR_U32(ctx, 4, o.to);
+        SET_GPR_U32(ctx, 5, o.from);
+        for (int k = 0; k < 4; ++k)
+            SET_GPR_VEC(ctx, 6 + k, _mm_castps_si128(o.rows[k]));
+    }
+
+    void copyMultiD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint64_t count = GPR_U64(ctx, 6);
+        const uint32_t to = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5);
+        if (!sotc_decomp::leavesOn() || sotc_decomp::onWorkerLane(runtime) || sotc_decomp::jalTarget(rdram, 0x01132F04u) != 0x001B9148u ||
+            !d3CopyMultiOk(to, from, count) || !d3CopyMatrixSlotOk(runtime))
+            return copyMulti(rdram, ctx, runtime);
+        ++c_d3CopyMulti.n;
+        D3CopyMultiOut o;
+        copyMultiD3Core(d1::Mem{rdram}, to, from, static_cast<uint32_t>(count), o);
+        d3CopyMultiExit(ctx, o);
+        // ra / sp: the old body puts back the entry's (callNative's are gone).
+        sotc_decomp::returnTo(ctx);
+    }
+    void copyMultiSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            copyMultiD3(rdram, ctx, runtime);
+        else
+            copyMulti(rdram, ctx, runtime);
+    }
+
+    // UpdateLayoutClassPastSimpleGeometry(lc): *(+0x134) to *(+0x138), +0xa0 to +0xb0, then with flag 0x20 of +0x1bc
+    // CopyMultiMatrix(+0x168, +0x164, +0x1b4). What it leaves for the adapter in r.
+    struct D3PastSimpleOut
+    {
+        __m128 v0q;
+        uint32_t to, flags, multiTo, multiFrom;
+        int32_t count;
+        D3CopyMultiOut multi;
+    };
+    void pastSimpleD3Core(d1::Mem m, uint32_t lc, uint32_t frameRa, uint64_t ra, D3PastSimpleOut &r)
+    {
+        m.set<uint64_t>(frameRa, ra);
+        const uint32_t from = m.u32(lc + 0x134u);
+        r.to = m.u32(lc + 0x138u);
+        r.v0q = m.q(from & ~0xFu);
+        m.putq(r.to & ~0xFu, r.v0q);
+        r.flags = m.get<uint8_t>(lc + 0x1BCu) & 0x20u;
+        r.v0q = m.q((lc + 0xA0u) & ~0xFu);
+        m.putq((lc + 0xB0u) & ~0xFu, r.v0q);
+        r.multi.copied = false;
+        if (r.flags == 0u)
+            return;
+        r.count = m.get<int16_t>(lc + 0x1B4u);
+        r.multiTo = m.u32(lc + 0x168u);
+        r.multiFrom = m.u32(lc + 0x164u);
+        copyMultiD3Core(m, r.multiTo, r.multiFrom, static_cast<uint32_t>(r.count), r.multi);
+    }
+
+    void pastSimpleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const d1::Mem m{rdram};
+        const uint32_t lc = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29);
+        bool ok = sotc_decomp::leavesOn() && !sotc_decomp::onWorkerLane(runtime) && lc < PS2_RAM_SIZE - 0x1C0u && sp0 - 0x10u < PS2_RAM_SIZE - 8u;
+        if (ok)
+        {
+            ok = m.u32(lc + 0x134u) < PS2_RAM_SIZE && m.u32(lc + 0x138u) < PS2_RAM_SIZE;
+            if (ok && (m.get<uint8_t>(lc + 0x1BCu) & 0x20u) != 0u)
+            {
+                const int16_t count = m.get<int16_t>(lc + 0x1B4u);
+                const PS2Runtime::RecompiledFunction multi = sotc_decomp::guestFunction(runtime, 0x01132EC8u);
+                ok = count >= 0 && (multi == &copyMulti || multi == &copyMultiSw) && sotc_decomp::jalTarget(rdram, 0x01132F04u) == 0x001B9148u &&
+                     d3CopyMultiOk(m.u32(lc + 0x168u), m.u32(lc + 0x164u), static_cast<uint64_t>(count)) && d3CopyMatrixSlotOk(runtime);
+            }
+        }
+        if (!ok)
+            return pastSimple(rdram, ctx, runtime);
+        ++c_d3PastSimple.n;
+        D3PastSimpleOut r;
+        pastSimpleD3Core(m, lc, sp0 - 0x10u, GPR_U64(ctx, 31), r);
+        SET_GPR_U32(ctx, 5, lc);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(r.to));
+        SET_GPR_U64(ctx, 3, r.flags);
+        SET_GPR_VEC(ctx, 2, _mm_castps_si128(r.v0q));
+        if (r.flags != 0u)
+        {
+            SET_GPR_S32(ctx, 6, r.count);
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(r.multiTo));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(r.multiFrom));
+            d3CopyMultiExit(ctx, r.multi);
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        sotc_decomp::returnTo(ctx);
+    }
+    void pastSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            pastSimpleD3(rdram, ctx, runtime);
+        else
+            pastSimple(rdram, ctx, runtime);
+    }
+
+    // iosGetScaleMatrixV(to, scale): the identity at 0x1e0f00 (rows 3..0), then scale's x, y, z on the diagonal. What it
+    // leaves: a2..t1 the identity's rows, f0 the z bits, f1 the y bits (and v0 0x1e0f00).
+    void scaleMatrixVD3Core(d1::Mem m, uint32_t to, uint32_t scale, D3ScaleMatrixOut &r)
+    {
+        for (int row = 3; row >= 0; --row)
+        {
+            r.rows[row] = m.q(0x001E0F00u + static_cast<uint32_t>(row) * 16u);
+            m.putq((to + static_cast<uint32_t>(row) * 16u) & ~0xFu, r.rows[row]);
+        }
+        const uint32_t x = m.u32(scale);
+        m.set<uint32_t>(to, x);
+        r.f1 = m.u32(scale + 4u);
+        m.set<uint32_t>(to + 0x14u, r.f1);
+        r.f0 = m.u32(scale + 8u);
+        m.set<uint32_t>(to + 0x28u, r.f0);
+    }
+    // What the native leaves (the adapter's exit; a caller that runs the core in place of the call writes the same).
+    void d3ScaleMatrixExit(R5900Context *ctx, const D3ScaleMatrixOut &r)
+    {
+        SET_GPR_S32(ctx, 2, 0x001E0F00);
+        for (int k = 0; k < 4; ++k)
+            SET_GPR_VEC(ctx, 6 + k, _mm_castps_si128(r.rows[k]));
+        std::memcpy(&ctx->f[0], &r.f0, 4);
+        std::memcpy(&ctx->f[1], &r.f1, 4);
+    }
+    void scaleMatrixVD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t to = GPR_U32(ctx, 4), scale = GPR_U32(ctx, 5);
+        if (!sotc_decomp::leavesOn() || to >= PS2_RAM_SIZE - 0x40u || scale >= PS2_RAM_SIZE - 0x0Cu)
+            return scaleMatrixV(rdram, ctx, runtime);
+        ++c_d3ScaleMatrixV.n;
+        D3ScaleMatrixOut r;
+        scaleMatrixVD3Core(d1::Mem{rdram}, to, scale, r);
+        d3ScaleMatrixExit(ctx, r);
+        sotc_decomp::returnTo(ctx);
+    }
+    void scaleMatrixVSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            scaleMatrixVD3(rdram, ctx, runtime);
+        else
+            scaleMatrixV(rdram, ctx, runtime);
     }
 }

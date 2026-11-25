@@ -1294,11 +1294,16 @@ namespace decomp_hot48c
 #undef HOT48C_SWC1
 
 SOTC_DECOMP_FUNCTION(0x0111A938u, GetCollisionDBEdgeInfoNext3, decomp_hot48c::edgeInfoNext3);
-SOTC_DECOMP_FLOAT_FUNCTION(0x013D4820u, AI_GetRotVelocity, decomp_hot48c::rotVelocity);
-SOTC_DECOMP_FUNCTION(0x01082FF0u, GAMEUTIL_get_spring_interpolate_value3D_extend, decomp_hot48c::spring3D);
+namespace decomp_hot48c { void rotVelocitySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); void copyQuatsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3
+SOTC_DECOMP_FLOAT_FUNCTION(0x013D4820u, AI_GetRotVelocity, decomp_hot48c::rotVelocitySw);
+D1_ALIAS(0x013D4820u, AI_GetRotVelocity, decomp_hot48c::rotVelocitySw, decomp_hot48c::rotVelocity);
+namespace decomp_hot48c { void spring3DSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3
+SOTC_DECOMP_FUNCTION(0x01082FF0u, GAMEUTIL_get_spring_interpolate_value3D_extend, decomp_hot48c::spring3DSw);
+D1_ALIAS(0x01082FF0u, GAMEUTIL_get_spring_interpolate_value3D_extend, decomp_hot48c::spring3DSw, decomp_hot48c::spring3D);
 SOTC_DECOMP_FUNCTION(0x01115D00u, manager_sub_01115D00, decomp_hot48c::treeNode);
 SOTC_DECOMP_FUNCTION(0x010C4CA8u, AddCharacterClassSubGeometries, decomp_hot48c::addSubGeometries);
-SOTC_DECOMP_FUNCTION(0x001BC2D0u, CopyMultiQuaternion, decomp_hot48c::copyQuats);
+SOTC_DECOMP_FUNCTION(0x001BC2D0u, CopyMultiQuaternion, decomp_hot48c::copyQuatsSw);
+D1_ALIAS(0x001BC2D0u, CopyMultiQuaternion, decomp_hot48c::copyQuatsSw, decomp_hot48c::copyQuats);
 namespace decomp_hot48c { void windVectorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
 SOTC_DECOMP_FUNCTION(0x01146A50u, GetWindVector, decomp_hot48c::windVectorSw);
 D1_ALIAS(0x01146A50u, GetWindVector, decomp_hot48c::windVectorSw, decomp_hot48c::windVector);
@@ -1463,11 +1468,822 @@ namespace decomp_hot48c
         sotc_decomp::returnTo(ctx);
     }
 
+    void windVectorD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below)
+
     void windVectorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            windVectorD1(rdram, ctx, runtime);
+            windVectorD3(rdram, ctx, runtime);
         else
             windVector(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot48c
+
+// ---- Round D3 (d1native): GetWindVector full (decomp_hot48c::windVectorD3 + d3w::windCoreD3) -------------------------------
+// windVectorD1's steps with its two remaining calls as C++ calls: manager_sub_01145F78 through windZones' D1 core
+// (decomp_wind::zonesCoreD3 = windZonesD1's core, gated at the entry by windZonesD1's own tests: decomp_wind::zonesGateD3) and
+// manager_sub_01146DA8 through its round A4 typed function (typed::manager_sub_01146DA8: what the slot's lift adapter runs on
+// the default path, a4typed on and sp 16-aligned), the registers each leaves carried in d3w::WindRegsD3 and written at the
+// exit as the chain leaves them (windZonesD1's exit: f0-f4, fcr31, at, v1, a0-a3, vf5-vf7, v0's upper half; the lift
+// adapter's: v0 / f0 (xo) / vf5-vf7 / ACC / Q / status / v0's and v1's upper halves; GetWindVector's own: a0-a3, f12 / f13,
+// vf5 / vf6, the C bit, f0, the length block's ACC / vf7 / Q / status). Any other state (hotList48 off, a worker lane,
+// windZones' or 01146DA8's slot holding something else, windZonesD1's tests failing, a4typed off): windVectorD1 (before any
+// write). The frame's register saves are left out as windVectorD1 leaves them out (below sp, dead at the exit).
+#include "typed_a4.h"
+
+namespace lift_d1
+{
+    void manager_sub_01146DA8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_wind
+{
+    bool zonesGateD3(uint8_t *rdram, PS2Runtime *runtime, uint32_t point, uint32_t frame, uint8_t *live, int maxLive, int &nLive);
+    int32_t zonesCoreD3(const d1::Mem &m, uint32_t point, uint32_t frame, const uint8_t *live, int nLive, float *f, uint32_t *u, __m128 *v);
+}
+namespace decomp_hot48c
+{
+    D1_COUNTER(c_d3WindVector, "GetWindVector(d3)");
+
+    namespace d3w
+    {
+        // The registers the chain leaves (the context's values in at the entry).
+        struct WindRegsD3
+        {
+            float f[5]; // f0-f4
+            float f12, f13;
+            uint32_t fcr31;
+            uint64_t at, v1lo, a0, a1, a2, a3;
+            uint64_t h2, h3; // v0's / v1's upper halves
+            __m128 vf0, vf5, vf6, vf7, acc;
+            float q;
+            uint16_t stat;
+        };
+
+        PS2_FORCE_INLINE uint32_t d3wKey(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            if ((b & 0x7F800000u) == 0u)
+                b = 0u;
+            return (b & 0x80000000u) != 0u ? ~b : b ^ 0x80000000u;
+        }
+        PS2_FORCE_INLINE bool d3wOlt(float a, float b) { return d3wKey(a) < d3wKey(b); }
+        PS2_FORCE_INLINE void d3wSetC(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+        PS2_FORCE_INLINE uint32_t d3wBits(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d3wFloat(uint32_t b)
+        {
+            float v;
+            std::memcpy(&v, &b, 4);
+            return v;
+        }
+        PS2_FORCE_INLINE uint64_t d3wSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+        // GetWindVector from its frame `sp` (entry sp - 0x60): `point` its a1, `outAt` its a0, `zeroAt` the zero vector's
+        // address, the live wind slots from zonesGateD3; the registers in `r`.
+        void windCoreD3(const d1::Mem &m, PS2Runtime *rt, uint32_t sp, uint32_t point, uint32_t outAt, uint32_t zeroAt, const uint8_t *live,
+                        int nLive, WindRegsD3 &r)
+        {
+            // manager_sub_01145F78(a1) from GetWindVector's sp: the count of sources (windZonesD1's core and exit).
+            const uint32_t frame = sp - 0x70u;
+            uint32_t zu[6] = {0u, 0u, r.fcr31, 0u, 0u, 0u};
+            __m128 zv[3] = {r.vf5, r.vf6, r.vf7};
+            const int32_t n = decomp_wind::zonesCoreD3(m, point, frame, live, nLive, r.f, zu, zv);
+            r.fcr31 = zu[2];
+            if (zu[5] != 0u)
+            {
+                r.at = d3wSx(zu[0]);
+                r.v1lo = d3wSx(zu[1]);
+                r.a0 = d3wSx(frame + 0x10u);
+                r.a1 = d3wSx(frame);
+                r.a2 = d3wSx(point);
+                r.a3 = d3wSx(zu[3]);
+                if (zu[4] != 0u)
+                {
+                    r.vf5 = zv[0];
+                    r.vf6 = zv[1];
+                    r.vf7 = zv[2];
+                    uint64_t hi;
+                    std::memcpy(&hi, reinterpret_cast<const uint8_t *>(&zv[2]) + 8, 8);
+                    r.h2 = hi; // qmfc2 v0, vf7 (then v0's low half the count)
+                }
+            }
+            const uint64_t s2 = d3wSx(static_cast<uint32_t>(n));
+            m.putq(kWindSum, m.q(zeroAt & ~0xFu));
+            float f21 = 1.0f;                    // the weight left
+            float f20 = 0.0f;                    // the group's weight
+            uint64_t a3 = 0xFFFFFFFFFFFFFFFFull; // the previous source's group
+            if (n > 0)
+            {
+                uint32_t s1 = 0u;
+                uint32_t a2 = kWindList;
+                uint32_t a1 = m.u32(kWindTable + (m.u32(a2) << 2));
+                uint64_t s0 = d3wSx(m.u32(m.u32(a1 + 4u)));
+                bool newGroup = s0 != a3;
+                float f12 = 0.0f;
+                if (!newGroup)
+                    f12 = m.f32(a2 + 4u);
+                for (;;)
+                {
+                    if (newGroup)
+                    {
+                        f20 = m.f32(a2 + 4u);
+                        f12 = f20;
+                    }
+                    else
+                    {
+                        const bool c = d3wOlt(f12, f20);
+                        d3wSetC(r.fcr31, c);
+                        if (c)
+                            f20 = f12;
+                    }
+                    // manager_sub_01146DA8(sp, source, next, previous group; f12, f13): its A4 typed function.
+                    const float f13 = m.f32(a2 + 8u);
+                    a2 += 0x10u;
+                    r.a0 = d3wSx(sp);
+                    r.a1 = d3wSx(a1);
+                    r.a2 = d3wSx(a2);
+                    r.a3 = a3;
+                    r.f12 = f12;
+                    r.f13 = f13;
+                    {
+                        uint64_t xo[1] = {static_cast<uint64_t>(d3wBits(r.f[0]))};
+                        (void)typed::manager_sub_01146DA8(m.base, rt, sp, a1, a2, f12, f13, r.vf0, r.vf5, r.vf6, r.vf7, r.acc, r.q, r.stat, r.h2, r.h3,
+                                                          xo);
+                        r.f[0] = d3wFloat(static_cast<uint32_t>(xo[0]));
+                    }
+                    // The source scaled by the weight left (v0 = f21's bits; vmulx.xyz), added to the sum (vadd.xyz).
+                    const __m128 w = d1::splat(f21);
+                    __m128 v5 = m.q(sp);
+                    v5 = d1::vsel(v5, d1::vmul(v5, w), d1::mask(1, 1, 1, 0));
+                    m.putq(sp, v5);
+                    const __m128 v6 = v5;
+                    __m128 sum = m.q(kWindSum);
+                    sum = d1::vsel(sum, d1::vadd(sum, v6), d1::mask(1, 1, 1, 0));
+                    m.putq(kWindSum, sum);
+                    r.vf5 = sum;
+                    r.vf6 = v6;
+                    s1 += 1u;
+                    a3 = s0;
+                    if (!(static_cast<int64_t>(d3wSx(s1)) < static_cast<int64_t>(s2)))
+                        break;
+                    a2 = (s1 << 5) + kWindList;
+                    a1 = m.u32((m.u32(a2) << 2) + kWindTable);
+                    s0 = d3wSx(m.u32(m.u32(a1 + 4u)));
+                    if (s0 == a3)
+                    {
+                        f12 = m.f32(a2 + 4u);
+                        newGroup = false;
+                        continue;
+                    }
+                    // A new group: the weight left goes down by the last group's.
+                    f21 = d1::sub(f21, f20);
+                    const float lim = d3wFloat(0x3A83126Eu);
+                    r.f[0] = lim;
+                    const bool c = d3wOlt(f21, lim);
+                    d3wSetC(r.fcr31, c);
+                    if (c)
+                        break;
+                    newGroup = true;
+                }
+            }
+            if (outAt != 0u)
+            {
+                // The sum's length to *a0 (vmul.xyz; vmulax.w / vmadday.w / vmaddz.w with vf0; vsqrt).
+                const __m128 v0w = d1::vf0();
+                __m128 v7 = m.q(kWindSum);
+                v7 = d1::vsel(v7, d1::vmul(v7, v7), d1::mask(1, 1, 1, 0));
+                __m128 acc = d1::vsel(r.acc, d1::vmul(v0w, d1::bc<0>(v7)), d1::mask(0, 0, 0, 1));
+                acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(v0w, d1::bc<1>(v7))), d1::mask(0, 0, 0, 1));
+                v7 = d1::vsel(v7, d1::vadd(acc, d1::vmul(v0w, d1::bc<2>(v7))), d1::mask(0, 0, 0, 1));
+                r.acc = acc;
+                r.vf7 = v7;
+                r.q = ps2VuSqrt(r.stat, d1::lane<3>(v7));
+                const uint32_t bits = d3wBits(r.q);
+                r.f[0] = d3wFloat(bits);
+                m.set<uint32_t>(outAt, bits);
+            }
+        }
+    } // namespace d3w
+
+    void windVectorD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t sp = entrySp - 0x60u;
+        const uint32_t outAt = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5);
+        uint8_t live[0x50];
+        int nLive = 0;
+        if (!sotc_decomp::hotList48On() || (sp & 0xFu) != 0u || sp < 0x200u || sp >= PS2_RAM_SIZE - 0x60u || (outAt != 0u && outAt >= PS2_RAM_SIZE - 4u) ||
+            sotc_decomp::onWorkerLane(runtime) || sotc_decomp::guestFunction(runtime, kWindFind) != &decomp_wind::windZonesSw ||
+            sotc_decomp::guestFunction(runtime, kWindSource) != &lift_d1::manager_sub_01146DA8 || !A4_GO_LEAF() ||
+            !decomp_wind::zonesGateD3(rdram, runtime, point, sp - 0x70u, live, 0x50, nLive))
+            return windVectorD1(rdram, ctx, runtime);
+        ++c_d3WindVector.n;
+        const d1::Mem m{rdram};
+        d3w::WindRegsD3 r;
+        for (int i = 0; i < 5; ++i)
+            r.f[i] = ctx->f[i];
+        r.f12 = ctx->f[12];
+        r.f13 = ctx->f[13];
+        r.fcr31 = ctx->fcr31;
+        r.at = GPR_U64(ctx, 1);
+        r.v1lo = GPR_U64(ctx, 3);
+        r.a0 = GPR_U64(ctx, 5); // manager_sub_01145F78's a0 (move a0, a1)
+        r.a1 = GPR_U64(ctx, 5);
+        r.a2 = GPR_U64(ctx, 6);
+        r.a3 = GPR_U64(ctx, 7);
+        r.h2 = a4::hi64(ctx->r[2]);
+        r.h3 = a4::hi64(ctx->r[3]);
+        r.vf0 = ctx->vu0_vf[0];
+        r.vf5 = ctx->vu0_vf[5];
+        r.vf6 = ctx->vu0_vf[6];
+        r.vf7 = ctx->vu0_vf[7];
+        r.acc = ctx->vu0_acc;
+        r.q = ctx->vu0_q;
+        r.stat = ctx->vu0_status;
+        const uint32_t zero = sotc_decomp::relocated(rdram, kWindZeroHi, kWindZeroLo);
+        d3w::windCoreD3(m, runtime, sp, point, outAt, zero, live, nLive, r);
+        for (int i = 0; i < 5; ++i)
+            ctx->f[i] = r.f[i];
+        ctx->f[12] = r.f12;
+        ctx->f[13] = r.f13;
+        ctx->fcr31 = r.fcr31;
+        SET_GPR_U64(ctx, 1, r.at);
+        ctx->r[3] = a4::mk128(r.h3, r.v1lo);
+        SET_GPR_U64(ctx, 4, r.a0);
+        SET_GPR_U64(ctx, 5, r.a1);
+        SET_GPR_U64(ctx, 6, r.a2);
+        SET_GPR_U64(ctx, 7, r.a3);
+        ctx->r[2] = a4::mk128(r.h2, sx(kWindSum));
+        ctx->vu0_vf[5] = r.vf5;
+        ctx->vu0_vf[6] = r.vf6;
+        ctx->vu0_vf[7] = r.vf7;
+        ctx->vu0_acc = r.acc;
+        ctx->vu0_q = r.q;
+        ctx->vu0_status = r.stat;
+        SET_GPR_U64(ctx, 29, sx(entrySp));
+        sotc_decomp::returnTo(ctx);
+    }
+} // namespace decomp_hot48c
+
+// ---- Round D3 (d1native): AI_GetRotVelocity and CopyMultiQuaternion (full) ------------------------------------------------
+// AI_GetRotVelocity: the old body's FPU statements in its order as d1:: (sub / add / mul, the compares as d1::lt, the divides
+// through the same ps2FpuDivide on a local fcr31), its frame stores (f22, f20, f21, ra) as typed stores, and the guest call
+// AI_GetInterRatio as its round A3 typed function (typed::AI_GetInterRatio: what the slot's lift adapter runs on the default
+// path, a3typed on; it leaves f0 and f14 (xo), nothing else). The exit writes f0-f7, f12-f16, fcr31, v0 as the old body leaves
+// them (f20-f22 and ra reloaded from the frame: the entry values). hotList48 off, the callee's slot holding something else,
+// a3typed off, a frame outside main RAM: the old body.
+// CopyMultiQuaternion: the quadword copy on typed memory (each quadword read then written, as the old loop: overlaps kept),
+// v0 the last quadword moved. A count whose 64-bit value is not its 32-bit one sign-extended, or a range outside main RAM:
+// the old body.
+namespace lift_d1
+{
+    void AI_GetInterRatio(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_hot48c
+{
+    D1_COUNTER(c_d3RotVelocity, "AI_GetRotVelocity");
+    D1_COUNTER(c_d3CopyQuats, "CopyMultiQuaternion");
+
+    namespace d3r
+    {
+        // f0-f16 (f8-f11 unused) and fcr31 as the old body leaves them.
+        struct RotRegsD3
+        {
+            float f[17];
+            uint32_t fcr31;
+        };
+
+        PS2_FORCE_INLINE float d3rFloat(uint32_t b)
+        {
+            float v;
+            std::memcpy(&v, &b, 4);
+            return v;
+        }
+        PS2_FORCE_INLINE uint32_t d3rBits(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE void d3rSetC(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+
+        // AI_GetRotVelocity from its frame `sp` (entry sp - 0x20): f12 the angle, f13 the distance, f14 / f15 to
+        // AI_GetInterRatio; f20-f22 and ra the entry values (saved in the frame).
+        void rotCoreD3(const d1::Mem &m, PS2Runtime *rt, uint32_t sp, float f20e, float f21e, float f22e, uint64_t ra, RotRegsD3 &r)
+        {
+            float *const f = r.f;
+            f[16] = f[15];
+            m.set<float>(sp + 0x18u, f22e);
+            float f22 = 0.0f;
+            m.set<float>(sp + 8u, f20e);
+            const float f20 = f[13];
+            bool c = d1::lt(f20, f22);
+            d3rSetC(r.fcr31, c);
+            m.set<float>(sp + 0x10u, f21e);
+            m.set<uint64_t>(sp + 0u, ra);
+            const float f21 = f[12];
+            f[12] = c ? -f20 : f20;
+            // AI_GetInterRatio(|distance|, pi, 0, f14)
+            f[13] = d3rFloat(0x40490FDAu);
+            f[15] = f[14];
+            f[14] = f22;
+            {
+                uint64_t xo[1] = {static_cast<uint64_t>(d3rBits(f[14]))};
+                f[0] = typed::AI_GetInterRatio(m.base, rt, f[12], f[13], f[14], f[15], f[16], xo);
+                f[14] = d3rFloat(static_cast<uint32_t>(xo[0]));
+            }
+            f[14] = m.f32(0x014657E0u);
+            c = d1::lt(f[0], f[14]);
+            d3rSetC(r.fcr31, c);
+            if (c)
+                f[0] = f[14];
+            f[5] = f[0];
+            c = d1::lt(f[5], f[14]);
+            d3rSetC(r.fcr31, c);
+            f[7] = f22;
+            if (c)
+                f[5] = f[14];
+            f[0] = d3rFloat(0x3D08AB85u);
+            f[4] = f[0];
+            c = d1::lt(f[5], f[4]);
+            d3rSetC(r.fcr31, c);
+            if (!c)
+                f[4] = f[5];
+            f[2] = ps2FpuDivide(r.fcr31, f20, f[4]);
+            f[3] = d3rFloat(0x40400000u);
+            f[1] = d1::sub(f21, f[7]);
+            f[0] = d3rFloat(0x3D08AB85u);
+            f[6] = f[0];
+            c = d1::lt(f[5], f[6]);
+            d3rSetC(r.fcr31, c);
+            f[2] = d1::sub(f21, f[2]);
+            f[2] = d1::mul(f[2], f[3]);
+            f[1] = d1::sub(f[1], f[2]);
+            f[1] = d1::add(f[1], f[1]);
+            f[4] = ps2FpuDivide(r.fcr31, f[1], f[4]);
+            if (!c)
+                f[6] = f[5];
+            f[0] = d1::sub(f[7], f21);
+            f[3] = d3rFloat(0x3F000000u);
+            f[1] = d1::mul(f[4], f[6]);
+            f[2] = d1::mul(f[6], f[6]);
+            f[4] = d1::mul(f[4], f[14]);
+            f[0] = d1::sub(f[0], f[1]);
+            f[0] = d1::add(f[0], f[0]);
+            f[0] = ps2FpuDivide(r.fcr31, f[0], f[2]);
+            f[0] = d1::mul(f[0], f[3]);
+            f[0] = d1::mul(f[0], f[14]);
+            f[0] = d1::mul(f[0], f[14]);
+            f[0] = d1::add(f21, f[0]);
+            f[0] = d1::add(f[0], f[4]);
+        }
+
+        // CopyMultiQuaternion: n (> 0) quadwords from src to dst; the last one moved.
+        __m128 copyQuatsCoreD3(const d1::Mem &m, uint32_t dst, uint32_t src, int32_t n)
+        {
+            __m128 q = d1::zero4();
+            for (int32_t i = 0; i < n; ++i)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                q = m.q((off + src) & ~0xFu);
+                m.putq((off + dst) & ~0xFu, q);
+            }
+            return q;
+        }
+    } // namespace d3r
+
+    void rotVelocityD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t sp = entrySp - 0x20u;
+        if (!sotc_decomp::hotList48On() || (sp & 7u) != 0u || sp >= PS2_RAM_SIZE - 0x20u ||
+            sotc_decomp::guestFunction(runtime, kInterRatio) != &lift_d1::AI_GetInterRatio || !A3_GO_LEAF())
+            return rotVelocity(rdram, ctx, runtime);
+        ++c_d3RotVelocity.n;
+        const d1::Mem m{rdram};
+        d3r::RotRegsD3 r;
+        for (int i = 0; i < 17; ++i)
+            r.f[i] = ctx->f[i];
+        r.fcr31 = ctx->fcr31;
+        d3r::rotCoreD3(m, runtime, sp, ctx->f[20], ctx->f[21], ctx->f[22], GPR_U64(ctx, 31), r);
+        for (int i = 0; i < 8; ++i)
+            ctx->f[i] = r.f[i];
+        for (int i = 12; i < 17; ++i)
+            ctx->f[i] = r.f[i];
+        ctx->fcr31 = r.fcr31;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(0x01460000u));
+        SET_GPR_U64(ctx, 29, sx(entrySp));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void copyQuatsD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t dst = GPR_U32(ctx, 4), src = GPR_U32(ctx, 5);
+        const int32_t n = GPR_S32(ctx, 6);
+        if (!sotc_decomp::hotList48On() || (n > 0 && (GPR_S64(ctx, 6) != static_cast<int64_t>(n) || n > 0x100000 ||
+                                                       (dst & ~0xFu) >= PS2_RAM_SIZE || (src & ~0xFu) >= PS2_RAM_SIZE ||
+                                                       PS2_RAM_SIZE - (dst & ~0xFu) < static_cast<uint32_t>(n) * 16u ||
+                                                       PS2_RAM_SIZE - (src & ~0xFu) < static_cast<uint32_t>(n) * 16u)))
+            return copyQuats(rdram, ctx, runtime);
+        ++c_d3CopyQuats.n;
+        if (n > 0)
+        {
+            const __m128 q = d3r::copyQuatsCoreD3(d1::Mem{rdram}, dst, src, n);
+            SET_GPR_VEC(ctx, 2, _mm_castps_si128(q));
+        }
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void rotVelocitySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rotVelocityD3(rdram, ctx, runtime);
+        else
+            rotVelocity(rdram, ctx, runtime);
+    }
+    void copyQuatsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            copyQuatsD3(rdram, ctx, runtime);
+        else
+            copyQuats(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot48c
+
+// ---- Round D3 (d1native): GAMEUTIL_get_spring_interpolate_value3D_extend (full) -------------------------------------------
+// The old body's statements in its order: the FPU ones as d1:: (sub / add / mul, compares as d1::lt / le / eq, the divides
+// through the same ps2FpuDivide on a local fcr31), the VU0 length block and the step vector as NEON vec4 (d1::vsub / vmul /
+// vadd / vsel, the length's vsqrt through the same ps2VuSqrt), the frame's stores as typed stores, and its 8 guest calls as
+// their rounds A1 / A2 / A7 typed functions (typed::GAMEUTIL_get_difference_value x3, typed::GAMEUTIL_is_nearly_equal_zero
+// x1-2, typed::GAMEUTIL_get_increase_value x3: what each slot's lift adapter runs on the default path; each leaves v0 / f0,
+// the increase f2 / f3 too). Gated at the entry on each lift adapter's own test (its slot, the a1 / a2 / a7 switch, the
+// slots its typed function calls into; the host-stack floor test evaluated here, not at the callee's depth): anything else,
+// hotList48 off, memory outside main RAM: the old body. The exit writes f0-f3, f12 / f13, fcr31, v0 (and its upper half),
+// a0, vf5-vf7, ACC, Q, status as the old chain leaves them; f20-f26 / s0-s5 / ra (reloaded from the frame by the old
+// epilogue: the entry values) are left as they came. VU0 operand clamps left out: every lane read is a difference / zero
+// vector / product of them written just before (finite) or vf0; ACC's x / y / z lanes are computed but never kept.
+#include "typed_a7.h"
+
+namespace lift_d1
+{
+    void GAMEUTIL_get_difference_value(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_get_move_radi_from_yaw1_to_yaw2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_is_nearly_equal_zero(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_get_increase_value(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void GAMEUTIL_increase_yaw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void manager_sub_01082BD8(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_hot48c
+{
+    D1_COUNTER(c_d3Spring3D, "GAMEUTIL_get_spring_interpolate_value3D_extend");
+
+    namespace d3s
+    {
+        // The registers the chain leaves (the context's values in at the entry).
+        struct SpringRegsD3
+        {
+            float f0, f1, f2, f3, f12, f13;
+            uint32_t fcr31;
+            uint64_t v0, h2, a0;
+            __m128 vf0, vf5, vf6, vf7, acc;
+            float q;
+            uint16_t stat;
+        };
+        // The entry values the frame keeps (s0-s5, ra, f20-f26), the entry f12-f15 and the arguments.
+        struct SpringInD3
+        {
+            uint64_t s[6], ra;
+            float f20, f21, f22, f23, f24, f25, f26;
+            float spring, limit, eps, scale; // f12, f13, f14, f15
+            uint32_t out, cur, target, param, zero, zeroHi;
+        };
+
+        PS2_FORCE_INLINE uint64_t d3sSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+        PS2_FORCE_INLINE uint32_t d3sBits(float v)
+        {
+            uint32_t b;
+            std::memcpy(&b, &v, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d3sFloat(uint32_t b)
+        {
+            float v;
+            std::memcpy(&v, &b, 4);
+            return v;
+        }
+        PS2_FORCE_INLINE void d3sSetC(uint32_t &fcr31, bool c) { fcr31 = c ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u); }
+
+        // GAMEUTIL_get_difference_value / is_nearly_equal_zero / get_increase_value as the lift adapters run them.
+        PS2_FORCE_INLINE void d3sDiff(const d1::Mem &m, PS2Runtime *rt, SpringRegsD3 &r)
+        {
+            const a1::RetVF v = typed::GAMEUTIL_get_difference_value(m.base, rt, r.a0, r.f12, r.f13);
+            r.v0 = v.v0;
+            r.f0 = v.f0;
+        }
+        PS2_FORCE_INLINE void d3sNearZero(const d1::Mem &m, PS2Runtime *rt, SpringRegsD3 &r)
+        {
+            const a1::RetVF v = typed::GAMEUTIL_is_nearly_equal_zero(m.base, rt, r.f12, r.f13);
+            r.v0 = v.v0;
+            r.f0 = v.f0;
+        }
+        PS2_FORCE_INLINE void d3sIncrease(const d1::Mem &m, PS2Runtime *rt, SpringRegsD3 &r)
+        {
+            uint64_t xo[2] = {static_cast<uint64_t>(d3sBits(r.f2)), static_cast<uint64_t>(d3sBits(r.f3))};
+            const a1::RetVF v = typed::GAMEUTIL_get_increase_value(m.base, rt, r.a0, r.f3, r.f12, r.f13, xo);
+            r.v0 = v.v0;
+            r.f0 = v.f0;
+            r.f2 = d3sFloat(static_cast<uint32_t>(xo[0]));
+            r.f3 = d3sFloat(static_cast<uint32_t>(xo[1]));
+        }
+
+        // From the frame `sp` (entry sp - 0xa0).
+        void springCoreD3(const d1::Mem &m, PS2Runtime *rt, uint32_t sp, const SpringInD3 &in, SpringRegsD3 &r)
+        {
+            m.set<uint64_t>(sp + 0x30u, in.s[0]);
+            m.set<uint64_t>(sp + 0x38u, in.s[1]);
+            m.set<uint64_t>(sp + 0x40u, in.s[2]);
+            m.set<uint64_t>(sp + 0x48u, in.s[3]);
+            m.set<uint64_t>(sp + 0x50u, in.s[4]);
+            m.set<uint64_t>(sp + 0x58u, in.s[5]);
+            m.set<float>(sp + 0x98u, in.f26);
+            const float f26 = in.limit;
+            m.set<float>(sp + 0x90u, in.f25);
+            const float f25 = in.scale;
+            m.set<float>(sp + 0x88u, in.f24);
+            const float f24 = in.spring;
+            m.set<float>(sp + 0x80u, in.f23);
+            const float f23 = in.eps;
+            m.set<uint64_t>(sp + 0x60u, in.ra);
+            m.set<float>(sp + 0x78u, in.f22);
+            m.set<float>(sp + 0x70u, in.f21);
+            m.set<float>(sp + 0x68u, in.f20);
+            const uint32_t cur = in.cur, target = in.target, param = in.param, out = in.out, zero = in.zero;
+
+            // The difference per axis: GAMEUTIL_get_difference_value(cur, target, param).
+            r.f12 = m.f32(cur + 0u);
+            r.f13 = m.f32(target + 0u);
+            r.a0 = d3sSx(m.u32(param + 0u));
+            d3sDiff(m, rt, r);
+            r.f12 = m.f32(cur + 4u);
+            r.f13 = m.f32(target + 4u);
+            r.a0 = d3sSx(m.u32(param + 4u));
+            m.set<float>(sp + 0x10u, r.f0);
+            d3sDiff(m, rt, r);
+            r.f12 = m.f32(cur + 8u);
+            r.f13 = m.f32(target + 8u);
+            r.a0 = d3sSx(m.u32(param + 8u));
+            m.set<float>(sp + 0x14u, r.f0);
+            d3sDiff(m, rt, r);
+
+            r.v0 = d3sSx(in.zeroHi << 16);
+            m.set<float>(sp + 0x18u, r.f0);
+            m.set<uint32_t>(sp + 0x1Cu, 0u);
+            // The difference's length (VU0).
+            r.vf5 = m.q(sp + 0x10u);
+            r.vf6 = m.q(zero & ~0xFu);
+            r.vf5 = d1::vsel(r.vf5, d1::vsub(r.vf5, r.vf6), d1::mask(1, 1, 1, 0));
+            m.putq(sp + 0x20u, r.vf5);
+            r.vf7 = m.q(sp + 0x20u);
+            r.vf7 = d1::vsel(r.vf7, d1::vmul(r.vf7, r.vf7), d1::mask(1, 1, 1, 0));
+            r.acc = d1::vsel(r.acc, d1::vmul(r.vf0, d1::bc<0>(r.vf7)), d1::mask(0, 0, 0, 1));
+            r.acc = d1::vsel(r.acc, d1::vadd(r.acc, d1::vmul(r.vf0, d1::bc<1>(r.vf7))), d1::mask(0, 0, 0, 1));
+            r.vf7 = d1::vsel(r.vf7, d1::vadd(r.acc, d1::vmul(r.vf0, d1::bc<2>(r.vf7))), d1::mask(0, 0, 0, 1));
+            r.q = ps2VuSqrt(r.stat, d1::lane<3>(r.vf7));
+            r.v0 = d3sSx(d3sBits(r.q));
+            const float f22 = r.q;
+            // GAMEUTIL_is_nearly_equal_zero(length, epsilon)
+            r.f12 = f22;
+            r.f13 = f23;
+            d3sNearZero(m, rt, r);
+
+            if (r.v0 != 0u)
+            {
+                // No difference: the step is the zero vector (v0 the whole quadword).
+                const __m128 z = m.q(zero & ~0xFu);
+                uint64_t lo, hi;
+                std::memcpy(&lo, &z, 8);
+                std::memcpy(&hi, reinterpret_cast<const uint8_t *>(&z) + 8, 8);
+                r.v0 = lo;
+                r.h2 = hi;
+                m.putq(sp, z);
+            }
+            else
+            {
+                float f20, f21;
+                r.f0 = 0.0f;
+                r.f1 = d1::sub(r.f0, f22);
+                f21 = r.f0;
+                bool c = d1::lt(f21, r.f1);
+                d3sSetC(r.fcr31, c);
+                r.f0 = -r.f0;
+                if (c)
+                    f20 = d1::sub(r.f1, f21);
+                else
+                {
+                    c = d1::lt(r.f1, r.f0);
+                    d3sSetC(r.fcr31, c);
+                    f20 = f21;
+                    if (c)
+                        f20 = d1::sub(r.f1, r.f0);
+                }
+                r.f13 = f23;
+                r.f12 = f20;
+                d3sNearZero(m, rt, r);
+                if (r.v0 == 0u)
+                {
+                    r.f1 = 0.0f;
+                    r.f12 = -f20;
+                    c = d1::le(r.f1, f24);
+                    d3sSetC(r.fcr31, c);
+                    r.f2 = r.f12;
+                    if (c)
+                    {
+                        r.f0 = d1::mul(f24, f25);
+                        r.f12 = d1::mul(r.f12, r.f0);
+                    }
+                    c = d1::lt(r.f12, r.f1);
+                    d3sSetC(r.fcr31, c);
+                    r.f0 = c ? -r.f12 : r.f12;
+                    c = d1::lt(f20, r.f1);
+                    d3sSetC(r.fcr31, c);
+                    bool ratio; // l1083184
+                    if (c)
+                    {
+                        c = d1::lt(r.f2, r.f0);
+                        d3sSetC(r.fcr31, c);
+                        ratio = c;
+                    }
+                    else
+                    {
+                        c = d1::lt(f20, r.f0);
+                        d3sSetC(r.fcr31, c);
+                        ratio = c;
+                    }
+                    if (!ratio)
+                        f21 = d1::add(f21, r.f12);
+                    else
+                    {
+                        r.f1 = 0.0f;
+                        c = d1::eq(r.f12, r.f1);
+                        d3sSetC(r.fcr31, c);
+                        if (c)
+                            f21 = d1::add(f21, r.f12);
+                        else
+                        {
+                            r.f0 = ps2FpuDivide(r.fcr31, f20, r.f12);
+                            c = d1::lt(r.f0, r.f1);
+                            d3sSetC(r.fcr31, c);
+                            if (c)
+                                r.f0 = -r.f0;
+                            r.f0 = d1::mul(r.f12, r.f0);
+                            r.f12 = r.f0;
+                            f21 = d1::add(f21, r.f12);
+                        }
+                    }
+                }
+                // l10831b8: the step clamped to +-limit x scale (limit > 0).
+                r.f0 = 0.0f;
+                c = d1::lt(r.f0, f26);
+                d3sSetC(r.fcr31, c);
+                if (c)
+                {
+                    c = d1::le(r.f0, f21);
+                    d3sSetC(r.fcr31, c);
+                    r.f13 = d1::mul(f26, f25);
+                    if (c)
+                    {
+                        c = d1::lt(r.f13, f21);
+                        d3sSetC(r.fcr31, c);
+                        if (c)
+                            f21 = r.f13;
+                    }
+                    else
+                    {
+                        r.f0 = -f21;
+                        c = d1::lt(r.f13, r.f0);
+                        d3sSetC(r.fcr31, c);
+                        if (c)
+                            f21 = -r.f13;
+                    }
+                }
+                // The step vector: the difference x step / length, w 0.
+                r.f0 = ps2FpuDivide(r.fcr31, f21, f22);
+                r.v0 = d3sSx(d3sBits(r.f0));
+                r.vf5 = m.q(sp + 0x20u);
+                {
+                    // qmtc2 v0, vf6: v0's 128 bits (x the step's bits; its upper half as the chain left it)
+                    uint64_t lane[2] = {r.v0, r.h2};
+                    std::memcpy(&r.vf6, lane, 16);
+                }
+                r.vf5 = d1::vsel(r.vf5, d1::vmul(r.vf5, d1::bc<0>(r.vf6)), d1::mask(1, 1, 1, 0));
+                m.putq(sp, r.vf5);
+                m.set<uint32_t>(sp + 0xCu, 0u);
+            }
+
+            // The result per axis: GAMEUTIL_get_increase_value(cur, step, param).
+            r.f13 = m.f32(sp + 0u);
+            r.f12 = m.f32(cur + 0u);
+            r.a0 = d3sSx(m.u32(param + 0u));
+            d3sIncrease(m, rt, r);
+            m.set<float>(out + 0u, r.f0);
+            r.f13 = m.f32(sp + 4u);
+            r.f12 = m.f32(cur + 4u);
+            r.a0 = d3sSx(m.u32(param + 4u));
+            d3sIncrease(m, rt, r);
+            m.set<float>(out + 4u, r.f0);
+            r.a0 = d3sSx(m.u32(param + 8u));
+            r.f12 = m.f32(cur + 8u);
+            r.f13 = m.f32(sp + 8u);
+            d3sIncrease(m, rt, r);
+            m.set<float>(out + 8u, r.f0);
+            r.f0 = m.f32(cur + 0xCu);
+            m.set<float>(out + 0xCu, r.f0);
+        }
+    } // namespace d3s
+
+    void spring3DD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t sp = entrySp - 0xA0u;
+        const uint32_t out = GPR_U32(ctx, 4), cur = GPR_U32(ctx, 5), target = GPR_U32(ctx, 6), param = GPR_U32(ctx, 7);
+        auto inRam = [](uint32_t a, uint32_t n) { return a < PS2_RAM_SIZE && PS2_RAM_SIZE - a >= n; };
+        if (!sotc_decomp::hotList48On() || (sp & 0xFu) != 0u || !inRam(sp, 0xA0u) || !inRam(out, 0x10u) || !inRam(cur, 0x10u) || !inRam(target, 0xCu) ||
+            !inRam(param, 0xCu) || sotc_decomp::guestFunction(runtime, kDifference) != &lift_d1::GAMEUTIL_get_difference_value || !A2_GO() ||
+            !A2_HOLDS(0x1080B28u, lift_d1::GAMEUTIL_get_move_radi_from_yaw1_to_yaw2) ||
+            sotc_decomp::guestFunction(runtime, kNearlyZero) != &lift_d1::GAMEUTIL_is_nearly_equal_zero || !A1_ON ||
+            sotc_decomp::guestFunction(runtime, kIncrease) != &lift_d1::GAMEUTIL_get_increase_value || !A7_GO() ||
+            !A7_HOLDS(0x1080310u, lift_d1::GAMEUTIL_increase_yaw) || !A7_HOLDS(0x1082BD8u, lift_d1::manager_sub_01082BD8))
+            return spring3D(rdram, ctx, runtime);
+        ++c_d3Spring3D.n;
+        d3s::SpringInD3 in;
+        for (int i = 0; i < 6; ++i)
+            in.s[i] = GPR_U64(ctx, 16 + i);
+        in.ra = GPR_U64(ctx, 31);
+        in.f20 = ctx->f[20];
+        in.f21 = ctx->f[21];
+        in.f22 = ctx->f[22];
+        in.f23 = ctx->f[23];
+        in.f24 = ctx->f[24];
+        in.f25 = ctx->f[25];
+        in.f26 = ctx->f[26];
+        in.spring = ctx->f[12];
+        in.limit = ctx->f[13];
+        in.eps = ctx->f[14];
+        in.scale = ctx->f[15];
+        in.out = out;
+        in.cur = cur;
+        in.target = target;
+        in.param = param;
+        in.zero = sotc_decomp::relocated(rdram, kSpringZeroHi, kSpringZeroLo);
+        in.zeroHi = sotc_decomp::codeWord(rdram, kSpringZeroHi);
+        d3s::SpringRegsD3 r;
+        r.f0 = ctx->f[0];
+        r.f1 = ctx->f[1];
+        r.f2 = ctx->f[2];
+        r.f3 = ctx->f[3];
+        r.f12 = ctx->f[12];
+        r.f13 = ctx->f[13];
+        r.fcr31 = ctx->fcr31;
+        r.v0 = GPR_U64(ctx, 2);
+        r.h2 = a4::hi64(ctx->r[2]);
+        r.a0 = GPR_U64(ctx, 4);
+        r.vf0 = ctx->vu0_vf[0];
+        r.vf5 = ctx->vu0_vf[5];
+        r.vf6 = ctx->vu0_vf[6];
+        r.vf7 = ctx->vu0_vf[7];
+        r.acc = ctx->vu0_acc;
+        r.q = ctx->vu0_q;
+        r.stat = ctx->vu0_status;
+        d3s::springCoreD3(d1::Mem{rdram}, runtime, sp, in, r);
+        ctx->f[0] = r.f0;
+        ctx->f[1] = r.f1;
+        ctx->f[2] = r.f2;
+        ctx->f[3] = r.f3;
+        ctx->f[12] = r.f12;
+        ctx->f[13] = r.f13;
+        ctx->fcr31 = r.fcr31;
+        ctx->r[2] = a4::mk128(r.h2, r.v0);
+        SET_GPR_U64(ctx, 4, r.a0);
+        ctx->vu0_vf[5] = r.vf5;
+        ctx->vu0_vf[6] = r.vf6;
+        ctx->vu0_vf[7] = r.vf7;
+        ctx->vu0_acc = r.acc;
+        ctx->vu0_q = r.q;
+        ctx->vu0_status = r.stat;
+        SET_GPR_U64(ctx, 29, sx(entrySp));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void spring3DSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            spring3DD3(rdram, ctx, runtime);
+        else
+            spring3D(rdram, ctx, runtime);
     }
 } // namespace decomp_hot48c

@@ -72,6 +72,7 @@
 // CheckLetter's loop checkpoint is left out; GetScriptClass takes the
 // recompiled code (before any store) for a jump table entry it does not know.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "sotc_pf141.h"
@@ -806,7 +807,13 @@ SOTC_DECOMP_FUNCTION(0x013CFBE0u, gamecore_sub_013CFBE0, decomp_scriptvm3::chara
 SOTC_DECOMP_FUNCTION(0x013CFD80u, gamecore_sub_013CFD80, decomp_scriptvm3::objectAnimation);
 SOTC_DECOMP_FUNCTION(0x013CF4E0u, gamecore_sub_013CF4E0, decomp_scriptvm3::charaTail);
 SOTC_DECOMP_FUNCTION(0x01102438u, GetScriptClass, decomp_scriptvm3::getScriptClass);
-SOTC_DECOMP_FUNCTION(0x0110CB28u, GetScriptCharacterClass, decomp_scriptvm3::getScriptCharacterClass);
+namespace decomp_scriptvm3 // round D3: the dispatchers (end of file)
+{
+    void scriptCharaSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void thisSubThreadSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x0110CB28u, GetScriptCharacterClass, decomp_scriptvm3::scriptCharaSw);
+D1_ALIAS(0x0110CB28u, GetScriptCharacterClass, decomp_scriptvm3::scriptCharaSw, decomp_scriptvm3::getScriptCharacterClass);
 SOTC_DECOMP_FUNCTION(0x0110D058u, GetScriptLayoutClass, decomp_scriptvm3::getScriptLayoutClass);
 SOTC_DECOMP_FUNCTION(0x0110D0F8u, ExecScriptLayoutObj, decomp_scriptvm3::execScriptLayoutObj);
 SOTC_DECOMP_FUNCTION(0x01166BA0u, CheckLetter, decomp_scriptvm3::checkLetter);
@@ -814,4 +821,78 @@ SOTC_DECOMP_FUNCTION(0x010CC210u, CharaCtrlResetScriptCtrlStatus, decomp_scriptv
 SOTC_DECOMP_FUNCTION(0x010CC178u, CharaCtrlSetScriptCtrlStatus, decomp_scriptvm3::setScriptCtrlStatus);
 SOTC_DECOMP_FUNCTION(0x010CC100u, CharaCtrlResetAllScriptCtrlStatus, decomp_scriptvm3::resetAllScriptCtrlStatus);
 SOTC_DECOMP_FUNCTION(0x010CC730u, checkScriptControlDef, decomp_scriptvm3::checkScriptControlDef);
-SOTC_DECOMP_FUNCTION(0x001CA1B0u, isysGetThisSubThread, decomp_scriptvm3::getThisSubThread);
+SOTC_DECOMP_FUNCTION(0x001CA1B0u, isysGetThisSubThread, decomp_scriptvm3::thisSubThreadSw);
+D1_ALIAS(0x001CA1B0u, isysGetThisSubThread, decomp_scriptvm3::thisSubThreadSw, decomp_scriptvm3::getThisSubThread);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): GetScriptCharacterClass / isysGetThisSubThread as typed cores ----------------
+// GetScriptCharacterClass: the object's type byte (+8) 9 -> the object + 0x20, else 0; isysGetThisSubThread: the word at
+// 0x1e1550. Integer only, 0 math, on d1::Mem. The adapters write what the old bodies leave: GetScriptCharacterClass's v0
+// (its upper 64 bits kept when the type is 9, all 128 bits cleared otherwise: the old body's move / lw vs its VEC copy of
+// $zero), v1 = type ^ 9, a0 = 9; isysGetThisSubThread's v0 and v1 = 0x1e0000. scriptvm off or the object outside main RAM:
+// the old body. (The cores are external: decomp_scriptvm2.cpp's D3 bodies call them directly.)
+namespace decomp_scriptvm3
+{
+    D1_COUNTER(c_d3ScriptChara, "GetScriptCharacterClass");
+    D1_COUNTER(c_d3ThisSubThread, "isysGetThisSubThread");
+
+    inline bool d3SvmInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+
+    // The character class of a script object (0: not a character); `type` its type byte.
+    uint32_t d3ScriptCharaCore(const d1::Mem m, uint32_t obj, uint32_t &type)
+    {
+        type = m.get<uint8_t>(obj + 8u);
+        return type == 9u ? obj + 0x20u : 0u;
+    }
+
+    // The current sub-thread's object.
+    uint32_t d3ThisSubThreadCore(const d1::Mem m) { return m.u32(0x001E1550u); }
+
+    // The registers GetScriptCharacterClass's old body leaves (v0 / v1 / a0).
+    void d3ScriptCharaRegs(R5900Context *ctx, uint32_t type, uint32_t cls)
+    {
+        if (type != 9u)
+            SET_GPR_VEC(ctx, 2, GPR_VEC(ctx, 0));
+        else
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(cls));
+        SET_GPR_U64(ctx, 3, static_cast<uint64_t>(type ^ 9u));
+        SET_GPR_S32(ctx, 4, 9);
+    }
+
+    void scriptCharaD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t obj = GPR_U32(ctx, 4);
+        if (!sotc_decomp::scriptVmOn() || !d3SvmInRam(obj, 9u))
+            return getScriptCharacterClass(rdram, ctx, runtime);
+        ++c_d3ScriptChara.n;
+        uint32_t type = 0u;
+        const uint32_t cls = d3ScriptCharaCore(d1::Mem{rdram}, obj, type);
+        d3ScriptCharaRegs(ctx, type, cls);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void thisSubThreadD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::scriptVmOn())
+            return getThisSubThread(rdram, ctx, runtime);
+        ++c_d3ThisSubThread.n;
+        SET_GPR_S32(ctx, 3, 0x001E0000);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3ThisSubThreadCore(d1::Mem{rdram})));
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void scriptCharaSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            scriptCharaD3(rdram, ctx, runtime);
+        else
+            getScriptCharacterClass(rdram, ctx, runtime);
+    }
+
+    void thisSubThreadSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            thisSubThreadD3(rdram, ctx, runtime);
+        else
+            getThisSubThread(rdram, ctx, runtime);
+    }
+}

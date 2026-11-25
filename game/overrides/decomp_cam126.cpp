@@ -861,16 +861,23 @@ namespace cam126
     void rootKeySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void parentIdSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void localQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round D3 (d1native): the dispatchers (the D3 bodies at the end of this file).
+    void geoQuatPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void motionNodeQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void exchangeLWSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 
 SOTC_DECOMP_FUNCTION(0x01131D80u, GetGeometryPointerPosition, cam126::geoPosSw);
 D1_ALIAS(0x01131D80u, GetGeometryPointerPosition, cam126::geoPosSw, cam126::geoPos);
 SOTC_DECOMP_FUNCTION(0x01132098u, GetGeometryPointerQuaternion, cam126::geoQuatSw);
 D1_ALIAS(0x01132098u, GetGeometryPointerQuaternion, cam126::geoQuatSw, cam126::geoQuat);
-SOTC_DECOMP_FUNCTION(0x01132270u, GetGeometryPointerQuatPos, cam126::geoQuatPos);
+SOTC_DECOMP_FUNCTION(0x01132270u, GetGeometryPointerQuatPos, cam126::geoQuatPosSw);
+D1_ALIAS(0x01132270u, GetGeometryPointerQuatPos, cam126::geoQuatPosSw, cam126::geoQuatPos);
 SOTC_DECOMP_FUNCTION(0x01135720u, GetMatrixFromQuatPos, cam126::matFromQuatPos);
-SOTC_DECOMP_FUNCTION(0x011357A8u, ExchangeLWQuaternion, cam126::exchangeLWEntry);
-SOTC_DECOMP_FUNCTION(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNodeQP);
+SOTC_DECOMP_FUNCTION(0x011357A8u, ExchangeLWQuaternion, cam126::exchangeLWSw);
+D1_ALIAS(0x011357A8u, ExchangeLWQuaternion, cam126::exchangeLWSw, cam126::exchangeLWEntry);
+SOTC_DECOMP_FUNCTION(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNodeQPSw);
+D1_ALIAS(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNodeQPSw, cam126::motionNodeQP);
 SOTC_DECOMP_FUNCTION(0x010C1580u, GetCharacterClassNodeQuaternionPos, cam126::ccNodeQP);
 SOTC_DECOMP_FUNCTION(0x013A74E8u, MVHIST_Update, cam126::mvhist);
 SOTC_DECOMP_FUNCTION(0x013D3C68u, AI_GetYRotQuaternion, cam126::yRot);
@@ -975,10 +982,12 @@ namespace cam126
         ctx->f[0] = 1.0f;
         returnTo(ctx);
     }
+    void geoPosD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);  // round D3 (end of file)
+    void geoQuatD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void geoPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            geoPosD1(rdram, ctx, runtime);
+            geoPosD3(rdram, ctx, runtime);
         else
             geoPos(rdram, ctx, runtime);
     }
@@ -1052,7 +1061,7 @@ namespace cam126
     void geoQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            geoQuatD1(rdram, ctx, runtime);
+            geoQuatD3(rdram, ctx, runtime);
         else
             geoQuat(rdram, ctx, runtime);
     }
@@ -1258,5 +1267,402 @@ namespace cam126
             rootKeyD1(rdram, ctx, runtime);
         else
             rootKeyEntry(rdram, ctx, runtime);
+    }
+} // namespace cam126
+
+// ---- Round D3 (switch d1native, d1_native.h): the character node kinds' frames as direct core calls ------------------
+// GetCharacterClassNodeQuaternionPos's typed core (d3c::ccNodeQPD3Core: the class's +0x154 / +0x158 arrays, or the motion
+// matrix's +0x348 / +0x344 once made; GetMotionMatrix's first-use path is not a core) is called by manager_sub_010AC4A0's
+// D3 core (decomp_hot44d.cpp); that core replaces the node kinds' nodeFrame guest call in GetGeometryPointerPosition /
+// Quaternion / QuatPos (full: every geo126 kind a core) and in GetMotionNodeQuaternionPos (full). The adapters write back
+// the registers manager_sub_010AC4A0 leaves (v0 / v1 128 bits, a0-t0) and nodeFrame's t1. Any other state (a path
+// 010AC4A0's core does not take, its slot or its callees' slots held by something else, a worker lane, a check mode) runs
+// the D2 body / the old body. GetCharacterClassNodeQuaternionPos itself keeps its old function in the slot (rounds A12 /
+// A13 test the slot by identity: A12_HOLDSX / A13_HOLDSX).
+namespace decomp_hot44d
+{
+    void nodeQuatPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void nodeQuatPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool nodeQuatPosD3Ready(const PS2Runtime *runtime);
+    int nodeQuatPosD3Path(const d1::Mem &m, uint32_t q, uint32_t p, uint64_t third, uint64_t object, uint64_t node, uint64_t t1, uint32_t sp, uint32_t &cls);
+    namespace d3h
+    {
+        void nodeQuatPosD3Core(const d1::Mem &m, int path, uint32_t sp, uint32_t q, uint64_t p64, uint64_t third, uint64_t object, uint32_t cls,
+                               uint64_t node, uint64_t t1, __m128 vec[2], uint64_t gpr[5]);
+    }
+}
+
+namespace cam126
+{
+    namespace d3c
+    {
+        D1_COUNTER(c_d3GeoPos, "GetGeometryPointerPosition.d3");
+        D1_COUNTER(c_d3GeoQuat, "GetGeometryPointerQuaternion.d3");
+        D1_COUNTER(c_d3GeoQuatPos, "GetGeometryPointerQuatPos");
+        D1_COUNTER(c_d3MotionNodeQP, "GetMotionNodeQuaternionPos");
+
+        PS2_FORCE_INLINE uint64_t d3sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+        // ---- GetCharacterClassNodeQuaternionPos (geo126's body) -----------------------------------------------------------
+        // The two pointers it writes (q, p); false: the motion matrix is not made yet (+0x533 0: GetMotionMatrix, a guest call)
+        // or the class is outside okAddr's range (the old body's recompiled fallback).
+        bool ccNodeQPD3Plan(const d1::Mem &m, uint32_t cls, uint32_t node, uint32_t t0, uint32_t &q, uint32_t &p)
+        {
+            if (!okAddr(cls))
+                return false;
+            if (t0 != 0u)
+            {
+                q = m.u32(cls + 0x154u) + (node << 4);
+                p = m.u32(cls + 0x158u) + (node << 6) + 0x30u;
+                return true;
+            }
+            if (m.get<int8_t>(cls + 0x533u) == 0)
+                return false;
+            q = m.u32(cls + 0x348u) + (node << 4);
+            p = m.u32(cls + 0x344u) + (node << 6) + 0x30u;
+            return true;
+        }
+        // The pointers to qOut / pOut (the quaternion's first); v0 / v1 as the old body leaves them (t0 set: q / p, else p / q).
+        // Called only where ccNodeQPD3Plan said true.
+        void ccNodeQPD3Core(const d1::Mem &m, uint32_t qOut, uint32_t pOut, uint32_t cls, uint32_t node, uint32_t t0, uint32_t &v0, uint32_t &v1)
+        {
+            uint32_t q = 0u, p = 0u;
+            (void)ccNodeQPD3Plan(m, cls, node, t0, q, p);
+            m.set<uint32_t>(qOut, q);
+            m.set<uint32_t>(pOut, p);
+            v0 = t0 != 0u ? q : p;
+            v1 = t0 != 0u ? p : q;
+        }
+
+        // ---- the node's frame (nodeFrame: manager_sub_010AC4A0 with a2 0, a3 / t0 the pointer's two words, t1 1) ----------
+        struct D3Node
+        {
+            int path;
+            uint32_t cls;
+            uint64_t object, node;
+        };
+        // Adapter side: the core can take the call (the slot holds 010AC4A0's native or dispatcher, its D3 path open).
+        bool d3nodeOpen(const PS2Runtime *runtime, const d1::Mem &m, uint32_t gp, uint32_t q, uint32_t p, uint32_t callSp, D3Node &c)
+        {
+            const PS2Runtime::RecompiledFunction fn = sotc_decomp::guestFunction(runtime, kNodeQuatPos);
+            if (!(fn == &decomp_hot44d::nodeQuatPosSw || fn == &decomp_hot44d::nodeQuatPos) || !decomp_hot44d::nodeQuatPosD3Ready(runtime))
+                return false;
+            c.object = d3sx(m.u32(gp));
+            c.node = d3sx(m.u32(gp + 4u));
+            c.path = decomp_hot44d::nodeQuatPosD3Path(m, q, p, 0u, c.object, c.node, 1u, callSp - 0x60u, c.cls);
+            return c.path != 0;
+        }
+        // Core side: 010AC4A0's core (its frame 0x60 below the call's sp); vec / gpr the registers it leaves (r2 / r3, r4-r8).
+        PS2_FORCE_INLINE void d3nodeFrame(const d1::Mem &m, const D3Node &c, uint32_t q, uint32_t p, uint32_t callSp, __m128 vec[2], uint64_t gpr[5])
+        {
+            decomp_hot44d::d3h::nodeQuatPosD3Core(m, c.path, callSp - 0x60u, q, d3sx(p), 0u, c.object, c.cls, c.node, 1u, vec, gpr);
+        }
+
+        // ---- GetGeometryPointerPosition / Quaternion / QuatPos -----------------------------------------------------------
+        void geoPosD3Core(const d1::Mem &m, int k, uint32_t out, uint32_t gp, uint32_t sp, const D3Node &c, __m128 vec[2], uint64_t gpr[5])
+        {
+            if (k == 3)
+                d3nodeFrame(m, c, sp + 0x80u, sp + 0x90u, sp, vec, gpr);
+            geoPosD2Core(m, k, out, gp, sp + 0x80u, sp + 0x90u);
+        }
+        float geoQuatD3Core(const d1::Mem &m, int k, uint32_t out, uint32_t gp, uint32_t sp, uint32_t axis, const D3Node &c, __m128 vec[2], uint64_t gpr[5],
+                            bool &setF0)
+        {
+            if (k == 2)
+                d3nodeFrame(m, c, sp + 0x10u, sp, sp, vec, gpr);
+            return geoQuatD2Core(m, k, out, gp, sp + 0x10u, axis, setF0);
+        }
+        // geo126's kinds of GetGeometryPointerQuatPos (0 copies of +0 / +0x10; 1 / 2 the frame (*+0, *+4): +0x20 / +0x10 in it,
+        // the rotation (*+0) then +0x10 / +0x20; 3 the node's frame: +0x20 in it, its rotation then +0x10), the old body's
+        // statements on d1::Mem.
+        void geoQuatPosD3Core(const d1::Mem &m, int k, uint32_t out, uint32_t gp, uint32_t sp, const D3Node &c, __m128 vec[2], uint64_t gpr[5])
+        {
+            switch (k)
+            {
+            case 0:
+                cpq(m.base, out, gp);
+                cpq(m.base, out + 0x10u, gp + 0x10u);
+                break;
+            case 1:
+            case 2:
+            {
+                const uint32_t qa = m.u32(gp);
+                const float32x4_t q = ldq(m.base, qa);
+                const Frame f = frameOf(q, ldq(m.base, m.u32(gp + 4u)));
+                const float32x4_t pos = apply(f, ldq(m.base, gp + (k == 1 ? 0x20u : 0x10u)));
+                const float32x4_t rot = k == 1 ? qmulVu(q, ldq(m.base, gp + 0x10u)) : ldq(m.base, gp + 0x20u);
+                stq(m.base, out + 0x10u, pos);
+                stq(m.base, out, rot);
+                break;
+            }
+            case 3:
+            {
+                d3nodeFrame(m, c, sp + 0x80u, sp + 0x90u, sp, vec, gpr);
+                const float32x4_t q = ldq(m.base, sp + 0x80u);
+                const Frame f = frameOf(q, ldq(m.base, sp + 0x90u));
+                stq(m.base, out + 0x10u, apply(f, ldq(m.base, gp + 0x20u)));
+                stq(m.base, out, qmulVu(q, ldq(m.base, gp + 0x10u)));
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        // ---- GetMotionNodeQuaternionPos: 010AC4A0 (a2 0, a3 = a2, t0 = a3, t1 = t0), then ExchangeLWQuaternion(a0, a0) --------
+        // (exchangeLW's statements: the half turn about the axis qword at `axis`; f0 its w)
+        float motionNodeQPD3Core(const d1::Mem &m, int path, uint32_t q, uint64_t p64, uint64_t object, uint32_t cls, uint64_t node, uint64_t t1, uint32_t callSp,
+                                 uint32_t axis, __m128 vec[2], uint64_t gpr[5])
+        {
+            decomp_hot44d::d3h::nodeQuatPosD3Core(m, path, callSp - 0x60u, q, p64, 0u, object, cls, node, t1, vec, gpr);
+            const float32x4_t r = axisRotateQ(m.base, 0xFFFF8000u, ldq(m.base, axis));
+            stq(m.base, q, qmulVu(ldq(m.base, q), r));
+            return vgetq_lane_f32(r, 3);
+        }
+    } // namespace d3c
+
+    // the registers 010AC4A0's core leaves, written back (r2 / r3 whole, r4-r8's low 64 bits; t1 as nodeFrame set it).
+    inline void d3nodeExit(R5900Context *c, const __m128 vec[2], const uint64_t gpr[5], uint64_t t1)
+    {
+        std::memcpy(&c->r[2], vec, 32);
+        for (int i = 0; i < 5; ++i)
+            SET_GPR_U64(c, 4 + i, gpr[i]);
+        SET_GPR_U64(c, 9, t1);
+    }
+
+    namespace d3c
+    {
+        // The geometry pointers' D3 paths for any caller (the adapters below and other natives' D3 cores, e.g.
+        // GetCharaRootDynamicsAfter's): the plan (adapter side: switches, slots, the kind, 010AC4A0's path) into
+        // plan[6] = {k, 010AC4A0's path, class, object, node, axis}; 1: the core takes it, 0: the old body, -1: the D2 body
+        // (a node kind 010AC4A0's core does not take). sp0: the getter's entry sp.
+        int geoPosD3Plan(const PS2Runtime *runtime, const d1::Mem &m, uint32_t out, uint32_t gp, uint32_t sp0, int64_t plan[6])
+        {
+            if (!geoOn() || checkEvery() != 0 || !okAddr(gp) || !okAddr(out))
+                return 0;
+            const uint32_t kind = m.u32(gp + 0x30u);
+            const uint32_t label = kind < 11u ? m.u32(kPosTable + kind * 4u) : 0x0113206Cu;
+            int k;
+            switch (label)
+            {
+            case 0x01131DC8u: k = 0; break;
+            case 0x01131DD8u: k = 1; break;
+            case 0x01131E90u: k = 2; break;
+            case 0x01131FA8u:
+            case 0x01131FD0u: k = 3; break;
+            case 0x0113206Cu: k = -1; break;
+            default:
+                return 0; // (the recompiled kinds: the old body counts and runs them)
+            }
+            const uint32_t sp = sp0 - 0x170u;
+            D3Node c{};
+            if (k == 3 && !d3nodeOpen(runtime, m, gp, sp + 0x80u, sp + 0x90u, sp, c))
+                return -1;
+            plan[0] = k;
+            plan[1] = c.path;
+            plan[2] = c.cls;
+            plan[3] = static_cast<int64_t>(c.object);
+            plan[4] = static_cast<int64_t>(c.node);
+            plan[5] = 0;
+            return 1;
+        }
+        // GetGeometryPointerPosition's core on a plan (f0: 1.0 always; vec / gpr: 010AC4A0's registers when plan[0] is 3).
+        void geoPosD3Run(const d1::Mem &m, const int64_t plan[6], uint32_t out, uint32_t gp, uint32_t sp0, __m128 vec[2], uint64_t gpr[5])
+        {
+            const D3Node c{static_cast<int>(plan[1]), static_cast<uint32_t>(plan[2]), static_cast<uint64_t>(plan[3]), static_cast<uint64_t>(plan[4])};
+            geoPosD3Core(m, static_cast<int>(plan[0]), out, gp, sp0 - 0x170u, c, vec, gpr);
+        }
+        // GetGeometryPointerQuaternion's plan (k 99: a kind of 11 or more, nothing written).
+        int geoQuatD3Plan(const PS2Runtime *runtime, const d1::Mem &m, uint32_t out, uint32_t gp, uint32_t sp0, int64_t plan[6])
+        {
+            if (!geoOn() || !okAddr(gp) || !okAddr(out))
+                return 0;
+            const uint32_t kind = m.u32(gp + 0x30u);
+            plan[1] = plan[2] = plan[3] = plan[4] = plan[5] = 0;
+            if (kind >= 11u) // the original writes nothing
+            {
+                plan[0] = 99;
+                return 1;
+            }
+            if (checkEvery() != 0)
+                return 0;
+            int k;
+            switch (m.u32(kQuatTable + kind * 4u))
+            {
+            case 0x011320F8u: k = 0; break;
+            case 0x01132108u: k = 1; break;
+            case 0x01132158u: k = 4; break;
+            case 0x01132180u: k = 2; break;
+            case 0x011321E0u: k = 5; break;
+            case 0x01132208u: k = 3; break;
+            default:
+                return 0;
+            }
+            const uint32_t sp = sp0 - 0x50u;
+            D3Node c{};
+            if (k == 2 && !d3nodeOpen(runtime, m, gp, sp + 0x10u, sp, sp, c))
+                return -1;
+            plan[0] = k;
+            plan[1] = c.path;
+            plan[2] = c.cls;
+            plan[3] = static_cast<int64_t>(c.object);
+            plan[4] = static_cast<int64_t>(c.node);
+            // (the quarter turn's axis: the relocated pair read from the code)
+            plan[5] = k == 3 ? (m.u32(0x0113220Cu) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(m.u32(0x01132210u) & 0xFFFFu))) : 0u;
+            return 1;
+        }
+        // GetGeometryPointerQuaternion's core on a plan (setF0: the quarter turn's w is the f0 it leaves).
+        float geoQuatD3Run(const d1::Mem &m, const int64_t plan[6], uint32_t out, uint32_t gp, uint32_t sp0, __m128 vec[2], uint64_t gpr[5], bool &setF0)
+        {
+            setF0 = false;
+            if (plan[0] == 99)
+                return 0.0f;
+            const D3Node c{static_cast<int>(plan[1]), static_cast<uint32_t>(plan[2]), static_cast<uint64_t>(plan[3]), static_cast<uint64_t>(plan[4])};
+            return geoQuatD3Core(m, static_cast<int>(plan[0]), out, gp, sp0 - 0x50u, static_cast<uint32_t>(plan[5]), c, vec, gpr, setF0);
+        }
+    } // namespace d3c
+
+    void geoPosD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), gp = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29);
+        const d1::Mem m{rdram};
+        int64_t plan[6];
+        const int how = d3c::geoPosD3Plan(runtime, m, out, gp, sp0, plan);
+        if (how == 0)
+            return geoPos(rdram, ctx, runtime);
+        if (how < 0)
+            return geoPosD1(rdram, ctx, runtime); // D2: the node's frame through the guest call
+        ++d3c::c_d3GeoPos.n;
+        __m128 vec[2];
+        std::memcpy(vec, &ctx->r[2], 32); // (010AC4A0's path 1 keeps v1's upper half)
+        uint64_t gpr[5];
+        d3c::geoPosD3Run(m, plan, out, gp, sp0, vec, gpr);
+        if (plan[0] == 3)
+            d3nodeExit(ctx, vec, gpr, 1u);
+        ctx->f[0] = 1.0f;
+        returnTo(ctx);
+    }
+
+    void geoQuatD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), gp = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29);
+        const d1::Mem m{rdram};
+        int64_t plan[6];
+        const int how = d3c::geoQuatD3Plan(runtime, m, out, gp, sp0, plan);
+        if (how == 0)
+            return geoQuat(rdram, ctx, runtime);
+        if (how < 0)
+            return geoQuatD1(rdram, ctx, runtime);
+        ++d3c::c_d3GeoQuat.n;
+        __m128 vec[2];
+        std::memcpy(vec, &ctx->r[2], 32); // (010AC4A0's path 1 keeps v1's upper half)
+        uint64_t gpr[5];
+        bool setF0;
+        const float f0 = d3c::geoQuatD3Run(m, plan, out, gp, sp0, vec, gpr, setF0);
+        if (plan[0] == 2)
+            d3nodeExit(ctx, vec, gpr, 1u);
+        if (setF0)
+            ctx->f[0] = f0;
+        returnTo(ctx);
+    }
+
+    void geoQuatPosD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), gp = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29);
+        if (!geoOn() || checkEvery() != 0 || !okAddr(gp) || !okAddr(out))
+            return geoQuatPos(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t kind = m.u32(gp + 0x30u);
+        const uint32_t label = kind < 11u ? m.u32(kQuatPosTable + kind * 4u) : 0u;
+        int k;
+        switch (label)
+        {
+        case 0x011322F0u: k = 0; break;
+        case 0x01132308u: k = 1; break;
+        case 0x01132408u: k = 2; break;
+        case 0x011324D0u: k = 3; break;
+        default:
+            return geoQuatPos(rdram, ctx, runtime);
+        }
+        const uint32_t sp = sp0 - 0x110u;
+        d3c::D3Node c{};
+        if (k == 3 && !d3c::d3nodeOpen(runtime, m, gp, sp + 0x80u, sp + 0x90u, sp, c))
+            return geoQuatPos(rdram, ctx, runtime);
+        ++d3c::c_d3GeoQuatPos.n;
+        __m128 vec[2];
+        std::memcpy(vec, &ctx->r[2], 32); // (010AC4A0's path 1 keeps v1's upper half)
+        uint64_t gpr[5];
+        d3c::geoQuatPosD3Core(m, k, out, gp, sp, c, vec, gpr);
+        if (k == 3)
+            d3nodeExit(ctx, vec, gpr, 1u);
+        returnTo(ctx);
+    }
+    void geoQuatPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            geoQuatPosD3(rdram, ctx, runtime);
+        else
+            geoQuatPos(rdram, ctx, runtime);
+    }
+
+    void motionNodeQPD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!geoOn())
+            return motionNodeQP(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t a0 = GPR_U32(ctx, 4), callSp = GPR_U32(ctx, 29) - 0x10u;
+        const uint64_t object = GPR_U64(ctx, 6), node = GPR_U64(ctx, 7), t1 = GPR_U64(ctx, 8);
+        const PS2Runtime::RecompiledFunction fn = sotc_decomp::guestFunction(runtime, kNodeQuatPos);
+        if (!(fn == &decomp_hot44d::nodeQuatPosSw || fn == &decomp_hot44d::nodeQuatPos) || !decomp_hot44d::nodeQuatPosD3Ready(runtime))
+            return motionNodeQP(rdram, ctx, runtime);
+        uint32_t cls = 0u;
+        const int path = decomp_hot44d::nodeQuatPosD3Path(m, a0, GPR_U32(ctx, 5), 0u, object, node, t1, callSp - 0x60u, cls);
+        if (path == 0)
+            return motionNodeQP(rdram, ctx, runtime);
+        ++d3c::c_d3MotionNodeQP.n;
+        const uint32_t axis = sotc_decomp::relocated(rdram, 0x011357ACu, 0x011357C4u);
+        __m128 vec[2];
+        std::memcpy(vec, &ctx->r[2], 32); // (path 1 keeps v1's upper half)
+        uint64_t gpr[5];
+        const float f0 = d3c::motionNodeQPD3Core(m, path, a0, GPR_U64(ctx, 5), object, cls, node, t1, callSp, axis, vec, gpr);
+        d3nodeExit(ctx, vec, gpr, t1);
+        ctx->f[0] = f0;
+        SET_GPR_U32(ctx, 4, a0);
+        SET_GPR_U32(ctx, 5, a0);
+        returnTo(ctx);
+    }
+    void motionNodeQPSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            motionNodeQPD3(rdram, ctx, runtime);
+        else
+            motionNodeQP(rdram, ctx, runtime);
+    }
+
+    // ---- ExchangeLWQuaternion: out = (*q) then the half turn about the axis qword (exchangeLW's statements) --------------
+    namespace d3c
+    {
+        D1_COUNTER(c_d3ExchangeLW, "ExchangeLWQuaternion");
+        float exchangeLWD3Core(const d1::Mem &m, uint32_t out, uint32_t q, uint32_t axis)
+        {
+            const float32x4_t r = axisRotateQ(m.base, 0xFFFF8000u, ldq(m.base, axis));
+            stq(m.base, out, qmulVu(ldq(m.base, q), r));
+            return vgetq_lane_f32(r, 3);
+        }
+    }
+    void exchangeLWD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), q = GPR_U32(ctx, 5);
+        if (!geoOn() || !okAddr(q) || !okAddr(out))
+            return exchangeLWEntry(rdram, ctx, runtime);
+        ++d3c::c_d3ExchangeLW.n;
+        ctx->f[0] = d3c::exchangeLWD3Core(d1::Mem{rdram}, out, q, sotc_decomp::relocated(rdram, 0x011357ACu, 0x011357C4u));
+        returnTo(ctx);
+    }
+    void exchangeLWSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            exchangeLWD3(rdram, ctx, runtime);
+        else
+            exchangeLWEntry(rdram, ctx, runtime);
     }
 } // namespace cam126

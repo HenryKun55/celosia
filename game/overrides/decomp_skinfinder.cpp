@@ -422,3 +422,51 @@ namespace decomp_skinfinder
             corners(rdram, ctx, runtime);
     }
 }
+
+// ---- Round D3: corners() for another native's core ----------------------------------------------------------------
+// decomp_collision's ClipCollisionDB core fetches a skinned triangle's corners here instead of a guest call (its slot
+// holding cornersSw, d1native on): the D1 core with the frame the D1 adapter writes (spCall - 0x70: a2, a3, t2, the loop
+// counter, the ten saved registers as the call gets them) and the VU0 state it leaves in vu[] (vf8, vf14-vf17, vf10, ACC
+// at 0-6; vf29-vf31 at 8-10, which come in as the caller's). Bit 0 of the result: vu[0..6] written, bit 1: vu[8..10].
+// -1: the adapter's old-body case (a blend list without entries) or a corner-pair output (a t3 store; the caller passes
+// none): nothing written.
+namespace decomp_skinfinder
+{
+    int cornersD3Core(const d1::Mem m, const uint32_t args[8], uint32_t spCall, const uint64_t saved[10], __m128 vu[11])
+    {
+        const D1Corners a{args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]};
+        if (a.pairsOut != 0u || d1CornersRare(m, a))
+            return -1;
+        const uint32_t frame = spCall - 0x70u;
+        for (uint32_t i = 0; i < 10u; ++i)
+            m.set<uint64_t>(frame + 0x20u + i * 8u, saved[i]);
+        m.set<uint32_t>(frame, a.blend);
+        m.set<uint32_t>(frame + 4u, a.managers);
+        m.set<uint32_t>(frame + 8u, a.blendLists);
+        m.set<uint32_t>(frame + 0xCu, 0xFFFFFFFFu);
+        D1CornersVu st;
+        st.any = st.summed = st.wroteT3 = false;
+        st.before = vu[8];
+        st.added = vu[9];
+        st.sum = vu[10];
+        cornersCore(m, a, st);
+        int flags = 0;
+        if (st.any)
+        {
+            vu[0] = st.v;
+            for (int k = 0; k < 4; ++k)
+                vu[1 + k] = st.rows[k];
+            vu[5] = st.out;
+            vu[6] = st.acc;
+            flags |= 1;
+        }
+        if (st.summed)
+        {
+            vu[8] = st.before;
+            vu[9] = st.added;
+            vu[10] = st.sum;
+            flags |= 2;
+        }
+        return flags;
+    }
+}

@@ -392,7 +392,13 @@ namespace decomp_leaves
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x014274A8u, gamecore_sub_014274A8, decomp_leaves::cameraParamCopy);
+namespace decomp_leaves // round D3: the dispatchers (end of file)
+{
+    void floorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void camParamCopySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x014274A8u, gamecore_sub_014274A8, decomp_leaves::camParamCopySw);
+D1_ALIAS(0x014274A8u, gamecore_sub_014274A8, decomp_leaves::camParamCopySw, decomp_leaves::cameraParamCopy);
 SOTC_DECOMP_FUNCTION(0x01160F68u, get_cur_camera_context, decomp_leaves::curCameraContext);
 SOTC_DECOMP_FUNCTION(0x0108F518u, iosgluGetCameraContext, decomp_leaves::gluCameraContext);
 namespace decomp_leaves
@@ -405,7 +411,8 @@ D1_ALIAS(0x001C0210u, iosDlPushLayer, decomp_leaves::pushLayerSw, decomp_leaves:
 SOTC_DECOMP_FUNCTION(0x001BF8C0u, iosDlPopLayer, decomp_leaves::popLayerSw);
 D1_ALIAS(0x001BF8C0u, iosDlPopLayer, decomp_leaves::popLayerSw, decomp_leaves::popLayer);
 SOTC_DECOMP_FUNCTION(0x001C5110u, spriteNoTexFast, decomp_leaves::sprite);
-SOTC_DECOMP_FLOAT_FUNCTION(0x001E0010u, floorf, decomp_leaves::floorF);
+SOTC_DECOMP_FLOAT_FUNCTION(0x001E0010u, floorf, decomp_leaves::floorSw);
+D1_ALIAS(0x001E0010u, floorf, decomp_leaves::floorSw, decomp_leaves::floorF);
 SOTC_DECOMP_FUNCTION(0x00128E6Cu, strcmp, decomp_leaves::strCmp);
 SOTC_DECOMP_FUNCTION(0x001BE700u, iosFTOI4Vector, decomp_leaves::ftoi4);
 
@@ -504,5 +511,153 @@ namespace decomp_leaves
             popLayerD1(rdram, ctx, runtime);
         else
             popLayer(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): floorf and gamecore_sub_014274A8 as cores ----------------------------------
+// floorf: newlib's bit version as a pure function of x: the integer steps on the bits, the "huge + x > 0" test as
+// d1::add / d1::lt (FPU_ADD_S / FPU_C_OLT_S: x is finite there, |x| < 2^23, so the sum is finite) -> math 2 sites; the
+// adapter writes f0 / f1 / f12, the condition bit and v0 exactly where the old body does.
+// gamecore_sub_014274A8: the 0x654-byte camera parameter record copied (round S9's copy when s9rt kCopy is on, else
+// memcpy: the same bytes) on d1::Mem, v0 the last word. Overlapping or out-of-RAM records, SOTC_S9_CHECK, leaves off: the
+// old body.
+namespace decomp_leaves
+{
+    D1_COUNTER(c_d3Floorf, "floorf");
+    D1_COUNTER(c_d3CamParamCopy, "gamecore_sub_014274A8");
+
+    struct D3FloorOut
+    {
+        bool tested;     // the "huge + x" test ran: f1 = 0, f0 = the sum, the condition bit = `cond`
+        bool cond;
+        bool written;    // f12 = f0 = result
+        float sum;
+        uint32_t result; // its bits
+        int64_t v0;
+    };
+
+    void d3FloorCore(float x, D3FloorOut &o)
+    {
+        uint32_t ix;
+        std::memcpy(&ix, &x, 4);
+        const uint32_t magnitude = ix & 0x7FFFFFFFu;
+        const int32_t j0 = static_cast<int32_t>(magnitude >> 23) - 0x7F;
+        o = {false, false, false, 0.0f, ix, 0};
+        if (j0 >= 23) // integral (or the exponent-255 patterns): x itself
+            return;
+        uint32_t result = ix;
+        if (j0 < 0) // |x| < 1: 0, or -1 for a negative non-zero
+        {
+            o.v0 = 1;
+            o.tested = true;
+            uint32_t hugeBits = 0x7149F2C9u;
+            float huge;
+            std::memcpy(&huge, &hugeBits, 4);
+            o.sum = d1::add(x, huge);
+            o.cond = d1::lt(0.0f, o.sum);
+            if (o.cond)
+            {
+                if (static_cast<int32_t>(ix) >= 0)
+                {
+                    o.v0 = 0x7F0000;
+                    result = 0u;
+                }
+                else
+                {
+                    o.v0 = magnitude > 0x7FFFFFu ? 1 : 0;
+                    if (o.v0)
+                        result = 0xBF800000u;
+                }
+            }
+        }
+        else
+        {
+            const uint32_t fraction = static_cast<uint32_t>(0x7FFFFF >> j0);
+            o.v0 = 0x7FFFFF;
+            if ((ix & fraction) == 0u) // integral already
+                return;
+            o.tested = true;
+            uint32_t hugeBits = 0x7149F2C9u;
+            float huge;
+            std::memcpy(&huge, &hugeBits, 4);
+            o.sum = d1::add(x, huge);
+            o.cond = d1::lt(0.0f, o.sum);
+            if (o.cond)
+            {
+                if (static_cast<int32_t>(ix) < 0)
+                    result = ix + static_cast<uint32_t>(0x800000 >> j0);
+                o.v0 = static_cast<int64_t>(static_cast<int32_t>(~fraction));
+                result &= ~fraction;
+            }
+        }
+        o.written = true;
+        o.result = result;
+    }
+
+    void floorD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn())
+            return floorF(rdram, ctx, runtime);
+        ++c_d3Floorf.n;
+        D3FloorOut o;
+        d3FloorCore(ctx->f[12], o);
+        ctx->f[0] = ctx->f[12];
+        if (o.tested)
+        {
+            ctx->f[1] = 0.0f;
+            ctx->f[0] = o.sum;
+            ctx->fcr31 = o.cond ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        }
+        if (o.written)
+        {
+            ctx->f[12] = floatOf(o.result);
+            ctx->f[0] = floatOf(o.result);
+        }
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(o.v0));
+        returnTo(ctx);
+    }
+
+    // The record copied (no overlap: checked by the adapter); the last word (v0).
+    uint32_t d3CamParamCopyCore(const d1::Mem m, uint32_t to, uint32_t from, bool s9copy)
+    {
+        constexpr uint32_t kBytes = 0x654u;
+        if (s9copy)
+            s9rt::copyBytes(m.at<uint8_t>(to), m.at<uint8_t>(from), kBytes);
+        else
+            std::memcpy(m.at<uint8_t>(to), m.at<uint8_t>(from), kBytes);
+        return m.u32(from + 0x650u);
+    }
+
+    void camParamCopyD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        constexpr uint32_t kBytes = 0x654u;
+        const uint32_t to = GPR_U32(ctx, 4), from = GPR_U32(ctx, 5);
+        if (!sotc_decomp::leavesOn() || s9rt::g_check || to >= PS2_RAM_SIZE - kBytes || from >= PS2_RAM_SIZE - kBytes ||
+            (to < from + kBytes && from < to + kBytes))
+            return cameraParamCopy(rdram, ctx, runtime);
+        ++c_d3CamParamCopy.n;
+        const bool s9copy = s9rt::on(s9rt::kCopy);
+        if (s9copy)
+            ++s9rt::g_st.copies;
+        else
+            ++s9rt::g_st.copiesOff;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3CamParamCopyCore(d1::Mem{rdram}, to, from, s9copy)));
+        returnTo(ctx);
+    }
+
+    void floorSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            floorD3(rdram, ctx, runtime);
+        else
+            floorF(rdram, ctx, runtime);
+    }
+
+    void camParamCopySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            camParamCopyD3(rdram, ctx, runtime);
+        else
+            cameraParamCopy(rdram, ctx, runtime);
     }
 }

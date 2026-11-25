@@ -697,11 +697,13 @@ SOTC_DECOMP_FUNCTION(0x001B5F28u, isysSearchSymbol, decomp_sym120::searchSymbolF
 namespace decomp_sym120
 {
     void resolveImportsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void makeHashSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
 }
 SOTC_DECOMP_FUNCTION(0x001B4760u, kernel_sub_001B4760, decomp_sym120::resolveImportsSw);
 D1_ALIAS(0x001B4760u, kernel_sub_001B4760, decomp_sym120::resolveImportsSw, decomp_sym120::resolveImports);
 SOTC_DECOMP_FUNCTION(0x0115D170u, sheetMgrResolve, decomp_sym120::sheetResolve);
-SOTC_DECOMP_FUNCTION(0x001CBDB8u, MakeStrHashValue, decomp_sym120::makeHash);
+SOTC_DECOMP_FUNCTION(0x001CBDB8u, MakeStrHashValue, decomp_sym120::makeHashSw);
+D1_ALIAS(0x001CBDB8u, MakeStrHashValue, decomp_sym120::makeHashSw, decomp_sym120::makeHash);
 
 // ---- Round D2 (d1native, SOTC_D1NATIVE=1): kernel_sub_001B4760 as a typed core -----------------------------------------
 // A module's unresolved imports looked up again: resolveImports' steps on d1::Mem (the same reads, the same writes in
@@ -803,5 +805,86 @@ namespace decomp_sym120
             resolveImportsD1(rdram, ctx, runtime);
         else
             resolveImports(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): MakeStrHashValue as a typed core ----------------------------------------------
+// makeHash's steps on d1::Mem: the compare with the string at 0x1e4608, then hash = hash * 77 + (c - 0x2d) over the even
+// characters and then the odd ones (32-bit), the last mult's product for LO / HI. Integer only, 0 math. The adapter reads
+// a0 once and writes v0 (sign-extended), LO / HI (when the string was hashed) and charges the EE clock as the old body;
+// sym120 off, SOTC_SYM120_CHECK on, or a string outside main RAM: the old body.
+namespace decomp_sym120
+{
+    D1_COUNTER(c_d3MakeHash, "MakeStrHashValue");
+
+    struct D3HashOut
+    {
+        uint32_t hash;
+        bool hashed;      // a string other than the skipped one: LO / HI set, the clock charged
+        uint32_t length;
+        int64_t product;  // the last mult (LO / HI)
+    };
+
+    void d3MakeHashCore(const d1::Mem m, uint32_t str, D3HashOut &o)
+    {
+        o = {0u, false, 0u, 0};
+        if (str != 0u)
+        {
+            for (uint32_t i = 0u;; ++i)
+            {
+                const uint8_t a = m.get<uint8_t>(kHashSkip + i), b = m.get<uint8_t>(str + i);
+                if (a != b)
+                {
+                    o.hashed = true;
+                    break;
+                }
+                if (a == 0u)
+                    break;
+            }
+        }
+        if (!o.hashed)
+            return;
+        uint32_t len = 0u;
+        while (m.get<uint8_t>(str + len) != 0u)
+            ++len;
+        uint32_t hash = 0u;
+        for (uint32_t pass = 0u; pass < 2u; ++pass)
+            for (uint32_t i = pass; i < len; i += 2u)
+            {
+                const int64_t prod = static_cast<int64_t>(static_cast<int32_t>(hash)) * 0x4D;
+                hash = static_cast<uint32_t>(prod) + static_cast<uint32_t>(static_cast<int32_t>(m.get<int8_t>(str + i)) - 0x2D);
+            }
+        // The last pass's failing test is after one more mult.
+        o.product = static_cast<int64_t>(static_cast<int32_t>(hash)) * 0x4D;
+        o.hash = hash;
+        o.length = len;
+    }
+
+    void makeHashD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool check = ps2_diag::env("SOTC_SYM120_CHECK") && std::atoi(ps2_diag::env("SOTC_SYM120_CHECK")) != 0;
+        const uint32_t str = GPR_U32(ctx, 4);
+        if (!sotc_decomp::switchOn(sotc_decomp::kSym120) || check || str >= PS2_RAM_SIZE)
+            return makeHash(rdram, ctx, runtime);
+        ++c_d3MakeHash.n;
+        D3HashOut o;
+        d3MakeHashCore(d1::Mem{rdram}, str, o);
+        if (o.hashed)
+        {
+            ctx->lo = sx(static_cast<uint32_t>(o.product));
+            ctx->hi = sx(static_cast<uint32_t>(static_cast<uint64_t>(o.product) >> 32));
+            // The EE cycles the original's loop charges (see makeHash).
+            (void)runtime->m_eeClock.charge(40u * (o.length + 2u));
+        }
+        SET_GPR_U64(ctx, 2, sx(o.hash));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void makeHashSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            makeHashD3(rdram, ctx, runtime);
+        else
+            makeHash(rdram, ctx, runtime);
     }
 }

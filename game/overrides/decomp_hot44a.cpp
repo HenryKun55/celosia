@@ -990,11 +990,303 @@ namespace decomp_hot44a
         SET_GPR_U32(ctx, 29, sp0);
         returnTo(ctx);
     }
+    void movedPointD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (the full core)
     void movedPointSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            movedPointD1(rdram, ctx, runtime);
+            movedPointD3(rdram, ctx, runtime);
         else
             movedPoint(rdram, ctx, runtime);
+    }
+}
+
+// =====================================================================================================================
+// Round D3 (switch d1native): manager_sub_01118B88 (movedPoint), partial -> full. D2's body with its three guest calls
+// made C++ calls of their D-bodies' cores: GetLayoutClass's table case (D1 full: v0 the class, v1 the table's target),
+// the vertex fetcher 01116108 (decomp_skinfinder::cornersD3Core, D1's core with the frame and VU0 state its adapter
+// leaves) and EntryModifiedManager (its D3 core's list update, the plain-block tests first). The adapter gates on the
+// callees' slots holding their dispatchers (d1native on: the D-bodies the old calls would reach) and their switches; the
+// registers each call leaves (v0 / v1 / a0 - t3, the corners' VU0 state) are written back as the old body leaves them.
+// A step the core leaves to the guest code (a layout class by a call, a list outside the plain block, a blend list
+// without entries) sends the call to the old body (after the corners' VU0 state is put back: the old body's fetch then
+// finds the vertices made and leaves those registers as they are).
+namespace decomp_skinfinder
+{
+    int cornersD3Core(const d1::Mem m, const uint32_t args[8], uint32_t spCall, const uint64_t saved[10], __m128 vu[11]);
+    void cornersSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_layoutclass
+{
+    void getLayoutClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_collision
+{
+    void entryModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_hot44a
+{
+    D1_COUNTER(c_d3MovedPoint, "manager_sub_01118B88.d3");
+
+    struct D3MvIn
+    {
+        uint32_t out, id, point, which, sp; // sp: the old body's frame (entry sp - 0xC0)
+        bool modOk;                         // EntryModifiedManager's D3 path (camColl on, its slot the dispatcher)
+        uint64_t saved[10];                 // s0-s7, fp as the calls get them; [9] the corners call's ra
+    };
+    struct D3MvOut
+    {
+        uint32_t k = 0xFFFFFFFFu, v1 = 0u, a0 = 0u, a1 = 0u;
+        bool corners = false, modified = false;
+        int cornerFlags = 0;
+        uint32_t args[8];
+        __m128 cvu[11]; // the corners' VU0 state (vf8, vf14-17, vf10, ACC; vf29-31 at 8-10)
+    };
+    PS2_FORCE_INLINE bool d3MvPlain(uint32_t a, uint32_t size) { return a < 0x02000000u - size; }
+    PS2_FORCE_INLINE __m128 d3MvQ(const d1::Mem &m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void d3MvPut(const d1::Mem &m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+    // EntryModifiedManager's D3 core (decomp_collision's d3EntryModified): false: outside the plain block (nothing written).
+    bool d3MvEntryModified(const d1::Mem &m, uint32_t cache, uint32_t idx)
+    {
+        if (!d3MvPlain(cache, 0x14u))
+            return false;
+        const uint32_t n = m.u32(cache), flags = m.u32(cache + 8u), list = m.u32(cache + 0x10u);
+        const int32_t size = m.s32(cache + 0xCu);
+        const uint32_t width = size == 1 || size == 2 || size == 4 ? static_cast<uint32_t>(size) : 0u;
+        const uint32_t at = list + n * width;
+        if ((width != 0u && !d3MvPlain(at, width)) || !d3MvPlain(flags + idx, 1u))
+            return false;
+        m.set<uint32_t>(cache, n + 1u);
+        if (width == 1u)
+            m.set<uint8_t>(at, static_cast<uint8_t>(idx));
+        else if (width == 2u)
+            m.set<uint16_t>(at, static_cast<uint16_t>(idx));
+        else if (width == 4u)
+            m.set<uint32_t>(at, idx);
+        m.set<uint8_t>(flags + idx, 1u);
+        return true;
+    }
+    // movedPointD1's values; 0 done, -1 the old body.
+    int mvD3Core(const d1::Mem &m, const D3MvIn &in, D2MvRegs &r, D3MvOut &o)
+    {
+        const uint32_t sp = in.sp, point = in.point, id = in.id;
+        auto xform = [&](__m128 p, uint32_t mt) { d2MvXform(r, p, d3MvQ(m, mt), d3MvQ(m, mt + 16u), d3MvQ(m, mt + 32u), d3MvQ(m, mt + 48u)); };
+        const uint32_t a1 = m.u32(id + 4u);
+        const uint32_t s3 = a1 & 0x00FFFFFFu;
+        const uint32_t s1 = (a1 >> 24) & 0x7Fu;
+        // GetLayoutClass's table case (v0 the class, v1 the target; none: 0 / 0)
+        const uint32_t obj = m.u32(id);
+        o.a0 = obj;
+        uint32_t cls = 0u;
+        const uint32_t index = static_cast<uint32_t>(m.get<uint8_t>(obj + 8u)) - 9u;
+        if (index < 0xEu)
+        {
+            const uint32_t target = m.u32(0x01194070u + index * 4u);
+            o.v1 = target;
+            if (target == 0x010F1A58u)
+                cls = obj + 0x20u;
+            else if (target == 0x010F1A98u)
+                cls = obj + 0x90u;
+            else if (target != 0x010F1AA0u)
+                return -1;
+        }
+        const uint32_t fp = m.u32(cls + (in.which == 0u ? 0x170u : 0x16Cu));
+        if (static_cast<int32_t>(m.u32(id + 4u)) < 0)
+        {
+            // not skinned: the point through the part's matrix, v0 -1
+            xform(d3MvQ(m, point), (s1 << 6) + fp);
+            d3MvPut(m, in.out, r.vf10);
+            return 0;
+        }
+        const uint32_t s2 = cls + 0x154u;
+        const uint32_t s1r = m.u32(m.u32(cls + 0x184u) + 0x20u);
+        const uint32_t a2 = m.u32(s2 + 0x20u);
+        const uint32_t t1 = m.u32(s1r + 8u);
+        o.k = 0u;
+        const uint32_t v1 = m.u32(s1 * 144u + t1 + 0x54u);
+        const uint32_t t3 = m.u32(s1r + 0x18u);
+        const uint32_t s0 = t3 + (m.u32((s3 << 2) + v1) << 6);
+        const uint32_t args[8] = {sp + 0x20u, 0u, a2 + 0x28u, m.u32(a2 + 0x24u), m.u32(s2 + 8u), t1, m.u32(s1r + 0x14u), s0};
+        const int flags = decomp_skinfinder::cornersD3Core(m, args, sp, in.saved, o.cvu);
+        if (flags < 0)
+            return -1;
+        o.corners = true;
+        o.cornerFlags = flags;
+        for (int i = 0; i < 8; ++i)
+            o.args[i] = args[i];
+        o.v1 = 0xFFFFFFFFu;
+        o.a0 = args[0];
+        o.a1 = args[1];
+        if (flags & 1)
+        {
+            r.vf8 = o.cvu[0];
+            r.vf14 = o.cvu[1];
+            r.vf15 = o.cvu[2];
+            r.vf16 = o.cvu[3];
+            r.vf17 = o.cvu[4];
+            r.vf10 = o.cvu[5];
+            r.acc = o.cvu[6];
+        }
+        // the nearest of the three vertices (the fetcher's three pointers at sp + 0x20 / 0x24 / 0x28)
+        const uint32_t vert[3] = {m.u32(sp + 0x20u), m.u32(sp + 0x24u), m.u32(sp + 0x28u)};
+        float f1 = d2MvSqDist(r, d3MvQ(m, point), d3MvQ(m, vert[0]));
+        r.f1 = f1;
+        float f0 = d2MvSqDist(r, d3MvQ(m, point), d3MvQ(m, vert[1]));
+        r.f0 = f0;
+        bool c = d1::lt(f0, f1);
+        if (c)
+        {
+            f1 = f0;
+            r.f1 = f1;
+            o.k = 1u;
+        }
+        f0 = d2MvSqDist(r, d3MvQ(m, point), d3MvQ(m, vert[2]));
+        r.f0 = f0;
+        c = d1::lt(f0, f1);
+        if (c)
+            o.k = 2u;
+        r.fcr31 = c ? (r.fcr31 | 0x800000u) : (r.fcr31 & ~0x800000u);
+        const uint32_t t2 = o.k << 3;
+        const uint32_t part = m.u32(s0 + t2);
+        const __m128 vertex = d3MvQ(m, vert[o.k]);
+        __m128 moved;
+        if (part != 0xFFFFFFFFu)
+        {
+            xform(vertex, (part << 6) + fp);
+            moved = r.vf10;
+        }
+        else
+        {
+            // the weighted sum over the vertex's influences
+            const uint32_t nodes = m.u32(s2 + 0x20u);
+            const uint32_t s2b = m.u32(s2 + 8u);
+            const uint32_t a1b = m.u32(s1r + 0x14u);
+            const uint32_t idx = m.u32(s0 + t2 + 4u);
+            const uint32_t a0b = m.u32(nodes + 0x24u);
+            const uint32_t s1c = m.u32(s1r + 8u);
+            const uint32_t list = m.u32((idx << 2) + a1b);
+            uint32_t inf = list + 4u;
+            int32_t n = m.s32(list) - 1;
+            moved = d1::vf0();
+            while (n != -1)
+            {
+                const uint32_t node = m.u32(inf);
+                const uint32_t t1b = m.u32(inf + 4u);
+                const uint32_t t0 = node * 96u + a0b;
+                const uint32_t flagAt = m.u32(t0 + 8u) + t1b;
+                const uint32_t posTable = m.u32(node * 144u + s1c + 4u);
+                const uint32_t s3b = node << 6;
+                const uint32_t cacheAt = m.u32(t0 + 0x14u) + (t1b << 4);
+                const uint32_t src = (t1b << 4) + posTable;
+                if (m.get<uint8_t>(flagAt) == 0u)
+                {
+                    if (!in.modOk)
+                        return -1;
+                    xform(d3MvQ(m, src), s3b + s2b);
+                    d3MvPut(m, cacheAt, r.vf10);
+                    if (!d3MvEntryModified(m, t0, t1b))
+                        return -1;
+                    o.modified = true;
+                    o.a0 = t0;
+                    o.a1 = t1b;
+                }
+                xform(d3MvQ(m, cacheAt), s3b + fp);
+                const __m128 pos = r.vf10;
+                r.vf5 = moved;
+                r.vf6 = pos;
+                moved = d1::vsel(moved, d1::vadd(d2Op(moved), d2Op(pos)), d1::mask(1, 1, 1, 0));
+                r.vf5 = moved;
+                --n;
+                inf += 8u;
+            }
+        }
+        // out = point + (moved - vertex)
+        r.vf6 = vertex;
+        const __m128 diff = d1::vsel(moved, d1::vsub(d2Op(moved), d2Op(vertex)), d1::mask(1, 1, 1, 0));
+        r.vf6 = diff;
+        const __m128 pEnd = d3MvQ(m, point);
+        r.vf5 = d1::vsel(pEnd, d1::vadd(d2Op(pEnd), d2Op(diff)), d1::mask(1, 1, 1, 0));
+        d3MvPut(m, in.out, r.vf5);
+        return 0;
+    }
+    void movedPointD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On() || !sotc_decomp::fastNativeOn() ||
+            sotc_decomp::guestFunction(runtime, kLayoutClass) != &decomp_layoutclass::getLayoutClassSw ||
+            sotc_decomp::guestFunction(runtime, kVertices) != &decomp_skinfinder::cornersSw)
+            return movedPointD1(rdram, ctx, runtime);
+        const uint32_t sp0 = GPR_U32(ctx, 29);
+        D3MvIn in{GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), sp0 - 0xC0u,
+                  sotc_decomp::camCollOn() && sotc_decomp::guestFunction(runtime, kEntryModified) == &decomp_collision::entryModifiedSw, {}};
+        if (!d3MvPlain(in.out & ~0xFu, 0x10u) || !d3MvPlain(in.id, 8u) || !d3MvPlain(in.point & ~0xFu, 0x10u) || !d3MvPlain(sp0 - 0x130u, 0x130u))
+            return movedPointD1(rdram, ctx, runtime);
+        static constexpr int kSavedMv[9] = {16, 17, 18, 19, 20, 21, 22, 23, 30};
+        for (int i = 0; i < 9; ++i)
+            in.saved[i] = GPR_U64(ctx, kSavedMv[i]);
+        in.saved[9] = 0x01118CACu; // the vertex fetch's ra
+        D2MvRegs r;
+        r.vf5 = ctx->vu0_vf[5];
+        r.vf6 = ctx->vu0_vf[6];
+        r.vf7 = ctx->vu0_vf[7];
+        r.vf8 = ctx->vu0_vf[8];
+        r.vf10 = ctx->vu0_vf[10];
+        r.vf14 = ctx->vu0_vf[14];
+        r.vf15 = ctx->vu0_vf[15];
+        r.vf16 = ctx->vu0_vf[16];
+        r.vf17 = ctx->vu0_vf[17];
+        r.acc = ctx->vu0_acc;
+        r.f0 = ctx->f[0];
+        r.f1 = ctx->f[1];
+        r.r2 = ctx->r[2];
+        r.fcr31 = ctx->fcr31;
+        D3MvOut o;
+        for (int k = 0; k < 3; ++k)
+            o.cvu[8 + k] = ctx->vu0_vf[29 + k];
+        const int res = mvD3Core(d1::Mem{rdram}, in, r, o);
+        auto cornersBack = [&]()
+        {
+            if (o.cornerFlags & 1)
+            {
+                ctx->vu0_vf[8] = o.cvu[0];
+                for (int k = 0; k < 4; ++k)
+                    ctx->vu0_vf[14 + k] = o.cvu[1 + k];
+                ctx->vu0_vf[10] = o.cvu[5];
+                ctx->vu0_acc = o.cvu[6];
+            }
+            if (o.cornerFlags & 2)
+                for (int k = 0; k < 3; ++k)
+                    ctx->vu0_vf[29 + k] = o.cvu[8 + k];
+        };
+        if (res < 0)
+        {
+            cornersBack(); // (the old body's fetch finds those vertices made: their registers stay as left here)
+            return movedPoint(rdram, ctx, runtime);
+        }
+        ++c_d3MovedPoint.n;
+        cornersBack();
+        ctx->vu0_vf[5] = r.vf5;
+        ctx->vu0_vf[6] = r.vf6;
+        ctx->vu0_vf[7] = r.vf7;
+        ctx->vu0_vf[8] = r.vf8;
+        ctx->vu0_vf[10] = r.vf10;
+        ctx->vu0_vf[14] = r.vf14;
+        ctx->vu0_vf[15] = r.vf15;
+        ctx->vu0_vf[16] = r.vf16;
+        ctx->vu0_vf[17] = r.vf17;
+        ctx->vu0_acc = r.acc;
+        ctx->f[0] = r.f0;
+        ctx->f[1] = r.f1;
+        ctx->r[2] = r.r2;
+        ctx->fcr31 = r.fcr31;
+        // the calls' argument / result registers as the last of them leaves each
+        if (o.corners)
+            for (int k = 0; k < 8; ++k)
+                SET_GPR_U32(ctx, 4 + k, o.args[k]);
+        SET_GPR_U32(ctx, 4, o.a0);
+        if (o.corners)
+            SET_GPR_U32(ctx, 5, o.a1);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.v1));
+        SET_GPR_U32(ctx, 2, o.k);
+        SET_GPR_U32(ctx, 29, sp0);
+        returnTo(ctx);
     }
 }

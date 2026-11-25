@@ -521,9 +521,389 @@ namespace decomp_motionframe
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010AD1B0u, GetMotionFloatFrameNoCaribration, decomp_motionframe::floatFrame);
-SOTC_DECOMP_FUNCTION(0x010B4FD8u, GetMotionFloatFrame, decomp_motionframe::motionFloatFrame);
+#include "d1_native.h"
+namespace decomp_motionframe
+{
+    void floatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);       // round D3 (below)
+    void motionFloatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below)
+}
+SOTC_DECOMP_FUNCTION(0x010AD1B0u, GetMotionFloatFrameNoCaribration, decomp_motionframe::floatFrameSw);
+D1_ALIAS(0x010AD1B0u, GetMotionFloatFrameNoCaribration, decomp_motionframe::floatFrameSw, decomp_motionframe::floatFrame);
+SOTC_DECOMP_FUNCTION(0x010B4FD8u, GetMotionFloatFrame, decomp_motionframe::motionFloatFrameSw);
+D1_ALIAS(0x010B4FD8u, GetMotionFloatFrame, decomp_motionframe::motionFloatFrameSw, decomp_motionframe::motionFloatFrame);
 SOTC_DECOMP_FUNCTION(0x010B7198u, getMotionFloatFrame, decomp_motionframe::wrapFrame);
 SOTC_DECOMP_FUNCTION(0x010B7158u, getMotionFloatFrameWithLimitCaribration, decomp_motionframe::limitFrame);
 // Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
 // SOTC_DECOMP_FUNCTION(0x010B3E98u, GetMotionIntFrame, decomp_motionframe::intFrame);
+
+// ---- Round D3 (d1native, d1_native.h): GetMotionFloatFrameNoCaribration as native C++ --------------------------------
+// The old body's default path (round 122's keys122: char122::keys::floatFrame, its decode decodeRange<true>) as a core
+// on d1::Mem: the same tests (count 1..512, out 16-aligned, the format table, the channel count, the frame finite and
+// < 1e7), k = trunc(f12), frac the rest (host float, as keys122), each channel's key(s) decoded by keys122's decodeKey
+// (copied below as d3Key: the same host float operations in the same order, the same round 141 prefetch notes), two keys
+// blended by keys122's blend (the same NEON operations: the dot's pairwise sum, the vmul / vmla), into a per-lane host
+// buffer, then copied out. The adapter leaves what keys122 leaves: f0 = k (frac 0) or 1 - frac, v0 = n << 4. Gates at
+// the entry (the old body): keys122 / SOTC_MOTION off, keys122's log / check, round C1's rows (c1keys / p1chara on the
+// game thread), S3's key split (SOTC_S3CHARA_JOBS) or timing (SOTC_S3CHARA_LOG). A call keys122 refuses (a range, a
+// format decodeKey does not know: nothing written but the host buffer) runs the old body's floatFrameOld, as it does.
+#include "sotc_pf141.h"
+#include <arm_neon.h>
+#include <cmath>
+
+namespace char122
+{
+    int logEvery();
+    int checkEvery();
+}
+namespace s3chara
+{
+    bool on();
+    bool timing();
+    bool jobsOn();
+}
+
+namespace decomp_motionframe
+{
+    D1_COUNTER(c_d3FloatFrame, "GetMotionFloatFrameNoCaribration");
+    D1_COUNTER(c_d3MotionFloatFrame, "GetMotionFloatFrame");
+
+    constexpr uint32_t kD3CurveTable = 0x01193230u; // manager_sub_010AC6C8's format table (decomp_char122's kCurveTable)
+    inline bool d3KeyInRam(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a + bytes <= PS2_RAM_SIZE && a + bytes > a; }
+
+    // keys122's decodeKey<true> (decomp_char122.cpp), on d1::Mem: a key into out (x, y, z, w); false for a format it
+    // does not know or a range outside RAM.
+    bool d3Key(const d1::Mem &m, uint32_t format, uint32_t chan, uint32_t index, float out[4])
+    {
+        if (!d3KeyInRam(chan, 0x24u))
+            return false;
+        pf141::noteGuest(m.base, chan, 0x24u); // round 141 (prefetch only)
+        const uint32_t target = format < 15u ? m.u32(kD3CurveTable + format * 4u) : 0x010AC700u;
+        switch (target)
+        {
+        case 0x010AD028u: // the channel's qword
+            std::memcpy(out, m.at<uint8_t>(chan & ~0xFu), 16);
+            return true;
+        case 0x010AC700u: // none: vf0
+            out[0] = out[1] = out[2] = 0.0f;
+            out[3] = 1.0f;
+            return true;
+        case 0x010AC978u:
+        case 0x010ACAB0u:
+        case 0x010ACBE8u:
+        case 0x010ACD20u:
+        {
+            const uint32_t key = m.u32(chan + 0x20u) + (index << 2);
+            if (!d3KeyInRam(key, 4u))
+                return false;
+            pf141::noteGuest(m.base, key, 16u);
+            int s0, s1, s2, s3, l0, l1, l2, l3, sb;
+            if (target == 0x010AC978u)
+                s0 = 5, s1 = 14, s2 = 23, s3 = 1, l0 = 1, l1 = 2, l2 = 3, l3 = 0, sb = 31;
+            else if (target == 0x010ACAB0u)
+                s0 = 0, s1 = 14, s2 = 23, s3 = 10, l0 = 0, l1 = 2, l2 = 3, l3 = 1, sb = 22;
+            else if (target == 0x010ACBE8u)
+                s0 = 0, s1 = 9, s2 = 23, s3 = 19, l0 = 0, l1 = 1, l2 = 3, l3 = 2, sb = 13;
+            else
+                s0 = 0, s1 = 9, s2 = 18, s3 = 28, l0 = 0, l1 = 1, l2 = 2, l3 = 3, sb = 4;
+            const uint32_t w = m.u32(key);
+            float c[8];
+            std::memcpy(c, m.at<uint8_t>(chan), 32);
+            const float k = 1.0f / 255.0f;
+            const float a = static_cast<float>(static_cast<int32_t>(w << s0) >> 23) * c[1] * k + c[0];
+            const float b = static_cast<float>(static_cast<int32_t>(w << s1) >> 23) * c[3] * k + c[2];
+            const float cc = static_cast<float>(static_cast<int32_t>(w << s2) >> 23) * c[5] * k + c[4];
+            const float off = static_cast<float>(static_cast<int32_t>(w << s3) >> 28) * c[7] * (1.0f / 7.0f) + c[6];
+            const float f5 = 1.0f - (a * a + b * b + cc * cc);
+            float f0;
+            if (f5 < 0.0f)
+                f0 = off;
+            else
+            {
+                const bool minus = sb == 31 ? static_cast<int32_t>(w) < 0 : ((w >> sb) & 1u) != 0u;
+                const float q = std::sqrt(f5);
+                f0 = (minus ? -q : q) + off;
+            }
+            out[l0] = a;
+            out[l1] = b;
+            out[l2] = cc;
+            out[l3] = f0;
+            return true;
+        }
+        case 0x010AC8A8u: // s16 xyz with offset / scale (table +0x18), w from |xyz|^2
+        {
+            const uint32_t rec = m.u32(chan + 0x18u) + index * 6u;
+            if (!d3KeyInRam(rec, 6u))
+                return false;
+            pf141::noteGuest(m.base, rec, 24u);
+            float c[6];
+            std::memcpy(c, m.at<uint8_t>(chan), 24);
+            const float k = 1.0f / 32767.5f;
+            const int16_t x = m.get<int16_t>(rec);
+            out[0] = static_cast<float>(x) * c[1] * k + c[0];
+            out[1] = static_cast<float>(m.get<int16_t>(rec + 2u)) * c[3] * k + c[2];
+            out[2] = static_cast<float>(m.get<int16_t>(rec + 4u)) * c[5] * k + c[4];
+            const float w = std::sqrt(std::fabs(1.0f - (out[0] * out[0] + out[1] * out[1] + out[2] * out[2])));
+            out[3] = (static_cast<uint16_t>(x) & 1u) ? -w : w;
+            return true;
+        }
+        case 0x010ACFA0u: // s16 angle with offset / scale, halved (table +0x14)
+        {
+            const uint32_t rec = m.u32(chan + 0x14u) + (index << 1);
+            if (!d3KeyInRam(rec, 2u))
+                return false;
+            const float angle = (static_cast<float>(m.get<int16_t>(rec)) * m.f32(chan + 4u) * (1.0f / 32767.5f) + m.f32(chan)) * 0.5f;
+            // iosGetSinCosf leaves (cos, sin): the axis x sin, w cos (the code's "cosine" word is the sine).
+            const float s = std::sin(angle), co = std::cos(angle);
+            out[0] = m.f32(chan + 8u) * s;
+            out[1] = m.f32(chan + 0xCu) * s;
+            out[2] = m.f32(chan + 0x10u) * s;
+            out[3] = co;
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
+    // keys122's blend: the second key negated on a negative dot (keys122's sum4 of the lane products, lane 0), below
+    // 0.5 A (1 - frac) + B' frac, else B frac + A' (1 - frac).
+    inline __attribute__((always_inline)) float32x4_t d3KeyBlend(float32x4_t va, float32x4_t vb, float32x4_t vf, float32x4_t vf1, bool below)
+    {
+        const float32x4_t p = vmulq_f32(va, vb);
+        const float32x2_t s = vadd_f32(vget_low_f32(p), vget_high_f32(p));
+        const float32x2_t pp = vpadd_f32(s, s);
+        const bool flip = vget_lane_f32(pp, 0) < 0.0f;
+        if (below)
+            return vmlaq_f32(vmulq_f32(va, vf1), flip ? vnegq_f32(vb) : vb, vf);
+        return vmlaq_f32(vmulq_f32(vb, vf), flip ? vnegq_f32(va) : va, vf1);
+    }
+
+    // The per-lane host buffer (keys122's s_tmp: 0x10AD1B0 may run on round 108's guest worker beside the game thread).
+    static float s_d3KeyTmp[2][512 * 4];
+
+    struct D3FrameOut
+    {
+        float f0;
+        int32_t v0;
+    };
+    // keys122's float frame: false = refused (nothing written to guest RAM).
+    bool d3FloatFrameCore(const d1::Mem &m, uint32_t out, uint32_t res, int64_t n64, float f12, float *tmp, D3FrameOut &o)
+    {
+        if (n64 <= 0 || n64 > 512 || !d3KeyInRam(res, 0x18u) || !d3KeyInRam(out, static_cast<uint32_t>(n64) * 16u) || (out & 0xFu) != 0u)
+            return false;
+        const int32_t n = static_cast<int32_t>(n64);
+        const uint32_t formats = m.u32(res + 8u), chans = m.u32(res + 0x10u);
+        if (formats == 0u || !d3KeyInRam(formats, static_cast<uint32_t>(n)) || !d3KeyInRam(chans, static_cast<uint32_t>(n) * 4u))
+            return false;
+        if (m.s32(res + 0x14u) < n)
+            return false;
+        if (!(f12 >= 0.0f && f12 < 1.0e7f))
+            return false;
+        const int32_t k = static_cast<int32_t>(f12);
+        const float frac = f12 - static_cast<float>(k);
+        if (frac == 0.0f)
+        {
+            for (int32_t i = 0; i < n; ++i)
+                if (!d3Key(m, m.get<uint8_t>(formats + static_cast<uint32_t>(i)), m.u32(chans + static_cast<uint32_t>(i) * 4u), static_cast<uint32_t>(k), tmp + i * 4))
+                    return false;
+        }
+        else
+        {
+            const float32x4_t vf = vdupq_n_f32(frac), vf1 = vdupq_n_f32(1.0f - frac);
+            const bool below = frac < 0.5f;
+            for (int32_t i = 0; i < n; ++i)
+            {
+                const uint32_t fmt = m.get<uint8_t>(formats + static_cast<uint32_t>(i)), ch = m.u32(chans + static_cast<uint32_t>(i) * 4u);
+                float a[4], b[4];
+                if (!d3Key(m, fmt, ch, static_cast<uint32_t>(k), a) || !d3Key(m, fmt, ch, static_cast<uint32_t>(k) + 1u, b))
+                    return false;
+                vst1q_f32(tmp + i * 4, d3KeyBlend(vld1q_f32(a), vld1q_f32(b), vf, vf1, below));
+            }
+        }
+        std::memcpy(m.at<uint8_t>(out), tmp, static_cast<size_t>(n) * 16u);
+        o.f0 = frac == 0.0f ? static_cast<float>(k) : 1.0f - frac;
+        o.v0 = static_cast<int32_t>(static_cast<uint32_t>(n) << 4);
+        return true;
+    }
+
+    // keys122's default state (else the old body): its switch, SOTC_MOTION, no log / check, no C1 rows, no S3 split / timing.
+    inline bool d3KeysDefault(const PS2Runtime *runtime)
+    {
+        const int lane = sotc_decomp::lane(runtime);
+        return sotc_decomp::switchOn(sotc_decomp::kKeys122) && sotc_decomp::motionOn() && char122::logEvery() <= 0 && char122::checkEvery() <= 0 &&
+               !((sotc_decomp::switchOn(sotc_decomp::kC1Keys) || sotc_decomp::p1charaOn()) && lane == 0) && !s3chara::timing() &&
+               !(lane == 0 && s3chara::on() && s3chara::jobsOn());
+    }
+
+    void floatFrameD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!d3KeysDefault(runtime), 0))
+            return floatFrame(rdram, ctx, runtime);
+        ++c_d3FloatFrame.n;
+        D3FrameOut o;
+        if (__builtin_expect(!d3FloatFrameCore(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_S64(ctx, 6), ctx->f[12], s_d3KeyTmp[sotc_decomp::lane(runtime)], o), 0))
+            return floatFrameOld(rdram, ctx, runtime);
+        ctx->f[0] = o.f0;
+        SET_GPR_S32(ctx, 2, o.v0);
+        returnTo(ctx);
+    }
+    void floatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            floatFrameD3(rdram, ctx, runtime);
+        else
+            floatFrame(rdram, ctx, runtime);
+    }
+} // namespace decomp_motionframe
+
+// ---- Round D3: GetMotionFloatFrame (0x10b4fd8) as native C++ ---------------------------------------------------------
+// The old body (round 42's motionFloatFrame) as a core on d1::Mem: the handle's two table lookups (the relocated empty
+// tables and the plain type decoded by the adapter), the entry / motion / resource words, the frame wrapped into the
+// motion's length (cvt.w.s -> ps2FpuConvertToWord, cvt.s.w -> int to float, div.s -> ps2FpuDivide (its fcr31 flags kept),
+// sub.s -> d1::sub, c.eq.s / c.olt.s -> d1::eq / lt), then its tail jump's callee GetMotionFloatFrameNoCaribration as the
+// D3 core above (d3FloatFrameCore, called directly: calls direct 1). The adapter writes what the pair leaves: LO / HI,
+// v0 (the keys' n << 4), v1, a0..a3, f0 (the keys'), f1 (the divided case), f12, fcr31 (flags, C bit). Gates (the old
+// body): leaves / SOTC_MOTION off, the worker lane, the callee's slot holding neither its old function nor its
+// dispatcher, the callee's non-default states (d3KeysDefault); and any refusal of the core (a type, a missing table or
+// resource, a refused decode: nothing written).
+namespace decomp_motionframe
+{
+    struct D3MffIn
+    {
+        uint32_t keys, handle, countRecord, emptyA, typeConst, emptyB, fcr31;
+        float f12;
+    };
+    struct D3MffOut
+    {
+        uint64_t lo, hi;
+        uint32_t res, count, word, fcr31;
+        int32_t v1;
+        bool v1One, hasF1;
+        float f1, f12;
+        D3FrameOut key;
+    };
+
+    inline uint32_t d3MffTable(const d1::Mem &m, uint32_t handle, uint32_t index, uint32_t empty)
+    {
+        const uint32_t t = index != 0u ? m.u32(handle - index) : 0u;
+        return t != 0u && t != m.u32(empty) ? t : 0u;
+    }
+
+    bool d3MotionFloatFrameCore(const d1::Mem &m, const D3MffIn &in, float *tmp, D3MffOut &o)
+    {
+        const uint32_t word = m.u32(in.handle), index = word & 0x3FFFFu;
+        const uint32_t typed = d3MffTable(m, in.handle, index, in.emptyA);
+        if (m.u32(typed + 8u) != in.typeConst)
+            return false;
+        const uint32_t plain = d3MffTable(m, in.handle, index, in.emptyB);
+        if (plain == 0u)
+            return false;
+        const int64_t offset = static_cast<int64_t>((word >> 18) & 0xFFFu) * m.s32(m.u32(plain + 8u) + 0xCu);
+        const uint32_t entry = m.u32(plain + 0x10u) + static_cast<uint32_t>(offset);
+        const uint32_t motion = m.u32(entry + 0xCu);
+        if (motion == 0u)
+            return false;
+        uint64_t lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(offset)));
+        uint64_t hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(offset >> 32)));
+        const uint32_t res = m.u32(motion + 0x20u);
+        const int32_t n = m.get<int16_t>(res + 4u);
+        const uint32_t count = m.u32(in.countRecord + 4u);
+        const float frame = in.f12;
+        uint32_t fcr31 = in.fcr31;
+        int32_t v0;
+        o.hasF1 = false;
+        o.f1 = 0.0f;
+        if (n == 1)
+        {
+            v0 = ps2FpuConvertToWord(frame);
+            o.v1One = true;
+            o.v1 = 1;
+        }
+        else
+        {
+            const float q = ps2FpuDivide(fcr31, frame, static_cast<float>(static_cast<int32_t>(n - 1)));
+            const int32_t loops = ps2FpuConvertToWord(q);
+            uint32_t lb = static_cast<uint32_t>(loops);
+            std::memcpy(&o.f1, &lb, 4);
+            o.hasF1 = true;
+            o.v1One = false;
+            o.v1 = loops;
+            const int64_t product = static_cast<int64_t>(n - 1) * static_cast<int64_t>(loops);
+            lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product)));
+            hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(product >> 32)));
+            v0 = static_cast<int32_t>(product);
+        }
+        float f12 = d1::sub(frame, static_cast<float>(v0));
+        const bool zero = d1::eq(f12, 0.0f);
+        bool cbit = zero;
+        if (zero)
+        {
+            const bool positive = d1::lt(0.0f, frame);
+            cbit = positive;
+            if (positive)
+            {
+                v0 = m.get<int16_t>(res + 4u) - 1;
+                f12 = static_cast<float>(v0);
+            }
+        }
+        fcr31 = cbit ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u);
+        // the tail jump: GetMotionFloatFrameNoCaribration(a0 keys, a1 res, a2 count, f12)
+        if (!d3FloatFrameCore(m, in.keys, res, static_cast<int64_t>(static_cast<int32_t>(count)), f12, tmp, o.key))
+            return false;
+        o.lo = lo;
+        o.hi = hi;
+        o.res = res;
+        o.count = count;
+        o.word = word;
+        o.fcr31 = fcr31;
+        o.f12 = f12;
+        return true;
+    }
+
+    void motionFloatFrameD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!sotc_decomp::leavesOn() || !sotc_decomp::motionOn() || sotc_decomp::lane(runtime) != 0 || !d3KeysDefault(runtime), 0))
+            return motionFloatFrame(rdram, ctx, runtime);
+        const PS2Runtime::RecompiledFunction slot = sotc_decomp::guestFunction(runtime, kFloatFrame);
+        if (__builtin_expect(slot != &floatFrame && slot != &floatFrameSw, 0))
+            return motionFloatFrame(rdram, ctx, runtime);
+        D3MffIn in;
+        in.keys = GPR_U32(ctx, 4);
+        in.handle = GPR_U32(ctx, 5);
+        in.countRecord = GPR_U32(ctx, 6);
+        in.emptyA = relocated(rdram, 0x010B5028u, 0x010B502Cu);
+        in.typeConst = relocated(rdram, 0x010B503Cu, 0x010B5044u);
+        in.emptyB = relocated(rdram, 0x010B5070u, 0x010B5074u);
+        in.fcr31 = ctx->fcr31;
+        in.f12 = ctx->f[12];
+        D3MffOut o;
+        if (__builtin_expect(!d3MotionFloatFrameCore(d1::Mem{rdram}, in, s_d3KeyTmp[0], o), 0))
+            return motionFloatFrame(rdram, ctx, runtime);
+        ++c_d3MotionFloatFrame.n;
+        ctx->lo = o.lo;
+        ctx->hi = o.hi;
+        if (o.hasF1)
+            ctx->f[1] = o.f1;
+        if (o.v1One)
+            SET_GPR_U64(ctx, 3, 1u);
+        else
+            SET_GPR_S32(ctx, 3, o.v1);
+        ctx->f[12] = o.f12;
+        ctx->fcr31 = o.fcr31;
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(in.keys));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(o.res));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.count));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(o.word));
+        // the callee's exit (keys122): f0, v0
+        ctx->f[0] = o.key.f0;
+        SET_GPR_S32(ctx, 2, o.key.v0);
+        returnTo(ctx);
+    }
+    void motionFloatFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            motionFloatFrameD3(rdram, ctx, runtime);
+        else
+            motionFloatFrame(rdram, ctx, runtime);
+    }
+} // namespace decomp_motionframe

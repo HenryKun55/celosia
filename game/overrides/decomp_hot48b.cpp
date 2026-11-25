@@ -69,6 +69,7 @@
 // where the code leaves it; at / t0 - t9 not), and the loops' EE
 // checkpoints (left out).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1083,7 +1084,12 @@ namespace decomp_hot48b
 }
 
 SOTC_DECOMP_FUNCTION(0x0108FBE8u, graphFrameInit, decomp_hot48b::graphFrameInit);
-SOTC_DECOMP_FUNCTION(0x001C3AD0u, gsRegEnd, decomp_hot48b::gsRegEnd);
+namespace decomp_hot48b
+{
+    void gsRegEndSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x001C3AD0u, gsRegEnd, decomp_hot48b::gsRegEndSw);
+D1_ALIAS(0x001C3AD0u, gsRegEnd, decomp_hot48b::gsRegEndSw, decomp_hot48b::gsRegEnd);
 // Not registered (round 48): in the calibrated Vita3K profile this native cost
 // 146.7 k instructions a frame against the recompiled code's 10.6 k, and the
 // Mac route never reaches it, so it is unverified as well. Left for a later
@@ -1093,3 +1099,199 @@ SOTC_DECOMP_FUNCTION(0x001C3AD0u, gsRegEnd, decomp_hot48b::gsRegEnd);
 SOTC_DECOMP_FUNCTION(0x013D8B38u, gamecore_sub_013D8B38, decomp_hot48b::layoutRotation);
 SOTC_DECOMP_FUNCTION(0x0110FD90u, SpriteMenuSetSpriteObjectParam, decomp_hot48b::spriteMenuParam);
 SOTC_DECOMP_FUNCTION(0x01085E40u, bossDeathEffectEnd, decomp_hot48b::bossDeathEffectEnd);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): gsRegEnd as a typed core -------------------------------------------------------
+// The packet's close (the GIF tag rebuilt and its VIF codes, the DMA tag) on d1::Mem in the old order with the old
+// re-reads of the state pointer (*0x1e11a4); iosSetPacketPtrPath1 inline (its one store: the display list's current
+// packet word 0x2132e8 = a0; v0 0x2132d8, overwritten), iosDlChainTailCurrent as D2's chainTailCore called directly
+// (calls direct 2; while the table holds its dispatcher). Integer only, 0 math. The frame's saves (s0 / ra) written by the
+// core, s0 / ra read back from the frame as the old epilogue; v0 (and the chain's v1..t1) as the old body leaves them.
+// The state block, the GIF / DMA tags or the frame outside main RAM, or tags overlapping the state block / its pointer:
+// the old body before anything is written. A chain the core cannot do (nothing written by it): that call through the
+// table as the old body makes it.
+namespace decomp_dl
+{
+    struct ChainOut
+    {
+        uint64_t v0, addr;
+        uint32_t tail, packet, record;
+    };
+    bool chainTailCore(const d1::Mem m, uint32_t tagHi, ChainOut &o); // decomp_dl.cpp (round D2)
+    void chainTailSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
+namespace decomp_hot48b
+{
+    D1_COUNTER(c_d3GsRegEnd, "gsRegEnd");
+
+    inline bool d3GsInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+    inline bool d3GsApart(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a + an <= b || b + bn <= a; }
+    inline uint64_t d3GsSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+    struct D3GsOut
+    {
+        enum Exit
+        {
+            kMode,     // a "no packet" mode: v0 the mode
+            kShort,    // fewer than 2 qwords: v0 1
+            kChained,  // chained: the chain's registers, v0 the state
+            kChainFail // the chain left to the caller (iosSetPacketPtrPath1 done)
+        } exit;
+        uint32_t mode;
+        uint32_t stSet, ptr;     // v1, a0 of iosSetPacketPtrPath1's call
+        uint32_t stChain, head;  // v0, a0 of iosDlChainTailCurrent's call
+        uint32_t stEnd;          // v0 at the end
+        decomp_dl::ChainOut chain;
+    };
+
+    void d3GsRegEndCore(const d1::Mem m, uint32_t sp, uint64_t s0, uint64_t ra, D3GsOut &o)
+    {
+        m.set<uint64_t>(sp + 0x0u, s0);
+        m.set<uint64_t>(sp + 0x8u, ra);
+        {
+            const uint32_t st = m.u32(kGsRegState);
+            if (m.u32(st + 0x1Cu) == 0u)
+            {
+                // The qwords since the GIF tag; NLOOP.
+                m.set<uint32_t>(st + 0x14u, (m.u32(st + 0xCu) - m.u32(st + 0x8u)) >> 4);
+                uint32_t s = m.u32(kGsRegState);
+                m.set<uint32_t>(s + 0x18u, m.u32(s + 0x14u) - 1u);
+                s = m.u32(kGsRegState);
+                if (static_cast<int32_t>(m.u32(s + 0x18u)) <= 0)
+                    m.set<uint32_t>(s + 0xCu, m.u32(s + 0x4u)); // nothing: the write pointer back
+                else
+                {
+                    const uint64_t flgMask = 0xF3FFFFFFFFFFFFFFull, preMask = 0xFFFFBFFFFFFFFFFFull;
+                    const uint64_t eop = 0x8000u, nregMask = 0x0FFFFFFFFFFFFFFFull, nreg1 = 0x1000000000000000ull;
+                    const uint64_t regsMask = 0xFFFFFFFFFFFFFFF0ull, regsAD = 0xEu, nloopMask = 0xFFFFFFFFFFFF8000ull;
+                    {
+                        const uint32_t q = m.u32(s + 0x8u) & ~0xFu; // sq: the qword's address
+                        m.set<uint64_t>(q, 0ull);
+                        m.set<uint64_t>(q + 8u, 0ull);
+                    }
+                    uint32_t tag = m.u32(m.u32(kGsRegState) + 0x8u);
+                    m.set<uint64_t>(tag, m.get<uint64_t>(tag) & flgMask);
+                    tag = m.u32(m.u32(kGsRegState) + 0x8u);
+                    m.set<uint64_t>(tag, m.get<uint64_t>(tag) & preMask);
+                    tag = m.u32(m.u32(kGsRegState) + 0x8u);
+                    m.set<uint64_t>(tag, m.get<uint64_t>(tag) | eop);
+                    tag = m.u32(m.u32(kGsRegState) + 0x8u);
+                    m.set<uint64_t>(tag, (m.get<uint64_t>(tag) & nregMask) | nreg1);
+                    tag = m.u32(m.u32(kGsRegState) + 0x8u);
+                    m.set<uint64_t>(tag + 0x8u, (m.get<uint64_t>(tag + 0x8u) & regsMask) | regsAD);
+                    s = m.u32(kGsRegState);
+                    tag = m.u32(s + 0x8u);
+                    const uint64_t nloop = d3GsSx(m.u32(s + 0x18u)) & 0x7FFFu;
+                    m.set<uint64_t>(tag, (m.get<uint64_t>(tag) & nloopMask) | nloop);
+                    s = m.u32(kGsRegState);
+                    const uint32_t count = m.u32(s + 0x14u);
+                    m.set<uint32_t>(m.u32(s + 0x8u) - 4u, count | 0x50000000u); // DIRECT
+                    s = m.u32(kGsRegState);
+                    m.set<uint32_t>(m.u32(s + 0x8u) - 8u, 0x10000000u);
+                }
+            }
+        }
+        // 0x1c3c40
+        uint32_t st = m.u32(kGsRegState);
+        const uint32_t mode = m.u32(st + 0x1Cu);
+        if (mode != 0u)
+        {
+            m.set<uint32_t>(st + 0xCu, 0u);
+            o.exit = D3GsOut::kMode;
+            o.mode = mode;
+            return;
+        }
+        m.set<uint32_t>(st + 0x10u, ((m.u32(st + 0xCu) - m.u32(st + 0x0u)) >> 4) - 1u);
+        st = m.u32(kGsRegState);
+        const uint32_t qwords = m.u32(st + 0x10u);
+        if (static_cast<int32_t>(qwords) < 2)
+        {
+            m.set<uint32_t>(st + 0xCu, 0u);
+            o.exit = D3GsOut::kShort;
+            return;
+        }
+        m.set<uint64_t>(m.u32(st + 0x0u), d3GsSx(qwords) | 0x60000000u); // the DMA tag: ret
+        st = m.u32(kGsRegState);
+        o.stSet = st;
+        o.ptr = m.u32(st + 0xCu);
+        m.set<uint32_t>(0x002132D8u + 0x10u, o.ptr); // iosSetPacketPtrPath1
+        st = m.u32(kGsRegState);
+        o.stChain = st;
+        o.head = m.u32(st + 0x0u);
+        if (!decomp_dl::chainTailCore(m, o.head, o.chain))
+        {
+            o.exit = D3GsOut::kChainFail;
+            return;
+        }
+        st = m.u32(kGsRegState);
+        o.stEnd = st;
+        m.set<uint32_t>(st + 0xCu, 0u);
+        o.exit = D3GsOut::kChained;
+    }
+
+    void gsRegEndD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x10u;
+        if (!sotc_decomp::hotList48On() || sotc_decomp::guestFunction(runtime, kChainTailCurrent) != &decomp_dl::chainTailSw || !d3GsInRam(sp, 0x10u))
+            return gsRegEnd(rdram, ctx, runtime);
+        // The layout checked first (reads only): the stores below then reach none of the words read again.
+        const d1::Mem m{rdram};
+        const uint32_t st = m.u32(kGsRegState);
+        if (!d3GsInRam(st, 0x20u) || !d3GsApart(st, 0x20u, kGsRegState, 4u) || !d3GsApart(st, 0x20u, 0x002132E8u, 4u))
+            return gsRegEnd(rdram, ctx, runtime);
+        const uint32_t tag = m.u32(st + 0x8u), dma = m.u32(st + 0x0u);
+        const uint32_t tagLo = (tag & ~0xFu) - 8u;
+        if (tag < 0x20u || !d3GsInRam(tagLo, tag + 0x10u - tagLo) || !d3GsApart(tagLo, tag + 0x10u - tagLo, st, 0x20u) ||
+            !d3GsApart(tagLo, tag + 0x10u - tagLo, kGsRegState, 4u) || !d3GsApart(tagLo, tag + 0x10u - tagLo, sp, 0x10u) || !d3GsInRam(dma, 8u) ||
+            !d3GsApart(dma, 8u, st, 0x20u) || !d3GsApart(dma, 8u, kGsRegState, 4u) || !d3GsApart(st, 0x20u, sp, 0x10u))
+            return gsRegEnd(rdram, ctx, runtime);
+        ++c_d3GsRegEnd.n;
+        D3GsOut o;
+        d3GsRegEndCore(m, sp, GPR_U64(ctx, 16), GPR_U64(ctx, 31), o);
+        switch (o.exit)
+        {
+        case D3GsOut::kMode:
+            SET_GPR_U64(ctx, 2, d3GsSx(o.mode));
+            break;
+        case D3GsOut::kShort:
+            SET_GPR_U64(ctx, 2, 1u);
+            break;
+        case D3GsOut::kChained:
+            SET_GPR_U64(ctx, 2, o.chain.v0);
+            SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.chain.tail));
+            SET_GPR_U64(ctx, 4, o.chain.addr);
+            SET_GPR_U64(ctx, 5, 0x7FFFFFFFu);
+            SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.chain.packet));
+            SET_GPR_S32(ctx, 7, static_cast<int32_t>(o.chain.record));
+            SET_GPR_U64(ctx, 8, 0x20000000u);
+            SET_GPR_U64(ctx, 9, 0x80000000FFFFFFFFull);
+            SET_GPR_U64(ctx, 2, d3GsSx(o.stEnd));
+            break;
+        default:
+        {
+            // iosDlChainTailCurrent through the table (s0 the state pointer's address, as the old body has it).
+            SET_GPR_S32(ctx, 16, static_cast<int32_t>(kGsRegState));
+            SET_GPR_U64(ctx, 3, d3GsSx(o.stSet));
+            SET_GPR_U64(ctx, 2, d3GsSx(o.stChain));
+            SET_GPR_U64(ctx, 4, d3GsSx(o.head));
+            callGuest(rdram, ctx, runtime, kChainTailCurrent, 0x001C3CA4u, sp);
+            const uint32_t s = m.u32(kGsRegState);
+            SET_GPR_U64(ctx, 2, d3GsSx(s));
+            m.set<uint32_t>(s + 0xCu, 0u);
+            break;
+        }
+        }
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x0u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x8u));
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(entrySp));
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void gsRegEndSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            gsRegEndD3(rdram, ctx, runtime);
+        else
+            gsRegEnd(rdram, ctx, runtime);
+    }
+}

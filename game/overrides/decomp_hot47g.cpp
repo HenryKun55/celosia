@@ -35,6 +35,7 @@
 // arguments a0 / a1 are set, and v0 at the return), the loop's EE checkpoint
 // (left out), the pref instructions (no effect).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -287,6 +288,282 @@ namespace decomp_hot47g
     }
 } // namespace decomp_hot47g
 
-SOTC_DECOMP_FUNCTION(0x010AB6D0u, manager_sub_010AB6D0, decomp_hot47g::place);
-SOTC_DECOMP_FUNCTION(0x010AB848u, manager_sub_010AB848, decomp_hot47g::alloc);
-SOTC_DECOMP_FUNCTION(0x010AB9A0u, manager_sub_010AB9A0, decomp_hot47g::freeBlock);
+namespace decomp_hot47g // round D3: the dispatchers (end of file)
+{
+    void placeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void allocSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void freeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010AB6D0u, manager_sub_010AB6D0, decomp_hot47g::placeSw);
+D1_ALIAS(0x010AB6D0u, manager_sub_010AB6D0, decomp_hot47g::placeSw, decomp_hot47g::place);
+SOTC_DECOMP_FUNCTION(0x010AB848u, manager_sub_010AB848, decomp_hot47g::allocSw);
+D1_ALIAS(0x010AB848u, manager_sub_010AB848, decomp_hot47g::allocSw, decomp_hot47g::alloc);
+SOTC_DECOMP_FUNCTION(0x010AB9A0u, manager_sub_010AB9A0, decomp_hot47g::freeSw);
+D1_ALIAS(0x010AB9A0u, manager_sub_010AB9A0, decomp_hot47g::freeSw, decomp_hot47g::freeBlock);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): the VRAM block allocator as typed cores ---------------------------------------
+// manager_sub_010AB6D0 (place), manager_sub_010AB848 (alloc) and manager_sub_010AB9A0 (free): the old bodies' reads,
+// checks and stores in their order on d1::Mem (the 64-bit compares of the argument registers against sign-extended loads
+// kept), integer only, 0 math. alloc's call of place (through the table in the old body) is a direct call of place's
+// core when the table holds place's dispatcher (calls direct 1); alloc's frame (s0 / ra saves) written by its core and
+// s0 / ra read back from it as the old epilogue. The adapters read the arguments once and write v0 (and alloc's a0 / a1
+// for the call it made); the manager, the nodes or the frame outside main RAM, hotlist47 off: the old body. (The list
+// nodes the walks reach are read through d1::Mem like the ones checked: main RAM is where the pool lives.)
+namespace decomp_hot47g
+{
+    D1_COUNTER(c_d3Place, "manager_sub_010AB6D0");
+    D1_COUNTER(c_d3Alloc, "manager_sub_010AB848");
+    D1_COUNTER(c_d3Free, "manager_sub_010AB9A0");
+
+    inline bool d3VramInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+    inline uint64_t d3VramSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+    inline uint32_t d3VramSize(uint32_t word) { return (word >> 1) & 0x7fffu; }
+    inline uint32_t d3VramStart(uint32_t word) { return (word >> 16) & 0x7fffu; }
+
+    // unlinkNode on d1::Mem.
+    void d3VramUnlink(const d1::Mem m, uint32_t n, uint32_t list)
+    {
+        uint32_t p = m.u32(n);
+        if (p != 0u)
+        {
+            m.set<uint32_t>(p + 4u, m.u32(n + 4u));
+            p = m.u32(n + 4u);
+        }
+        else
+            p = m.u32(n + 4u);
+        if (p != 0u)
+            m.set<uint32_t>(p, m.u32(n));
+        m.set<uint32_t>(list + 4u, m.u32(list + 4u) - 1u);
+    }
+
+    // pushNode on d1::Mem: the new count.
+    uint32_t d3VramPush(const d1::Mem m, uint32_t n, uint32_t list)
+    {
+        const uint32_t head = m.u32(list);
+        if (head != 0u)
+            m.set<uint32_t>(head, n);
+        m.set<uint32_t>(n, 0u);
+        m.set<uint32_t>(n + 4u, m.u32(list));
+        m.set<uint32_t>(list, n);
+        const uint32_t count = m.u32(list + 4u) + 1u;
+        m.set<uint32_t>(list + 4u, count);
+        return count;
+    }
+
+    // unlinkRecord on d1::Mem.
+    void d3VramUnlinkRecord(const d1::Mem m, uint32_t r)
+    {
+        uint32_t p = m.u32(r + 0x10u);
+        if (p != 0u)
+        {
+            m.set<uint32_t>(p + 0x14u, m.u32(r + 0x14u));
+            p = m.u32(r + 0x14u);
+        }
+        else
+            p = m.u32(r + 0x14u);
+        if (p != 0u)
+            m.set<uint32_t>(p + 0x10u, m.u32(r + 0x10u));
+    }
+
+    // place (0x10ab6d0): a0 the new node, a1 the free node (64-bit registers). The rover as read (v0 = its sign extension).
+    uint32_t d3PlaceCore(const d1::Mem m, uint64_t a0, uint64_t a1)
+    {
+        const uint32_t t3 = static_cast<uint32_t>(a0), t1 = static_cast<uint32_t>(a1);
+        const uint32_t rec = t3 + 8u, freeRec = t1 + 8u;
+        const uint32_t size = d3VramSize(m.u32(rec + 4u));
+        const uint32_t freeSize = d3VramSize(m.u32(freeRec + 4u));
+        const uint32_t mgr = m.u32(rec + 8u);
+        if (size == freeSize)
+        {
+            uint32_t v = m.u32(freeRec + 0x10u);
+            if (v != 0u)
+                m.set<uint32_t>(v + 0x14u, rec);
+            v = m.u32(freeRec + 0x14u);
+            if (v != 0u)
+                m.set<uint32_t>(v + 0x10u, rec);
+            const uint32_t freeList = mgr + 0x54u;
+            m.set<uint32_t>(rec + 0x10u, m.u32(freeRec + 0x10u));
+            m.set<uint32_t>(rec + 0x14u, m.u32(freeRec + 0x14u));
+            m.set<uint32_t>(freeRec, 0u);
+            if (d3VramSx(m.u32(freeList)) == a1)
+                m.set<uint32_t>(freeList, m.u32(t1 + 4u));
+            d3VramUnlink(m, t1, freeList);
+            d3VramPush(m, t1, kPool);
+        }
+        else
+        {
+            const uint32_t prev = m.u32(freeRec + 0x10u);
+            if (prev == 0u)
+                m.set<uint32_t>(rec + 0x10u, prev);
+            else
+            {
+                m.set<uint32_t>(prev + 0x14u, rec);
+                m.set<uint32_t>(rec + 0x10u, m.u32(freeRec + 0x10u));
+            }
+            m.set<uint32_t>(rec + 0x14u, freeRec);
+            m.set<uint32_t>(freeRec + 0x10u, rec);
+            uint32_t word = m.u32(freeRec + 4u);
+            word = (word & 0xffff0001u) | (((d3VramSize(word) - d3VramSize(m.u32(rec + 4u))) & 0x7fffu) << 1);
+            m.set<uint32_t>(freeRec + 4u, word);
+            word = (word & 0x8000ffffu) | (((d3VramStart(word) + d3VramSize(m.u32(rec + 4u))) & 0x7fffu) << 16);
+            m.set<uint32_t>(freeRec + 4u, word);
+        }
+        const uint32_t rover = m.u32(mgr + 0x50u);
+        if (d3VramSx(rover) == a1)
+            m.set<uint32_t>(mgr + 0x50u, t3);
+        return rover;
+    }
+
+    // alloc (0x10ab848): the frame's saves (s0, ra), the first fitting free block, the pool node to the used list, its
+    // record, place. The new node as the 64-bit v0 (0: nothing fits); `node` the free node placed into (a1 of the call).
+    uint64_t d3AllocCore(const d1::Mem m, uint32_t mgr, int64_t want, uint32_t sp, uint64_t s0, uint64_t ra, uint32_t &node)
+    {
+        m.set<uint64_t>(sp + 0u, s0);
+        m.set<uint64_t>(sp + 8u, ra);
+        for (node = m.u32(mgr + 0x54u); node != 0u; node = m.u32(node + 4u))
+        {
+            const uint32_t word = m.u32(node + 0xcu);
+            if (static_cast<int64_t>(d3VramSize(word)) < want)
+                continue;
+            const uint32_t t1 = m.u32(kPool);
+            m.set<uint32_t>(kPool, m.u32(t1 + 4u));
+            d3VramUnlink(m, t1, kPool);
+            d3VramPush(m, t1, mgr + 0x5cu);
+            const uint32_t rec = t1 + 8u;
+            m.set<uint32_t>(rec, 2u);
+            uint32_t v = m.u32(rec + 4u);
+            m.set<uint32_t>(rec + 8u, mgr);
+            v &= 0xfffffffeu;
+            m.set<uint32_t>(rec + 0x14u, 0u);
+            v &= 0x8000ffffu;
+            m.set<uint32_t>(rec + 0xcu, t1);
+            v |= d3VramStart(word) << 16;
+            m.set<uint32_t>(rec + 0x10u, 0u);
+            v &= 0xffff0001u;
+            v |= (static_cast<uint32_t>(want) & 0x7fffu) << 1;
+            m.set<uint32_t>(rec + 4u, v);
+            d3PlaceCore(m, d3VramSx(t1), d3VramSx(node));
+            return d3VramSx(t1);
+        }
+        return 0u;
+    }
+
+    // The end of a merge on d1::Mem: the pool count.
+    uint32_t d3VramMergeTail(const d1::Mem m, uint32_t rec, uint32_t goneNode)
+    {
+        const uint32_t freeList = m.u32(rec + 8u) + 0x54u;
+        m.set<uint32_t>(goneNode + 8u, 0u);
+        if (m.u32(freeList) == goneNode)
+            m.set<uint32_t>(freeList, m.u32(goneNode + 4u));
+        d3VramUnlink(m, goneNode, freeList);
+        return d3VramPush(m, goneNode, kPool);
+    }
+
+    // free (0x10ab9a0): a0 the node (64-bit register). v0.
+    uint32_t d3FreeCore(const d1::Mem m, uint64_t a0)
+    {
+        const uint32_t n = static_cast<uint32_t>(a0);
+        const uint32_t rec = n + 8u;
+        const uint32_t mgr = m.u32(rec + 8u);
+        m.set<uint32_t>(rec, 1u);
+        const uint32_t used = mgr + 0x5cu, freeList = mgr + 0x54u;
+        const uint32_t usedHead = m.u32(used);
+        const uint32_t next = m.u32(rec + 0x14u);
+        const uint32_t prev = m.u32(rec + 0x10u);
+        if (d3VramSx(usedHead) == a0)
+            m.set<uint32_t>(used, m.u32(n + 4u));
+        d3VramUnlink(m, n, used);
+        d3VramPush(m, n, freeList);
+        if (next != 0u && m.u32(next) == 1u)
+        {
+            uint32_t word = m.u32(rec + 4u);
+            const uint32_t nextSize = d3VramSize(m.u32(next + 4u));
+            const uint32_t r = m.u32(rec + 0x14u);
+            word = (word & 0xffff0001u) | (((d3VramSize(word) + nextSize) & 0x7fffu) << 1);
+            m.set<uint32_t>(rec + 4u, word);
+            d3VramUnlinkRecord(m, r);
+            d3VramMergeTail(m, rec, m.u32(next + 0xcu));
+        }
+        uint32_t v0 = 0u;
+        if (prev != 0u && m.u32(prev) == 1u)
+        {
+            uint32_t word = m.u32(prev + 4u);
+            const uint32_t mySize = d3VramSize(m.u32(rec + 4u));
+            word = (word & 0xffff0001u) | (((d3VramSize(word) + mySize) & 0x7fffu) << 1);
+            m.set<uint32_t>(prev + 4u, word);
+            d3VramUnlinkRecord(m, rec);
+            v0 = d3VramMergeTail(m, rec, m.u32(rec + 0xcu));
+        }
+        return v0;
+    }
+
+    void placeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+
+    void placeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint64_t a0 = GPR_U64(ctx, 4), a1 = GPR_U64(ctx, 5);
+        if (!sotc_decomp::hotList47On() || !d3VramInRam(static_cast<uint32_t>(a0), 0x20u) || !d3VramInRam(static_cast<uint32_t>(a1), 0x20u))
+            return place(rdram, ctx, runtime);
+        ++c_d3Place.n;
+        SET_GPR_U64(ctx, 2, d3VramSx(d3PlaceCore(d1::Mem{rdram}, a0, a1)));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void allocD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x10u, mgr = GPR_U32(ctx, 4);
+        if (!sotc_decomp::hotList47On() || !d3VramInRam(mgr, 0x64u) || !d3VramInRam(sp, 0x10u) ||
+            sotc_decomp::guestFunction(runtime, kPlace) != &placeSw)
+            return alloc(rdram, ctx, runtime);
+        ++c_d3Alloc.n;
+        const d1::Mem m{rdram};
+        uint32_t node = 0u;
+        const uint64_t result = d3AllocCore(m, mgr, GPR_S64(ctx, 5), sp, GPR_U64(ctx, 16), GPR_U64(ctx, 31), node);
+        if (result != 0u)
+        {
+            // The call's arguments as the old body sets them (place's own v0 is overwritten below).
+            ++c_d3Place.n;
+            SET_GPR_U64(ctx, 4, result);
+            SET_GPR_U64(ctx, 5, d3VramSx(node));
+        }
+        SET_GPR_U64(ctx, 2, result);
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 8u));
+        SET_GPR_U64(ctx, 29, entrySp);
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void freeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint64_t a0 = GPR_U64(ctx, 4);
+        if (!sotc_decomp::hotList47On() || !d3VramInRam(static_cast<uint32_t>(a0), 0x20u))
+            return freeBlock(rdram, ctx, runtime);
+        ++c_d3Free.n;
+        SET_GPR_U64(ctx, 2, d3VramSx(d3FreeCore(d1::Mem{rdram}, a0)));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void placeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            placeD3(rdram, ctx, runtime);
+        else
+            place(rdram, ctx, runtime);
+    }
+
+    void allocSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            allocD3(rdram, ctx, runtime);
+        else
+            alloc(rdram, ctx, runtime);
+    }
+
+    void freeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            freeD3(rdram, ctx, runtime);
+        else
+            freeBlock(rdram, ctx, runtime);
+    }
+}

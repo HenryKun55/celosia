@@ -6825,6 +6825,17 @@ namespace decomp_collision
     void flushModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void flushWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void waterProbeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // Round D3 (the same switch)
+    void entryFinderSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void attributeAdrSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void finderHasSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void verticesIndepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void collisionPlaneSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void surfBoundarySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void indepBoundarySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void exceptPluralSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void flushCollisionWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
 namespace decomp_finderwalk
 {
@@ -6836,12 +6847,14 @@ SOTC_DECOMP_FUNCTION(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision:
 D1_ALIAS(0x0112D590u, ClipCollisionDirectCallBack, decomp_collision::directCallBackSw, decomp_collision::directCallBack);
 SOTC_DECOMP_FUNCTION(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDBSw);
 D1_ALIAS(0x0111B9F0u, ClipCollisionDB, decomp_collision::clipCollisionDBSw, decomp_collision::clipCollisionDB);
-SOTC_DECOMP_FUNCTION(0x01119248u, getLayoutClassCollisionIndepSurfBoundary, decomp_collision::indepSurfBoundary);
+SOTC_DECOMP_FUNCTION(0x01119248u, getLayoutClassCollisionIndepSurfBoundary, decomp_collision::indepBoundarySw);
+D1_ALIAS(0x01119248u, getLayoutClassCollisionIndepSurfBoundary, decomp_collision::indepBoundarySw, decomp_collision::indepSurfBoundary);
 SOTC_DECOMP_FUNCTION(0x0112BE58u, collisionLeaf, decomp_collision::entry<decomp_collision::leaf>);
 SOTC_DECOMP_FUNCTION(0x0112C498u, collisionLow, decomp_collision::entry<decomp_collision::low>);
 SOTC_DECOMP_FUNCTION(0x0112C610u, collisionHigh, decomp_collision::entry<decomp_collision::high>);
 SOTC_DECOMP_FUNCTION(0x01131C80u, collisionNode, decomp_collision::entry<decomp_collision::node>);
-SOTC_DECOMP_FUNCTION(0x0112A478u, CheckCollisionFinderExistData, decomp_collision::checkFinderExistData);
+SOTC_DECOMP_FUNCTION(0x0112A478u, CheckCollisionFinderExistData, decomp_collision::finderHasSw);
+D1_ALIAS(0x0112A478u, CheckCollisionFinderExistData, decomp_collision::finderHasSw, decomp_collision::checkFinderExistData);
 SOTC_DECOMP_FUNCTION(0x01115798u, collisionFinderLeaf, decomp_collision::finderLeafSw);
 D1_ALIAS(0x01115798u, collisionFinderLeaf, decomp_collision::finderLeafSw, decomp_collision::finderLeaf<true>);
 SOTC_DECOMP_FUNCTION(0x01115A50u, collisionFinderLeaf16, decomp_collision::finderLeaf<false>);
@@ -6852,22 +6865,28 @@ SOTC_DECOMP_FUNCTION(0x011292B0u, collisionNotKind28Filter, decomp_collision::fi
 SOTC_DECOMP_FUNCTION(0x014336A0u, pathJudgeFunc, decomp_collision::filterEntry<4>);
 SOTC_DECOMP_FUNCTION(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeepSw);
 D1_ALIAS(0x0111C078u, clipCollisionKeep, decomp_collision::clipKeepSw, decomp_collision::clipKeep);
-SOTC_DECOMP_FUNCTION(0x011193C8u, GetCollisionDBSurfBoundary, decomp_collision::surfBoundaryEntry);
+SOTC_DECOMP_FUNCTION(0x011193C8u, GetCollisionDBSurfBoundary, decomp_collision::surfBoundarySw);
+D1_ALIAS(0x011193C8u, GetCollisionDBSurfBoundary, decomp_collision::surfBoundarySw, decomp_collision::surfBoundaryEntry);
 SOTC_DECOMP_FUNCTION(0x01123A58u, CollisionPlaneJudgeCallbackCameraVisibility, decomp_collision::cameraVisibilityEntry);
-SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdr);
+SOTC_DECOMP_FUNCTION(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdrSw);
+D1_ALIAS(0x01125B30u, GetCollisionDBAttributeAdr, decomp_collision::attributeAdrSw, decomp_collision::attributeAdr);
 SOTC_DECOMP_FUNCTION(0x01125DC8u, ClipCollisionFinder, decomp_collision::finderClip<false>);
 SOTC_DECOMP_FUNCTION(0x01125CC0u, ClipCollisionFinderCallBack, decomp_collision::finderClip<true>);
 SOTC_DECOMP_FUNCTION(0x01147798u, FlushModifiedManager, decomp_collision::flushModifiedSw);
 D1_ALIAS(0x01147798u, FlushModifiedManager, decomp_collision::flushModifiedSw, decomp_collision::flushModified);
-SOTC_DECOMP_FUNCTION(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinder);
+SOTC_DECOMP_FUNCTION(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinderSw);
+D1_ALIAS(0x0112A250u, EntryCollisionFinder, decomp_collision::entryFinderSw, decomp_collision::entryFinder);
 // Round 39: the camera's segment tests (SOTC_CAMCOLL=0: all recompiled).
 SOTC_DECOMP_FUNCTION(0x0140EE60u, camera_collision_check_direct, decomp_collision::cameraCheckDirect);
-SOTC_DECOMP_FUNCTION(0x011478B8u, EntryModifiedManager, decomp_collision::entryModifiedEntry);
-SOTC_DECOMP_FUNCTION(0x01114C70u, collisionVerticesIndep, decomp_collision::verticesIndepEntry);
+SOTC_DECOMP_FUNCTION(0x011478B8u, EntryModifiedManager, decomp_collision::entryModifiedSw);
+D1_ALIAS(0x011478B8u, EntryModifiedManager, decomp_collision::entryModifiedSw, decomp_collision::entryModifiedEntry);
+SOTC_DECOMP_FUNCTION(0x01114C70u, collisionVerticesIndep, decomp_collision::verticesIndepSw);
+D1_ALIAS(0x01114C70u, collisionVerticesIndep, decomp_collision::verticesIndepSw, decomp_collision::verticesIndepEntry);
 SOTC_DECOMP_FUNCTION(0x0140EFC0u, camera_invisible_collision_check_direct_by_exception_obj, decomp_collision::cameraInvisible);
 SOTC_DECOMP_FUNCTION(0x01123850u, CollisionPlaneJudgeCallbackCameraMove, decomp_collision::filterEntry<5>);
 SOTC_DECOMP_FUNCTION(0x013B54C8u, playerPlaneJudgeFuncCameraFilter, decomp_collision::filterEntry<6>);
-SOTC_DECOMP_FUNCTION(0x011288D0u, CollisionObjectJudgeCallbackExceptPluralObj, decomp_collision::objectFilterEntry<0>);
+SOTC_DECOMP_FUNCTION(0x011288D0u, CollisionObjectJudgeCallbackExceptPluralObj, decomp_collision::exceptPluralSw);
+D1_ALIAS(0x011288D0u, CollisionObjectJudgeCallbackExceptPluralObj, decomp_collision::exceptPluralSw, decomp_collision::objectFilterEntry<0>);
 SOTC_DECOMP_FUNCTION(0x01128918u, CollisionObjectJudgeCallbackExceptDescendPluralObj, decomp_collision::objectFilterEntry<1>);
 SOTC_DECOMP_FUNCTION(0x0140FAB8u, gamecore_sub_0140FAB8, decomp_collision::objectFilterEntry<2>);
 SOTC_DECOMP_FUNCTION(0x01434FC0u, gamecore_sub_01434FC0, decomp_collision::objectFilterEntry<3>);
@@ -6886,13 +6905,15 @@ D1_ALIAS(0x01117EA0u, manager_sub_01117EA0, decomp_collision::waterProbeSw, deco
 SOTC_DECOMP_FUNCTION(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw);
 D1_ALIAS(0x01117340u, manager_sub_01117340, decomp_collision::waterSurfaceSw, decomp_collision::waterSurface);
 SOTC_DECOMP_FUNCTION(0x01130490u, ClipCollisionDirectCallBackDoubleSide, decomp_collision::directDoubleSide);
-SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlane);
+SOTC_DECOMP_FUNCTION(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlaneSw);
+D1_ALIAS(0x011257A0u, GetCollisionDBPlane, decomp_collision::collisionPlaneSw, decomp_collision::collisionPlane);
 // Round 42 (SOTC_LEAVES=0: recompiled).
 SOTC_DECOMP_FUNCTION(0x01374F08u, character_ikcolattrfilter, decomp_collision::filterEntry<14>);
 SOTC_DECOMP_FUNCTION(0x010DF8F0u, manager_sub_010DF8F0, decomp_collision::filterEntry<15>);
 SOTC_DECOMP_FUNCTION(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWorkSw);
 D1_ALIAS(0x01124410u, FlushCollisionWorkByWorkStruct, decomp_collision::flushWorkSw, decomp_collision::flushWork);
-SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWork);
+SOTC_DECOMP_FUNCTION(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWorkSw);
+D1_ALIAS(0x010F1D60u, FlushCollisionWork, decomp_collision::flushCollisionWorkSw, decomp_collision::flushCollisionWork);
 
 // ---- Round D1 (SOTC_D1NATIVE): the collision natives' D1 bodies (d1_native.h) -------------------------------------
 // New bodies behind d1native for: ClipCollisionDB (clipDBD1, also used by the D1 segment loop), clipCollisionKeep,
@@ -7166,10 +7187,11 @@ namespace decomp_collision
         SET_GPR_U64(ctx, 2, v0);
         returnTo(ctx);
     }
+    void clipCollisionDBD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (the full core)
     void clipCollisionDBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            clipCollisionDBD1(rdram, ctx, runtime);
+            clipCollisionDBD3(rdram, ctx, runtime);
         else
             clipCollisionDB(rdram, ctx, runtime);
     }
@@ -7240,10 +7262,11 @@ namespace decomp_collision
         SET_GPR_U64(ctx, 2, 2u);
         returnTo(ctx);
     }
+    void clipKeepD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (the full core)
     void clipKeepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            clipKeepD1(rdram, ctx, runtime);
+            clipKeepD3(rdram, ctx, runtime);
         else
             clipKeep(rdram, ctx, runtime);
     }
@@ -7251,6 +7274,7 @@ namespace decomp_collision
     // ---- the finder leaf, 0x1115798 (byte count) -------------------------------------------------------------------------
     // finderLeaf<true>'s surfaces in one loop (round 49's scan folded in: the boundary record read from the class's table
     // while its flag byte says it is made, else boundary()'s guest path; the table's words read again after any call).
+    void finderLeafD1Loop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p, uint32_t count, uint32_t ids, uint32_t ra, uint32_t spIn);
     void finderLeafD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
 #if PS2X_VU_NEON_A32
@@ -7260,21 +7284,29 @@ namespace decomp_collision
 #endif
             return finderLeaf<true>(rdram, ctx, runtime);
         ++c_d1Leaf.n;
-        const FinderSites &site = kFinderA;
         const G g{rdram, ctx, runtime};
-        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x70u;
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
         const uint32_t p = GPR_U32(ctx, 4), tree = GPR_U32(ctx, 5), leafIndex = GPR_U32(ctx, 6);
         const uint32_t entry = g.u32(tree + 4u) + leafIndex * 4u;
-        uint32_t count = g.u8(entry);
+        const uint32_t count = g.u8(entry);
         const uint32_t firstOffset = (g.u32(entry) >> 8) << 1;
-        const uint32_t cls = g.u32(p + 8u);
-        uint32_t ids = g.u32(tree) + firstOffset;
-        const uint32_t planes = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x30u;
+        const uint32_t ids = g.u32(tree) + firstOffset;
         if (count == 0u)
         {
             SET_GPR_S32(ctx, 2, static_cast<int32_t>(firstOffset));
             return returnTo(ctx);
         }
+        finderLeafD1Loop(rdram, ctx, runtime, p, count, ids, ra, spIn);
+    }
+    // The leaf's surfaces from `ids` on (`count` of them) as D1's body runs them; also round D3's rest after a surface
+    // its core leaves to the guest code (finderLeafD3).
+    void finderLeafD1Loop(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t p, uint32_t count, uint32_t ids, uint32_t ra, uint32_t spIn)
+    {
+        const FinderSites &site = kFinderA;
+        const G g{rdram, ctx, runtime};
+        const uint32_t sp = spIn - 0x70u;
+        const uint32_t cls = g.u32(p + 8u);
+        const uint32_t planes = g.u32(g.u32(cls + 0x174u) + 0x24u) + 0x30u;
         const uint32_t center = g.u32(p + 0x20u);
         const float radius = g.f32(p + 0x18u);
         const float zero = 0.0f;
@@ -7385,10 +7417,11 @@ namespace decomp_collision
         SET_GPR_S64(ctx, 2, -1);
         returnTo(ctx);
     }
+    void finderLeafD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (the full core, D1's loop its rest)
     void finderLeafSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            finderLeafD1(rdram, ctx, runtime);
+            finderLeafD3(rdram, ctx, runtime);
         else
             finderLeaf<true>(rdram, ctx, runtime);
     }
@@ -7924,10 +7957,11 @@ namespace decomp_collision
         SET_GPR_U64(ctx, 2, 0u);
         returnTo(ctx);
     }
+    void waterSurfaceD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (the full core)
     void waterSurfaceSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            waterSurfaceD1(rdram, ctx, runtime);
+            waterSurfaceD3(rdram, ctx, runtime);
         else
             waterSurface(rdram, ctx, runtime);
     }
@@ -8504,5 +8538,1481 @@ namespace decomp_collision
             waterProbeD1(rdram, ctx, runtime);
         else
             waterProbe(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (SOTC_D1NATIVE, the same switch and framework as D1 / D2): the collision leaves as native C++ -----------
+// Full cores (C++ parameters + d1::Mem, no context) for: the finder leaf 0x1115798 (D1's partial body now the core's
+// rest), EntryCollisionFinder, EntryModifiedManager, GetCollisionDBAttributeAdr, CheckCollisionFinderExistData,
+// manager_sub_01114C70 (the vertex fetcher), GetCollisionDBPlane, GetCollisionDBSurfBoundary,
+// getLayoutClassCollisionIndepSurfBoundary and CollisionObjectJudgeCallbackExceptPluralObj. Their shared leaves
+// (layout class, vertices, plane, modified list, attribute record, the native id filters) are d3 helpers below.
+// A core "stops" where the old body would make a guest call (a boundary / plane / layout class the guest code computes,
+// guest RAM outside the plain block, an id filter the guest code answers): it returns before anything of that step is
+// written, or after writes the old body redoes identically (a plane / vertex made and entered in its cache: the old
+// body's second look finds the flag set), and the adapter runs the old body (or D1's partial loop) from there.
+// What the old bodies' host helpers leave in the context (f0 / f1, VU0 Q / status, v0, a0-a2) comes back in D3Regs.
+namespace decomp_collision
+{
+    D1_COUNTER(c_d3Leaf, "collision.finderLeafD3");
+    D1_COUNTER(c_d3Entry, "collision.entryFinder");
+    D1_COUNTER(c_d3Modified, "collision.entryModified");
+    D1_COUNTER(c_d3Attr, "collision.attributeAdr");
+    D1_COUNTER(c_d3Has, "collision.finderHas");
+    D1_COUNTER(c_d3Vtx, "collision.verticesIndep");
+    D1_COUNTER(c_d3Plane, "collision.plane");
+    D1_COUNTER(c_d3SurfB, "collision.surfBoundary");
+    D1_COUNTER(c_d3IndepB, "collision.indepBoundary");
+    D1_COUNTER(c_d3Plural, "collision.exceptPlural");
+
+    // What the old helpers leave in the context: f0 / f1, VU0 Q and status (the plane's rsqrt), v0, the runsOf bumps
+    // their guest calls / G constructors would make (host epoch only).
+    struct D3Regs
+    {
+        float f0 = 0.0f, f1 = 0.0f, q = 0.0f;
+        bool f0Set = false, f1Set = false, qSet = false, v0Set = false;
+        uint16_t status = 0;
+        uint64_t v0 = 0u;
+        uint32_t bumps = 0u;
+        void d3SetF0(float v)
+        {
+            f0 = v;
+            f0Set = true;
+        }
+        void d3SetV0(uint64_t v)
+        {
+            v0 = v;
+            v0Set = true;
+        }
+    };
+    PS2_FORCE_INLINE __m128 d3Q(const d1::Mem &m, uint32_t a) { return m.q(a & ~0xFu); }
+    PS2_FORCE_INLINE void d3Put(const d1::Mem &m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+    PS2_FORCE_INLINE uint8_t d3U8(const d1::Mem &m, uint32_t a) { return m.get<uint8_t>(a); }
+    PS2_FORCE_INLINE uint16_t d3U16(const d1::Mem &m, uint32_t a) { return m.get<uint16_t>(a); }
+    PS2_FORCE_INLINE void d3Set32(const d1::Mem &m, uint32_t a, uint32_t v) { m.set<uint32_t>(a, v); }
+    PS2_FORCE_INLINE uint64_t d3Sext(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+    // GetLayoutClass (0x10f1a20) by its jump table: false for the types it computes by a call (layoutClass's cases).
+    inline bool d3LayoutClass(const d1::Mem &m, uint32_t object, uint32_t &out)
+    {
+        const uint32_t index = static_cast<uint32_t>(d3U8(m, object + 8u)) - 9u;
+        if (index >= 0xEu)
+        {
+            out = 0u;
+            return true;
+        }
+        const uint32_t target = m.u32(0x01194070u + index * 4u);
+        if (target == 0x010F1A58u)
+            out = object + 0x20u;
+        else if (target == 0x010F1A98u)
+            out = object + 0x90u;
+        else if (target == 0x010F1AA0u)
+            out = 0u;
+        else
+            return false;
+        return true;
+    }
+
+    // EntryModifiedManager (entryModified): the index put in the cache's modified list, its flag byte set, v0 the old
+    // count. d3ModifiedOk: the plain-block tests the old helper makes before it writes (false: it would call the guest).
+    inline bool d3ModifiedOk(const d1::Mem &m, uint32_t cache, uint32_t idx)
+    {
+        if (!d2Plain(cache, 0x14u))
+            return false;
+        const uint32_t n = m.u32(cache), flags = m.u32(cache + 8u), list = m.u32(cache + 0x10u);
+        const int32_t size = m.s32(cache + 0xCu);
+        const uint32_t width = size == 1 || size == 2 || size == 4 ? static_cast<uint32_t>(size) : 0u;
+        return !((width != 0u && !d2Plain(list + n * width, width)) || !d2Plain(flags + idx, 1u));
+    }
+    inline bool d3EntryModified(const d1::Mem &m, uint32_t cache, uint32_t idx, D3Regs &r)
+    {
+        if (!d3ModifiedOk(m, cache, idx))
+            return false;
+        const uint32_t n = m.u32(cache), flags = m.u32(cache + 8u), list = m.u32(cache + 0x10u);
+        const int32_t size = m.s32(cache + 0xCu);
+        const uint32_t width = size == 1 || size == 2 || size == 4 ? static_cast<uint32_t>(size) : 0u;
+        const uint32_t at = list + n * width;
+        ++r.bumps; // (the old helper's runsOf bump)
+        d3Set32(m, cache, n + 1u);
+        if (width == 1u)
+            m.set<uint8_t>(at, static_cast<uint8_t>(idx));
+        else if (width == 2u)
+            m.set<uint16_t>(at, static_cast<uint16_t>(idx));
+        else if (width == 4u)
+            d3Set32(m, at, idx);
+        m.set<uint8_t>(flags + idx, 1u);
+        r.d3SetV0(d3Sext(n));
+        return true;
+    }
+
+    // verticesFull: the three vertices made in the part's cache where their flag is clear (int16 x 2^-15 x scale + offset,
+    // three floats, or a qword; w 1) through the part's matrix (vu::apply: rows and point operand-clamped as there, the
+    // products / sums d1 vec4), each entered in the modified list; f0 / f1 / v0 as the old helper leaves them. false: a
+    // modified list outside the plain block (tested before that vertex is written; the old body redoes the rest).
+    bool d3VtxFull(const d1::Mem &m, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, D3Regs &r)
+    {
+        const uint32_t record = m.u32(m.u32(m.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
+        const uint32_t cache = m.u32(m.u32(cls + 0x174u) + 0x24u) + index * 0x60u;
+        const uint32_t matrix = m.u32(cls + 0x15Cu) + index * 0x40u;
+        const bool packed = d3U8(m, record + 9u) != 0u, shortIds = d3U8(m, record + 8u) != 0u;
+        const uint32_t list = m.u32(record + 0x14u);
+        for (uint32_t k = 0; k < 3u; ++k)
+        {
+            const uint32_t id = shortIds ? d3U16(m, list + surface * 20u + 2u + k * 2u) : m.u32(list + surface * 0x34u + k * 4u);
+            if (idx != 0u)
+                d3Set32(m, idx + k * 4u, id);
+            const uint32_t dst = m.u32(cache + 0x14u) + id * 16u;
+            if (d3U8(m, m.u32(cache + 8u) + id) == 0u)
+            {
+                if (!d3ModifiedOk(m, cache, id))
+                    return false;
+                const uint32_t verts = m.u32(record + 4u);
+                __m128 p;
+                const float one = 1.0f;
+                if (packed)
+                {
+                    const uint32_t src = verts + id * 6u;
+                    const int32_t xi = static_cast<int16_t>(d3U16(m, src)), yi = static_cast<int16_t>(d3U16(m, src + 2u)), zi = static_cast<int16_t>(d3U16(m, src + 4u));
+                    const __m128 f = d1::vmul(d1::make(static_cast<float>(xi), static_cast<float>(yi), static_cast<float>(zi), 0.0f), d1::splat(3.05175781e-05f)); // vitof15
+                    const uint32_t so = m.u32(record + 0xCu);
+                    const __m128 sm = d1::vmul(f, vu::clamp(d3Q(m, so + 0x10u)));
+                    r.d3SetF0(one);
+                    p = d1::vsel(sm, d1::vadd(sm, vu::clamp(d3Q(m, so))), d1Xyz());
+                }
+                else if (shortIds)
+                {
+                    const uint32_t src = verts + id * 12u;
+                    p = d1::make(m.f32(src), m.f32(src + 4u), m.f32(src + 8u), 0.0f);
+                    r.f1 = m.f32(src + 4u);
+                    r.f1Set = true;
+                    r.d3SetF0(m.f32(src + 8u));
+                }
+                else
+                    p = d3Q(m, verts + id * 16u);
+                if (packed || shortIds)
+                    p = d1::vsel(p, d1::splat(one), d1W());
+                const __m128 c = vu::clamp(p);
+                __m128 t = d1::vmul(vu::clamp(d3Q(m, matrix)), d1::bc<0>(c));
+                t = d1::vmadd(t, vu::clamp(d3Q(m, matrix + 0x10u)), d1::bc<1>(c));
+                t = d1::vmadd(t, vu::clamp(d3Q(m, matrix + 0x20u)), d1::bc<2>(c));
+                d3Put(m, dst, d1::vmadd(t, vu::clamp(d3Q(m, matrix + 0x30u)), d1::bc<3>(c)));
+                d3EntryModified(m, cache, id, r);
+            }
+            d3Set32(m, out + k * 4u, dst);
+        }
+        r.d3SetV0(packed || shortIds ? 0u : static_cast<uint64_t>(out + 8u)); // (SET_GPR_U64 0 / SET_GPR_U32 out + 8)
+        return true;
+    }
+    // verticesIndep: out[0..2] the three vertices' cache addresses, idx[0..2] their indices; the uncached ones made
+    // (camColl, else false: the old body's guest call, nothing written).
+    bool d3VtxIndep(const d1::Mem &m, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, bool camColl, D3Regs &r)
+    {
+        const uint32_t record = m.u32(m.u32(m.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
+        const uint32_t cache = m.u32(m.u32(cls + 0x174u) + 0x24u) + index * 0x60u;
+        const uint32_t list = m.u32(record + 0x14u);
+        uint32_t ids[3];
+        if (d3U8(m, record + 8u) != 0u)
+            for (uint32_t k = 0; k < 3u; ++k)
+                ids[k] = d3U16(m, list + surface * 20u + 2u + k * 2u);
+        else
+            for (uint32_t k = 0; k < 3u; ++k)
+                ids[k] = m.u32(list + surface * 0x34u + k * 4u);
+        const uint32_t flags = m.u32(cache + 8u), table = m.u32(cache + 0x14u);
+        for (uint32_t k = 0; k < 3u; ++k)
+            if (d3U8(m, flags + ids[k]) == 0u)
+                return camColl && d3VtxFull(m, out, idx, cls, index, surface, r);
+        for (uint32_t k = 0; k < 3u; ++k)
+        {
+            if (idx != 0u)
+                d3Set32(m, idx + k * 4u, ids[k]);
+            d3Set32(m, out + k * 4u, table + ids[k] * 16u);
+        }
+        return true;
+    }
+
+    // vopmula.xyz / vopmsub.xyz: a x b in xyz, w kept from `keep` (cross()).
+    PS2_FORCE_INLINE __m128 d3Cross(__m128 a, __m128 b, __m128 keep)
+    {
+        return d1::vsel(keep, d2Outer(a, b), d1Xyz()); // d2Outer: the lane moves as NEON permutes
+    }
+    // plane(): the unit normal of (v0 - v1) x (v1 - v2), w = -n.v0, at slot; Q / status as its rsqrt leaves them. The
+    // operand clamps of the old PS2_V* ops are left out: the cached vertices are VU0 / game results (finite).
+    void d3Plane(const d1::Mem &m, uint32_t verts, uint32_t slot, D3Regs &r)
+    {
+        const __m128 vf0 = d1::vf0();
+        const __m128 p0 = d3Q(m, m.u32(verts)), p1 = d3Q(m, m.u32(verts + 4u)), p2 = d3Q(m, m.u32(verts + 8u));
+        const __m128 a = d1::vsub(p0, p1), b = d1::vsub(p1, p2);
+        __m128 n = d3Cross(a, b, b);
+        n = d1::vsel(n, d1::vsub(n, n), d1W());
+        const __m128 sq = d1::vmul(n, n);
+        __m128 acc = d1::vmul(vf0, d1::bc<0>(sq));
+        acc = d1::vadd(acc, d1::vmul(vf0, d1::bc<1>(sq)));
+        const float length2 = d1::lane<3>(d1::vadd(acc, d1::vmul(vf0, d1::bc<2>(sq))));
+        r.q = ps2VuRsqrt(r.status, 1.0f, length2);
+        r.qSet = true;
+        n = d1::vsel(n, d1::vmul(n, d1::splat(r.q)), d1Xyz());
+        d3Put(m, slot, n);
+        const __m128 n2 = d3Q(m, slot);
+        __m128 d = d1::vmul(n2, d3Q(m, m.u32(verts)));
+        d = d1::vsel(d, d1::vadd(d, d1::bc<1>(d)), d1X());
+        d = d1::vadd(d, d1::bc<2>(d));
+        const __m128 minus = d1::vsub(vf0, d1::bc<3>(vf0));
+        d3Put(m, slot, d1::vsel(n2, d1::vsub(minus, d1::bc<0>(d)), d1W()));
+    }
+
+    // GetCollisionDBAttributeAdr (attributeAddress, computed: its chain cache holds these words).
+    inline bool d3AttrAddr(const d1::Mem &m, uint32_t id, uint32_t &out)
+    {
+        const uint32_t w0 = m.u32(id), w1 = m.u32(id + 4u);
+        uint32_t cls;
+        if (!d3LayoutClass(m, w0, cls))
+            return false;
+        const uint32_t s0 = (w1 >> 24) & 0x7Fu, s2 = w1 & 0x00FFFFFFu;
+        const uint32_t s3 = m.u32(m.u32(cls + 0x184u) + 0x20u);
+        const uint32_t record = m.u32(s3 + 8u) + s0 * 0x90u;
+        uint32_t index;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t list = m.u32(record + 0x14u);
+            if (d3U8(m, record + 8u) != 0u)
+                index = d3U16(m, s2 * 0x14u + list);
+            else
+                index = m.u32(s2 * 0x34u + list + 0x30u);
+        }
+        else
+            index = m.u32(m.u32(s2 * 4u + m.u32(record + 0x54u)) * 0x40u + m.u32(s3 + 0x18u) + 0x3Cu);
+        out = m.u32(s3 + 0x34u) + index * 16u;
+        return true;
+    }
+
+    // The id filters idFilter() answers natively, on the attribute bits (the same tests): 1 / 0, -1 for the guest code
+    // (a layout class by a call, charaSurface's plane kinds). The adapters let only these filter addresses (with the
+    // switches idFilter tests on) reach a core.
+    int d3IdFilterEval(const d1::Mem &m, uint32_t filter, uint32_t id, uint32_t user)
+    {
+        uint32_t rec;
+        if (!d3AttrAddr(m, id, rec))
+            return -1;
+        const uint64_t bits = m.get<uint64_t>(rec);
+        const uint64_t kind = bits & 0xF80000000ull, surf = bits & 0x7C000000ull, cl = bits & 0x3C0000000000ull;
+        const int notCl8 = cl != 0x80000000000ull ? 1 : 0;
+        switch (filter)
+        {
+        case kSlideJudge:
+        {
+            const uint64_t sk = bits & (0xF800ull << 20), sb = bits & 0x7C000000ull;
+            constexpr uint64_t kNoSlide = 0x9000ull << 19, kBits = 0x14000000ull;
+            if (user == 0u)
+                return sk == kNoSlide ? 0 : (sb != kBits ? 1 : 0);
+            if (m.u32(user + 4u) == 0u && sk == kNoSlide)
+                return 0;
+            if (m.u32(user) != 0u)
+                return 1;
+            return sb != kBits ? 1 : 0;
+        }
+        case kNot30:
+            return (surf ^ 0x30000000ull) != 0u ? 1 : 0;
+        case kGamecore13cb8e8:
+            if (kind == 0x300000000ull || kind == 0x500000000ull || kind == 0x280000000ull)
+                return 0;
+            if (surf == 0x30000000u || surf == 0x34000000u || surf == 0x6C000000u || surf == 0x24000000u || surf == 0x04000000u || surf == 0x64000000u ||
+                surf == 0x68000000u)
+                return 0;
+            return notCl8;
+        case kAiJudgeColAttr:
+        {
+            if (kind == 0x200000000ull || kind == 0x300000000ull || kind == 0x500000000ull || kind == 0xB80000000ull || kind == 0x380000000ull)
+                return 0;
+            switch (bits & 0x7C00u)
+            {
+            case 0x3C00u: case 0x4000u: case 0x4400u: case 0x4C00u: case 0x5400u: case 0x5C00u: case 0x6400u: case 0x6C00u: case 0x7400u: case 0x7C00u:
+                return 0;
+            default:
+                break;
+            }
+            return notCl8;
+        }
+        case kIkColAttr:
+            switch (surf)
+            {
+            case 0x30000000u: case 0x04000000u: case 0x64000000u: case 0x68000000u: case 0x6C000000u: case 0x24000000u:
+                return 0;
+            default:
+                break;
+            }
+            switch (kind)
+            {
+            case 0x800000000ull: case 0x200000000ull: case 0xB80000000ull: case 0x300000000ull: case 0x500000000ull: case 0x380000000ull:
+            case 0x280000000ull:
+                return 0;
+            default:
+                break;
+            }
+            return notCl8;
+        case kCameraVisibility:
+            if (cl == 0x40000000000ull || cl == 0x200000000000ull)
+                return 0;
+            if (surf == 0x30000000u || surf == 0x34000000u || surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x24000000u)
+                return 0;
+            if (kind == 0x300000000ull || kind == 0x500000000ull || kind == 0x200000000ull || kind == 0xB80000000ull || kind == 0x80000000ull || kind == 0x280000000ull)
+                return 0;
+            return notCl8;
+        case kCameraLeave:
+            return (cl ^ 0x80000000000ull) == 0u ? 1 : 0;
+        case kCharaSurface:
+            if (kind == 0x300000000ull || kind == 0x500000000ull || kind == 0x280000000ull)
+                return 0;
+            if (m.u32(user) == 0u && surf == 0x30000000u)
+                return 0;
+            if (m.u32(user + 4u) == 0u && surf == 0x34000000u)
+                return 0;
+            if (surf == 0x6C000000u)
+                return 0;
+            if (m.u32(user + 8u) == 0u && surf == 0x24000000u)
+                return 0;
+            if (m.u32(user + 0xCu) == 0u && (kind == 0x200000000ull || kind == 0xB80000000ull))
+                return 0;
+            if (m.u32(user + 0x18u) == 0u && surf == 0x04000000u)
+                return 0;
+            if (m.u32(user + 0x1Cu) == 0u && surf == 0x48000000u)
+                return 0;
+            if (surf == 0x64000000u)
+                return m.u32(user + 0x10u) == 0u ? 0 : -1;
+            if (surf == 0x68000000u)
+                return m.u32(user + 0x14u) == 0u ? 0 : -1;
+            if (surf == 0x3C000000u && m.u32(user + 0x20u) == 0u)
+                return 0;
+            return notCl8;
+        case kGamecoreSurface:
+        case kPathJudge:
+            if (bits & 0x2000000000000000ull)
+                return 0;
+            if (kind == 0xB80000000ull || surf == 0x7C000000u || (filter == kPathJudge && kind == 0x200000000ull))
+                return 1;
+            if (surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x24000000u)
+                return 0;
+            if (kind == 0x300000000ull || kind == 0x500000000ull || kind == 0x280000000ull || kind == 0x380000000ull ||
+                (filter == kGamecoreSurface && kind == 0x200000000ull))
+                return 0;
+            return notCl8;
+        case kNotKind28:
+            return (kind ^ 0x280000000ull) != 0u ? 1 : 0;
+        case kCameraMove:
+            if (kind == 0x280000000ull)
+                return 1;
+            if (cl == 0x200000000000ull)
+                return 0;
+            if (surf == 0x30000000u || surf == 0x34000000u || surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x24000000u)
+                return 0;
+            if (kind == 0x300000000ull || kind == 0x500000000ull || kind == 0x200000000ull || kind == 0xB80000000ull || kind == 0x80000000ull)
+                return 0;
+            return notCl8;
+        case kPlayerCameraFilter:
+            if (surf == 0x24000000u)
+                return 1;
+            if (surf == 0x34000000u || surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x48000000u || surf == 0x30000000u ||
+                surf == 0x04000000u)
+                return 0;
+            if (kind == 0x200000000ull || kind == 0xB80000000ull || kind == 0x80000000ull || kind == 0x300000000ull || kind == 0x500000000ull ||
+                kind == 0x280000000ull)
+                return 0;
+            return notCl8;
+        case kAnySurface:
+            return 1;
+        case kGamecore1395830:
+            if (kind == 0x280000000ull || surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x24000000u)
+                return 0;
+            return notCl8;
+        case kGamecore13958b8:
+            if (kind == 0x280000000ull || surf == 0x64000000u || surf == 0x68000000u || surf == 0x6C000000u || surf == 0x24000000u || cl == 0x80000000000ull ||
+                kind == 0x300000000ull || kind == 0x500000000ull)
+                return 0;
+            return 1;
+        case kNotKind80:
+            return kind != 0x800000000ull ? 1 : 0;
+        default:
+            return -1;
+        }
+    }
+    // The adapter's test: a filter idFilter() answers natively in the current switch state (d3IdFilterEval's set).
+    bool d3IdFilterNative(const uint8_t *ram, uint32_t filter)
+    {
+        switch (filter)
+        {
+        case 0u:
+        case kCameraVisibility: case kCameraLeave: case kCharaSurface: case kGamecoreSurface: case kNotKind28: case kPathJudge:
+            return true;
+        case kSlideJudge: case kNot30:
+            return sotc_decomp::coll71On();
+        case kGamecore13cb8e8: case kAiJudgeColAttr:
+            return sotc_decomp::collProbeOn();
+        case kIkColAttr:
+            return sotc_decomp::leavesOn() && sotc_decomp::jalTarget(ram, 0x01374F10u) == kAttributeAdr;
+        case kCameraMove: case kPlayerCameraFilter: case kAnySurface: case kGamecore1395830: case kGamecore13958b8: case kNotKind80:
+            return sotc_decomp::camCollOn();
+        default:
+            return false;
+        }
+    }
+
+    // CheckCollisionFinderExistData (finderHasExact: any of the finder's ids from `first` up to the smaller count with
+    // this surface; the fast paths' answer is the same).
+    uint64_t d3FinderHas(const d1::Mem &m, uint32_t finder, int32_t first, uint64_t surface)
+    {
+        const int32_t a = m.s32(finder + 4u), b = m.s32(finder);
+        const int32_t end = a < b ? a : b;
+        uint32_t at = m.u32(finder + 0xCu) + static_cast<uint32_t>(first) * 8u;
+        for (int32_t i = first; i < end; ++i, at += 8u)
+            if (static_cast<uint64_t>(m.u32(at + 4u) & 0x00FFFFFFu) == surface)
+                return 1u;
+        return 0u;
+    }
+
+    // EntryCollisionFinder (entryFinder): below the capacity the id pair and its link (first after the head at the
+    // object's class + 0x174 + 0x10); the count up either way; v0 the new count. false: a layout class by a call
+    // (nothing written).
+    bool d3EntryFinder(const d1::Mem &m, uint32_t finder, uint32_t object, uint32_t word, int32_t &v0)
+    {
+        int32_t count = m.s32(finder);
+        if (count < m.s32(finder + 4u))
+        {
+            uint32_t cls;
+            if (!d3LayoutClass(m, object, cls))
+                return false;
+            const uint32_t n = static_cast<uint32_t>(count);
+            const uint32_t id = m.u32(finder + 0xCu) + n * 8u;
+            const uint32_t link = m.u32(finder + 0x10u) + n * 12u;
+            d3Set32(m, id + 4u, word);
+            d3Set32(m, id, object);
+            d3Set32(m, link + 8u, id);
+            d3Set32(m, link + 4u, 0u);
+            d3Set32(m, link, 0u);
+            const uint32_t head = m.u32(cls + 0x174u) + 0x10u;
+            d3Set32(m, link, head);
+            d3Set32(m, link + 4u, m.u32(head + 4u));
+            if (const uint32_t next = m.u32(head + 4u); next != 0u)
+                d3Set32(m, next, link);
+            d3Set32(m, head + 4u, link);
+            count = m.s32(finder);
+        }
+        v0 = static_cast<int32_t>(static_cast<uint32_t>(count) + 1u);
+        d3Set32(m, finder, static_cast<uint32_t>(v0));
+        return true;
+    }
+
+    // ---- the finder leaf 0x1115798's core -----------------------------------------------------------------------------
+    struct D3LeafIn
+    {
+        uint32_t p, tree, leafIndex, sp; // sp: the old body's frame (spIn - 0x70)
+        bool camColl;
+    };
+    struct D3LeafOut
+    {
+        bool empty = false, done = false, entered = false;
+        uint32_t firstOffset = 0u, count = 0u, ids = 0u; // not done: the surfaces left (from ids, count of them)
+        uint32_t a0 = 0u, a1 = 0u;                        // the last EntryCollisionFinder call's a0 / a1 / a2
+        uint64_t a2 = 0u;
+    };
+    // finderLeaf<true> / finderLeafD1 with the boundary filter 0 and the id filter a native one (the adapter's gate): each
+    // surface's boundary sphere against the query's, its plane (made when not cached) nearer than the radius, the id
+    // filter, not in the finder yet: EntryCollisionFinder. Stops at a surface whose boundary is not cached or whose step
+    // needs the guest code (see the block comment): o.count / o.ids from that surface.
+    void d3FinderLeafCore(const d1::Mem &m, const D3LeafIn &in, D3LeafOut &o, D3Regs &r)
+    {
+        const uint32_t p = in.p, sp = in.sp;
+        const uint32_t entry = m.u32(in.tree + 4u) + in.leafIndex * 4u;
+        uint32_t count = d3U8(m, entry);
+        o.firstOffset = (m.u32(entry) >> 8) << 1;
+        const uint32_t cls = m.u32(p + 8u);
+        uint32_t ids = m.u32(in.tree) + o.firstOffset;
+        const uint32_t planes = m.u32(m.u32(cls + 0x174u) + 0x24u) + 0x30u;
+        if (count == 0u)
+        {
+            o.empty = o.done = true;
+            return;
+        }
+        const uint32_t center = m.u32(p + 0x20u), idf = m.u32(p + 0x2Cu);
+        const float radius = m.f32(p + 0x18u), zero = 0.0f;
+        for (; count != 0u; --count, ids += 2u)
+        {
+            const uint32_t surface = d3U16(m, ids);
+            const uint32_t t2 = m.u32(m.u32(cls + 0x174u) + 0x24u) + 0x48u;
+            if (d3U8(m, m.u32(t2 + 8u) + surface) == 0u)
+                break; // boundary() would call the guest code
+            const uint32_t bnd = m.u32(t2 + 0x14u) + surface * 16u;
+            float reach = d1::add(m.f32(bnd + 0xCu), radius);
+            reach = d1::mul(reach, reach);
+            const __m128 c = d3Q(m, center);
+            r.d3SetF0(reach);
+            {
+                __m128 sq = d1::vsub(d3Q(m, bnd), c);
+                sq = d1::vmul(sq, sq);
+                const float de = d1::lane<0>(d1::vadd(d1::vadd(sq, d1::bc<1>(sq)), d1::bc<2>(sq)));
+                if (!d1::lt(de, reach))
+                    continue;
+            }
+            const uint32_t slot = m.u32(planes + 0x14u) + surface * 16u;
+            if (d3U8(m, m.u32(planes + 8u) + surface) == 0u)
+            {
+                if (!d3VtxIndep(m, sp, sp + 0x10u, cls, 0u, surface, in.camColl, r))
+                    break;
+                d3Plane(m, sp, slot, r);
+                if (!d3EntryModified(m, planes, surface, r))
+                    break;
+            }
+            const float dist = d1PlaneDist(d3Q(m, slot), c);
+            r.d3SetF0(zero);
+            if (d1::lt(dist, zero))
+            {
+                const float neg = -dist;
+                r.d3SetF0(neg);
+                if (!d1::lt(neg, radius))
+                    continue;
+            }
+            else if (!d1::lt(dist, radius))
+                continue;
+            const uint32_t id = surface | 0x80000000u;
+            if (idf != 0u)
+            {
+                d3Set32(m, sp, m.u32(p + 4u));
+                d3Set32(m, sp + 4u, id);
+                const int pass = d3IdFilterEval(m, idf, sp, m.u32(p + 0x30u));
+                if (pass < 0)
+                    break;
+                if (pass == 0)
+                    continue;
+            }
+            if (d3FinderHas(m, m.u32(p), m.s32(p + 0x34u), surface) != 0u)
+                continue;
+            int32_t v0;
+            if (!d3EntryFinder(m, m.u32(p), m.u32(p + 4u), id, v0))
+                break;
+            r.bumps += 2u; // (the guest call's and the native's G)
+            o.entered = true;
+            o.a0 = m.u32(p);
+            o.a1 = m.u32(p + 4u);
+            o.a2 = d3Sext(id);
+        }
+        o.count = count;
+        o.ids = ids;
+        o.done = count == 0u;
+    }
+
+    // The leftovers into the context (adapters only).
+    void d3PutRegs(R5900Context *ctx, PS2Runtime *runtime, const D3Regs &r)
+    {
+        runsOf(runtime) += r.bumps;
+        if (r.f0Set)
+            ctx->f[0] = r.f0;
+        if (r.f1Set)
+            ctx->f[1] = r.f1;
+        if (r.qSet)
+        {
+            ctx->vu0_q = r.q;
+            ctx->vu0_status = r.status;
+        }
+    }
+
+    void entryFinderSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void finderLeafD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
+        const uint32_t p = GPR_U32(ctx, 4), tree = GPR_U32(ctx, 5), leafIndex = GPR_U32(ctx, 6);
+        const d1::Mem m{rdram};
+        // D1's gates (finderLeafD1 sends those to the old body), then the core's: the plain block, no boundary filter, a
+        // native id filter, round 85's capture off, EntryCollisionFinder's slot the native's
+        if (!sotc_decomp::fastNativeOn() || !sotc_decomp::coll71On() || g_statsOn || !d2Plain(p, 0x38u) || !d2Plain(tree, 0xCu) ||
+            !d2Plain(spIn - 0x70u, 0x70u) || !d2Plain(m.u32(p), 0x14u) || ground85::g_cap.on || m.u32(p + 0x28u) != 0u ||
+            !d3IdFilterNative(rdram, m.u32(p + 0x2Cu)))
+            return finderLeafD1(rdram, ctx, runtime);
+#if PS2X_VU_NEON_A32
+        if (fast::checkOn() || fast::check49())
+            return finderLeafD1(rdram, ctx, runtime);
+#endif
+        const PS2Runtime::RecompiledFunction slot = sotc_decomp::guestFunction(runtime, kEntryFinder);
+        if (slot != &entryFinder && slot != &entryFinderSw)
+            return finderLeafD1(rdram, ctx, runtime);
+        ++c_d3Leaf.n;
+        ++runsOf(runtime); // (the old body's G)
+        const D3LeafIn in{p, tree, leafIndex, spIn - 0x70u, sotc_decomp::camCollOn()};
+        D3LeafOut o;
+        D3Regs r;
+        r.status = ctx->vu0_status;
+        d3FinderLeafCore(m, in, o, r);
+        d3PutRegs(ctx, runtime, r);
+        if (o.entered)
+        {
+            SET_GPR_U32(ctx, 4, o.a0);
+            SET_GPR_U32(ctx, 5, o.a1);
+            SET_GPR_U64(ctx, 6, o.a2);
+        }
+        if (o.empty)
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.firstOffset));
+            return returnTo(ctx);
+        }
+        if (!o.done)
+            return finderLeafD1Loop(rdram, ctx, runtime, p, o.count, o.ids, ra, spIn); // the rest as D1's body
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_S64(ctx, 2, -1);
+        returnTo(ctx);
+    }
+
+    // ---- EntryCollisionFinder (0x112a250) -------------------------------------------------------------------------------
+    void entryFinderD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t finder = GPR_U32(ctx, 4), object = GPR_U32(ctx, 5), word = GPR_U32(ctx, 6);
+        if (!d2Plain(finder, 0x14u))
+            return entryFinder(rdram, ctx, runtime);
+        int32_t v0;
+        if (!d3EntryFinder(d1::Mem{rdram}, finder, object, word, v0))
+            return entryFinder(rdram, ctx, runtime); // nothing written
+        ++c_d3Entry.n;
+        ++runsOf(runtime); // (the old body's G)
+        SET_GPR_S32(ctx, 2, v0);
+        returnTo(ctx);
+    }
+    void entryFinderSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryFinderD3(rdram, ctx, runtime);
+        else
+            entryFinder(rdram, ctx, runtime);
+    }
+
+    // ---- EntryModifiedManager (0x11478b8) -------------------------------------------------------------------------------
+    void entryModifiedD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+#if PS2X_A7_CHECK
+        return entryModifiedEntry(rdram, ctx, runtime);
+#endif
+        const uint32_t cache = GPR_U32(ctx, 4), idx = GPR_U32(ctx, 5);
+        const d1::Mem m{rdram};
+        if (!sotc_decomp::camCollOn() || !d3ModifiedOk(m, cache, idx))
+            return entryModifiedEntry(rdram, ctx, runtime);
+        ++c_d3Modified.n;
+        ++runsOf(runtime); // (the old body's G)
+        D3Regs r;
+        d3EntryModified(m, cache, idx, r);
+        runsOf(runtime) += r.bumps;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(r.v0));
+        returnTo(ctx);
+    }
+    void entryModifiedSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            entryModifiedD3(rdram, ctx, runtime);
+        else
+            entryModifiedEntry(rdram, ctx, runtime);
+    }
+
+    // ---- GetCollisionDBAttributeAdr (0x1125b30) -------------------------------------------------------------------------
+    void attributeAdrD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+#if PS2X_A10_CHECK
+        return attributeAdr(rdram, ctx, runtime);
+#endif
+        const uint32_t id = GPR_U32(ctx, 4);
+        uint32_t v0;
+        if (!d2Plain(id, 8u) || !d3AttrAddr(d1::Mem{rdram}, id, v0))
+            return attributeAdr(rdram, ctx, runtime);
+        ++c_d3Attr.n;
+        ++runsOf(runtime); // (the old body's G)
+        SET_GPR_U32(ctx, 2, v0);
+        returnTo(ctx);
+    }
+    void attributeAdrSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            attributeAdrD3(rdram, ctx, runtime);
+        else
+            attributeAdr(rdram, ctx, runtime);
+    }
+
+    // ---- CheckCollisionFinderExistData (0x112a478) ----------------------------------------------------------------------
+    void finderHasD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t finder = GPR_U32(ctx, 4);
+        if (!d2Plain(finder, 0x10u) || sotc_decomp::fastCheckOn())
+            return checkFinderExistData(rdram, ctx, runtime);
+        ++c_d3Has.n;
+        ++runsOf(runtime); // (the old body's G)
+        SET_GPR_U64(ctx, 2, d3FinderHas(d1::Mem{rdram}, finder, GPR_S32(ctx, 5), GPR_U64(ctx, 6)));
+        returnTo(ctx);
+    }
+    void finderHasSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            finderHasD3(rdram, ctx, runtime);
+        else
+            checkFinderExistData(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_01114C70 (the vertex fetcher) -----------------------------------------------------------------------
+    // v0 as verticesIndepEntry leaves it: 0 for packed / short ids, else out + 8.
+    bool d3VerticesCore(const d1::Mem &m, uint32_t out, uint32_t idx, uint32_t cls, uint32_t index, uint32_t surface, D3Regs &r, bool &zeroV0)
+    {
+        if (!d3VtxIndep(m, out, idx, cls, index, surface, true, r))
+            return false;
+        const uint32_t record = m.u32(m.u32(m.u32(cls + 0x184u) + 0x20u) + 8u) + index * 0x90u;
+        zeroV0 = d3U8(m, record + 9u) != 0u || d3U8(m, record + 8u) != 0u;
+        return true;
+    }
+    void verticesIndepD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+#if PS2X_A8_CHECK
+        return verticesIndepEntry(rdram, ctx, runtime);
+#endif
+        if (!sotc_decomp::camCollOn())
+            return verticesIndepEntry(rdram, ctx, runtime);
+        const uint32_t out = GPR_U32(ctx, 4), idx = GPR_U32(ctx, 5), cls = GPR_U32(ctx, 6), index = GPR_U32(ctx, 7), surface = GPR_U32(ctx, 8);
+        if (!d2Plain(out, 0xCu) || (idx != 0u && !d2Plain(idx, 0xCu)) || !d2Plain(cls, 0x190u))
+            return verticesIndepEntry(rdram, ctx, runtime);
+        D3Regs r;
+        bool zeroV0 = false;
+        if (!d3VerticesCore(d1::Mem{rdram}, out, idx, cls, index, surface, r, zeroV0))
+            return verticesIndepEntry(rdram, ctx, runtime); // (a list outside the plain block: the old body redoes it)
+        ++c_d3Vtx.n;
+        ++runsOf(runtime); // (the old body's G)
+        d3PutRegs(ctx, runtime, r);
+        if (zeroV0)
+            SET_GPR_U64(ctx, 2, 0u);
+        else
+            SET_GPR_U32(ctx, 2, out + 8u);
+        returnTo(ctx);
+    }
+    void verticesIndepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            verticesIndepD3(rdram, ctx, runtime);
+        else
+            verticesIndepEntry(rdram, ctx, runtime);
+    }
+
+    // ---- GetCollisionDBPlane (0x11257a0) ---------------------------------------------------------------------------------
+    // The plane's address (made first when not cached: the vertices, plane(), EntryModifiedManager). false: the old body
+    // (a layout class by a call, a skinned surface's plane not cached: 01116108 as a guest call, a step for the guest).
+    bool d3CollisionPlaneCore(const d1::Mem &m, uint32_t id, uint32_t sp, bool camColl, D3Regs &r, uint32_t &normal)
+    {
+        const uint32_t w1 = m.u32(id + 4u);
+        uint32_t cls;
+        if (!d3LayoutClass(m, m.u32(id), cls))
+            return false;
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t s2 = m.u32(m.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            normal = m.u32(s2 + 0x14u) + s3 * 16u;
+            if (d3U8(m, m.u32(s2 + 8u) + s3) == 0u)
+            {
+                if (!d3VtxIndep(m, sp, sp + 0x10u, cls, s1, s3, camColl, r))
+                    return false;
+                d3Plane(m, sp, normal, r);
+                if (!d3EntryModified(m, s2, s3, r))
+                    return false;
+            }
+            return true;
+        }
+        const uint32_t t2 = m.u32(m.u32(cls + 0x184u) + 0x20u);
+        const uint32_t s2 = m.u32(cls + 0x174u) + 0x58u;
+        const uint32_t index = m.u32(m.u32(s1 * 0x90u + m.u32(t2 + 8u) + 0x54u) + s3 * 4u);
+        normal = m.u32(s2 + 0x14u) + index * 16u;
+        return d3U8(m, m.u32(s2 + 8u) + index) != 0u;
+    }
+    void collisionPlaneD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+#if PS2X_A10_CHECK
+        return collisionPlane(rdram, ctx, runtime);
+#endif
+        if (!sotc_decomp::collProbeOn() || sotc_decomp::jalTarget(rdram, 0x011257D4u) != kGetLayoutClass ||
+            sotc_decomp::jalTarget(rdram, 0x01125830u) != kVerticesIndep || sotc_decomp::jalTarget(rdram, 0x01125948u) != kVertices ||
+            sotc_decomp::jalTarget(rdram, 0x011259E0u) != kEntryModified)
+            return collisionPlane(rdram, ctx, runtime);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), id = GPR_U32(ctx, 4);
+        if (!d2Plain(id, 8u) || !d2Plain(spIn - 0x80u, 0x80u))
+            return collisionPlane(rdram, ctx, runtime);
+        D3Regs r;
+        r.status = ctx->vu0_status;
+        uint32_t normal = 0u;
+        if (!d3CollisionPlaneCore(d1::Mem{rdram}, id, spIn - 0x80u, sotc_decomp::camCollOn(), r, normal))
+            return collisionPlane(rdram, ctx, runtime); // nothing written, or a plane / vertex the old body finds made
+        ++c_d3Plane.n;
+        ++runsOf(runtime); // (the old body's G)
+        d3PutRegs(ctx, runtime, r);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U32(ctx, 2, normal);
+        returnTo(ctx);
+    }
+    void collisionPlaneSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            collisionPlaneD3(rdram, ctx, runtime);
+        else
+            collisionPlane(rdram, ctx, runtime);
+    }
+
+    // ---- GetCollisionDBSurfBoundary (0x11193c8) / getLayoutClassCollisionIndepSurfBoundary (0x1119248) --------------------
+    // boundary(): the cached record's address (0: not cached, the guest code makes it).
+    inline uint32_t d3Boundary(const d1::Mem &m, uint32_t cls, uint32_t index, uint32_t surface)
+    {
+        const uint32_t t2 = m.u32(m.u32(cls + 0x174u) + 0x24u) + index * 0x60u + 0x48u;
+        if (d3U8(m, m.u32(t2 + 8u) + surface) == 0u)
+            return 0u;
+        return m.u32(t2 + 0x14u) + surface * 16u;
+    }
+    // surfBoundary: the center and squared radius at out (f0 the square), v0 the record (sign-extended) / the skinned
+    // record's low doubleword. false: the guest code (nothing written).
+    bool d3SurfBoundaryCore(const d1::Mem &m, uint32_t out, uint32_t id, D3Regs &r)
+    {
+        const uint32_t w1 = m.u32(id + 4u);
+        uint32_t cls;
+        if (!d3LayoutClass(m, m.u32(id), cls))
+            return false;
+        const uint32_t index = (w1 >> 24) & 0x7Fu, surface = w1 & 0x00FFFFFFu;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t b = d3Boundary(m, cls, index, surface);
+            if (b == 0u)
+                return false;
+            d3Put(m, out, d3Q(m, b));
+            const float rad = m.f32(out + 0xCu);
+            const float r2 = d1::mul(rad, rad);
+            r.d3SetF0(r2);
+            d3Set32(m, out + 0xCu, d1Bits(r2));
+            r.d3SetV0(d3Sext(b));
+            return true;
+        }
+        const uint32_t s2 = m.u32(cls + 0x174u) + 0x70u;
+        const uint32_t t1 = m.u32(m.u32(m.u32(cls + 0x184u) + 0x20u) + 8u);
+        const uint32_t s1 = m.u32(m.u32(index * 0x90u + t1 + 0x54u) + surface * 4u);
+        if (d3U8(m, m.u32(s2 + 8u) + s1) == 0u)
+            return false;
+        const uint32_t rec = m.u32(s2 + 0x14u) + s1 * 16u;
+        d3Put(m, out, d3Q(m, rec));
+        r.d3SetV0(m.get<uint64_t>(rec & ~0xFu)); // lq v0
+        return true;
+    }
+    void surfBoundaryD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29), out = GPR_U32(ctx, 4), id = GPR_U32(ctx, 5);
+        if (!d2Plain(out & ~0xFu, 0x10u) || !d2Plain(id, 8u))
+            return surfBoundaryEntry(rdram, ctx, runtime);
+        D3Regs r;
+        if (!d3SurfBoundaryCore(d1::Mem{rdram}, out, id, r))
+            return surfBoundaryEntry(rdram, ctx, runtime); // nothing written
+        ++c_d3SurfB.n;
+        ++runsOf(runtime); // (the old body's G)
+        d3PutRegs(ctx, runtime, r);
+        SET_GPR_U64(ctx, 2, r.v0);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        returnTo(ctx);
+    }
+    void surfBoundarySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            surfBoundaryD3(rdram, ctx, runtime);
+        else
+            surfBoundaryEntry(rdram, ctx, runtime);
+    }
+    void indepBoundaryD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29), cls = GPR_U32(ctx, 4);
+        if (!d2Plain(cls, 0x178u))
+            return indepSurfBoundary(rdram, ctx, runtime);
+        const uint32_t b = d3Boundary(d1::Mem{rdram}, cls, GPR_U32(ctx, 5), GPR_U32(ctx, 6));
+        if (b == 0u)
+            return indepSurfBoundary(rdram, ctx, runtime); // nothing written
+        ++c_d3IndepB.n;
+        ++runsOf(runtime); // (the old body's G)
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, sp);
+        SET_GPR_U32(ctx, 2, b);
+        returnTo(ctx);
+    }
+    void indepBoundarySw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            indepBoundaryD3(rdram, ctx, runtime);
+        else
+            indepSurfBoundary(rdram, ctx, runtime);
+    }
+
+    // ---- CollisionObjectJudgeCallbackExceptPluralObj (0x11288d0) ---------------------------------------------------------
+    uint64_t d3ExceptPlural(const d1::Mem &m, uint32_t object, uint32_t list)
+    {
+        const int32_t n = m.s32(list);
+        for (int32_t i = 0; i < n; ++i)
+            if (m.u32(list + 4u + static_cast<uint32_t>(i) * 4u) == object)
+                return 0u;
+        return 1u;
+    }
+    void exceptPluralD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t list = GPR_U32(ctx, 5);
+        if (!sotc_decomp::camCollOn() || !d2Plain(list, 4u))
+            return objectFilterEntry<0>(rdram, ctx, runtime);
+        ++c_d3Plural.n;
+        ++runsOf(runtime); // (the old body's G)
+        SET_GPR_U64(ctx, 2, d3ExceptPlural(d1::Mem{rdram}, GPR_U32(ctx, 4), list));
+        returnTo(ctx);
+    }
+    void exceptPluralSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            exceptPluralD3(rdram, ctx, runtime);
+        else
+            objectFilterEntry<0>(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3: clipCollisionKeep (0x111c078) and ClipCollisionDB (0x111b9f0), partial -> full ---------------------------
+// The D1 bodies' values (clipKeepD1, clipDBD1) as cores on d1::Mem: the plane made by the d3 helpers, the boundary sphere
+// by GetCollisionDBSurfBoundary's core, a skinned triangle's corners by decomp_skinfinder's D1 core (01116108, D1 full)
+// called directly. A step the cores leave to the guest code (a layout class by a call, a skinned plane not made yet, a
+// boundary not cached, a list outside the plain block) sends the call to the old body (nothing written but the dead frame
+// and caches it finds made; Q / f0 / f1 / fcr31 written back first); clipKeep's "not in front" case goes on as the old
+// body's rest() (clipKeepTest from the start, the plane cached).
+namespace decomp_skinfinder
+{
+    int cornersD3Core(const d1::Mem m, const uint32_t args[8], uint32_t spCall, const uint64_t saved[10], __m128 vu[11]);
+    void cornersSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_collision
+{
+    D1_COUNTER(c_d3Keep, "collision.clipKeepD3");
+    D1_COUNTER(c_d3ClipDB, "collision.clipDBD3");
+
+    // vmulax / vmadday / vmaddaz / vmaddw by the four rows at mt (d1Xf on d1::Mem).
+    PS2_FORCE_INLINE __m128 d3Xf(const d1::Mem &m, uint32_t mt, __m128 v)
+    {
+        __m128 t = d1::vmul(d3Q(m, mt), d1::bc<0>(v));
+        t = d1::vmadd(t, d3Q(m, mt + 0x10u), d1::bc<1>(v));
+        t = d1::vmadd(t, d3Q(m, mt + 0x20u), d1::bc<2>(v));
+        return d1::vmadd(t, d3Q(m, mt + 0x30u), d1::bc<3>(v));
+    }
+
+    // The surface's plane address, made first when not cached (a non-skinned surface only); false: the old body's case.
+    bool d3PlaneOf(const d1::Mem &m, uint32_t id, uint32_t sp, bool camColl, D3Regs &r, uint32_t &cls, uint32_t &normal)
+    {
+        const uint32_t w1 = m.u32(id + 4u);
+        if (!d3LayoutClass(m, m.u32(id), cls))
+            return false;
+        const uint32_t s3 = w1 & 0x00FFFFFFu, s1 = (w1 >> 24) & 0x7Fu;
+        if (static_cast<int32_t>(w1) < 0)
+        {
+            const uint32_t s2 = m.u32(m.u32(cls + 0x174u) + 0x24u) + s1 * 0x60u + 0x30u;
+            normal = m.u32(s2 + 0x14u) + s3 * 16u;
+            if (d3U8(m, m.u32(s2 + 8u) + s3) == 0u)
+            {
+                if (!d3VtxIndep(m, sp, sp + 0x10u, cls, s1, s3, camColl, r))
+                    return false;
+                d3Plane(m, sp, normal, r);
+                if (!d3EntryModified(m, s2, s3, r))
+                    return false;
+            }
+            return true;
+        }
+        const uint32_t t2 = m.u32(m.u32(cls + 0x184u) + 0x20u);
+        const uint32_t s2 = m.u32(cls + 0x174u) + 0x58u;
+        const uint32_t index = m.u32(m.u32(s1 * 0x90u + m.u32(t2 + 8u) + 0x54u) + s3 * 4u);
+        normal = m.u32(s2 + 0x14u) + index * 16u;
+        return d3U8(m, m.u32(s2 + 8u) + index) != 0u;
+    }
+
+    // ---- clipCollisionKeep's core: 1 the start at least `keep` in front of the plane (v0 2, f0 0); 0 the rest; -1 the old body.
+    int d3ClipKeepCore(const d1::Mem &m, uint32_t id, uint32_t point, float keep, uint32_t sp, bool camColl, D3Regs &r)
+    {
+        uint32_t cls, normal;
+        if (!d3PlaneOf(m, id, sp, camColl, r, cls, normal))
+            return -1;
+        const float d = d1PlaneDist(d3Q(m, normal), d3Q(m, point));
+        const float ahead = d1::sub(d, keep), zero = 0.0f;
+        if (!d1::le(zero, ahead))
+            return 0;
+        r.d3SetF0(zero);
+        return 1;
+    }
+    void clipKeepD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return clipKeep(rdram, ctx, runtime);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0xD0u;
+        const uint32_t a0 = GPR_U32(ctx, 4), a1 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), a3 = GPR_U32(ctx, 7), id = GPR_U32(ctx, 8);
+        const float keep = ctx->f[12];
+        if (!d2Plain(id, 8u) || !d2Plain(a3 & ~0xFu, 0x10u) || !d2Plain(sp, 0xD0u))
+            return clipKeep(rdram, ctx, runtime);
+        D3Regs r;
+        r.status = ctx->vu0_status;
+        const int k = d3ClipKeepCore(d1::Mem{rdram}, id, a3, keep, sp, sotc_decomp::camCollOn(), r);
+        d3PutRegs(ctx, runtime, r);
+        if (k < 0)
+            return clipKeep(rdram, ctx, runtime); // nothing written, or a plane / vertex it finds made
+        ++c_d3Keep.n;
+        ++runsOf(runtime); // (the old body's G)
+        if (k == 0)
+        {
+            // the old body's rest()
+            SET_GPR_U32(ctx, 4, a0);
+            SET_GPR_U32(ctx, 5, a1);
+            SET_GPR_U32(ctx, 6, a2);
+            SET_GPR_U32(ctx, 7, a3);
+            SET_GPR_U32(ctx, 8, id);
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, spIn);
+            ctx->f[12] = keep;
+            ctx->pc = kClipKeep;
+            return decomp_hot44a::clipKeepTest(rdram, ctx, runtime);
+        }
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, 2u);
+        returnTo(ctx);
+    }
+
+    // ---- ClipCollisionDB's core (clipDBD1's values) ------------------------------------------------------------------
+    struct D3ClipIn
+    {
+        uint32_t a0, a1, a2, a3, sp; // sp: the old body's frame (spIn - 0xF0)
+        bool camColl, cornersOk;     // cornersOk: 01116108's slot holds its D1 dispatcher
+        uint64_t saved[10];          // s0-s7, fp, ra as the corners call's frame gets them
+    };
+    struct D3ClipOut
+    {
+        bool corners = false; // the skinned triangle's corners fetched (a0-t3 its arguments, v1 -1, the VU0 state below)
+        int cornerFlags = 0;  // decomp_skinfinder::cornersD3Core's
+        uint32_t args[8];
+        __m128 vu[11]; // vf8, vf14-vf17, vf10, ACC, (unused), vf29-vf31
+    };
+    // v0 0 / 1; -1: the old body.
+    int d3ClipDBCore(const d1::Mem &m, const D3ClipIn &in, D3ClipOut &o, D3Regs &r, uint32_t &fcr31)
+    {
+        const uint32_t sp = in.sp, a0 = in.a0, a1 = in.a1, a2 = in.a2, a3 = in.a3;
+        uint32_t cls, normal;
+        if (!d3PlaneOf(m, a3, sp, in.camColl, r, cls, normal))
+            return -1;
+        const float zero = 0.0f;
+        const __m128 n = d3Q(m, normal);
+        const float d0 = d1PlaneDist(n, d3Q(m, a1)), d1v = d1PlaneDist(n, d3Q(m, a2));
+        r.d3SetF0(zero);
+        if (d1::lt(d0, zero) || d1::lt(zero, d1v))
+            return 0;
+        // the crossing point (sp): p0 itself when the two distances are within 0.0005
+        const float span = d1::sub(d1v, d0);
+        bool atStart;
+        if (d1::lt(span, zero))
+        {
+            const float e = -0.0004999999f; // 0xba03126d
+            r.d3SetF0(e);
+            atStart = d1::lt(e, span);
+        }
+        else
+        {
+            const float e = 0.0004999999f; // 0x3a03126d
+            r.d3SetF0(e);
+            atStart = d1::lt(span, e);
+        }
+        if (atStart)
+            d3Put(m, sp, d3Q(m, a1));
+        else
+        {
+            const float t = ps2FpuDivide(fcr31, d1v, span);
+            r.d3SetF0(t);
+            const __m128 vt = d1::splat(t);
+            const __m128 p0 = d3Q(m, a1), p1 = d3Q(m, a2);
+            const __m128 oneMinus = d1::vsub(d1::vf0(), vt);
+            const __m128 acc = d1::vmul(p0, vt);
+            d3Put(m, sp, d1::vsel(p0, d1::vadd(acc, d1::vmul(p1, d1::bc<3>(oneMinus))), d1Xyz()));
+        }
+        // the boundary sphere (GetCollisionDBSurfBoundary's core)
+        if (!d3SurfBoundaryCore(m, sp + 0x10u, a3, r))
+            return -1;
+        {
+            __m128 dv = d1::vsub(d3Q(m, sp + 0x10u), d3Q(m, sp));
+            dv = d1::vsel(dv, d1::vmul(dv, dv), d1Xyz());
+            dv = d1::vsel(dv, d1::vadd(dv, d1::bc<1>(dv)), d1X());
+            const float dist2 = d1::lane<0>(d1::vadd(dv, d1::bc<2>(dv)));
+            const float r2 = m.f32(sp + 0x1Cu);
+            r.d3SetF0(r2);
+            if (d1::lt(r2, dist2))
+                return 0;
+        }
+        // the triangle: barycentric u / v of the crossing point
+        const uint32_t w1b = m.u32(a3 + 4u);
+        const uint32_t surface = w1b & 0x00FFFFFFu, index = (w1b >> 24) & 0x7Fu;
+        if (static_cast<int32_t>(w1b) < 0)
+        {
+            if (!d3VtxIndep(m, sp + 0x80u, 0u, cls, index, surface, in.camColl, r))
+                return -1;
+        }
+        else
+        {
+            if (!in.cornersOk)
+                return -1;
+            const uint32_t t4 = m.u32(m.u32(cls + 0x184u) + 0x20u);
+            const uint32_t a2c = m.u32(cls + 0x174u);
+            const uint32_t idx = m.u32(m.u32(index * 0x90u + m.u32(t4 + 8u) + 0x54u) + surface * 4u);
+            const uint32_t args[8] = {sp + 0x80u, 0u, a2c + 0x28u, m.u32(a2c + 0x24u), m.u32(cls + 0x15Cu), m.u32(t4 + 8u), m.u32(t4 + 0x14u),
+                                      m.u32(t4 + 0x18u) + idx * 0x40u};
+            const int flags = decomp_skinfinder::cornersD3Core(m, args, sp, in.saved, o.vu);
+            if (flags < 0)
+                return -1;
+            o.corners = true;
+            o.cornerFlags = flags;
+            for (int k = 0; k < 8; ++k)
+                o.args[k] = args[k];
+            ++r.bumps; // (the guest call's)
+        }
+        const __m128 v0 = d3Q(m, m.u32(sp + 0x80u));
+        d3Put(m, sp + 0x50u, d1::vsub(d3Q(m, m.u32(sp + 0x84u)), v0));
+        d3Put(m, sp + 0x60u, d1::vsub(d3Q(m, m.u32(sp + 0x88u)), v0));
+        d3Put(m, sp + 0x70u, d1::vsub(d3Q(m, sp), d3Q(m, m.u32(sp + 0x80u))));
+        const __m128 e1 = d3Q(m, sp + 0x50u), e2 = d3Q(m, sp + 0x60u), w = d3Q(m, sp + 0x70u);
+        __m128 nrm = d1::vsel(d1::zero4(), d2Outer(e1, e2), d1Xyz()); // vf8 (w: x - x, 0)
+        nrm = d1::vsel(nrm, d1::vsub(nrm, nrm), d1W());
+        const __m128 c2 = d1::vsel(d1::zero4(), d2Outer(nrm, e2), d1Xyz());
+        const float u = ps2FpuDivide(fcr31, d1Dot3(c2, w), d1Dot3(c2, e1));
+        const __m128 c1 = d1::vsel(d1::zero4(), d2Outer(nrm, e1), d1Xyz());
+        const float v = ps2FpuDivide(fcr31, d1Dot3(c1, w), d1Dot3(c1, e2));
+        const uint32_t ub = d1Bits(u), vb = d1Bits(v);
+        d3Set32(m, sp + 0x90u, ub);
+        d3Set32(m, sp + 0x94u, vb);
+        r.d3SetF0(u);
+        const float lo = -2e-05f; // 0xb7a7c5ac
+        if (d1::lt(u, lo) || d1::lt(v, lo))
+            return 0;
+        const float one = 1.0f, hi = 2e-05f; // 0x37a7c5ac
+        const float sum = d1::sub(d1::add(u, v), one);
+        r.d3SetF0(sum);
+        if (d1::lt(hi, sum))
+            return 0;
+        d3Put(m, a0 + 0x40u, d3Q(m, sp));
+        r.d3SetF0(u);
+        d3Set32(m, a0 + 8u, ub);
+        d3Set32(m, a0 + 0xCu, vb);
+        d3Set32(m, a0, m.u32(a3));
+        d3Set32(m, a0 + 4u, m.u32(a3 + 4u));
+        if (static_cast<int32_t>(m.u32(a3 + 4u)) >= 0)
+        {
+            d3Set32(m, a0 + 0x30u, 3u);
+            return 1;
+        }
+        uint32_t cls2 = cls;
+        d3LayoutClass(m, m.u32(a3), cls2);
+        d3Set32(m, a0 + 0x30u, 2u);
+        const uint32_t mt = (static_cast<uint32_t>(d3U8(m, a3 + 7u)) & 0x7Fu) * 0x40u + m.u32(cls2 + 0x164u);
+        d3Put(m, a0 + 0x10u, d3Xf(m, mt, d3Q(m, a0 + 0x40u)));
+        const __m128 local = d3Q(m, a0 + 0x10u);
+        d3Put(m, a0 + 0x10u, d1::vsel(local, d1::vmul(local, d3Q(m, cls2 + 0xA0u)), d1Xyz()));
+        return 1;
+    }
+    void clipCollisionDBD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::fastNativeOn())
+            return clipCollisionDB(rdram, ctx, runtime);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
+        D3ClipIn in{GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7), spIn - 0xF0u, sotc_decomp::camCollOn(), false, {}};
+        if (!d2Plain(in.a0, 0x50u) || !d2Plain(in.a1 & ~0xFu, 0x10u) || !d2Plain(in.a2 & ~0xFu, 0x10u) || !d2Plain(in.a3, 8u) ||
+            !d2Plain(spIn - 0x160u, 0x160u))
+            return clipCollisionDB(rdram, ctx, runtime);
+        in.cornersOk = sotc_decomp::guestFunction(runtime, kVertices) == &decomp_skinfinder::cornersSw;
+        static constexpr int kSavedD3[9] = {16, 17, 18, 19, 20, 21, 22, 23, 30};
+        for (int i = 0; i < 9; ++i)
+            in.saved[i] = GPR_U64(ctx, kSavedD3[i]);
+        in.saved[9] = 0x0111BE48u; // the corners call's ra
+        D3ClipOut o;
+        for (int k = 0; k < 3; ++k)
+            o.vu[8 + k] = ctx->vu0_vf[29 + k];
+        D3Regs r;
+        r.status = ctx->vu0_status;
+        uint32_t fcr31 = ctx->fcr31;
+        const int v0 = d3ClipDBCore(d1::Mem{rdram}, in, o, r, fcr31);
+        d3PutRegs(ctx, runtime, r);
+        ctx->fcr31 = fcr31;
+        if (v0 < 0)
+            return clipCollisionDB(rdram, ctx, runtime); // nothing written but the dead frame and caches it finds made
+        ++c_d3ClipDB.n;
+        ++runsOf(runtime); // (the old body's G)
+        if (o.corners)
+        {
+            for (int k = 0; k < 8; ++k)
+                SET_GPR_U32(ctx, 4 + k, o.args[k]);
+            SET_GPR_S64(ctx, 3, -1);
+            if (o.cornerFlags & 1)
+            {
+                ctx->vu0_vf[8] = o.vu[0];
+                for (int k = 0; k < 4; ++k)
+                    ctx->vu0_vf[14 + k] = o.vu[1 + k];
+                ctx->vu0_vf[10] = o.vu[5];
+                ctx->vu0_acc = o.vu[6];
+            }
+            if (o.cornerFlags & 2)
+                for (int k = 0; k < 3; ++k)
+                    ctx->vu0_vf[29 + k] = o.vu[8 + k];
+        }
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(v0));
+        returnTo(ctx);
+    }
+}
+
+// ---- Round D3: manager_sub_01117340 (the water surface), partial -> full --------------------------------------------
+// waterSurfaceD1's S2 / S6 search as a core on d1::Mem (the host index / S2 loop helpers take the RAM block's base, the
+// transforms d3Xf, the outer products d2Outer, fcr31 a local); the adapter keeps D1's gates, finds the S6 index, notes
+// the probe's stats and runs the recompiled body for the slow case (a triangle under the segment) as D1's does.
+namespace decomp_collision
+{
+    D1_COUNTER(c_d3Water, "collision.waterSurfaceD3");
+
+    struct D3WaterIn
+    {
+        uint32_t m164, p0, p1, work, cross, t0;
+        int32_t count;
+        s6coll::Index *ix; // S6's index for the table (nullptr: S2's loop)
+    };
+    // true: the slow case (a triangle under the segment: the recompiled body from the start, as D1's); f0n / fcr31 as the
+    // triangles' tests leave them; visited >= 0: the S6 probe's count for its stats.
+    bool d3WaterSurfaceCore(const d1::Mem &m, const D3WaterIn &in, std::vector<uint16_t> &cands, float &f0n, uint32_t &fcr31, int64_t &visitedOut)
+    {
+        const __m128 p0 = d3Xf(m, in.m164, d3Q(m, in.p0)), p1 = d3Xf(m, in.m164, d3Q(m, in.p1));
+        const float p0x = d1::lane<0>(p0), p0y = d1::lane<1>(p0), p0z = d1::lane<2>(p0);
+        const float p1x = d1::lane<0>(p1), p1y = d1::lane<1>(p1), p1z = d1::lane<2>(p1);
+        const float lowLimit = bitsFloat(0xB7A7C5ACu), highLimit = bitsFloat(0x37A7C5ACu), one = bitsFloat(0x3F800000u);
+        const uint32_t work = in.work, cross = in.cross, t0 = in.t0;
+        const int32_t count = in.count;
+        // one triangle: its words into the work block, then the crossing's barycentric (true: inside, the old body's case)
+        auto tri = [&](uint32_t t, float &f0) -> bool
+        {
+            const float vx = m.f32(t + 8u), vz = m.f32(t + 0xCu), h = m.f32(t + 4u);
+            d3Set32(m, work + 0x10u, floatBits(d1::sub(m.f32(t + 0x10u), vx)));
+            d3Set32(m, work + 0x18u, floatBits(d1::sub(m.f32(t + 0x14u), vz)));
+            d3Set32(m, work + 0x20u, floatBits(d1::sub(m.f32(t + 0x18u), vx)));
+            d3Set32(m, work, floatBits(vx));
+            d3Set32(m, work + 8u, floatBits(vz));
+            d3Set32(m, work + 0x28u, floatBits(d1::sub(m.f32(t + 0x1Cu), vz)));
+            d3Set32(m, work + 0x30u, floatBits(h));
+            f0 = h;
+            if (!d1::lt(p1y, h))
+                return false;
+            f0 = p0y;
+            if (!d1::lt(h, p0y))
+                return false;
+            const float k = ps2FpuDivide(fcr31, d1::sub(h, p0y), d1::sub(p1y, p0y));
+            const __m128 kx = d1::splat(k);
+            const __m128 w = d1::vsub(d1::vf0(), kx); // vsubx.w vf8, vf0, vf7 (lane w)
+            const __m128 q = d1::vadd(d1::vmul(p1, kx), d1::vmul(p0, d1::bc<3>(w)));
+            d3Set32(m, cross, floatBits(d1::sub(d1::lane<0>(q), vx)));
+            d3Set32(m, cross + 8u, floatBits(d1::sub(d1::lane<2>(q), vz)));
+            const __m128 a = d3Q(m, work + 0x10u), b = d3Q(m, work + 0x20u), c = d3Q(m, cross);
+            const __m128 n = d2Outer(a, b);
+            const __m128 nb = d2Outer(n, b);
+            const float u = ps2FpuDivide(fcr31, d1DotX(nb, c), d1DotX(nb, a));
+            const __m128 na = d2Outer(n, a);
+            const float v = ps2FpuDivide(fcr31, d1DotX(na, c), d1DotX(na, b));
+            f0 = u;
+            if (d1::lt(u, lowLimit) || d1::lt(v, lowLimit))
+                return false;
+            f0 = d1::sub(d1::add(u, v), one);
+            if (d1::lt(highLimit, f0))
+                return false;
+            return true;
+        };
+        bool slow;
+        const float bx0 = p0x < p1x ? p0x : p1x, bx1 = p0x > p1x ? p0x : p1x, bz0 = p0z < p1z ? p0z : p1z, bz1 = p0z > p1z ? p0z : p1z;
+        const int32_t lastB = in.ix ? s6coll::lastBetween(*in.ix, p1y, p0y) : -1;
+        bool byIndex = in.ix != nullptr;
+        if (byIndex)
+        {
+            cands.clear();
+            if (lastB >= 0)
+                byIndex = s6coll::boxCands(*in.ix, bx0, bx1, bz0, bz1, cands);
+        }
+        visitedOut = -1;
+        if (byIndex)
+        {
+            uint32_t visited = 0;
+            bool done = false;
+            slow = false;
+            auto visit = [&](int32_t i)
+            {
+                const uint32_t t = t0 + 0x20u * static_cast<uint32_t>(i);
+                const float h = m.f32(t + 4u);
+                if (!(d1::lt(p1y, h) && d1::lt(h, p0y)))
+                    return;
+                if (i != lastB && s2water::outsideBox(m.base, t, bx0, bx1, bz0, bz1))
+                    return;
+                ++visited;
+                if (tri(t, f0n))
+                    slow = done = true;
+            };
+            bool lastSeen = false;
+            for (const uint16_t i : cands)
+            {
+                const int32_t k = static_cast<int32_t>(i);
+                if (k + 1 >= count || k > lastB)
+                    break;
+                lastSeen = lastSeen || k == lastB;
+                visit(k);
+                if (done)
+                    break;
+            }
+            if (!done && !lastSeen && lastB >= 0 && lastB + 1 < count)
+                visit(lastB);
+            if (!done)
+            {
+                ++visited;
+                slow = tri(t0 + 0x20u * static_cast<uint32_t>(count - 1), f0n);
+            }
+            visitedOut = visited;
+        }
+        else
+            slow = s2water::surface(m.base, t0, count, p0x, p0y, p0z, p1x, p1y, p1z, [&](uint32_t t) { return tri(t, f0n); });
+        return slow;
+    }
+    void waterSurfaceD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // D1's gates: a log / check mode, a triangle filter (guest calls per triangle), every non-S2 case -> the old body
+        if (s6coll::logOn() || s2water::logOn() || s2water::checkOn() || s6coll::checkOn() || !sotc_decomp::collProbeOn() ||
+            sotc_decomp::jalTarget(rdram, 0x01117394u) != kGetLayoutClass || GPR_U32(ctx, 9) != 0u || !s2water::on(runtime))
+            return waterSurface(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t obj = GPR_U32(ctx, 7), p0 = GPR_U32(ctx, 5), p1 = GPR_U32(ctx, 6);
+        uint32_t cls;
+        if (!d2Plain(obj, 0xCu) || !d3LayoutClass(m, obj, cls) || !d2Plain(cls, 0x188u) || !d2Plain(p0 & ~0xFu, 0x10u) || !d2Plain(p1 & ~0xFu, 0x10u))
+            return waterSurface(rdram, ctx, runtime);
+        const uint32_t work = sotc_decomp::relocated(rdram, 0x011173ACu, 0x011173B4u), cross = sotc_decomp::relocated(rdram, 0x011173A0u, 0x011173A4u);
+        const uint32_t rec = m.u32(m.u32(cls + 0x184u) + 0x20u);
+        const int32_t count = m.s32(rec + 0x38u);
+        const uint32_t t0 = m.u32(rec + 0x3Cu);
+        if (!(count > 0 && d2Plain(t0, 0x20u * static_cast<uint32_t>(count)) && d2Plain(work, 0x40u) && d2Plain(cross, 0x10u)))
+            return waterSurface(rdram, ctx, runtime);
+        ++c_d3Water.n;
+        ++runsOf(runtime); // (the old body's G)
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29);
+        s6coll::Index *ix = s6coll::active(runtime) ? const_cast<s6coll::Index *>(s6coll::find(rdram, t0, count)) : nullptr;
+        const D3WaterIn in{m.u32(cls + 0x164u), p0, p1, work, cross, t0, count, ix};
+        float f0n = ctx->f[0];
+        uint32_t fcr31 = ctx->fcr31;
+        int64_t visited = -1;
+        const bool slow = d3WaterSurfaceCore(m, in, s6coll::scratch(), f0n, fcr31, visited);
+        if (visited >= 0)
+            s6coll::noteProbe(1, true, static_cast<uint32_t>(visited));
+        ctx->fcr31 = fcr31;
+        if (slow)
+            return sotc_decomp::recompiled(kWaterSurface)(rdram, ctx, runtime);
+        ctx->f[0] = f0n;
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+}
+
+// ---- Round D3: FlushCollisionWork (0x10f1d60) ----------------------------------------------------------------------
+// The layout class by the type's jump table (0x1194130, flushCollisionWork's cases) and the collision record's counts as a
+// core; the tail jump to FlushCollisionWorkByWorkStruct a direct C++ call of its D2 body (flushWorkD1: its own gates and
+// FlushModifiedManager's core) while the table holds its dispatcher, else the old body's callNative.
+namespace decomp_collision
+{
+    D1_COUNTER(c_d3FlushCW, "collision.flushCollisionWork");
+
+    struct D3FcwOut
+    {
+        uint32_t layout = 0u, collision = 0u, counts = 0u;
+        int32_t part = 0;
+        bool scriptA1 = false; // a1 = 0xb (GetScriptLayoutClass's case)
+        uint32_t a1 = 0u, a2 = 0u, a3 = 0u;
+    };
+    // 0 no collision record (a0 the layout), 1 a negative part (a0 it), 2 the lists (a0 the work); -1 the old body.
+    int d3FlushCollWorkCore(const d1::Mem &m, uint32_t obj, D3FcwOut &o)
+    {
+        const uint32_t index = static_cast<uint32_t>(d3U8(m, obj + 8u)) - 9u;
+        if (index < 0xEu)
+        {
+            switch (m.u32(0x01194130u + index * 4u))
+            {
+            case 0x010F1D98u:
+            case 0x010F1DB0u: // the camera object's class
+            case 0x010F1DC8u: // GetLightClass (type 19)
+                o.layout = obj + 0x20u;
+                break;
+            case 0x010F1DA0u: // GetScriptLayoutClass (type 11), + 0x70
+                o.layout = obj + 0x90u;
+                o.scriptA1 = true;
+                break;
+            case 0x010F1DD8u:
+                o.layout = obj + 0x90u;
+                break;
+            case 0x010F1DE0u:
+                break;
+            default:
+                return -1;
+            }
+        }
+        o.collision = m.u32(o.layout + 0x184u);
+        if (o.collision == 0u)
+            return 0;
+        o.part = m.s32(o.layout + 0x174u);
+        if (o.part < 0)
+            return 1;
+        o.counts = m.u32(o.collision + 0x20u);
+        o.a3 = m.u32(o.counts + 0xCu);
+        o.a1 = m.u32(o.counts + 4u);
+        o.a2 = m.u32(o.counts + 0x10u);
+        return 2;
+    }
+    void flushCollisionWorkD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::leavesOn() || !flushCallsOk(rdram))
+            return flushCollisionWork(rdram, ctx, runtime);
+        const uint32_t obj = GPR_U32(ctx, 4);
+        if (!d2Plain(obj, 0xCu))
+            return flushCollisionWork(rdram, ctx, runtime);
+        D3FcwOut o;
+        const int k = d3FlushCollWorkCore(d1::Mem{rdram}, obj, o);
+        if (k < 0)
+            return flushCollisionWork(rdram, ctx, runtime); // nothing written
+        ++c_d3FlushCW.n;
+        ++runsOf(runtime); // (the old body's G)
+        if (o.scriptA1)
+            SET_GPR_U64(ctx, 5, 0xBu);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(o.collision));
+        SET_GPR_U64(ctx, 2, 0u);
+        if (k == 0)
+        {
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(o.layout));
+            return returnTo(ctx);
+        }
+        SET_GPR_S32(ctx, 4, o.part);
+        if (k == 1)
+            return returnTo(ctx);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.counts));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(o.a3));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(o.a1));
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(o.a2));
+        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
+        if (!sotc_decomp::onWorkerLane(runtime) && sotc_decomp::guestFunction(runtime, kFlushWork) == &flushWorkSw)
+        {
+            // callNative's direct case with the D2 body straight (calls direct 1)
+            SET_GPR_U32(ctx, 31, ra);
+            SET_GPR_U32(ctx, 29, sp);
+            ctx->pc = kFlushWork;
+            flushWorkD1(rdram, ctx, runtime);
+            runtime->checkTransfer();
+            if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 0))
+                sotc_decomp::finishGuestCall(rdram, ctx, runtime, ra, sp);
+            return;
+        }
+        sotc_decomp::callNative(rdram, ctx, runtime, kFlushWork, &flushWork, ra, sp);
+    }
+    void flushCollisionWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            flushCollisionWorkD3(rdram, ctx, runtime);
+        else
+            flushCollisionWork(rdram, ctx, runtime);
     }
 }

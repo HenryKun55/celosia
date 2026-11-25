@@ -1103,11 +1103,395 @@ namespace decomp_gaze
         ++c_d1Gaze.n;
         gazeD1Body(rdram, ctx, runtime);
     }
+    void gazeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void gazeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            gazeD1(rdram, ctx, runtime);
+            gazeD3(rdram, ctx, runtime);
         else
             gaze(rdram, ctx, runtime);
+    }
+} // namespace decomp_gaze
+
+// ---- Round D3 (d1native): manager_sub_010C6238 partial -> full -----------------------------------------------------------
+// The D1 body's guest calls as direct core calls: iosGetATan2fExact as decomp_quat's D2 core (round 122's atan2ExactCore;
+// the callee leaves f0 only), each key's curveEval as decomp_curve's D2 core (d2c::curveCore) with the leftovers it chains
+// from one call to the next as the old calls leave them (fcr31, a2's 128 bits, the status of the context, vf1). Every key
+// of every node is tested first with decomp_curve's d3CurveTakes (curveCore's own refusals: format 13, the recompiled
+// formats, an overlap, a non-finite channel word) and d3CurveReadsMiss (no word a decode reads lies in the frame's key
+// slots or the pose the loop writes), so the core runs with no fallback; any key it would refuse, curveEval's slot held by
+// something else, fastnative off / SOTC_CURVE_STATS, quat122 off or its check mode, P1 on, a worker lane: the D1 body.
+// The registers the old body leaves (with its callees' leftovers): v0 (the last dot's 128 bits, low word sign-extended),
+// v1 -1, a0-a3 / t0 as the last key's call set them (t0's low word the blend weight's bits), f0 the last dot, f12 / f13,
+// fcr31, vf1 (the last packed key's), vf5-vf16, ACC, Q and the status of the gaze's own normalisations.
+namespace decomp_curve
+{
+    void curveEval(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void curveEvalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool d3CurveDefault();
+    namespace d2c
+    {
+        // (decomp_curve.cpp's definition, the same tokens)
+        // What the decoder leaves: f0, fcr31, vf1 (= a2's 128 bits after mfc1 a2 / qmtc2 a2), vf7, Q, the status, v0.
+        struct CurveRegs
+        {
+            float f0;
+            uint32_t fcr31;
+            __m128 vf1, vf7, a2q;
+            float q;
+            uint16_t status;
+            uint64_t v0;
+            bool setF0, vu1, vu7;
+        };
+        bool curveCore(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index, CurveRegs &r);
+        bool d3CurveTakes(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index);
+        bool d3CurveReadsMiss(const d1::Mem &m, uint32_t chan, uint32_t index, uint32_t lo, uint32_t hi);
+    }
+}
+namespace decomp_quat
+{
+    void atan2Exact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void atan2ExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d2q
+    {
+        float atan2ExactD1Core(float y, float x);
+    }
+}
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+    namespace quat
+    {
+        bool on();
+    }
+}
+
+namespace decomp_gaze
+{
+    D1_COUNTER(c_d3Gaze, "manager_sub_010C6238.d3");
+
+    struct GazeD3
+    {
+        // in
+        uint32_t a0, a1, a2, sp, identity, identity2;
+        uint64_t r8hi, r21hi;
+        // in / out: what the curveEval calls chain (a2's 128 bits, fcr31, the context's status, vf1)
+        __m128 r6, vf1;
+        uint32_t fcr31;
+        uint16_t cstatus;
+        // out
+        __m128 r2;
+        float f0, f12, f13;
+        uint64_t r4, r5, r7, r8;
+        bool early;
+    };
+    PS2_FORCE_INLINE uint64_t d3sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+    PS2_FORCE_INLINE __m128 d3vec(uint64_t lo, uint64_t hi)
+    {
+        const uint64_t w[2] = {lo, hi};
+        __m128 v;
+        std::memcpy(&v, w, 16);
+        return v;
+    }
+    PS2_FORCE_INLINE bool d3inRam(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+
+    // The direction's key index k, as gazeD3Core computes it (the same statements; no side effect).
+    int32_t gazeD3Key(const d1::Mem &m, uint32_t a2)
+    {
+        bool c;
+        const float f21 = d1Clamp1(m.f32(a2 + 4u), c);
+        const float f20 = d1Clamp1(m.f32(a2 + 0u), c);
+        const float ang = decomp_quat::d2q::atan2ExactD1Core(f20, f21);
+        const float f3 = d1::lt(ang, 0.0f) ? d1::add(ang, fromBits(0x40C90FDAu)) : d1::add(ang, fromBits(0u));
+        uint32_t fcr = 0u;
+        return ps2FpuConvertToWord(ps2FpuDivide(fcr, d1::mul(f3, fromBits(0x41000000u)), fromBits(0x40C90FDAu)));
+    }
+    // Every key the loop decodes is one curveCore takes (tested on the words as they stand; the decodes' words lie outside
+    // what the loop writes: the frame's three key slots and the pose). false: the D1 body.
+    bool gazeD3Plan(const d1::Mem &m, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t sp)
+    {
+        if (!d3inRam(a1, 8u) || !d3inRam(a2, 12u) || !d3inRam(sp, 0x110u))
+            return false;
+        const int32_t n = m.s32(a1 + 4u);
+        if (n < 0 || n > 0x1000)
+            return false;
+        if (n == 0)
+            return true;
+        const uint32_t poseLo = a0 & ~0xFu, poseHi = a0 + (static_cast<uint32_t>(n) << 4);
+        if (!d3inRam(poseLo, poseHi - poseLo))
+            return false;
+        const int32_t k = gazeD3Key(m, a2);
+        const uint32_t keys[3] = {0u, (static_cast<uint32_t>(k) & 7u) + 1u, ((static_cast<uint32_t>(k) + 1u) & 7u) + 1u};
+        const uint32_t res = m.u32(a2 + 8u);
+        if (!d3inRam(res + 8u, 12u))
+            return false;
+        for (int32_t node = 0; node < n; ++node)
+        {
+            const uint32_t t0 = m.u32(res + 0x10u), v1 = m.u32(res + 8u) + static_cast<uint32_t>(node), v0 = (static_cast<uint32_t>(node) << 2) + t0;
+            if (!d3inRam(v1, 1u) || !d3inRam(v0, 4u))
+                return false;
+            const uint64_t fmt = m.get<uint8_t>(v1);
+            const uint32_t chan = static_cast<uint32_t>(m.s32(v0));
+            for (uint32_t i = 0; i < 3u; ++i)
+                if (!decomp_curve::d2c::d3CurveTakes(m, sp + i * 0x10u, fmt, chan, keys[i]) ||
+                    !decomp_curve::d2c::d3CurveReadsMiss(m, chan, keys[i], sp, sp + 0x30u) ||
+                    !decomp_curve::d2c::d3CurveReadsMiss(m, chan, keys[i], poseLo, poseHi))
+                    return false;
+        }
+        return true;
+    }
+
+    // gazeD1Body's statements with the atan2 and the keys as core calls.
+    void gazeD3Core(const d1::Mem &m, GazeD3 &g, D1Vu &u)
+    {
+        const uint32_t sp = g.sp, a0 = g.a0, a1 = g.a1, a2 = g.a2;
+        const float f1 = m.f32(a2 + 4u), f2 = m.f32(a2 + 0u);
+        int32_t s1 = m.s32(a1 + 4u);
+        const uint32_t res = m.u32(a2 + 8u);
+        uint32_t s4 = a0 + (static_cast<uint32_t>(s1) << 4) - 0x10u;
+        bool c;
+        const float f21 = d1Clamp1(f1, c);
+        const float f20 = d1Clamp1(f2, c);
+        g.f12 = f20;
+        g.f13 = f21;
+        // iosGetATan2fExact(f12, f13): its D2 core (f0 only)
+        const float ang = decomp_quat::d2q::atan2ExactD1Core(f20, f21);
+        c = d1::lt(ang, 0.0f);
+        g.fcr31 = c ? (g.fcr31 | 0x800000u) : (g.fcr31 & ~0x800000u);
+        const float f3 = c ? d1::add(ang, fromBits(0x40C90FDAu)) : d1::add(ang, fromBits(0u));
+        uint32_t fcr = 0u; // (as the D1 body: the flags these two can raise need a negative root / a zero divisor)
+        const float len = ps2FpuSqrt(fcr, d1::add(d1::mul(f21, f21), d1::mul(f20, f20)));
+        const float fk = ps2FpuDivide(fcr, d1::mul(f3, fromBits(0x41000000u)), fromBits(0x40C90FDAu));
+        const int32_t k = ps2FpuConvertToWord(fk);
+        const float fkw = static_cast<float>(k);
+        const float frac = d1::sub(fk, fkw);
+        s1 -= 1;
+        if (s1 == -1)
+        {
+            g.early = true;
+            g.r2 = d3vec(d3sx(static_cast<uint32_t>(k)), 0u);
+            g.f0 = fkw;
+            return;
+        }
+        g.early = false;
+        const uint32_t keyA = (static_cast<uint32_t>(k) & 7u) + 1u, keyB = ((static_cast<uint32_t>(k) + 1u) & 7u) + 1u;
+        const uint64_t s5low = 0xFFFFFFFFBF800000ull;
+        uint32_t lastDot = 0u;
+        __m128 lastDotVec = d1::zero4();
+        float weight = 0.0f;
+
+        // GetMotionNodeIntFrameDirectResource's loads, then curveEval's D2 core (as the tail jump: the chained leftovers).
+        auto key = [&](uint32_t out, uint32_t keyIndex) -> __m128
+        {
+            const uint32_t node = static_cast<uint32_t>(s1);
+            const uint32_t t0 = m.u32(res + 0x10u), v1 = m.u32(res + 8u) + node, v0 = (node << 2) + t0;
+            const uint64_t fmt = m.get<uint8_t>(v1);
+            const uint32_t chan = static_cast<uint32_t>(m.s32(v0));
+            decomp_curve::d2c::CurveRegs r;
+            r.fcr31 = g.fcr31;
+            r.status = g.cstatus;
+            r.a2q = g.r6;
+            const uint64_t low = d3sx(chan);
+            std::memcpy(&r.a2q, &low, 8);
+            r.setF0 = r.vu1 = r.vu7 = false;
+            decomp_curve::d2c::curveCore(m, out, fmt, chan, keyIndex, r); // (taken: gazeD3Plan)
+            g.fcr31 = r.fcr31;
+            g.r6 = r.a2q;
+            if (r.vu1)
+            {
+                g.r6 = r.vf1;
+                g.vf1 = r.vf1;
+                g.cstatus = r.status;
+            }
+            g.r4 = d3sx(out);
+            g.r5 = fmt;
+            g.r7 = d3sx(keyIndex);
+            return m.q(out & ~0xFu);
+        };
+        auto dotSign = [&]() -> bool
+        {
+            lastDotVec = u.v15;
+            lastDot = bitsOf(d1::lane<0>(u.v15));
+            return static_cast<int32_t>(lastDot) < 0;
+        };
+        // t0 = the weight's bits (mfc1: sign-extended low 64, t0's upper half as it was) / qmtc2 t0, vf7.
+        auto t0Vec = [&](float f)
+        {
+            weight = f;
+            return d3vec(d3sx(bitsOf(f)), g.r8hi);
+        };
+        const __m128 minus1 = d3vec(s5low, g.r21hi);
+
+        do
+        {
+            const __m128 k0 = key(sp, 0u);
+            const __m128 kA = key(sp + 0x10u, keyA);
+            const __m128 kB = key(sp + 0x20u, keyB);
+            u.v11 = k0;
+            u.v5 = d1::vsel(u.v5, d1::vsub(u.v0, d1::bc<3>(u.v0)), d1::mask(1, 0, 0, 0));
+            u.v11 = d1::vsel(u.v11, d1::vmul(u.v11, d1::bc<0>(u.v5)), d1::mask(1, 1, 1, 0));
+            const __m128 conj = u.v11;
+            u.v12 = kA;
+            d1Qmul(u);
+            const __m128 relA = u.v13;
+            u.v11 = conj;
+            u.v12 = kB;
+            d1Qmul(u);
+            const __m128 relB = u.v13;
+
+            __m128 id = m.q(g.identity & ~0xFu);
+            u.v14 = relA;
+            u.v15 = id;
+            d1Dot(u);
+            if (dotSign())
+            {
+                u.v5 = id;
+                u.v6 = minus1;
+                d1Negate5(u);
+                id = u.v5;
+            }
+            u.v7 = t0Vec(len);
+            u.v5 = relA;
+            u.v6 = id;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            const __m128 nA = u.v15;
+
+            __m128 id2 = m.q(g.identity2 & ~0xFu);
+            u.v14 = relB;
+            u.v15 = id2;
+            d1Dot(u);
+            u.v5 = id2;
+            if (dotSign())
+            {
+                u.v6 = minus1;
+                d1Negate5(u);
+                id2 = u.v5;
+            }
+            u.v7 = t0Vec(len);
+            u.v5 = relB;
+            u.v6 = id2;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            const __m128 nB = u.v15;
+
+            __m128 a = nA;
+            u.v14 = nB;
+            u.v15 = a;
+            d1Dot(u);
+            u.v5 = a;
+            if (dotSign())
+            {
+                u.v6 = minus1;
+                d1Negate5(u);
+                a = u.v5;
+            }
+            u.v7 = t0Vec(frac);
+            u.v5 = nB;
+            u.v6 = a;
+            d1Blend(u);
+            u.v14 = u.v9;
+            d1Normalise(u);
+            u.v14 = u.v15;
+            d1Normalise(u);
+
+            u.v11 = m.q(s4 & ~0xFu);
+            u.v12 = u.v15;
+            d1Qmul(u);
+            m.putq(s4 & ~0xFu, u.v13);
+            s1 -= 1;
+            s4 -= 0x10u;
+        } while (s1 != -1);
+
+        uint64_t dotLow = d3sx(lastDot);
+        g.r2 = lastDotVec;
+        std::memcpy(&g.r2, &dotLow, 8);
+        g.f0 = fromBits(lastDot);
+        g.r8 = d3sx(bitsOf(weight));
+    }
+
+    void gazeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::motionOn() || sotc_decomp::p1charaOn() || sotc_decomp::onWorkerLane(runtime) || !decomp_curve::d3CurveDefault() ||
+            !char122::quat::on() || char122::checkEvery() > 0 || jalTarget(rdram, 0x010C62F0u) != kAtan2 || jalTarget(rdram, 0x010C63C4u) != kWrapper ||
+            jalTarget(rdram, 0x010C63D8u) != kWrapper || jalTarget(rdram, 0x010C63ECu) != kWrapper || jalTarget(rdram, 0x010B64E8u) != kCurveEval)
+            return gazeD1(rdram, ctx, runtime);
+        const PS2Runtime::RecompiledFunction at = sotc_decomp::guestFunction(runtime, kAtan2), ce = sotc_decomp::guestFunction(runtime, kCurveEval);
+        if (!(at == &decomp_quat::atan2ExactSw || at == &decomp_quat::atan2Exact) || !(ce == &decomp_curve::curveEvalSw || ce == &decomp_curve::curveEval))
+            return gazeD1(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t sp0 = GPR_U32(ctx, 29);
+        GazeD3 g;
+        g.a0 = GPR_U32(ctx, 4);
+        g.a1 = GPR_U32(ctx, 5);
+        g.a2 = GPR_U32(ctx, 6);
+        g.sp = sp0 - 0x110u;
+        if (sp0 < 0x1110u || !gazeD3Plan(m, g.a0, g.a1, g.a2, g.sp))
+            return gazeD1(rdram, ctx, runtime);
+        ++c_d3Gaze.n;
+        g.identity = sotc_decomp::relocated(rdram, 0x010C646Cu, 0x010C6470u);
+        g.identity2 = sotc_decomp::relocated(rdram, 0x010C6508u, 0x010C650Cu);
+        {
+            uint64_t w[2];
+            std::memcpy(w, &ctx->r[8], 16);
+            g.r8hi = w[1];
+            std::memcpy(w, &ctx->r[21], 16);
+            g.r21hi = w[1];
+        }
+        std::memcpy(&g.r6, &ctx->r[6], 16);
+        g.vf1 = ctx->vu0_vf[1];
+        g.fcr31 = ctx->fcr31;
+        g.cstatus = ctx->vu0_status;
+        D1Vu u;
+        u.v0 = ctx->vu0_vf[0];
+        u.v5 = ctx->vu0_vf[5];
+        u.v6 = ctx->vu0_vf[6];
+        u.v7 = ctx->vu0_vf[7];
+        u.v8 = ctx->vu0_vf[8];
+        u.v9 = ctx->vu0_vf[9];
+        u.v11 = ctx->vu0_vf[11];
+        u.v12 = ctx->vu0_vf[12];
+        u.v13 = ctx->vu0_vf[13];
+        u.v14 = ctx->vu0_vf[14];
+        u.v15 = ctx->vu0_vf[15];
+        u.v16 = ctx->vu0_vf[16];
+        u.acc = ctx->vu0_acc;
+        u.q = ctx->vu0_q;
+        u.status = ctx->vu0_status;
+        gazeD3Core(m, g, u);
+        ctx->f[12] = g.f12;
+        ctx->f[13] = g.f13;
+        ctx->f[0] = g.f0;
+        ctx->fcr31 = g.fcr31;
+        if (g.early)
+        {
+            SET_GPR_U64(ctx, 2, d3sx(static_cast<uint32_t>(_mm_cvtsi128_si32(_mm_castps_si128(g.r2)))));
+            return returnTo(ctx);
+        }
+        std::memcpy(&ctx->r[2], &g.r2, 16);
+        SET_GPR_S32(ctx, 3, -1);
+        SET_GPR_U64(ctx, 4, g.r4);
+        SET_GPR_U64(ctx, 5, g.r5);
+        std::memcpy(&ctx->r[6], &g.r6, 16);
+        SET_GPR_U64(ctx, 7, g.r7);
+        SET_GPR_U64(ctx, 8, g.r8);
+        ctx->vu0_vf[1] = g.vf1;
+        ctx->vu0_vf[5] = u.v5;
+        ctx->vu0_vf[6] = u.v6;
+        ctx->vu0_vf[7] = u.v7;
+        ctx->vu0_vf[8] = u.v8;
+        ctx->vu0_vf[9] = u.v9;
+        ctx->vu0_vf[11] = u.v11;
+        ctx->vu0_vf[12] = u.v12;
+        ctx->vu0_vf[13] = u.v13;
+        ctx->vu0_vf[14] = u.v14;
+        ctx->vu0_vf[15] = u.v15;
+        ctx->vu0_vf[16] = u.v16;
+        ctx->vu0_acc = u.acc;
+        ctx->vu0_q = u.q;
+        ctx->vu0_status = u.status;
+        returnTo(ctx);
     }
 } // namespace decomp_gaze

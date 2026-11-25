@@ -871,20 +871,28 @@ namespace decomp_isys48
 {
     void deleteGroupAllObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void discardLetterAllSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void objDeleteUnLockSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3
+    void dlResetSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);         // round D3
+    void openPostSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);        // round D3
+    void closePostSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);       // round D3
 }
 SOTC_DECOMP_FUNCTION(0x001C6DB8u, isysDeleteGroupAllObj, decomp_isys48::deleteGroupAllObjSw);
 D1_ALIAS(0x001C6DB8u, isysDeleteGroupAllObj, decomp_isys48::deleteGroupAllObjSw, decomp_isys48::deleteGroupAllObj);
 SOTC_DECOMP_FUNCTION(0x001C7260u, isysGroupForFirstForce, decomp_isys48::groupForFirstForce);
-SOTC_DECOMP_FUNCTION(0x001C76A8u, isysObjDeleteUnLock, decomp_isys48::objDeleteUnLock);
+SOTC_DECOMP_FUNCTION(0x001C76A8u, isysObjDeleteUnLock, decomp_isys48::objDeleteUnLockSw);
+D1_ALIAS(0x001C76A8u, isysObjDeleteUnLock, decomp_isys48::objDeleteUnLockSw, decomp_isys48::objDeleteUnLock);
 SOTC_DECOMP_UNCHECKED(0x001C7A18u, isysObjWaitSema, decomp_isys48::objWaitSema);
 SOTC_DECOMP_UNCHECKED(0x001C7A90u, isysObjSignalSema, decomp_isys48::objSignalSema);
-SOTC_DECOMP_FUNCTION(0x001BF590u, kernel_sub_001BF590, decomp_isys48::dlReset);
+SOTC_DECOMP_FUNCTION(0x001BF590u, kernel_sub_001BF590, decomp_isys48::dlResetSw);
+D1_ALIAS(0x001BF590u, kernel_sub_001BF590, decomp_isys48::dlResetSw, decomp_isys48::dlReset);
 SOTC_DECOMP_FUNCTION(0x001C5E60u, isysDeleteObjManager, decomp_isys48::deleteObjManager);
 SOTC_DECOMP_FUNCTION(0x001C7548u, isysRequestDeleteObj, decomp_isys48::requestDeleteObj);
 SOTC_DECOMP_FUNCTION(0x001C79E0u, isysGetGroupSrhNext, decomp_isys48::groupSrhNext);
-SOTC_DECOMP_FUNCTION(0x001C8900u, open_letter_post, decomp_isys48::openLetterPost);
+SOTC_DECOMP_FUNCTION(0x001C8900u, open_letter_post, decomp_isys48::openPostSw);
+D1_ALIAS(0x001C8900u, open_letter_post, decomp_isys48::openPostSw, decomp_isys48::openLetterPost);
 SOTC_DECOMP_FUNCTION(0x001C8888u, discard_all_letter_in_post, decomp_isys48::discardAllLetterInPost);
-SOTC_DECOMP_FUNCTION(0x001C8938u, close_letter_post, decomp_isys48::closeLetterPost);
+SOTC_DECOMP_FUNCTION(0x001C8938u, close_letter_post, decomp_isys48::closePostSw);
+D1_ALIAS(0x001C8938u, close_letter_post, decomp_isys48::closePostSw, decomp_isys48::closeLetterPost);
 SOTC_DECOMP_FUNCTION(0x001C82D8u, isysLetterObjDiscardLetterAll, decomp_isys48::discardLetterAllSw);
 D1_ALIAS(0x001C82D8u, isysLetterObjDiscardLetterAll, decomp_isys48::discardLetterAllSw, decomp_isys48::discardLetterAll);
 SOTC_DECOMP_FUNCTION(0x010AAD48u, texTransRequest, decomp_isys48::texTransRequest);
@@ -1044,11 +1052,272 @@ namespace decomp_isys48
             deleteGroupAllObj(rdram, ctx, runtime);
     }
 
+    void discardLetterAllD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void discardLetterAllSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            discardLetterAllD1(rdram, ctx, runtime);
+            discardLetterAllD3(rdram, ctx, runtime);
         else
             discardLetterAll(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): the letter posts, isysObjDeleteUnLock, kernel_sub_001BF590 ------------------
+// Full (typed cores on d1::Mem, integer only, 0 math; the adapters read the arguments once and write the registers the old
+// bodies leave):
+// - open_letter_post: +0xc = 0, +0x10 = +4; v0 the first letter. close_letter_post: +0x10, +0xc = 0.
+// - isysObjDeleteUnLock: the delete lock count (+8 bits 17..) down; v0 / v1 / a1 as the old body.
+// - kernel_sub_001BF590: the display list buffer reset (the packets' tags, the end packet, the GIF tag) in the old order
+//   with the old re-reads; v0 (128 bits: the por's zero, then the byte count) / v1 as the old body. The buffer, the end
+//   packet or the index word outside main RAM, or a buffer overlapping the display list's words / the GIF tag (a re-read
+//   could change): the old body before anything is written.
+// isysLetterObjDiscardLetterAll (D2 partial) now calls the open / close cores directly when the table holds their
+// dispatchers (calls direct 2); discard_all_letter_in_post (decrement_letter_refcount / iosFree a letter: lifted guest
+// code) stays a callNative call, so it stays partial.
+namespace decomp_isys48
+{
+    D1_COUNTER(c_d3OpenPost, "open_letter_post");
+    D1_COUNTER(c_d3ClosePost, "close_letter_post");
+    D1_COUNTER(c_d3DeleteUnLock, "isysObjDeleteUnLock");
+    D1_COUNTER(c_d3DlReset, "kernel_sub_001BF590");
+    D1_COUNTER(c_d3DiscardLetterAll, "isysLetterObjDiscardLetterAll.d3");
+
+    inline bool d3IsysInRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+    inline bool d3IsysApart(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return a + an <= b || b + bn <= a; }
+
+    // open_letter_post's core: the first letter (v0).
+    uint32_t d3OpenPostCore(const d1::Mem m, uint32_t post)
+    {
+        const uint32_t first = m.u32(post + 4u);
+        m.set<uint32_t>(post + 0xCu, 0u);
+        m.set<uint32_t>(post + 0x10u, first);
+        return first;
+    }
+
+    // close_letter_post's core.
+    void d3ClosePostCore(const d1::Mem m, uint32_t post)
+    {
+        m.set<uint32_t>(post + 0x10u, 0u);
+        m.set<uint32_t>(post + 0xCu, 0u);
+    }
+
+    // isysObjDeleteUnLock's core: the count word (v0) and the word written (a1).
+    void d3DeleteUnLockCore(const d1::Mem m, uint32_t object, uint32_t &count, uint32_t &word)
+    {
+        const uint32_t w = m.u32(object + 8u);
+        count = ((w >> 17) - 1u) << 17;
+        word = (w & 0x0001FFFFu) | count;
+        m.set<uint32_t>(object + 8u, word);
+    }
+
+    // kernel_sub_001BF590's core (dlReset's statements in its order, the same re-reads). Returns the end packet (v1);
+    // `bytes` the count x 0x30 (v0).
+    constexpr uint32_t kD3Dl = 0x002132D8u, kD3GifTag = 0x001E10C0u;
+    PS2_FORCE_INLINE uint32_t d3DlBuffer(const d1::Mem m) { return m.u32(kD3Dl + 8u + (m.u32(kD3Dl + 0x18u) << 2)); }
+    uint32_t d3DlResetCore(const d1::Mem m, uint32_t &bytes)
+    {
+        if (static_cast<int32_t>(m.u32(kD3Dl + 0x14u)) > 0)
+        {
+            int32_t i = 0;
+            uint32_t off = 0;
+            do
+            {
+                ++i;
+                const uint32_t p = d3DlBuffer(m) + off;
+                m.set<uint32_t>(p + 0x1Cu, 0u);
+                m.set<uint32_t>(p + 0x18u, 0u);
+                m.set<uint32_t>(p + 0xCu, 0u);
+                m.set<uint32_t>(p + 8u, 0u);
+                m.set<uint64_t>(d3DlBuffer(m) + off, 0x10000000ull);
+                {
+                    const uint32_t q = d3DlBuffer(m) + off;
+                    m.set<uint64_t>(q + 0x10u, (static_cast<uint64_t>(q + 0x30u) << 32) | 0x20000000ull);
+                }
+                const uint32_t r = d3DlBuffer(m) + off;
+                off += 0x30u;
+                m.set<uint32_t>(r + 0x24u, r);
+                m.set<uint32_t>(r + 0x20u, r);
+            } while (i < static_cast<int32_t>(m.u32(kD3Dl + 0x14u)));
+        }
+        const uint64_t endTag = (static_cast<uint64_t>(kD3GifTag) << 32) | 2u;
+        constexpr uint32_t kEndWord = 0x50000002u;
+        m.set<uint32_t>(kD3Dl + 0x10u, m.u32(kD3Dl + (m.u32(kD3Dl + 0x18u) << 2)));
+        {
+            const uint32_t c = m.u32(kD3Dl + 0x14u);
+            const uint32_t e = d3DlBuffer(m) + ((c << 1) + c) * 16u;
+            m.set<uint64_t>(e + 0x10u, endTag);
+            m.set<uint64_t>(e, endTag);
+        }
+        {
+            const uint32_t c = m.u32(kD3Dl + 0x14u);
+            const uint32_t e = d3DlBuffer(m) + ((c << 1) + c) * 16u;
+            m.set<uint32_t>(e + 0x18u, 0u);
+            m.set<uint32_t>(e + 8u, 0u);
+        }
+        {
+            const uint32_t c = m.u32(kD3Dl + 0x14u);
+            const uint32_t e = d3DlBuffer(m) + ((c << 1) + c) * 16u;
+            m.set<uint32_t>(e + 0x1Cu, kEndWord);
+            m.set<uint32_t>(e + 0xCu, kEndWord);
+        }
+        // The GIF tag: zeroed (sq of the por's zero), then its fields.
+        m.set<uint64_t>(kD3GifTag, 0ull);
+        m.set<uint64_t>(kD3GifTag + 8u, 0ull);
+        m.set<uint8_t>(kD3GifTag + 1u, static_cast<uint8_t>(m.get<uint8_t>(kD3GifTag + 1u) | 0x80u));
+        m.set<uint8_t>(kD3GifTag + 7u, static_cast<uint8_t>((m.get<uint8_t>(kD3GifTag + 7u) & 0x0Fu) | 0x10u));
+        m.set<uint8_t>(kD3GifTag + 8u, static_cast<uint8_t>((m.get<uint8_t>(kD3GifTag + 8u) & 0xF0u) | 0x0Eu));
+        m.set<uint16_t>(kD3GifTag, static_cast<uint16_t>((m.get<uint16_t>(kD3GifTag) & 0x8000u) | 1u));
+        m.set<uint64_t>(kD3GifTag + 0x10u, 0ull);
+        m.set<uint64_t>(kD3GifTag + 0x18u, 0x61ull);
+        const uint32_t n = m.u32(kD3Dl + 0x14u);
+        const uint32_t e = d3DlBuffer(m) + ((n << 1) + n) * 16u;
+        m.set<uint32_t>(e + 0x24u, e);
+        m.set<uint32_t>(e + 0x20u, e);
+        bytes = ((n << 1) + n) << 4;
+        return e;
+    }
+
+    void openPostD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t post = GPR_U32(ctx, 4);
+        if (!sotc_decomp::isysOn() || !d3IsysInRam(post, 0x14u))
+            return openLetterPost(rdram, ctx, runtime);
+        ++c_d3OpenPost.n;
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3OpenPostCore(d1::Mem{rdram}, post)));
+        returnTo(ctx);
+    }
+
+    void closePostD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t post = GPR_U32(ctx, 4);
+        if (!sotc_decomp::isysOn() || !d3IsysInRam(post, 0x14u))
+            return closeLetterPost(rdram, ctx, runtime);
+        ++c_d3ClosePost.n;
+        d3ClosePostCore(d1::Mem{rdram}, post);
+        returnTo(ctx);
+    }
+
+    void objDeleteUnLockD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4);
+        if (!sotc_decomp::isysOn() || !d3IsysInRam(object, 0xCu))
+            return objDeleteUnLock(rdram, ctx, runtime);
+        ++c_d3DeleteUnLock.n;
+        uint32_t count, word;
+        d3DeleteUnLockCore(d1::Mem{rdram}, object, count, word);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(count));
+        SET_GPR_S32(ctx, 3, 0x0001FFFF);
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(word));
+        returnTo(ctx);
+    }
+
+    void dlResetD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::isysOn())
+            return dlReset(rdram, ctx, runtime); // (it counts the epoch itself)
+        // The layout checked first (reads only): every re-read the core makes then sees these same words.
+        const d1::Mem m{rdram};
+        const uint32_t index = m.u32(kD3Dl + 0x18u), count = m.u32(kD3Dl + 0x14u);
+        const uint32_t slot = kD3Dl + 8u + (index << 2), word = kD3Dl + (index << 2);
+        // (the slot is not the current-packet word +0x10 the core stores: the buffer is read again after that store)
+        if (index > 0x100u || count > 0x10000u || !d3IsysInRam(slot, 4u) || !d3IsysInRam(word, 4u) || slot == kD3Dl + 0x10u)
+            return dlReset(rdram, ctx, runtime);
+        const uint32_t buffer = m.u32(slot), span = (count + 1u) * 0x30u;
+        if (!d3IsysInRam(buffer, span) || !d3IsysApart(buffer, span, kD3Dl, 0x20u) || !d3IsysApart(buffer, span, kD3GifTag, 0x20u) ||
+            !d3IsysApart(buffer, span, slot, 4u) || !d3IsysApart(buffer, span, word, 4u))
+            return dlReset(rdram, ctx, runtime);
+        ++g_dlEpoch;
+        ++c_d3DlReset.n;
+        uint32_t bytes = 0u;
+        const uint32_t end = d3DlResetCore(m, bytes);
+        SET_GPR_VEC(ctx, 2, PS2_POR(GPR_VEC(ctx, 0), GPR_VEC(ctx, 0)));
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(bytes));
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(end));
+        returnTo(ctx);
+    }
+
+    // isysLetterObjDiscardLetterAll: D2's adapter with open / close_letter_post's cores called directly (their slots
+    // holding the round D3 dispatchers and the post in main RAM; else the callNative calls as before).
+    void discardLetterAllD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        ++c_d3DiscardLetterAll.n;
+        const uint64_t a0 = GPR_U64(ctx, 4);
+        if (!sotc_decomp::isysOn() || (static_cast<uint32_t>(a0) == 0u && a0 != 0u))
+            return discardLetterAll(rdram, ctx, runtime);
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x10u;
+        const uint64_t ra = GPR_U64(ctx, 31);
+        uint32_t type = 0u, post = 0u;
+        const d1::Mem m{rdram};
+        const int r = discardLetterCore(m, static_cast<uint32_t>(a0), sp, GPR_U64(ctx, 16), ra, type, post);
+        if (r < 0)
+            return discardLetterAll(rdram, ctx, runtime);
+        SET_GPR_U64(ctx, 5, type);
+        if (r == 0)
+        {
+            SET_GPR_U64(ctx, 2, 0u);
+            returnTo(ctx);
+            return;
+        }
+        // s0 the post (+0x1c of the object, or of 0).
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(post));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        const bool postOk = d3IsysInRam(post, 0x14u);
+        if (postOk && sotc_decomp::guestFunction(runtime, kOpenPost) == &openPostSw)
+        {
+            ++c_d3OpenPost.n;
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3OpenPostCore(m, post)));
+            SET_GPR_U32(ctx, 31, 0x001C8358u);
+            SET_GPR_U32(ctx, 29, sp);
+        }
+        else
+            callNative(rdram, ctx, runtime, kOpenPost, &openLetterPost, 0x001C8358u, sp);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        callNative(rdram, ctx, runtime, kDiscardPost, &discardAllLetterInPost, 0x001C8360u, sp);
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(post));
+        SET_GPR_U64(ctx, 31, READ64(sp + 8u));
+        SET_GPR_U64(ctx, 16, READ64(sp));
+        // j close_letter_post (the frame popped).
+        if (postOk && sotc_decomp::guestFunction(runtime, kClosePost) == &closePostSw)
+        {
+            ++c_d3ClosePost.n;
+            d3ClosePostCore(m, post);
+            SET_GPR_U32(ctx, 31, static_cast<uint32_t>(ra));
+            SET_GPR_U32(ctx, 29, entrySp);
+            returnTo(ctx);
+        }
+        else
+            callNative(rdram, ctx, runtime, kClosePost, &closeLetterPost, static_cast<uint32_t>(ra), entrySp);
+    }
+
+    void openPostSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            openPostD3(rdram, ctx, runtime);
+        else
+            openLetterPost(rdram, ctx, runtime);
+    }
+
+    void closePostSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            closePostD3(rdram, ctx, runtime);
+        else
+            closeLetterPost(rdram, ctx, runtime);
+    }
+
+    void objDeleteUnLockSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            objDeleteUnLockD3(rdram, ctx, runtime);
+        else
+            objDeleteUnLock(rdram, ctx, runtime);
+    }
+
+    void dlResetSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            dlResetD3(rdram, ctx, runtime);
+        else
+            dlReset(rdram, ctx, runtime);
     }
 }

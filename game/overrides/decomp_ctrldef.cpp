@@ -38,6 +38,7 @@
 // SOTC_CTRLDEF_STATS=1 (measuring): the condition types seen, every 20 000 calls.
 #include "sotc_decomp.h"
 #include "runtime/ps2_diag.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -547,5 +548,238 @@ namespace decomp_ctrldef
         condImpl<false>(rdram, ctx, runtime);
     }
 
-    SOTC_DECOMP_FUNCTION(kCond, manager_sub_010C7B28, cond);
+    void condSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (d1native)
+    SOTC_DECOMP_FUNCTION(kCond, manager_sub_010C7B28, condSw);
+    D1_ALIAS(kCond, manager_sub_010C7B28, condSw, cond);
 }
+
+// ---- Round D3 (switch d1native, d1_native.h): manager_sub_010C7B28 as native C++ (full) ---------------------------------
+// The adapter condD3 reads a0-a3 once; the core d3c::condD3Core is the Fast path of condImpl on d1::Mem with C++ parameters:
+// the case from kIndex (the jump table's entry checked against it, round 43's cases only with hotlist on), the prologue's
+// compare (f20 < 0: the condition bit the six compares leave), the range / mask / bit / word / record tests as condImpl's,
+// the float compares on the operands' bit patterns by FPU_C_OLT_S / OLE_S's key (exact for every pattern, integer), the
+// squared bounds by d1::mul. What it does not do returns -1 before anything is written and the adapter runs the old body:
+// the Surface cases (types 0x58 / 0x27: GetGeometryPointerSurfaceAttribute is a guest call, its result on the frame), the
+// types without a native case (the recompiled function), a jump table not as expected, round 43's cases with hotlist off,
+// SOTC_CTRLDEF_STATS set. The exit writes what the old body leaves: v0 (0 / 1), f0 (0 or the last tested value), fcr31's
+// condition bit, sp / ra. The core is exported (external linkage) for the callers converted in D3 (CheckControlDef,
+// manager_sub_010C9B10, manager_sub_010CA230), with condD3Ready(runtime) for their adapters' gate.
+namespace decomp_ctrldef
+{
+    D1_COUNTER(c_d3Cond, "manager_sub_010C7B28");
+
+    namespace d3c
+    {
+        // FPU_C_*_S's key of a bit pattern (ps2FpuCompareKeyFast: equal to the reference key for every pattern).
+        PS2_FORCE_INLINE uint32_t d3CondKey(uint32_t bits)
+        {
+            bits &= 0u - static_cast<uint32_t>((bits & 0x7F800000u) != 0u);
+            return bits ^ (static_cast<uint32_t>(static_cast<int32_t>(bits) >> 31) | 0x80000000u);
+        }
+        PS2_FORCE_INLINE uint32_t d3CondBits(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+        PS2_FORCE_INLINE float d3CondFloat(uint32_t b)
+        {
+            float f;
+            std::memcpy(&f, &b, 4);
+            return f;
+        }
+        // The record the packed link at c + 0x14 names (0: none).
+        PS2_FORCE_INLINE uint32_t d3CondRecord(const d1::Mem &m, uint32_t c)
+        {
+            const uint32_t at = c + 0x14u, t4 = m.u32(at), off = t4 & 0x3FFFFu;
+            const uint32_t owner = off ? m.u32(at - off) : 0u;
+            if (owner == 0u || owner == m.u32(0x001E0ED4u))
+                return 0u;
+            const int32_t index = static_cast<int32_t>((t4 >> 18) & 0xFFFu), size = m.s32(m.u32(owner + 8u) + 0xCu);
+            return m.u32(owner + 0x10u) + static_cast<uint32_t>(index * size);
+        }
+
+        // One condition: 0 / 1, or -1 (not done here: nothing written). cBit / f0Bits: fcr31's condition bit and f0 as the old
+        // body leaves them (set when the result is 0 / 1).
+        int condD3Core(const d1::Mem &m, uint32_t a0In, uint32_t t0, uint32_t a2, uint32_t c, bool hotList, bool &cBit, uint32_t &f0Bits)
+        {
+            const uint32_t type = m.u32(c);
+            const bool inTable = type - 2u < 0x82u;
+            const Case *k = inTable ? (kIndex.at[type] ? &kCases[kIndex.at[type] - 1u] : nullptr) : &kOutOfRange;
+            if (!k || (k->r43 && !hotList) || k->kind == Surface)
+                return -1;
+            if (inTable && m.u32(kTable + (type - 2u) * 4u) != k->target)
+                return -1;
+            const uint32_t b20 = m.u32(c + 4u), b21 = m.u32(c + 0xCu);
+            const uint32_t k20 = d3CondKey(b20), k21 = d3CondKey(b21);
+            bool cb = k20 < kKeyZero; // the prologue's last compare (f20 < 0)
+            uint32_t f0 = 0u;         // 0.0f
+            const uint64_t s4 = m.get<uint64_t>(c + 0x18u), s5 = m.get<uint64_t>(c + 0x20u);
+            const uint32_t t1 = a2 + 0x100u, a0 = a2 + 0x80u;
+            auto base = [&](uint8_t b) { return b == 0 ? a0 : (b == 1 ? t1 : t0); };
+            auto preZero = [&]()
+            {
+                const uint32_t b = base(k->preBase == 0xFF ? k->base : k->preBase) + static_cast<uint32_t>(k->pre);
+                return k->preByte ? m.get<int8_t>(b) == 0 : m.u32(b) == 0u;
+            };
+            auto maskTest = [&](uint64_t v) -> bool
+            {
+                v &= s4;
+                return static_cast<int64_t>(s5) >= 0 ? v == s5 : v != 0u;
+            };
+            // A range on the bit patterns: x against lo / hi, each side unless f20 / f21 is below its flag's bound.
+            auto range = [&](uint32_t x, Flag flag, bool lowStrict, bool highStrict, uint32_t lo, uint32_t hi) -> bool
+            {
+                const uint32_t bound = flag == F10000 ? kKeyMinus10000 : (flag == F180 ? kKeyMinus180 : kKeyZero);
+                const uint32_t kx = d3CondKey(x), klo = d3CondKey(lo), khi = d3CondKey(hi);
+                bool low = true, high = true;
+                if (!(k20 < bound))
+                {
+                    f0 = x;
+                    low = cb = lowStrict ? klo < kx : klo <= kx;
+                }
+                if (!(k21 < bound))
+                {
+                    f0 = x;
+                    high = cb = highStrict ? kx < khi : kx <= khi;
+                }
+                return low && high;
+            };
+            bool s1 = false;
+            switch (k->kind)
+            {
+            case Range:
+                if (k->pre >= 0 && preZero())
+                {
+                    s1 = k->preTrue;
+                    break;
+                }
+                s1 = range(m.u32(base(k->base) + k->off), k->flag, k->lowStrict, k->highStrict, b20, b21);
+                break;
+            case RangeSq:
+            {
+                const float f20 = d3CondFloat(b20), f21 = d3CondFloat(b21);
+                s1 = range(m.u32(base(k->base) + k->off), k->flag, k->lowStrict, k->highStrict, d3CondBits(d1::mul(f20, f20)),
+                           d3CondBits(d1::mul(f21, f21)));
+                break;
+            }
+            case Bit:
+                s1 = ((static_cast<int64_t>(m.get<uint64_t>(a0 + 0x78u) << k->shift) >> 32) & 1) != 0;
+                break;
+            case Word:
+                s1 = k->byte ? m.get<int8_t>(base(k->base) + k->off) != 0 : m.u32(base(k->base) + k->off) != 0u;
+                break;
+            case Mask:
+                if (k->pre >= 0 && preZero())
+                    break;
+                s1 = maskTest(m.get<uint64_t>(base(k->base) + k->off));
+                break;
+            case ByteZero:
+                s1 = m.get<int8_t>(base(k->base) + k->off) == 0;
+                break;
+            case BitOfS0:
+            {
+                const uint32_t s0 = d3CondRecord(m, c);
+                const uint32_t bit = m.u32(s0 + 4u) & 63u;
+                s1 = (m.get<uint64_t>(a2 + k->off) & (1ull << bit)) != 0u;
+                break;
+            }
+            case EqS0:
+                s1 = m.u32(t0 + k->off) == d3CondRecord(m, c);
+                break;
+            case Target:
+            {
+                const uint32_t target = m.u32(t0 + 0x960u);
+                if (target == 0u)
+                    break;
+                const uint8_t t = m.get<uint8_t>(target + 8u);
+                const uint32_t cc = (t == 9u || t == 0x16u) ? target + 0x90u : 0u; // GetCharacterClass
+                s1 = m.u32(cc + 0x750u) == d3CondRecord(m, c);
+                break;
+            }
+            case Owner:
+                s1 = a0In != m.u32(t0 + 0x960u) ? true : m.u32(a2 + 0x1ECu) != 0u;
+                break;
+            case EqS4:
+                s1 = static_cast<int64_t>(m.s32(t1 + 0xA4u)) == static_cast<int64_t>(s4);
+                break;
+            case SubAnim:
+            {
+                // SearchSubAnimation (a leaf): an entry (0x80 bytes at *(t0 + 0x30c)) whose +4 is s0, +0x44 = -2 skipped.
+                const uint32_t s0 = d3CondRecord(m, c);
+                const int32_t n = m.s32(t0 + 0x3FCu);
+                uint32_t e = m.u32(t0 + 0x30Cu);
+                for (int32_t i = 0; i < n; ++i, e += 0x80u)
+                    if (m.s32(e + 0x44u) != -2 && m.u32(e + 4u) == s0)
+                    {
+                        s1 = true;
+                        break;
+                    }
+                break;
+            }
+            case Flag3a:
+                if (m.get<int8_t>(t0 + 0x35Cu) == 0)
+                    break;
+                if (static_cast<int64_t>(s4) < 0)
+                {
+                    s1 = true;
+                    break;
+                }
+                s1 = maskTest(m.get<uint64_t>(t0 + 0x698u));
+                break;
+            case Surface:
+            case None:
+                break;
+            }
+            cBit = cb;
+            f0Bits = f0;
+            return (m.u32(c + 0x28u) == 0u ? !s1 : s1) ? 1 : 0;
+        }
+    } // namespace d3c
+
+    // The state the core stands for (the callers' gate too): the slot holds this native (old body or dispatcher), no stats.
+    bool condD3Ready(PS2Runtime *runtime)
+    {
+        if (__builtin_expect(g_statsOn != 0, 0))
+        {
+            if (g_statsOn < 0)
+                g_statsOn = ps2_diag::env("SOTC_CTRLDEF_STATS") != nullptr ? 1 : 0;
+            if (g_statsOn)
+                return false;
+        }
+        const auto f = sotc_decomp::guestFunction(runtime, kCond);
+        return f == &condSw || f == &cond;
+    }
+
+    void condD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(g_statsOn != 0, 0))
+        {
+            if (g_statsOn < 0)
+                g_statsOn = ps2_diag::env("SOTC_CTRLDEF_STATS") != nullptr ? 1 : 0;
+            if (g_statsOn)
+                return cond(rdram, ctx, runtime);
+        }
+        const uint32_t a0In = GPR_U32(ctx, 4), t0 = GPR_U32(ctx, 5), a2 = GPR_U32(ctx, 6), c = GPR_U32(ctx, 7);
+        bool cb = false;
+        uint32_t f0 = 0u;
+        const int r = d3c::condD3Core(d1::Mem{rdram}, a0In, t0, a2, c, sotc_decomp::hotListOn(), cb, f0);
+        if (r < 0)
+            return cond(rdram, ctx, runtime);
+        ++c_d3Cond.n;
+        const uint32_t spIn = GPR_U32(ctx, 29), ra = GPR_U32(ctx, 31);
+        std::memcpy(&ctx->f[0], &f0, 4);
+        ctx->fcr31 = cb ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+        SET_GPR_U32(ctx, 29, spIn);
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U64(ctx, 2, static_cast<uint64_t>(r));
+        returnTo(ctx);
+    }
+    void condSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            condD3(rdram, ctx, runtime);
+        else
+            cond(rdram, ctx, runtime);
+    }
+} // namespace decomp_ctrldef

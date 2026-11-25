@@ -6,6 +6,7 @@
 // caller's word) come from the current and the other buffer. 1.2% of the
 // Vita's game thread recompiled.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 
@@ -161,4 +162,102 @@ namespace
 }
 
 SOTC_DECOMP_FUNCTION(0x01147BD0u, kbGetStatus, kbGetStatus);
-SOTC_DECOMP_FUNCTION(0x0114B880u, usbdevFrameInit, usbdevFrameInit);
+namespace // round D3: the dispatcher (end of file)
+{
+    void usbdevFrameInitSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x0114B880u, usbdevFrameInit, usbdevFrameInitSw);
+D1_ALIAS(0x0114B880u, usbdevFrameInit, usbdevFrameInitSw, usbdevFrameInit);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): usbdevFrameInit ---------------------------------------------------------------
+// Partial: the keyboard's frame (kbGetStatus, the tail jump) as a typed core on d1::Mem (round 54's one-pass form: the
+// caller's words and the count apart from the key state, the selector 0 / 1; bit-exact with the per-word loop), integer
+// only, 0 math; mouseGetStatus stays the recompiled code run to its return (as the old body). A selector other than 0 / 1
+// (or caller words that are not apart): kbGetStatus's old helper (the same as the old body's tail).
+namespace
+{
+    D1_COUNTER(c_d3UsbFrameInit, "usbdevFrameInit");
+
+    inline bool d3KbApart(uint32_t a, uint32_t n)
+    {
+        constexpr uint32_t kLo = kBase, kHi = kSelect + 4u;
+        return (a & 3u) == 0u && a <= PS2_RAM_SIZE - n && (a + n <= kLo || a >= kHi);
+    }
+
+    // kbGetStatus(out, count) with the selector `sel` (0 / 1): v0 (the count word written).
+    uint32_t d3KbStatusCore(const d1::Mem m, uint32_t out, uint32_t count, uint32_t sel)
+    {
+        constexpr uint32_t kBytes = 256u * 12u;
+        m.set<uint32_t>(count, m.u32(kCount));
+        const uint32_t cur = kBase + 0xC04u + sel * 0xC00u;
+        const uint32_t oth = kBase + 4u + (sel != 0u ? 0xC00u : 0x1800u);
+        for (uint32_t t0 = 0; t0 < kBytes; t0 += 12u)
+        {
+            const uint32_t c = m.u32(cur + t0) & 1u, p = m.u32(oth + t0) & 1u;
+            const uint32_t w = m.u32(out + t0);
+            m.set<uint32_t>(out + t0, (w & ~7u) | c | ((p ? 0u : c) << 1) | ((c ? 0u : p) << 2));
+        }
+        const uint32_t next = sel ^ 1u;
+        m.set<uint32_t>(kSelect, next);
+        const uint32_t dst = kBase + 0xC04u + next * 0xC00u;
+        for (uint32_t t0 = 0; t0 < kBytes; t0 += 12u)
+        {
+            const uint32_t r = m.u32(kBase + t0), w = m.u32(dst + t0);
+            m.set<uint32_t>(dst + t0, (w & ~1u) | (r & 1u));
+        }
+        const uint32_t v0 = m.u32(kBase + 0xC00u);
+        m.set<uint32_t>(kCount, v0);
+        return v0;
+    }
+
+    void usbdevFrameInitD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        constexpr uint32_t kMouseGetStatus = 0x0114AA50u, kAfterJal = 0x0114B89Cu, kState = 0x0121B054u;
+        const uint32_t sp = GPR_U32(ctx, 29) - 0x10u;
+        if (sp >= PS2_RAM_SIZE - 0x10u)
+            return usbdevFrameInit(rdram, ctx, runtime);
+        ++c_d3UsbFrameInit.n;
+        const d1::Mem m{rdram};
+        const uint64_t s0 = GPR_U64(ctx, 16), ra = GPR_U64(ctx, 31);
+        // addiu sp, -0x10; sd s0, 0(sp); sd ra, 8(sp)
+        SET_GPR_U32(ctx, 29, sp);
+        m.set<uint64_t>(sp, s0);
+        m.set<uint64_t>(sp + 8u, ra);
+        SET_GPR_S32(ctx, 16, static_cast<int32_t>(kState));
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(kState));
+        SET_GPR_U32(ctx, 31, kAfterJal);
+        ctx->pc = kMouseGetStatus;
+        { runtime->lookupFunction(kMouseGetStatus)(rdram, ctx, runtime); runtime->checkTransfer(); }
+        while (!(ctx->pc == kAfterJal && GPR_U32(ctx, 29) == sp))
+        {
+            PS2Runtime::RecompiledFunction next = runtime->hasFunction(ctx->pc) ? runtime->lookupFunction(ctx->pc) : nullptr;
+            if (!next)
+                break;
+            { next(rdram, ctx, runtime); runtime->checkTransfer(); }
+        }
+        // a0 = s0 + 0x5c, a1 = s0 + 0x58; ld s0 / ra; j kbGetStatus; addiu sp, 0x10
+        constexpr uint32_t out = kState + 0x5Cu, count = kState + 0x58u;
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(out));
+        SET_GPR_S32(ctx, 5, static_cast<int32_t>(count));
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 8u));
+        SET_GPR_U32(ctx, 29, sp + 0x10u);
+        const uint32_t sel = m.u32(kSelect);
+        if (sel > 1u || !d3KbApart(out, 256u * 12u) || !d3KbApart(count, 4u))
+            kbGetStatusBody(rdram, ctx, runtime);
+        else
+        {
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3KbStatusCore(m, out, count, sel)));
+            SET_GPR_U32(ctx, 3, kBase);
+        }
+        returnTo(ctx);
+    }
+
+    void usbdevFrameInitSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            usbdevFrameInitD3(rdram, ctx, runtime);
+        else
+            usbdevFrameInit(rdram, ctx, runtime);
+    }
+}

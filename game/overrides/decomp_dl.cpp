@@ -402,7 +402,12 @@ namespace decomp_dl
     }
 }
 SOTC_DECOMP_FUNCTION(0x001C0198u, iosDlGetLayer, decomp_dl::getLayer);
-SOTC_DECOMP_FUNCTION(0x01114B50u, transMicroCode, decomp_dl::transMicroCode);
+namespace decomp_dl
+{
+    void transMicroCodeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
+}
+SOTC_DECOMP_FUNCTION(0x01114B50u, transMicroCode, decomp_dl::transMicroCodeSw);
+D1_ALIAS(0x01114B50u, transMicroCode, decomp_dl::transMicroCodeSw, decomp_dl::transMicroCode);
 
 namespace decomp_dl
 {
@@ -667,5 +672,92 @@ namespace decomp_dl
             chainTailD1(rdram, ctx, runtime);
         else
             chainTail(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): transMicroCode as a typed core -------------------------------------------------
+// The layer (iosDlGetLayer inline), the DMA tag chained (iosDlChainTailCurrent of 0x1195480) and, when the layer's last
+// microcode is another one, the id's upload tag chained and the id noted: D2's chainTailCore called directly (calls direct
+// 2, while the table holds iosDlChainTailCurrent's dispatcher), integer only, 0 math. The registers the old body leaves
+// (the last chain's v0..t1, v1 = id x 4 / v0 = the id when nothing was uploaded) written by the adapter. A first chain the
+// core cannot do (outside main RAM ...: nothing written) -> the old body; a second one -> that call through the table as
+// the old body makes it, then the note.
+namespace decomp_dl
+{
+    D1_COUNTER(c_d3TransMicro, "transMicroCode");
+
+    struct D3MicroOut
+    {
+        ChainOut first, second;
+        uint32_t current, upload, last;
+    };
+
+    // 0: the first chain not done (nothing written); 1: done, nothing uploaded; 2: done with the upload; 3: the upload's
+    // chain not done (the first one done; the caller chains `upload` and notes the id).
+    int d3MicroCore(const d1::Mem m, uint32_t id, D3MicroOut &o)
+    {
+        const uint32_t layer = m.u32(kDl + 0x1Cu);
+        o.last = 0x01216D68u + (layer << 2);
+        if (!chainTailCore(m, 0x01195480u, o.first))
+            return 0;
+        o.current = m.u32(o.last);
+        if (o.current == id)
+            return 1;
+        o.upload = m.u32(0x0118CD90u + (id << 2));
+        if (!chainTailCore(m, o.upload, o.second))
+            return 3;
+        m.set<uint32_t>(o.last, id);
+        return 2;
+    }
+
+    // The registers iosDlChainTailCurrent's old body leaves (chainTailD1's exit).
+    inline void d3MicroChainRegs(R5900Context *ctx, const ChainOut &c)
+    {
+        SET_GPR_U64(ctx, 2, c.v0);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(c.tail));
+        SET_GPR_U64(ctx, 4, c.addr);
+        SET_GPR_U64(ctx, 5, 0x7FFFFFFFu);
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(c.packet));
+        SET_GPR_S32(ctx, 7, static_cast<int32_t>(c.record));
+        SET_GPR_U64(ctx, 8, 0x20000000u);
+        SET_GPR_U64(ctx, 9, 0x80000000FFFFFFFFull);
+    }
+
+    void transMicroCodeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static const bool sitesOk = sotc_decomp::jalTarget(rdram, 0x01114B60u) == 0x001C0198u && sotc_decomp::jalTarget(rdram, 0x01114B80u) == kChainTail &&
+                                    sotc_decomp::jalTarget(rdram, 0x01114BA0u) == kChainTail;
+        const uint32_t id = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x20u;
+        if (!sotc_decomp::leavesOn() || !sitesOk || sotc_decomp::guestFunction(runtime, kChainTail) != &chainTailSw || id > 0x00FFFFFFu)
+            return transMicroCode(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        D3MicroOut o;
+        const int r = d3MicroCore(m, id, o);
+        if (r == 0)
+            return transMicroCode(rdram, ctx, runtime);
+        ++c_d3TransMicro.n;
+        d3MicroChainRegs(ctx, o.first);
+        SET_GPR_S32(ctx, 3, static_cast<int32_t>(id << 2));
+        if (r == 1)
+            SET_GPR_S32(ctx, 2, static_cast<int32_t>(o.current));
+        else if (r == 2)
+            d3MicroChainRegs(ctx, o.second);
+        else
+        {
+            SET_GPR_S32(ctx, 4, static_cast<int32_t>(o.upload));
+            sotc_decomp::callNative(rdram, ctx, runtime, kChainTail, &chainTail, 0x01114BA8u, sp);
+            m.set<uint32_t>(o.last, id);
+        }
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+
+    void transMicroCodeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            transMicroCodeD3(rdram, ctx, runtime);
+        else
+            transMicroCode(rdram, ctx, runtime);
     }
 }

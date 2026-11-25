@@ -1286,7 +1286,13 @@ namespace decomp_hot46h
 #undef loadF
 #undef storeF
 
-SOTC_DECOMP_FUNCTION(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3);
+namespace decomp_hot46h // round D3
+{
+    void keyVec3Sw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void objectAnimSampleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3Sw);
+D1_ALIAS(0x010ADE08u, manager_sub_010ADE08, decomp_hot46h::keyVec3Sw, decomp_hot46h::keyVec3);
 namespace decomp_hot46h // round D2
 {
     void posKeyLerpSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
@@ -1296,7 +1302,8 @@ SOTC_DECOMP_FUNCTION(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLer
 D1_ALIAS(0x010AEAF8u, manager_sub_010AEAF8, decomp_hot46h::posKeyLerpSw, decomp_hot46h::posKeyLerp);
 SOTC_DECOMP_FUNCTION(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSampleSw);
 D1_ALIAS(0x010AE128u, manager_sub_010AE128, decomp_hot46h::optionNodeSampleSw, decomp_hot46h::optionNodeSample);
-SOTC_DECOMP_FUNCTION(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSample);
+SOTC_DECOMP_FUNCTION(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSampleSw);
+D1_ALIAS(0x010AF070u, manager_sub_010AF070, decomp_hot46h::objectAnimSampleSw, decomp_hot46h::objectAnimSample);
 // Round 106 (default off: SOTC_OAN106=1 the natives; exact, but the sampler found them no faster than the recompiled code).
 SOTC_DECOMP_FUNCTION(0x010AF2A0u, manager_sub_010AF2A0, decomp_hot46h::alphaAnimSample);
 SOTC_DECOMP_FUNCTION(0x010AF4D8u, manager_sub_010AF4D8, decomp_hot46h::vecAnimSample);
@@ -1865,11 +1872,998 @@ namespace decomp_hot46h
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0xC0u));
         returnTo(ctx);
     }
+    void optionNodeSampleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below): the full body
     void optionNodeSampleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            optionNodeSampleD1(rdram, ctx, runtime);
+            optionNodeSampleD3(rdram, ctx, runtime);
         else
             optionNodeSample(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot46h
+
+// ---- Round D3 (switch d1native): manager_sub_010ADE08 (keyVec3, full) and manager_sub_010AE128 (optionNodeSample,
+// partial -> full) as native C++ ------------------------------------------------------------------------------------------
+// keyVec3: the old body's statements on a local register set (at, v0, v1, t0's low 64 bits, f0-f4), the key words on
+// d1::Mem, FPU_MUL_S / ADD_S -> d1::mul / add (12 sites), cvt.s.w -> int to float; the stores in the old order. The adapter
+// writes the registers back. Gates (the old body): hotlist46 off, out / table outside main RAM.
+// optionNodeSample: D2's partial body with its two kinds of guest call made direct C++ calls (calls direct up to 6):
+// the curve decoder (manager_sub_010AC6C8) as D2's decomp_curve::d2c::curveCore and the vec3 key (010ADE08) as keyVec3's D3
+// core above, each fed the registers the old call reads and leaving in the local register set what the old call leaves
+// (curveEval's D2 adapter: f0, fcr31, vf7, vf1 / a2's 128 bits, Q, the status, v0; keyVec3's: at, v0, v1, t0, f0-f4). The
+// curve decoder refuses some keys (format 13, recompiled formats, overlaps, non-finite words): every decode the call will
+// make is tested first by d3CurveTakes (curveCore's own tests) with d3CurveReadsMiss (none of the words it reads is in a
+// range the body writes before it: the frame, the three outs) and the record outside those ranges, so the core never meets
+// a refusal; any key that would be refused, curveEval / the stats not in their default state, the worker lane, a slot
+// holding something else than the old function or its dispatcher, or pointers outside main RAM: the old body, before
+// anything is written. Everything else as D2's body (the frame loop, the position keys, the closing blend: d2h cores).
+namespace decomp_curve
+{
+    bool d3CurveDefault();
+    void curveEvalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d2c
+    {
+        // (decomp_curve.cpp's definition, the same tokens)
+        struct CurveRegs
+        {
+            float f0;
+            uint32_t fcr31;
+            __m128 vf1, vf7, a2q;
+            float q;
+            uint16_t status;
+            uint64_t v0;
+            bool setF0, vu1, vu7;
+        };
+        bool curveCore(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index, CurveRegs &r);
+        bool d3CurveTakes(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index);
+        bool d3CurveReadsMiss(const d1::Mem &m, uint32_t chan, uint32_t index, uint32_t lo, uint32_t hi);
+    }
+}
+
+namespace decomp_hot46h
+{
+    D1_COUNTER(c_d3KeyVec3, "manager_sub_010ADE08");
+    D1_COUNTER(c_d3OptionNode, "manager_sub_010AE128");
+
+    namespace d3h
+    {
+        using d2h::d2bitsF;
+        using d2h::d2sx;
+
+        // keyVec3's registers: at, v0, v1, t0 (low 64 bits), f0-f4.
+        struct Vec3Regs
+        {
+            uint64_t at, v0, v1, t0;
+            float f[5];
+        };
+
+        // manager_sub_010ADE08: a vec3 key into out (w = 1.0).
+        void d3Vec3Core(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t table, uint32_t index, Vec3Regs &k)
+        {
+            k.at = d2sx(kOne);
+            k.f[0] = d2bitsF(kOne);
+            k.v0 = d2sx(2u);
+            k.v1 = static_cast<int64_t>(format) < 3 ? 1u : 0u; // slti v1, a1, 3
+            k.t0 = d2sx(index << 2);
+            m.set<uint32_t>(out + 0xCu, kOne);
+            if (format == 2)
+            {
+                // 11 / 11 / 10 bits of a word.
+                const uint32_t key = m.u32(table + 0x18u) + static_cast<uint32_t>(k.t0);
+                k.v1 = d2sx(key);
+                k.f[1] = m.f32(table + 4u);
+                k.f[3] = d2bitsF(k11Bits);
+                k.f[2] = m.f32(table);
+                uint32_t w = m.u32(key) >> 21;
+                k.at = d2sx(k10Bits);
+                k.f[4] = d2bitsF(k10Bits);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(out, k.f[0]);
+                w = (m.u32(key) >> 10) & 0x7FFu;
+                k.f[1] = m.f32(table + 0xCu);
+                k.f[2] = m.f32(table + 8u);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(out + 4u, k.f[0]);
+                w = m.u32(key) & 0x3FFu;
+                k.v0 = w;
+                k.f[1] = m.f32(table + 0x14u);
+                k.f[2] = m.f32(table + 0x10u);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::mul(k.f[0], k.f[4]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(out + 8u, k.f[0]);
+                return;
+            }
+            k.v0 = d2sx(3u); // the beqz's delay slot
+            k.v0 = d2sx(index << 1);
+            if (static_cast<int64_t>(format) < 3)
+            {
+                if (format == 0)
+                {
+                    // the table's own vector
+                    k.f[0] = m.f32(table);
+                    m.set<float>(out, k.f[0]);
+                    k.f[1] = m.f32(table + 4u);
+                    m.set<float>(out + 4u, k.f[1]);
+                    k.f[0] = m.f32(table + 8u);
+                    m.set<float>(out + 8u, k.f[0]);
+                    return;
+                }
+            }
+            else if (format == 3)
+            {
+                // 5 / 6 / 5 bits of a half word, each x 1/31.
+                const uint32_t key = m.u32(table + 0x18u) + static_cast<uint32_t>(k.v0);
+                k.v1 = d2sx(key);
+                k.f[2] = m.f32(table + 4u);
+                k.at = d2sx(k5Bits);
+                k.f[3] = d2bitsF(k5Bits);
+                k.f[1] = m.f32(table);
+                uint32_t w = static_cast<uint32_t>(m.get<uint16_t>(key)) >> 11;
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[2]);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::add(k.f[0], k.f[1]);
+                m.set<float>(out, k.f[0]);
+                w = (static_cast<uint32_t>(m.get<uint16_t>(key)) >> 5) & 0x3Fu;
+                k.f[1] = m.f32(table + 0xCu);
+                k.f[2] = m.f32(table + 8u);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(out + 4u, k.f[0]);
+                w = static_cast<uint32_t>(m.get<uint16_t>(key)) & 0x1Fu;
+                k.v0 = w;
+                k.f[1] = m.f32(table + 0x14u);
+                k.f[2] = m.f32(table + 0x10u);
+                k.f[0] = static_cast<float>(static_cast<int32_t>(w));
+                k.f[0] = d1::mul(k.f[0], k.f[1]);
+                k.f[0] = d1::mul(k.f[0], k.f[3]);
+                k.f[0] = d1::add(k.f[0], k.f[2]);
+                m.set<float>(out + 8u, k.f[0]);
+                return;
+            }
+            // raw floats at table + index x 12
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) + index);
+            k.v0 = d2sx(static_cast<uint32_t>(k.v0) << 2);
+            const uint32_t key = static_cast<uint32_t>(k.v0) + table;
+            k.v0 = d2sx(key);
+            k.f[0] = m.f32(key);
+            m.set<float>(out, k.f[0]);
+            k.f[1] = m.f32(key + 4u);
+            m.set<float>(out + 4u, k.f[1]);
+            k.f[0] = m.f32(key + 8u);
+            m.set<float>(out + 8u, k.f[0]);
+        }
+
+        // ---- optionNodeSample --------------------------------------------------------------------------------------
+        // The registers the body (and its callees) read or leave: GPRs as their low 64 bits (+ the upper halves of v0, v1,
+        // a2, t0, which a 128-bit move sets), f0-f7 / f12 / f20, fcr31, lo / hi, the VU0 registers, Q, the status.
+        struct OnsRegs
+        {
+            uint64_t at, v0, v1, a0, a1, a2, a3, t0, lo, hi, ra;
+            uint64_t v0hi, v1hi, a2hi, t0hi;
+            uint64_t s[6]; // s0-s5 (the values the exit reloads)
+            float f[8];
+            float f12, f20;
+            uint32_t fcr31;
+            __m128 vf1, vf5, vf6, vf7, vf8, vf9, vf14, vf15, acc;
+            float q;
+            uint16_t status;
+        };
+        struct OnsIn
+        {
+            uint32_t sp0, quatOut, posOut, scaleOut, record;
+            uint64_t s[6], ra; // s0-s5 and ra at the entry (saved in the frame)
+            float f20;         // f20 at the entry (saved in the frame)
+        };
+
+        PS2_FORCE_INLINE __m128 d3q(uint64_t lo, uint64_t hi)
+        {
+            __m128 v;
+            const uint64_t w[2] = {lo, hi};
+            std::memcpy(&v, w, 16);
+            return v;
+        }
+        PS2_FORCE_INLINE void d3split(__m128 v, uint64_t &lo, uint64_t &hi)
+        {
+            uint64_t w[2];
+            std::memcpy(w, &v, 16);
+            lo = w[0];
+            hi = w[1];
+        }
+        PS2_FORCE_INLINE bool d3Apart(uint32_t a, uint32_t an, uint32_t b, uint32_t bn) { return !(a < b + bn && b < a + an); }
+
+        // The ranges optionNodeSample writes before (or between) its decodes: its frame and the three outs.
+        struct OnsWrites
+        {
+            uint32_t lo[4], n[4];
+        };
+        bool d3OnsMiss(const d1::Mem &m, const OnsWrites &w, uint32_t chan, uint32_t index)
+        {
+            for (int i = 0; i < 4; ++i)
+                if (!decomp_curve::d2c::d3CurveReadsMiss(m, chan, index, w.lo[i], w.lo[i] + w.n[i]))
+                    return false;
+            return true;
+        }
+
+        // The curve decoder's call (curveEval's D2 adapter on the local registers): a0 out, a1 format, a2 chan, a3 index.
+        void d3OnsCurve(const d1::Mem &m, OnsRegs &s)
+        {
+            decomp_curve::d2c::CurveRegs r;
+            r.fcr31 = s.fcr31;
+            r.a2q = d3q(s.a2, s.a2hi);
+            r.status = s.status;
+            r.setF0 = r.vu1 = r.vu7 = false;
+            decomp_curve::d2c::curveCore(m, static_cast<uint32_t>(s.a0), s.a1, static_cast<uint32_t>(s.a2), static_cast<uint32_t>(s.a3), r); // (taken: tested first)
+            if (r.setF0)
+                s.f[0] = r.f0;
+            s.fcr31 = r.fcr31;
+            if (r.vu7)
+                s.vf7 = r.vf7;
+            if (r.vu1)
+            {
+                d3split(r.vf1, s.a2, s.a2hi);
+                s.vf1 = r.vf1;
+                s.q = r.q;
+                s.status = r.status;
+            }
+            s.v0 = r.v0;
+        }
+        // The vec3 key's call (keyVec3 on the local registers): a0 out, a1 format, a2 table, a3 index.
+        void d3OnsVec3(const d1::Mem &m, OnsRegs &s)
+        {
+            Vec3Regs k;
+            k.at = s.at;
+            k.v0 = s.v0;
+            k.v1 = s.v1;
+            k.t0 = s.t0;
+            for (int i = 0; i < 5; ++i)
+                k.f[i] = s.f[i];
+            d3Vec3Core(m, static_cast<uint32_t>(s.a0), s.a1, static_cast<uint32_t>(s.a2), static_cast<uint32_t>(s.a3), k);
+            s.at = k.at;
+            s.v0 = k.v0;
+            s.v1 = k.v1;
+            s.t0 = k.t0;
+            for (int i = 0; i < 5; ++i)
+                s.f[i] = k.f[i];
+        }
+        // a0 = +4; with a table its key into out (d2PosKey); then a2 = +8.
+        void d3OnsPosition(const d1::Mem &m, uint32_t record, uint32_t index, uint32_t out, OnsRegs &s)
+        {
+            s.a0 = d2sx(m.u32(record + 4u));
+            if (s.a0 != 0)
+            {
+                s.v1 = m.get<uint8_t>(record + 2u);
+                d2h::KeyRegs k;
+                for (int i = 0; i < 8; ++i)
+                    k.f[i] = s.f[i];
+                k.at = s.at;
+                k.v0 = s.v0;
+                k.v1 = s.v1;
+                d2h::d2PosKey(m, static_cast<uint32_t>(s.a0), s.v1, index, out, k);
+                for (int i = 0; i < 8; ++i)
+                    s.f[i] = k.f[i];
+                s.at = k.at;
+                s.v0 = k.v0;
+                s.v1 = k.v1;
+            }
+            s.a2 = d2sx(m.u32(record + 8u));
+        }
+
+        // manager_sub_010AE128. false: a decode curveCore would refuse, or a word it reads written first (nothing written).
+        bool d3OptionNodeCore(const d1::Mem &m, const OnsIn &in, OnsRegs &s)
+        {
+            const uint32_t sp = in.sp0 - 0xC0u, record = in.record;
+            // The frame (pure): the frame count, the loop, the key index and the fraction.
+            s.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(s.t0)));
+            const bool loop = d1::lt(s.f[0], s.f12);
+            s.fcr31 = loop ? (s.fcr31 | kCondBit) : (s.fcr31 & ~kCondBit);
+            if (loop)
+            {
+                d2h::LoopRegs l{s.v0, s.v1, s.lo, s.hi, s.f[0], s.f[1], s.f12, s.fcr31};
+                d2h::d2LoopFrame(s.t0, l);
+                s.v0 = l.v0;
+                s.v1 = l.v1;
+                s.lo = l.lo;
+                s.hi = l.hi;
+                s.f[0] = l.f0;
+                s.f[1] = l.f1;
+                s.f12 = l.f12;
+                s.fcr31 = l.fcr31;
+            }
+            const int32_t w = ps2FpuConvertToWord(s.f12);
+            const uint64_t key64 = d2sx(static_cast<uint32_t>(w));
+            s.f[1] = d2bitsF(0u);
+            s.f[0] = static_cast<float>(w);
+            s.f20 = d1::sub(s.f12, s.f[0]);
+            const bool whole = d1::eq(s.f20, s.f[1]);
+            s.fcr31 = whole ? (s.fcr31 | kCondBit) : (s.fcr31 & ~kCondBit);
+            const uint64_t next64 = d2sx(static_cast<uint32_t>(w) + 1u);
+            const uint32_t key = static_cast<uint32_t>(key64), nextKey = static_cast<uint32_t>(next64);
+
+            // Every decode tested before the first store.
+            OnsWrites wr;
+            wr.lo[0] = sp;
+            wr.n[0] = 0xC0u;
+            wr.lo[1] = in.quatOut & ~0xFu;
+            wr.lo[2] = in.posOut & ~0xFu;
+            wr.lo[3] = in.scaleOut & ~0xFu;
+            wr.n[1] = wr.n[2] = wr.n[3] = 0x20u;
+            for (int i = 0; i < 4; ++i)
+                if (!d3Apart(record, 0x10u, wr.lo[i], wr.n[i]))
+                    return false;
+            // the position / scale tables in main RAM (their keys are read through d1::Mem)
+            const uint32_t ptab = m.u32(record + 4u), stab = m.u32(record + 0xCu);
+            if ((ptab != 0u && ptab > PS2_RAM_SIZE - 0x20u) || (stab != 0u && stab > PS2_RAM_SIZE - 0x20u))
+                return false;
+            const uint32_t chan = m.u32(record + 8u);
+            if (chan != 0u)
+            {
+                const uint64_t fmt = m.get<uint8_t>(record + 1u);
+                if (whole)
+                {
+                    if (!decomp_curve::d2c::d3CurveTakes(m, in.quatOut, fmt, chan, key) || !d3OnsMiss(m, wr, chan, key))
+                        return false;
+                }
+                else if (!decomp_curve::d2c::d3CurveTakes(m, sp, fmt, chan, key) || !d3OnsMiss(m, wr, chan, key) ||
+                         !decomp_curve::d2c::d3CurveTakes(m, sp + 0x10u, fmt, chan, nextKey) || !d3OnsMiss(m, wr, chan, nextKey))
+                    return false;
+            }
+
+            // The prologue's stores (the old order).
+            m.set<uint64_t>(sp + 0x80u, in.s[0]);
+            m.set<uint64_t>(sp + 0x90u, in.s[2]);
+            m.set<uint64_t>(sp + 0x98u, in.s[3]);
+            m.set<uint64_t>(sp + 0xA8u, in.s[5]);
+            m.set<uint64_t>(sp + 0x88u, in.s[1]);
+            m.set<uint64_t>(sp + 0xA0u, in.s[4]);
+            m.set<uint64_t>(sp + 0xB0u, in.ra);
+            m.set<float>(sp + 0xB8u, in.f20);
+            if (whole)
+            {
+                // No fraction: the keys straight into the outs.
+                d3OnsPosition(m, record, key, in.posOut, s);
+                s.a0 = s.s[3];
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 1u);
+                    s.a3 = key64;
+                    d3OnsCurve(m, s);
+                }
+                s.a2 = d2sx(m.u32(record + 0xCu));
+                s.a0 = s.s[5];
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 0u);
+                    s.a3 = key64;
+                    d3OnsVec3(m, s);
+                }
+            }
+            else
+            {
+                // Both keys into the frame (+0 / +0x10 the rotations, +0x20 / +0x30 the positions, +0x40 / +0x50 the scales).
+                d3OnsPosition(m, record, key, sp + 0x20u, s);
+                s.a0 = d2sx(sp);
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 1u);
+                    s.a3 = key64;
+                    d3OnsCurve(m, s);
+                }
+                s.a2 = d2sx(m.u32(record + 0xCu));
+                s.a3 = key64;
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 0u);
+                    s.a0 = d2sx(sp + 0x40u);
+                    d3OnsVec3(m, s);
+                }
+                d3OnsPosition(m, record, nextKey, sp + 0x30u, s);
+                s.a0 = d2sx(sp + 0x10u);
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 1u);
+                    s.a3 = next64;
+                    d3OnsCurve(m, s);
+                }
+                s.a2 = d2sx(m.u32(record + 0xCu));
+                s.a3 = next64;
+                if (s.a2 != 0)
+                {
+                    s.a1 = m.get<uint8_t>(record + 0u);
+                    s.a0 = d2sx(sp + 0x50u);
+                    d3OnsVec3(m, s);
+                }
+                // The closing block (D2's core).
+                d2h::BlendRegs b;
+                b.v.vf5 = s.vf5;
+                b.v.vf6 = s.vf6;
+                b.v.vf7 = s.vf7;
+                b.v.vf8 = s.vf8;
+                b.v.vf9 = s.vf9;
+                b.v.vf14 = s.vf14;
+                b.v.vf15 = s.vf15;
+                b.v.acc = s.acc;
+                b.v.t0 = d3q(s.t0, s.t0hi);
+                b.v.q = s.q;
+                b.v.status = s.status;
+                b.at = s.at;
+                b.v0 = s.v0;
+                b.v1 = s.v1;
+                b.a0 = s.a0;
+                b.a1 = s.a1;
+                b.f0 = s.f[0];
+                b.f1 = s.f[1];
+                d2h::d2OptionBlend(m, sp, s.f20, in.quatOut, in.posOut, in.scaleOut, b);
+                s.vf5 = b.v.vf5;
+                s.vf6 = b.v.vf6;
+                s.vf7 = b.v.vf7;
+                s.vf8 = b.v.vf8;
+                s.vf9 = b.v.vf9;
+                s.vf14 = b.v.vf14;
+                s.vf15 = b.v.vf15;
+                s.acc = b.v.acc;
+                d3split(b.v.t0, s.t0, s.t0hi);
+                s.q = b.v.q;
+                s.status = b.v.status;
+                s.at = b.at;
+                uint64_t lo;
+                d3split(b.v0q, lo, s.v0hi);
+                s.v0 = b.v0;
+                d3split(b.v1q, lo, s.v1hi);
+                s.v1 = b.v1;
+                s.a0 = b.a0;
+                s.a1 = b.a1;
+                s.f[0] = b.f0;
+                s.f[1] = b.f1;
+            }
+            // The epilogue's reloads.
+            s.s[0] = m.get<uint64_t>(sp + 0x80u);
+            s.s[1] = m.get<uint64_t>(sp + 0x88u);
+            s.s[2] = m.get<uint64_t>(sp + 0x90u);
+            s.s[3] = m.get<uint64_t>(sp + 0x98u);
+            s.s[4] = m.get<uint64_t>(sp + 0xA0u);
+            s.s[5] = m.get<uint64_t>(sp + 0xA8u);
+            s.ra = m.get<uint64_t>(sp + 0xB0u);
+            s.f20 = m.f32(sp + 0xB8u);
+            return true;
+        }
+    } // namespace d3h
+
+    void keyVec3D3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), table = GPR_U32(ctx, 6);
+        if (__builtin_expect(!sotc_decomp::hotList46On() || out > PS2_RAM_SIZE - 16u || table > PS2_RAM_SIZE - 0x20u, 0))
+            return keyVec3(rdram, ctx, runtime);
+        ++c_d3KeyVec3.n;
+        d3h::Vec3Regs k;
+        k.at = GPR_U64(ctx, 1);
+        k.v0 = GPR_U64(ctx, 2);
+        k.v1 = GPR_U64(ctx, 3);
+        k.t0 = GPR_U64(ctx, 8);
+        for (int i = 0; i < 5; ++i)
+            k.f[i] = ctx->f[i];
+        d3h::d3Vec3Core(d1::Mem{rdram}, out, GPR_U64(ctx, 5), table, GPR_U32(ctx, 7), k);
+        SET_GPR_U64(ctx, 1, k.at);
+        SET_GPR_U64(ctx, 2, k.v0);
+        SET_GPR_U64(ctx, 3, k.v1);
+        SET_GPR_U64(ctx, 8, k.t0);
+        for (int i = 0; i < 5; ++i)
+            ctx->f[i] = k.f[i];
+        returnTo(ctx);
+    }
+    void keyVec3Sw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            keyVec3D3(rdram, ctx, runtime);
+        else
+            keyVec3(rdram, ctx, runtime);
+    }
+
+    void optionNodeSampleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t sp0 = GPR_U32(ctx, 29);
+        const uint32_t quatOut = GPR_U32(ctx, 4), posOut = GPR_U32(ctx, 5), scaleOut = GPR_U32(ctx, 6), record = GPR_U32(ctx, 7);
+        if (__builtin_expect(!sotc_decomp::hotList46On() || sp0 < 0x100u || sp0 > PS2_RAM_SIZE || quatOut > PS2_RAM_SIZE - 0x20u || posOut > PS2_RAM_SIZE - 0x20u ||
+                                 scaleOut > PS2_RAM_SIZE - 0x20u || record > PS2_RAM_SIZE - 0x10u || sotc_decomp::lane(runtime) != 0 || !decomp_curve::d3CurveDefault(),
+                             0))
+            return optionNodeSample(rdram, ctx, runtime);
+        const PS2Runtime::RecompiledFunction cs = sotc_decomp::guestFunction(runtime, kCurveEval), vs = sotc_decomp::guestFunction(runtime, kKeyVec3);
+        if (__builtin_expect((cs != &decomp_curve::curveEval && cs != &decomp_curve::curveEvalSw) || (vs != &keyVec3 && vs != &keyVec3Sw), 0))
+            return optionNodeSample(rdram, ctx, runtime);
+        d3h::OnsIn in;
+        in.sp0 = sp0;
+        in.quatOut = quatOut;
+        in.posOut = posOut;
+        in.scaleOut = scaleOut;
+        in.record = record;
+        for (int i = 0; i < 6; ++i)
+            in.s[i] = GPR_U64(ctx, 16 + i);
+        in.ra = GPR_U64(ctx, 31);
+        d3h::OnsRegs s;
+        s.at = GPR_U64(ctx, 1);
+        s.v0 = GPR_U64(ctx, 2);
+        s.v1 = GPR_U64(ctx, 3);
+        // the arguments as the body moves them: s0 = a3 (the record), s2 = a1, s3 = a0, s5 = a2
+        s.s[0] = GPR_U64(ctx, 7);
+        s.s[1] = GPR_U64(ctx, 17);
+        s.s[2] = GPR_U64(ctx, 5);
+        s.s[3] = GPR_U64(ctx, 4);
+        s.s[4] = GPR_U64(ctx, 20);
+        s.s[5] = GPR_U64(ctx, 6);
+        s.a0 = GPR_U64(ctx, 4);
+        s.a1 = GPR_U64(ctx, 5);
+        s.a2 = GPR_U64(ctx, 6);
+        s.a3 = GPR_U64(ctx, 7);
+        s.t0 = GPR_U64(ctx, 8);
+        {
+            uint64_t w[2];
+            std::memcpy(w, &ctx->r[2], 16);
+            s.v0hi = w[1];
+            std::memcpy(w, &ctx->r[3], 16);
+            s.v1hi = w[1];
+            std::memcpy(w, &ctx->r[6], 16);
+            s.a2hi = w[1];
+            std::memcpy(w, &ctx->r[8], 16);
+            s.t0hi = w[1];
+        }
+        s.lo = ctx->lo;
+        s.hi = ctx->hi;
+        s.ra = in.ra;
+        for (int i = 0; i < 8; ++i)
+            s.f[i] = ctx->f[i];
+        s.f12 = ctx->f[12];
+        in.f20 = ctx->f[20];
+        s.f20 = ctx->f[20];
+        s.fcr31 = ctx->fcr31;
+        s.vf1 = ctx->vu0_vf[1];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf9 = ctx->vu0_vf[9];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.acc = ctx->vu0_acc;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        if (__builtin_expect(!d3h::d3OptionNodeCore(d1::Mem{rdram}, in, s), 0))
+            return optionNodeSample(rdram, ctx, runtime); // (nothing written)
+        ++c_d3OptionNode.n;
+        SET_GPR_U64(ctx, 1, s.at);
+        {
+            uint64_t w[2] = {s.v0, s.v0hi};
+            std::memcpy(&ctx->r[2], w, 16);
+            w[0] = s.v1;
+            w[1] = s.v1hi;
+            std::memcpy(&ctx->r[3], w, 16);
+            w[0] = s.a2;
+            w[1] = s.a2hi;
+            std::memcpy(&ctx->r[6], w, 16);
+            w[0] = s.t0;
+            w[1] = s.t0hi;
+            std::memcpy(&ctx->r[8], w, 16);
+        }
+        SET_GPR_U64(ctx, 4, s.a0);
+        SET_GPR_U64(ctx, 5, s.a1);
+        SET_GPR_U64(ctx, 7, s.a3);
+        for (int i = 0; i < 6; ++i)
+            SET_GPR_U64(ctx, 16 + i, s.s[i]);
+        SET_GPR_U64(ctx, 31, s.ra);
+        ctx->lo = s.lo;
+        ctx->hi = s.hi;
+        for (int i = 0; i < 8; ++i)
+            ctx->f[i] = s.f[i];
+        ctx->f[12] = s.f12;
+        ctx->f[20] = s.f20;
+        ctx->fcr31 = s.fcr31;
+        ctx->vu0_vf[1] = s.vf1;
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[9] = s.vf9;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_acc = s.acc;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp0));
+        returnTo(ctx);
+    }
+} // namespace decomp_hot46h
+
+// ---- Round D3: manager_sub_010AF070 (objectAnimSample: an object animation's record at a float frame) as native C++ -------
+// The old body (objectAnimSampleT<false>) on the local register set of optionNodeSample's D3 body: the frame loop (D2's
+// d2LoopFrame), the key index / fraction (cvt.w.s -> ps2FpuConvertToWord, sub.s -> d1::sub, c.olt / c.eq -> d1::lt / eq),
+// its guest calls as direct C++ calls (calls direct up to 6): the position by D2's posKeyLerpCore (manager_sub_010AEAF8),
+// the rotation(s) by D2's curveCore, the scale(s) by keyVec3's D3 core, the two lerps by D2's d2LerpKeys (VU0 -> d1 vec4),
+// each callee fed and leaving the registers its adapter reads / writes. Tested first, before any store (else the old
+// body): every decode curveCore will make (d3CurveTakes + d3CurveReadsMiss against the frame and the out record), the
+// record outside those ranges, posKeyLerp's D2 refusals (a table outside RAM; no table with a fraction), and the two lerps
+// of the frame's stale contents (no rotation channel / no scale table with a fraction: the operand clamps of stale lanes);
+// hotlist46 off, curveEval's stats / fastnative, the worker lane, a slot holding something else: the old body.
+namespace decomp_hot46h
+{
+    D1_COUNTER(c_d3ObjAnim, "manager_sub_010AF070");
+
+    namespace d3h
+    {
+        struct ObjIn
+        {
+            uint32_t sp0, out, record;
+            uint64_t s[6], ra; // s0-s5 and ra at the entry (saved in the frame)
+            float f20;
+        };
+
+        // The lerp (d2LerpKeys) on the local registers; its destination vf9 (kDst9) or vf5 (aliased with the next key's
+        // load into vf5, as the old code's lerpKeys<..., 5, ...>).
+        template <bool kXyzw, bool kDst9>
+        void d3ObjLerp(const d1::Mem &m, OnsRegs &s, uint32_t next, uint32_t cur, uint32_t out)
+        {
+            d2h::LerpRegs v;
+            v.vf5 = s.vf5;
+            v.vf6 = s.vf6;
+            v.vf7 = s.vf7;
+            v.vf8 = s.vf8;
+            v.vf9 = s.vf9;
+            v.vf14 = s.vf14;
+            v.vf15 = s.vf15;
+            v.acc = s.acc;
+            v.t0 = d3q(s.t0, s.t0hi);
+            v.q = s.q;
+            v.status = s.status;
+            d2h::d2LerpKeys<kXyzw>(m, s.f20, next, cur, kDst9 ? v.vf9 : v.vf5, out, v);
+            s.vf5 = v.vf5;
+            s.vf6 = v.vf6;
+            s.vf7 = v.vf7;
+            s.vf8 = v.vf8;
+            s.vf9 = v.vf9;
+            s.acc = v.acc;
+            d3split(v.t0, s.t0, s.t0hi);
+        }
+
+        bool d3ObjAnimCore(const d1::Mem &m, const ObjIn &in, OnsRegs &s)
+        {
+            const uint32_t sp = in.sp0 - 0x90u, record = in.record, out = in.out;
+            uint64_t sr[6];
+            for (int i = 0; i < 6; ++i)
+                sr[i] = in.s[i];
+            const uint64_t cnt64 = s.a2;
+            // (pure) the frame count, the loop, the key index and the fraction
+            s.f[0] = static_cast<float>(static_cast<int32_t>(static_cast<uint32_t>(cnt64)));
+            sr[3] = s.a1; // the record
+            sr[5] = s.a0; // the out
+            s.a3 = d2sx(sp + 0x40u);
+            const bool loop = d1::lt(s.f[0], s.f12);
+            s.fcr31 = loop ? (s.fcr31 | kCondBit) : (s.fcr31 & ~kCondBit);
+            if (loop)
+            {
+                d2h::LoopRegs l{s.v0, s.v1, s.lo, s.hi, s.f[0], s.f[1], s.f12, s.fcr31};
+                d2h::d2LoopFrame(cnt64, l);
+                s.v0 = l.v0;
+                s.v1 = l.v1;
+                s.lo = l.lo;
+                s.hi = l.hi;
+                s.f[0] = l.f0;
+                s.f[1] = l.f1;
+                s.f12 = l.f12;
+                s.fcr31 = l.fcr31;
+            }
+            const int32_t w = ps2FpuConvertToWord(s.f12);
+            const float frac = d1::sub(s.f12, static_cast<float>(w));
+            const bool whole = d1::eq(frac, 0.0f);
+            const uint32_t key = static_cast<uint32_t>(w), nextKey = static_cast<uint32_t>(w) + 1u;
+
+            // Tested before the first store.
+            OnsWrites wr;
+            wr.lo[0] = sp - 0x20u; // (posKeyLerp's frame below this one)
+            wr.n[0] = 0xB0u;
+            wr.lo[1] = out & ~0xFu;
+            wr.n[1] = 0x40u;
+            wr.lo[2] = wr.lo[3] = wr.lo[0];
+            wr.n[2] = wr.n[3] = wr.n[0];
+            if (!d3Apart(record, 0x10u, wr.lo[0], wr.n[0]) || !d3Apart(record, 0x10u, wr.lo[1], wr.n[1]))
+                return false;
+            const uint32_t table = m.u32(record + 4u);
+            if (table != 0u ? table > PS2_RAM_SIZE - 0x20u : !whole)
+                return false;
+            const uint32_t stab = m.u32(record + 0xCu);
+            if (stab != 0u && stab > PS2_RAM_SIZE - 0x20u)
+                return false;
+            const uint32_t chan = m.u32(record + 8u);
+            const uint64_t fmt = static_cast<uint64_t>(static_cast<int64_t>(m.s32(record) >> 8)) & 0xFu;
+            if (whole)
+            {
+                if (chan != 0u && (!decomp_curve::d2c::d3CurveTakes(m, out + 0x10u, fmt, chan, key) || !d3OnsMiss(m, wr, chan, key)))
+                    return false;
+            }
+            else if (chan == 0u || m.u32(record + 0xCu) == 0u || !decomp_curve::d2c::d3CurveTakes(m, sp, fmt, chan, key) || !d3OnsMiss(m, wr, chan, key) ||
+                     !decomp_curve::d2c::d3CurveTakes(m, sp + 0x10u, fmt, chan, nextKey) || !d3OnsMiss(m, wr, chan, nextKey))
+                return false;
+
+            // The prologue's stores (the old order).
+            m.set<uint64_t>(sp + 0x68u, in.s[3]);
+            m.set<uint64_t>(sp + 0x78u, in.s[5]);
+            m.set<uint64_t>(sp + 0x50u, in.s[0]);
+            m.set<uint64_t>(sp + 0x58u, in.s[1]);
+            m.set<uint64_t>(sp + 0x60u, in.s[2]);
+            m.set<uint64_t>(sp + 0x70u, in.s[4]);
+            m.set<uint64_t>(sp + 0x80u, in.ra);
+            m.set<float>(sp + 0x88u, in.f20);
+            // 0x10af0fc: the key index (+0x40, +0x44 the next) and the fraction (+0x48); the position by 010AEAF8.
+            {
+                uint32_t wb = static_cast<uint32_t>(w);
+                std::memcpy(&s.f[0], &wb, 4);
+            }
+            s.v1 = d2sx(static_cast<uint32_t>(w));
+            s.a1 = d2sx(static_cast<uint32_t>(static_cast<int32_t>(m.get<int16_t>(record + 2u))));
+            s.a2 = d2sx(m.u32(record + 4u));
+            s.a0 = sr[5];
+            s.a1 = s.a1 & 0xFu;
+            sr[2] = d2sx(out + 0x10u);
+            sr[1] = d2sx(record + 8u);
+            s.v0 = d2sx(static_cast<uint32_t>(s.v1) + 1u);
+            m.set<uint32_t>(static_cast<uint32_t>(s.a3), static_cast<uint32_t>(s.v1));
+            m.set<uint32_t>(sp + 0x44u, static_cast<uint32_t>(s.v0));
+            s.t0 = s.v0;
+            s.f[0] = static_cast<float>(static_cast<int32_t>(m.u32(static_cast<uint32_t>(s.a3))));
+            s.a3 = d2sx(m.u32(sp + 0x40u));
+            s.f[0] = d1::sub(s.f12, s.f[0]);
+            s.f12 = s.f[0];
+            m.set<float>(sp + 0x48u, s.f[0]);
+            {
+                d2h::PosKeyLerpRegs r;
+                for (int i = 0; i < 8; ++i)
+                    r.k.f[i] = s.f[i];
+                r.k.at = s.at;
+                r.k.v0 = s.v0;
+                r.k.v1 = s.v1;
+                r.v.t0 = d3q(s.t0, s.t0hi);
+                r.v.vf5 = s.vf5;
+                r.v.vf6 = s.vf6;
+                r.v.vf7 = s.vf7;
+                r.v.vf8 = s.vf8;
+                r.v.acc = s.acc;
+                r.fcr31 = s.fcr31;
+                d2h::posKeyLerpCore(m, static_cast<uint32_t>(s.a0), s.a1, static_cast<uint32_t>(s.a2), s.a2 != 0, static_cast<uint32_t>(s.a3), static_cast<uint32_t>(s.t0),
+                                    s.f12, sp - 0x20u, r);
+                for (int i = 0; i < 8; ++i)
+                    s.f[i] = r.k.f[i];
+                s.at = r.k.at;
+                s.v0 = r.k.v0;
+                s.v1 = r.k.v1;
+                d3split(r.v.t0, s.t0, s.t0hi);
+                s.vf5 = r.v.vf5;
+                s.vf6 = r.v.vf6;
+                s.vf7 = r.v.vf7;
+                s.vf8 = r.v.vf8;
+                s.acc = r.v.acc;
+                s.fcr31 = r.fcr31;
+            }
+            // 0x10af148: the rotation (a1 = the record's word, bits 8-11 its format).
+            s.a1 = d2sx(m.u32(record));
+            s.f[1] = m.f32(sp + 0x48u);
+            s.f[0] = d2bitsF(0u);
+            s.v0 = d2sx(static_cast<uint32_t>(static_cast<int32_t>(static_cast<uint32_t>(s.a1)) >> 8));
+            sr[0] = s.v0 & 0xFu;
+            s.a3 = d2sx(m.u32(sp + 0x40u));
+            const bool rotWhole = d1::eq(s.f[1], s.f[0]);
+            s.fcr31 = rotWhole ? (s.fcr31 | kCondBit) : (s.fcr31 & ~kCondBit);
+            sr[4] = d2sx(m.u32(sp + 0x44u));
+            s.f20 = s.f[1];
+            const uint32_t rotChannel = static_cast<uint32_t>(sr[1]); // record + 8
+            bool reloadTail = true;
+            if (rotWhole)
+            {
+                s.a2 = d2sx(m.u32(rotChannel));
+                sr[1] = s.a1 & 0xFu;
+                if (s.a2 == 0)
+                    reloadTail = false;
+                else
+                {
+                    s.a1 = sr[0];
+                    s.a0 = sr[2];
+                    d3OnsCurve(m, s);
+                    s.a1 = d2sx(m.u32(record));
+                }
+            }
+            else
+            {
+                s.a2 = d2sx(m.u32(rotChannel));
+                s.a0 = d2sx(sp);
+                if (s.a2 != 0)
+                {
+                    s.a1 = sr[0];
+                    d3OnsCurve(m, s);
+                    s.a2 = d2sx(m.u32(rotChannel));
+                }
+                s.a1 = sr[0];
+                if (s.a2 != 0)
+                {
+                    s.a3 = sr[4];
+                    s.a0 = d2sx(sp + 0x10u);
+                    d3OnsCurve(m, s);
+                }
+                s.v0 = d2sx(sp + 0x10u);
+                d3ObjLerp<true, true>(m, s, sp + 0x10u, sp, static_cast<uint32_t>(sr[2]));
+                s.a1 = d2sx(m.u32(record));
+            }
+            if (reloadTail)
+            {
+                s.a3 = d2sx(m.u32(sp + 0x40u));
+                sr[4] = d2sx(m.u32(sp + 0x44u));
+                s.f[1] = m.f32(sp + 0x48u);
+                s.f[0] = d2bitsF(0u);
+                s.f20 = s.f[1];
+                sr[1] = s.a1 & 0xFu;
+            }
+            // 0x10af1fc: the scale (a1 = bits 0-3 of the word) into out +0x20.
+            sr[2] = d2sx(out + 0x20u);
+            const bool scaleWhole = d1::eq(s.f20, s.f[0]);
+            s.fcr31 = scaleWhole ? (s.fcr31 | kCondBit) : (s.fcr31 & ~kCondBit);
+            sr[0] = d2sx(m.u32(record + 0xCu));
+            if (scaleWhole)
+            {
+                s.a1 = sr[1];
+                if (sr[0] != 0)
+                {
+                    s.a0 = sr[2];
+                    s.a2 = sr[0];
+                    d3OnsVec3(m, s);
+                }
+            }
+            else
+            {
+                s.a1 = sr[1];
+                if (sr[0] != 0)
+                {
+                    s.a0 = d2sx(sp + 0x20u);
+                    s.a2 = sr[0];
+                    d3OnsVec3(m, s);
+                    s.a1 = sr[1];
+                    s.a2 = sr[0];
+                    s.a3 = sr[4];
+                    s.a0 = d2sx(sp + 0x30u);
+                    d3OnsVec3(m, s);
+                }
+                s.v1 = d2sx(sp + 0x30u);
+                s.v0 = d2sx(sp + 0x20u);
+                d3ObjLerp<false, false>(m, s, sp + 0x30u, sp + 0x20u, static_cast<uint32_t>(sr[2]));
+            }
+            // 0x10af278: the epilogue's reloads.
+            s.s[0] = m.get<uint64_t>(sp + 0x50u);
+            s.s[1] = m.get<uint64_t>(sp + 0x58u);
+            s.s[2] = m.get<uint64_t>(sp + 0x60u);
+            s.s[3] = m.get<uint64_t>(sp + 0x68u);
+            s.s[4] = m.get<uint64_t>(sp + 0x70u);
+            s.s[5] = m.get<uint64_t>(sp + 0x78u);
+            s.ra = m.get<uint64_t>(sp + 0x80u);
+            s.f20 = m.f32(sp + 0x88u);
+            return true;
+        }
+    } // namespace d3h
+
+    void objectAnimSampleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t sp0 = GPR_U32(ctx, 29), out = GPR_U32(ctx, 4), record = GPR_U32(ctx, 5);
+        if (__builtin_expect(!sotc_decomp::hotList46On() || sp0 < 0x100u || sp0 > PS2_RAM_SIZE || out > PS2_RAM_SIZE - 0x40u || record > PS2_RAM_SIZE - 0x10u ||
+                                 sotc_decomp::lane(runtime) != 0 || !decomp_curve::d3CurveDefault(),
+                             0))
+            return objectAnimSample(rdram, ctx, runtime);
+        const PS2Runtime::RecompiledFunction cs = sotc_decomp::guestFunction(runtime, kCurveEval), vs = sotc_decomp::guestFunction(runtime, kKeyVec3),
+                                             ps = sotc_decomp::guestFunction(runtime, kPosKeyLerp);
+        if (__builtin_expect((cs != &decomp_curve::curveEval && cs != &decomp_curve::curveEvalSw) || (vs != &keyVec3 && vs != &keyVec3Sw) ||
+                                 (ps != &posKeyLerp && ps != &posKeyLerpSw),
+                             0))
+            return objectAnimSample(rdram, ctx, runtime);
+        d3h::ObjIn in;
+        in.sp0 = sp0;
+        in.out = out;
+        in.record = record;
+        for (int i = 0; i < 6; ++i)
+            in.s[i] = GPR_U64(ctx, 16 + i);
+        in.ra = GPR_U64(ctx, 31);
+        in.f20 = ctx->f[20];
+        d3h::OnsRegs s;
+        s.at = GPR_U64(ctx, 1);
+        s.v0 = GPR_U64(ctx, 2);
+        s.v1 = GPR_U64(ctx, 3);
+        s.a0 = GPR_U64(ctx, 4);
+        s.a1 = GPR_U64(ctx, 5);
+        s.a2 = GPR_U64(ctx, 6);
+        s.a3 = GPR_U64(ctx, 7);
+        s.t0 = GPR_U64(ctx, 8);
+        {
+            uint64_t w[2];
+            std::memcpy(w, &ctx->r[2], 16);
+            s.v0hi = w[1];
+            std::memcpy(w, &ctx->r[3], 16);
+            s.v1hi = w[1];
+            std::memcpy(w, &ctx->r[6], 16);
+            s.a2hi = w[1];
+            std::memcpy(w, &ctx->r[8], 16);
+            s.t0hi = w[1];
+        }
+        s.lo = ctx->lo;
+        s.hi = ctx->hi;
+        s.ra = in.ra;
+        for (int i = 0; i < 6; ++i)
+            s.s[i] = in.s[i];
+        for (int i = 0; i < 8; ++i)
+            s.f[i] = ctx->f[i];
+        s.f12 = ctx->f[12];
+        s.f20 = ctx->f[20];
+        s.fcr31 = ctx->fcr31;
+        s.vf1 = ctx->vu0_vf[1];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf9 = ctx->vu0_vf[9];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.acc = ctx->vu0_acc;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        if (__builtin_expect(!d3h::d3ObjAnimCore(d1::Mem{rdram}, in, s), 0))
+            return objectAnimSample(rdram, ctx, runtime); // (nothing written)
+        ++c_d3ObjAnim.n;
+        SET_GPR_U64(ctx, 1, s.at);
+        {
+            uint64_t w[2] = {s.v0, s.v0hi};
+            std::memcpy(&ctx->r[2], w, 16);
+            w[0] = s.v1;
+            w[1] = s.v1hi;
+            std::memcpy(&ctx->r[3], w, 16);
+            w[0] = s.a2;
+            w[1] = s.a2hi;
+            std::memcpy(&ctx->r[6], w, 16);
+            w[0] = s.t0;
+            w[1] = s.t0hi;
+            std::memcpy(&ctx->r[8], w, 16);
+        }
+        SET_GPR_U64(ctx, 4, s.a0);
+        SET_GPR_U64(ctx, 5, s.a1);
+        SET_GPR_U64(ctx, 7, s.a3);
+        for (int i = 0; i < 6; ++i)
+            SET_GPR_U64(ctx, 16 + i, s.s[i]);
+        SET_GPR_U64(ctx, 31, s.ra);
+        ctx->lo = s.lo;
+        ctx->hi = s.hi;
+        for (int i = 0; i < 8; ++i)
+            ctx->f[i] = s.f[i];
+        ctx->f[12] = s.f12;
+        ctx->f[20] = s.f20;
+        ctx->fcr31 = s.fcr31;
+        ctx->vu0_vf[1] = s.vf1;
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[9] = s.vf9;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_acc = s.acc;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp0));
+        returnTo(ctx);
+    }
+    void objectAnimSampleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            objectAnimSampleD3(rdram, ctx, runtime);
+        else
+            objectAnimSample(rdram, ctx, runtime);
     }
 } // namespace decomp_hot46h

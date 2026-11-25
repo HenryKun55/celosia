@@ -965,6 +965,19 @@ namespace decomp_hot43a
 } // namespace decomp_hot43a
 
 // reactions (partial): the old body's statements with guest memory through d1::Mem and locals; the two guest calls kept.
+// Round D3: the conditions through manager_sub_010C7B28's D3 core called directly (decomp_ctrldef.cpp) while its slot holds
+// its native and its stats are off (condD3Ready); a condition that core does not do (Surface types, the recompiled ones)
+// stays the guest call. After a direct one the context holds what the old callee leaves: v0, f0, fcr31's condition bit,
+// a0-a3 (the arguments), ra / sp as the jal left them. RequestCharacterClassAdditionMotionChange (010D2AE0) is still a
+// guest call (a guest-only function: no host core), so this native stays partial.
+namespace decomp_ctrldef
+{
+    bool condD3Ready(PS2Runtime *runtime);
+    namespace d3c
+    {
+        int condD3Core(const d1::Mem &m, uint32_t a0In, uint32_t t0, uint32_t a2, uint32_t c, bool hotList, bool &cBit, uint32_t &f0Bits);
+    }
+}
 namespace decomp_hot43a
 {
     namespace d2a
@@ -999,6 +1012,7 @@ namespace decomp_hot43a
             return reactions(rdram, ctx, runtime);
         ++c_d2Reactions.n;
         const d1::Mem m{rdram};
+        const bool condDirect = decomp_ctrldef::condD3Ready(runtime), hot = sotc_decomp::hotListOn(); // round D3
         const uint64_t ra0 = GPR_U64(ctx, 31);
         // The frame (the saved registers in the code's order, a3 at sp + 0).
         m.set<uint64_t>(sp + 0x38u, GPR_U64(ctx, 21));
@@ -1079,7 +1093,20 @@ namespace decomp_hot43a
                             SET_GPR_U32(ctx, 5, chara);
                             SET_GPR_U32(ctx, 6, state);
                             SET_GPR_U32(ctx, 7, at);
-                            sotc_decomp::callGuest(rdram, ctx, runtime, kCondition, 0x010C9CA4u, sp);
+                            bool cb = false;
+                            uint32_t f0 = 0u;
+                            const int r = condDirect ? decomp_ctrldef::d3c::condD3Core(m, object, chara, state, at, hot, cb, f0) : -1;
+                            if (r >= 0)
+                            {
+                                // round D3: the direct call; the context as the callee's exit leaves it
+                                SET_GPR_U32(ctx, 31, 0x010C9CA4u);
+                                SET_GPR_U32(ctx, 29, sp);
+                                std::memcpy(&ctx->f[0], &f0, 4);
+                                ctx->fcr31 = cb ? (ctx->fcr31 | 0x800000u) : (ctx->fcr31 & ~0x800000u);
+                                SET_GPR_U64(ctx, 2, static_cast<uint64_t>(r));
+                            }
+                            else
+                                sotc_decomp::callGuest(rdram, ctx, runtime, kCondition, 0x010C9CA4u, sp);
                             v0 = GPR_U64(ctx, 2);
                             v1 = GPR_U64(ctx, 3);
                             ok = 0;

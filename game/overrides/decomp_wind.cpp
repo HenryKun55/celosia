@@ -754,3 +754,67 @@ namespace decomp_wind
             windZones(rdram, ctx, runtime);
     }
 } // namespace decomp_wind
+
+// ---- Round D3 (d1native): windZones' core for a caller that calls it directly (GetWindVector's D3 body, decomp_hot48c) ----
+// zonesGateD3: windZonesD1's entry tests on the same state (true: windZonesD1 would run its core, the live slots out);
+// zonesCoreD3: windZonesD1's core with its leftover registers in plain arrays (f: f0-f4; u: at, v1, fcr31, lastZone, vf
+// written, a zone weighed; v: vf5-vf7), what windZonesD1's exit writes. Nothing new: windZonesD1 / zonesCore unchanged.
+namespace decomp_wind
+{
+    bool zonesGateD3(uint8_t *rdram, PS2Runtime *runtime, uint32_t point, uint32_t frame, uint8_t *live, int maxLive, int &nLive)
+    {
+        nLive = 0;
+        if (maxLive < kCount)
+            return false;
+        const bool lane0 = !sotc_decomp::onWorkerLane(runtime);
+        if (lane0 && (!s7::on() || s7::g_check == 1 || s7::g_log == 1))
+            return false;
+        auto ok = [](uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE && (a & 3u) == 0u; };
+        if (!ok(frame, 0x70u) || (frame & 0xFu) != 0u || !ok(point & ~0xFu, 16u) || sotc_decomp::jalTarget(rdram, 0x01145FF4u) != 0x01146EB8u)
+            return false;
+        const d1::Mem m{rdram};
+        const uint32_t *slots = m.at<uint32_t>(kSlots);
+        for (int i = 0; i < kCount; ++i)
+        {
+            const uint32_t zone = slots[i];
+            if (zone == 0u)
+                continue;
+            if (!ok(zone, 0x108u) || !ok(m.u32(zone + 4u), 8u) || (m.u32(zone + 0xA0u) == 1u && m.u32(zone) != 0u))
+                return false;
+            live[nLive++] = static_cast<uint8_t>(i);
+        }
+        return true;
+    }
+
+    int32_t zonesCoreD3(const d1::Mem &m, uint32_t point, uint32_t frame, const uint8_t *live, int nLive, float *f, uint32_t *u, __m128 *v)
+    {
+        d1w::Regs r;
+        r.f0 = f[0];
+        r.f1 = f[1];
+        r.f2 = f[2];
+        r.f3 = f[3];
+        r.f4 = f[4];
+        r.fcr31 = u[2];
+        r.at = 0u;
+        r.v1 = 0u;
+        r.vf = false;
+        r.weighed = false;
+        r.lastZone = 0u;
+        const int32_t n = d1w::zonesCore(m, point, frame, live, nLive, r);
+        f[0] = r.f0;
+        f[1] = r.f1;
+        f[2] = r.f2;
+        f[3] = r.f3;
+        f[4] = r.f4;
+        u[0] = r.at;
+        u[1] = r.v1;
+        u[2] = r.fcr31;
+        u[3] = r.lastZone;
+        u[4] = r.vf ? 1u : 0u;
+        u[5] = r.weighed ? 1u : 0u;
+        v[0] = r.vf5;
+        v[1] = r.vf6;
+        v[2] = r.vf7;
+        return n;
+    }
+} // namespace decomp_wind

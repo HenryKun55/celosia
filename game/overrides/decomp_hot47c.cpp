@@ -541,7 +541,9 @@ namespace decomp_hot47c
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010DC808u, charrootdyn_slideExceptionJudgeCB, decomp_hot47c::slideExceptionJudgeCB);
+namespace decomp_hot47c { void slideExceptionJudgeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3
+SOTC_DECOMP_FUNCTION(0x010DC808u, charrootdyn_slideExceptionJudgeCB, decomp_hot47c::slideExceptionJudgeSw);
+D1_ALIAS(0x010DC808u, charrootdyn_slideExceptionJudgeCB, decomp_hot47c::slideExceptionJudgeSw, decomp_hot47c::slideExceptionJudgeCB);
 namespace decomp_hot47c { void rootDynamicsAfterSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D2
 SOTC_DECOMP_FUNCTION(0x010DAE30u, GetCharaRootDynamicsAfter, decomp_hot47c::rootDynamicsAfterSw);
 D1_ALIAS(0x010DAE30u, GetCharaRootDynamicsAfter, decomp_hot47c::rootDynamicsAfterSw, decomp_hot47c::rootDynamicsAfter);
@@ -1083,11 +1085,544 @@ namespace decomp_hot47c
         ctx->pc = GPR_U32(ctx, 31);
     }
 
+    void rootDynamicsAfterD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void rootDynamicsAfterSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            rootDynamicsAfterD1(rdram, ctx, runtime);
+            rootDynamicsAfterD3(rdram, ctx, runtime);
         else
             rootDynamicsAfter(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot47c
+
+// ---- Round D3 (d1native): GetCharaRootDynamicsAfter partial -> full ------------------------------------------------------
+// rootDynamicsAfterD1's statements with its guest calls as their callees' D cores: SetQuaternionByAxisRotateV... and
+// GetDifferencialQuaternion... as decomp_quat's (round 122's cores: the quaternion stored; f0 its w / nothing),
+// iosGetACosfExact as decomp_math's (f0 only), GetGeometryPointerPosition / Quaternion as cam126's D3 cores (geo126's
+// kinds; a character node's frame by manager_sub_010AC4A0's D3 core: v0 / v1 / a0-t1 as it leaves them; f0 1.0 / the
+// quarter turn's w). The registers the body and its callees leave are a local set (RootD3) the adapter loads at the entry
+// and writes at the exit (at, v0 / v1 / t0's 128 bits, a0-a3, t1, f0-f2, f12, f13, fcr31, HI / LO; the callee-saved ones
+// and f20 / f21 come back from the frame unchanged). Everything a call needs is decided at the entry: the mode's path, the
+// callees' slots (their natives or dispatchers), quat122 on and its check mode off, the calls' qwords in round 122's
+// RAM range, and the geometry pointer's kinds / node path (its words, the object's type and the class's node arrays are
+// not among what the body writes: the root record, the rotation at +0x4b0, the bones, +0xa00..+0xa80, +0x10a2..+0x10c0
+// and the frame); any other case: the D2 body.
+namespace decomp_quat
+{
+    void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void axisRotateSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void diffQuat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void diffQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d1q
+    {
+        float axisRotateD1Core(const d1::Mem m, uint32_t out, uint32_t angle, uint32_t axis);
+    }
+    namespace d2q
+    {
+        void diffQuatD1Core(const d1::Mem m, uint32_t out, uint32_t from, uint32_t to, uint32_t axis);
+    }
+}
+namespace decomp_libm
+{
+    void acosExact(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void acosExactSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    float acosExactD1Core(float x);
+}
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+    namespace quat
+    {
+        bool on();
+    }
+}
+namespace cam126
+{
+    void geoPos(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void geoPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void geoQuat(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void geoQuatSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d3c
+    {
+        int geoPosD3Plan(const PS2Runtime *runtime, const d1::Mem &m, uint32_t out, uint32_t gp, uint32_t sp0, int64_t plan[6]);
+        void geoPosD3Run(const d1::Mem &m, const int64_t plan[6], uint32_t out, uint32_t gp, uint32_t sp0, __m128 vec[2], uint64_t gpr[5]);
+        int geoQuatD3Plan(const PS2Runtime *runtime, const d1::Mem &m, uint32_t out, uint32_t gp, uint32_t sp0, int64_t plan[6]);
+        float geoQuatD3Run(const d1::Mem &m, const int64_t plan[6], uint32_t out, uint32_t gp, uint32_t sp0, __m128 vec[2], uint64_t gpr[5], bool &setF0);
+    }
+}
+
+namespace decomp_hot47c
+{
+    D1_COUNTER(c_d3RootAfter, "GetCharaRootDynamicsAfter.d3");
+
+    namespace d3r
+    {
+        struct RootD3
+        {
+            // in
+            uint32_t s1, sp, sentinelA, sentinelB, sentinelC, emptyTbl, diffAxis, blendB, blendC;
+            uint64_t mode, a0;
+            int64_t planPos1[6], planPos2[6], planQuat[6];
+            // the registers the body and its callees leave (in / out)
+            __m128 r2, r3, r8;
+            uint64_t at, r4, r5, r6, r7, r9, hi, lo;
+            float f0, f1, f2, f12, f13, f20, f21;
+            uint32_t fcr31;
+            uint64_t v0; // out: the flags' v0
+        };
+        PS2_FORCE_INLINE uint64_t d3sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+        // angleAxis / blendToward on the local set (rootDynamicsAfterD1's scalarsIn / scalarsOut).
+        PS2_FORCE_INLINE void d3scalarsIn(const RootD3 &st, d2r::RootScalars &s, float fx)
+        {
+            s.f0 = st.f0;
+            s.f1 = st.f1;
+            s.fx = fx;
+            s.f20 = st.f20;
+            s.f21 = st.f21;
+            s.fcr31 = st.fcr31;
+            s.v0q = st.r2;
+            s.v1q = st.r3;
+            s.t0q = st.r8;
+            s.at = st.at;
+        }
+        PS2_FORCE_INLINE void d3scalarsOut(RootD3 &st, const d2r::RootScalars &s)
+        {
+            st.f0 = s.f0;
+            st.f1 = s.f1;
+            st.fcr31 = s.fcr31;
+            st.r2 = s.v0q;
+            st.r3 = s.v1q;
+            st.r8 = s.t0q;
+            st.at = s.at;
+        }
+        // GetGeometryPointerPosition / Quaternion's D3 cores, with the registers 010AC4A0's core leaves for a node kind.
+        PS2_FORCE_INLINE void d3nodeRegs(RootD3 &st, const __m128 vec[2], const uint64_t gpr[5])
+        {
+            st.r2 = vec[0];
+            st.r3 = vec[1];
+            st.r4 = gpr[0];
+            st.r5 = gpr[1];
+            st.r6 = gpr[2];
+            st.r7 = gpr[3];
+            std::memcpy(&st.r8, &gpr[4], 8);
+            st.r9 = 1u;
+        }
+        void d3geoPos(const d1::Mem &m, RootD3 &st, const int64_t plan[6], uint32_t out, uint32_t gp)
+        {
+            __m128 vec[2] = {st.r2, st.r3};
+            uint64_t gpr[5];
+            cam126::d3c::geoPosD3Run(m, plan, out, gp, st.sp, vec, gpr);
+            if (plan[0] == 3)
+                d3nodeRegs(st, vec, gpr);
+            st.f0 = 1.0f;
+        }
+        void d3geoQuat(const d1::Mem &m, RootD3 &st, const int64_t plan[6], uint32_t out, uint32_t gp)
+        {
+            __m128 vec[2] = {st.r2, st.r3};
+            uint64_t gpr[5];
+            bool setF0;
+            const float f0 = cam126::d3c::geoQuatD3Run(m, plan, out, gp, st.sp, vec, gpr, setF0);
+            if (plan[0] == 2)
+                d3nodeRegs(st, vec, gpr);
+            if (setF0)
+                st.f0 = f0;
+        }
+
+        void rootAfterD3Core(const d1::Mem &m, RootD3 &st, d2r::RootVu &v)
+        {
+            const uint32_t s1 = st.s1, sp = st.sp;
+            const uint32_t s2 = s1 + 0x4B0u; // the rotation quaternion
+            // (the prologue's register saves are the D2 body's: the adapter writes them, they come back unchanged)
+            const uint8_t b124 = m.get<uint8_t>(s1 + 0x124u);
+            const uint32_t s4 = m.u32(s1 + 0x2E8u); // the bones' quaternions
+            m.set<uint8_t>(s1 + 0x10C0u, b124);
+            st.f21 = m.f32(s1 + 0x724u);
+            st.f20 = st.f13;
+
+            int path; // 0 A, 1 B, 2 C
+            if (st.mode == d3sx(st.sentinelA))
+                path = 0;
+            else if (st.mode != d3sx(st.sentinelB))
+                path = st.mode != d3sx(st.sentinelC) ? 2 : 1;
+            else
+                path = 0;
+
+            if (path == 0)
+            {
+                // ---- A (0x10dae90) --------------------------------------------
+                const int8_t on = static_cast<int8_t>(m.get<uint8_t>(s1 + 0x529u));
+                m.set<uint8_t>(s1 + 0x10C0u, 0u);
+                if (on != 0)
+                {
+                    const uint32_t root = m.u32(s1 + 0x19Cu);
+                    // f0 = angle x f12 x 32768 / pi, as a 16-bit angle.
+                    st.at = d3sx(0x47000000u);
+                    st.f2 = d2r::d2bitsF(0x47000000u);
+                    st.f0 = m.f32(root + 0x50u);
+                    st.at = d3sx(0x40490FDAu);
+                    st.f1 = d2r::d2bitsF(0x40490FDAu);
+                    st.f0 = d1::mul(st.f0, st.f12);
+                    st.f0 = d1::mul(st.f0, st.f2);
+                    st.f0 = ps2FpuDivide(st.fcr31, st.f0, st.f1);
+                    const int32_t wi = ps2FpuConvertToWord(st.f0);
+                    std::memcpy(&st.f1, &wi, 4);
+                    const uint32_t w = static_cast<uint32_t>(wi);
+                    st.r4 = d3sx(sp);
+                    st.r5 = d3sx(static_cast<uint32_t>(static_cast<int32_t>(w << 16) >> 16));
+                    st.r6 = d3sx(root + 0x40u);
+                    // SetQuaternionByAxisRotateVWithNoRegularize(sp, a1, root + 0x40): its D core
+                    st.f0 = decomp_quat::d1q::axisRotateD1Core(m, sp, static_cast<uint32_t>(st.r5), root + 0x40u);
+
+                    // The animation record's factor (+0x1c0 + 0x24's handle).
+                    const uint32_t rec = m.u32(s1 + 0x1C0u) + 0x24u;
+                    const uint32_t packed = m.u32(rec);
+                    const uint32_t low = packed & 0x3FFFFu;
+                    const uint64_t tbl = low == 0u ? 0u : d3sx(m.u32(rec - low));
+                    uint32_t entry = 0u;
+                    if (tbl != 0u && tbl != d3sx(st.emptyTbl))
+                    {
+                        const uint32_t t = static_cast<uint32_t>(tbl);
+                        const uint32_t hdr = m.u32(t + 8u);
+                        const uint32_t idx = (packed >> 18) & 0xFFFu;
+                        const uint32_t base = m.u32(t + 0x10u);
+                        const uint32_t stride = m.u32(hdr + 0xCu);
+                        const int64_t result = static_cast<int64_t>(static_cast<int32_t>(idx)) * static_cast<int64_t>(static_cast<int32_t>(stride));
+                        st.lo = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(result)));
+                        st.hi = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(result >> 32)));
+                        entry = base + static_cast<uint32_t>(result);
+                    }
+                    if (entry != 0u)
+                    {
+                        const uint32_t r = m.u32(s1 + 0x19Cu);
+                        st.f1 = m.f32(entry + 0x10u);
+                        st.f0 = m.f32(r + 0x50u);
+                        st.f0 = d1::mul(st.f0, st.f1);
+                        m.set<float>(r + 0x50u, st.f0);
+                    }
+
+                    // s2 = step x s2, normalised; the bones times s2.
+                    d2r::d2QuatMul(m, sp, s2, s2, v);
+                    d2r::d2Normalize4(m, s2, v);
+                    d2r::d2BonesA(m, s1, s2, s4, v);
+                }
+            }
+            else if (path == 1)
+            {
+                // ---- B (0x10db084) --------------------------------------------
+                st.r4 = d3sx(sp);
+                st.r5 = d3sx(s1 + 0xC0u);
+                d3geoPos(m, st, st.planPos1, sp, s1 + 0xC0u);
+                const uint32_t rootPos = m.u32(s1 + 0x19Cu) + 0x20u;
+                d2r::d2SubXyz(m, s1 + 0xB30u, rootPos, sp + 0x20u, v);
+                d2r::d2Normalize3(m, sp + 0x20u, sp + 0x20u, v);
+                d2r::d2SubXyz(m, s1 + 0xB40u, sp, sp + 0x10u, v);
+                d2r::d2Normalize3(m, sp + 0x10u, sp + 0x10u, v);
+                const uint32_t diff = sp + 0x30u;
+                st.r4 = d3sx(diff);
+                st.r5 = d3sx(sp + 0x10u);
+                st.r6 = d3sx(sp + 0x20u);
+                st.r7 = d3sx(st.diffAxis);
+                decomp_quat::d2q::diffQuatD1Core(m, diff, sp + 0x10u, sp + 0x20u, st.diffAxis);
+
+                const uint32_t rootRot = m.u32(s1 + 0x19Cu) + 0x40u;
+                st.f12 = m.f32(sp + 0x3Cu);
+                st.f0 = decomp_libm::acosExactD1Core(st.f12);
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f13);
+                    d2r::d2AngleAxis(m, diff, rootRot, s1 + 0x529u, v, s);
+                    st.f13 = s.fx;
+                    d3scalarsOut(st, s);
+                }
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f0);
+                    d2r::d2BlendToward(m, st.blendB, sp + 0x40u, sp + 0x50u, s2, v, s);
+                    d3scalarsOut(st, s); // (fx is f0: blendToward's own f0 wins, as scalarsOut's order)
+                }
+            }
+            else
+            {
+                // ---- C (0x10db258) --------------------------------------------
+                d2r::d2Conjugate(m, s1 + 0xA70u, sp + 0x10u, v);
+                d2r::d2QuatMul(m, s4, sp + 0x10u, sp, v);
+                const uint32_t s3 = s1 + 0xA10u;
+                d2r::d2QuatMul(m, s3, sp, sp, v);
+
+                // Its angle and axis into +0xa30 (+0xa26).
+                st.f12 = m.f32(sp + 0xCu);
+                st.f0 = decomp_libm::acosExactD1Core(st.f12);
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f2);
+                    d2r::d2AngleAxis(m, sp, s1 + 0xA30u, s1 + 0xA26u, v, s);
+                    st.f2 = s.fx;
+                    d3scalarsOut(st, s);
+                }
+
+                // The same into the root record; the first bone kept in +0xa70.
+                const uint32_t rootRot = m.u32(s1 + 0x19Cu) + 0x40u;
+                st.r2 = m.q(s4 & ~0xFu); // lq v0, 0(s4)
+                st.f12 = m.f32(sp + 0xCu);
+                m.putq((s1 + 0xA70u) & ~0xFu, st.r2);
+                st.f0 = decomp_libm::acosExactD1Core(st.f12);
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f2);
+                    d2r::d2AngleAxis(m, sp, rootRot, s1 + 0x529u, v, s);
+                    st.f2 = s.fx;
+                    d3scalarsOut(st, s);
+                }
+
+                // +0xa10's angle and axis into the root record.
+                const uint32_t rootRot2 = m.u32(s1 + 0x19Cu) + 0x40u;
+                st.f12 = m.f32(s3 + 0xCu);
+                st.f0 = decomp_libm::acosExactD1Core(st.f12);
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f13);
+                    d2r::d2AngleAxis(m, s3, rootRot2, s1 + 0x529u, v, s);
+                    st.f13 = s.fx;
+                    d3scalarsOut(st, s);
+                }
+                {
+                    d2r::RootScalars s;
+                    d3scalarsIn(st, s, st.f0);
+                    d2r::d2BlendToward(m, st.blendC, sp + 0x20u, sp + 0x54u, s2, v, s);
+                    d3scalarsOut(st, s);
+                }
+                d2r::d2BonesC(m, s1, s2, s4, v);
+            }
+
+            // ---- 0x10db57c: the geometry's position and quaternion --------------
+            if (m.u32(s1 + 0x124u) != 0u)
+            {
+                const uint32_t geo = s1 + 0xC0u;
+                const uint32_t rootPos = m.u32(s1 + 0x19Cu) + 0x20u;
+                st.r4 = d3sx(rootPos);
+                st.r5 = d3sx(geo);
+                d3geoPos(m, st, st.planPos2, rootPos, geo);
+                st.r4 = d3sx(s1 + 0xA00u);
+                st.r5 = d3sx(geo);
+                d3geoQuat(m, st, st.planQuat, s1 + 0xA00u, geo);
+            }
+
+            // ---- the +0x10a1.. flags ---------------------------------------------
+            const uint8_t now = m.get<uint8_t>(s1 + 0x10A1u);
+            const int8_t before = static_cast<int8_t>(m.get<uint8_t>(s1 + 0x10A2u));
+            uint64_t v0 = 1u;
+            if (now != 0u)
+            {
+                if (before != 0)
+                    v0 = d3sx(static_cast<uint32_t>(static_cast<int32_t>(before)));
+                else
+                    m.set<uint8_t>(s1 + 0x10A3u, 1u); // started
+            }
+            else if (before != 0)
+                m.set<uint8_t>(s1 + 0x10A4u, 1u); // ended
+            m.set<uint8_t>(s1 + 0x10A2u, now);
+            st.v0 = v0;
+        }
+    } // namespace d3r
+
+    // The callees' slots hold their natives or dispatchers, their default paths on, the jal sites name them.
+    inline bool d3holdsEither(PS2Runtime::RecompiledFunction fn, PS2Runtime::RecompiledFunction a, PS2Runtime::RecompiledFunction b) { return fn == a || fn == b; }
+    PS2_FORCE_INLINE bool d3in122(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a + bytes <= PS2_RAM_SIZE && a + bytes > a; }
+
+    void rootDynamicsAfterD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29);
+        const uint32_t s1 = GPR_U32(ctx, 4);
+        if (!sotc_decomp::hotList47On() || entrySp < 0x1300u || entrySp > PS2_RAM_SIZE || s1 < 0x1000u || s1 > PS2_RAM_SIZE - 0x1100u ||
+            sotc_decomp::onWorkerLane(runtime) || !char122::quat::on() || char122::checkEvery() > 0)
+            return rootDynamicsAfterD1(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t sp = entrySp - 0xB0u;
+        d3r::RootD3 st;
+        st.s1 = s1;
+        st.sp = sp;
+        st.mode = GPR_U64(ctx, 5);
+        st.a0 = GPR_U64(ctx, 4);
+        st.sentinelA = m.u32(relocated(rdram, 0x010DAE34u, 0x010DAE74u));
+        st.sentinelB = m.u32(relocated(rdram, 0x010DAE80u, 0x010DAE84u));
+        st.sentinelC = m.u32(relocated(rdram, 0x010DAE8Cu, 0x010DB078u));
+        st.emptyTbl = m.u32(relocated(rdram, 0x010DAF18u, 0x010DAF1Cu));
+        st.diffAxis = relocated(rdram, 0x010DB114u, 0x010DB120u);
+        st.blendB = relocated(rdram, 0x010DB1A8u, 0x010DB1ACu);
+        st.blendC = relocated(rdram, 0x010DB468u, 0x010DB46Cu);
+        // Which calls the body makes (the mode's path as the core decides it), each one's conditions.
+        int path;
+        if (st.mode == d3r::d3sx(st.sentinelA))
+            path = 0;
+        else if (st.mode != d3r::d3sx(st.sentinelB))
+            path = st.mode != d3r::d3sx(st.sentinelC) ? 2 : 1;
+        else
+            path = 0;
+        const uint32_t root = m.u32(s1 + 0x19Cu);
+        bool ok = true;
+        if (path == 0 && static_cast<int8_t>(m.get<uint8_t>(s1 + 0x529u)) != 0)
+            ok = jalTarget(rdram, kSiteAxisRot) == 0x001BBDA8u &&
+                 d3holdsEither(sotc_decomp::guestFunction(runtime, 0x001BBDA8u), &decomp_quat::axisRotateSw, &decomp_quat::axisRotate) &&
+                 d3in122(sp, 16u) && d3in122(root + 0x40u, 16u);
+        const bool usesAcos = path != 0;
+        if (ok && usesAcos)
+            ok = jalTarget(rdram, path == 1 ? kSiteAcosB : kSiteAcosC1) == 0x001BE388u && (path == 1 || (jalTarget(rdram, kSiteAcosC2) == 0x001BE388u &&
+                                                                                                       jalTarget(rdram, kSiteAcosC3) == 0x001BE388u)) &&
+                 d3holdsEither(sotc_decomp::guestFunction(runtime, 0x001BE388u), &decomp_libm::acosExactSw, &decomp_libm::acosExact);
+        if (ok && path == 1)
+            ok = jalTarget(rdram, kSiteDiffQ) == 0x001BA4D0u &&
+                 d3holdsEither(sotc_decomp::guestFunction(runtime, 0x001BA4D0u), &decomp_quat::diffQuatSw, &decomp_quat::diffQuat) &&
+                 d3in122(sp + 0x10u, 16u) && d3in122(sp + 0x20u, 16u) && d3in122(sp + 0x30u, 16u) && d3in122(st.diffAxis, 16u) &&
+                 d3holdsEither(sotc_decomp::guestFunction(runtime, kGeoPos), &cam126::geoPosSw, &cam126::geoPos) &&
+                 cam126::d3c::geoPosD3Plan(runtime, m, sp, s1 + 0xC0u, sp, st.planPos1) == 1;
+        if (ok && m.u32(s1 + 0x124u) != 0u)
+            ok = d3holdsEither(sotc_decomp::guestFunction(runtime, kGeoPos), &cam126::geoPosSw, &cam126::geoPos) &&
+                 d3holdsEither(sotc_decomp::guestFunction(runtime, kGeoQuat), &cam126::geoQuatSw, &cam126::geoQuat) &&
+                 cam126::d3c::geoPosD3Plan(runtime, m, root + 0x20u, s1 + 0xC0u, sp, st.planPos2) == 1 &&
+                 cam126::d3c::geoQuatD3Plan(runtime, m, s1 + 0xA00u, s1 + 0xC0u, sp, st.planQuat) == 1;
+        if (!ok)
+            return rootDynamicsAfterD1(rdram, ctx, runtime);
+        ++c_d3RootAfter.n;
+
+        // The prologue's saves (the D2 body's, in its order: they come back unchanged at the exit).
+        m.set<uint64_t>(sp + 0x68u, GPR_U64(ctx, 17));
+        m.set<uint64_t>(sp + 0x70u, GPR_U64(ctx, 18));
+        m.set<float>(sp + 0x98u, ctx->f[20]);
+        m.set<uint64_t>(sp + 0x60u, GPR_U64(ctx, 16));
+        m.set<uint64_t>(sp + 0x78u, GPR_U64(ctx, 19));
+        m.set<uint64_t>(sp + 0x80u, GPR_U64(ctx, 20));
+        m.set<uint64_t>(sp + 0x88u, GPR_U64(ctx, 21));
+        m.set<uint64_t>(sp + 0x90u, GPR_U64(ctx, 31));
+        m.set<float>(sp + 0xA0u, ctx->f[21]);
+        const float f20in = ctx->f[20], f21in = ctx->f[21];
+
+        std::memcpy(&st.r2, &ctx->r[2], 16);
+        std::memcpy(&st.r3, &ctx->r[3], 16);
+        std::memcpy(&st.r8, &ctx->r[8], 16);
+        st.at = GPR_U64(ctx, 1);
+        st.r4 = GPR_U64(ctx, 4);
+        st.r5 = GPR_U64(ctx, 5);
+        st.r6 = GPR_U64(ctx, 6);
+        st.r7 = GPR_U64(ctx, 7);
+        st.r9 = GPR_U64(ctx, 9);
+        st.hi = ctx->hi;
+        st.lo = ctx->lo;
+        st.f0 = ctx->f[0];
+        st.f1 = ctx->f[1];
+        st.f2 = ctx->f[2];
+        st.f12 = ctx->f[12];
+        st.f13 = ctx->f[13];
+        st.f20 = ctx->f[20];
+        st.f21 = ctx->f[21];
+        st.fcr31 = ctx->fcr31;
+        d2r::RootVu v;
+        v.vf5 = ctx->vu0_vf[5];
+        v.vf6 = ctx->vu0_vf[6];
+        v.vf7 = ctx->vu0_vf[7];
+        v.vf8 = ctx->vu0_vf[8];
+        v.vf9 = ctx->vu0_vf[9];
+        v.vf11 = ctx->vu0_vf[11];
+        v.vf12 = ctx->vu0_vf[12];
+        v.vf13 = ctx->vu0_vf[13];
+        v.vf14 = ctx->vu0_vf[14];
+        v.vf15 = ctx->vu0_vf[15];
+        v.vf16 = ctx->vu0_vf[16];
+        v.acc = ctx->vu0_acc;
+        v.q = ctx->vu0_q;
+        v.status = ctx->vu0_status;
+        d3r::rootAfterD3Core(m, st, v);
+        ctx->vu0_vf[5] = v.vf5;
+        ctx->vu0_vf[6] = v.vf6;
+        ctx->vu0_vf[7] = v.vf7;
+        ctx->vu0_vf[8] = v.vf8;
+        ctx->vu0_vf[9] = v.vf9;
+        ctx->vu0_vf[11] = v.vf11;
+        ctx->vu0_vf[12] = v.vf12;
+        ctx->vu0_vf[13] = v.vf13;
+        ctx->vu0_vf[14] = v.vf14;
+        ctx->vu0_vf[15] = v.vf15;
+        ctx->vu0_vf[16] = v.vf16;
+        ctx->vu0_acc = v.acc;
+        ctx->vu0_q = v.q;
+        ctx->vu0_status = v.status;
+        std::memcpy(&ctx->r[2], &st.r2, 16);
+        std::memcpy(&ctx->r[3], &st.r3, 16);
+        std::memcpy(&ctx->r[8], &st.r8, 16);
+        SET_GPR_U64(ctx, 1, st.at);
+        SET_GPR_U64(ctx, 2, st.v0);
+        SET_GPR_U64(ctx, 4, st.r4);
+        SET_GPR_U64(ctx, 5, st.r5);
+        SET_GPR_U64(ctx, 6, st.r6);
+        SET_GPR_U64(ctx, 7, st.r7);
+        SET_GPR_U64(ctx, 9, st.r9);
+        ctx->hi = st.hi;
+        ctx->lo = st.lo;
+        ctx->f[0] = st.f0;
+        ctx->f[1] = st.f1;
+        ctx->f[2] = st.f2;
+        ctx->f[12] = st.f12;
+        ctx->f[13] = st.f13;
+        ctx->f[20] = f20in; // (restored from the frame)
+        ctx->f[21] = f21in;
+        ctx->fcr31 = st.fcr31;
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+} // namespace decomp_hot47c
+
+// ---- Round D3 (d1native): charrootdyn_slideExceptionJudgeCB (partial) ------------------------------------------------------
+// The filter's answer from the attribute word and the user record as a typed core (d1::Mem); the frame (s0 / ra) and its
+// restore as the old body. GetCollisionDBAttributeAdr stays what the old body makes (decomp_collision's attributeAdrDirect,
+// else the guest call): its lookup (attributeAddress: a per-lane chain cache on the collision G view) has no ctx-free core
+// to call. hotlist47 off, the frame or the user record outside main RAM: the old body.
+namespace decomp_hot47c
+{
+    D1_COUNTER(c_d3SlideJudge, "charrootdyn_slideExceptionJudgeCB");
+
+    // The filter: 0 for a no-slide surface the user record (when there is one) does not override, else by the bits.
+    uint64_t slideJudgeD3Core(const d1::Mem &m, uint64_t attr, uint64_t user)
+    {
+        const uint64_t kind = attr & (0xF800ull << 20);
+        const uint64_t bits = attr & 0x7C000000ull;
+        constexpr uint64_t kNoSlide = 0x9000ull << 19;
+        constexpr uint64_t kBits = 0x14000000ull;
+        if (user == 0u)
+            return kind == kNoSlide ? 0u : (bits != kBits ? 1u : 0u);
+        const uint32_t u = static_cast<uint32_t>(user);
+        if (m.u32(u + 4u) == 0u && kind == kNoSlide)
+            return 0u;
+        if (m.u32(u + 0u) != 0u)
+            return 1u;
+        return bits != kBits ? 1u : 0u;
+    }
+
+    void slideExceptionJudgeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x10u;
+        const uint64_t user = GPR_U64(ctx, 5);
+        const uint32_t u = static_cast<uint32_t>(user);
+        if (!sotc_decomp::hotList47On() || sp < 0x1000u || entrySp > PS2_RAM_SIZE || (user != 0u && (u < 0x1000u || u > PS2_RAM_SIZE - 8u)))
+            return slideExceptionJudgeCB(rdram, ctx, runtime);
+        ++c_d3SlideJudge.n;
+        const d1::Mem m{rdram};
+        m.set<uint64_t>(sp + 0x0u, GPR_U64(ctx, 16)); // sd s0
+        m.set<uint64_t>(sp + 0x8u, GPR_U64(ctx, 31)); // sd ra
+        SET_GPR_U64(ctx, 16, user);
+        if (!decomp_collision::attributeAdrDirect(rdram, ctx, runtime, GPR_U32(ctx, 4)))
+            callGuest(rdram, ctx, runtime, kGetAttr, 0x010DC81Cu, sp);
+        const uint32_t rec = GPR_U32(ctx, 2);
+        const uint64_t attr = rec >= 0x1000u && rec <= PS2_RAM_SIZE - 8u ? m.get<uint64_t>(rec) : READ64(rec); // ld v1, 0(v0)
+        SET_GPR_U64(ctx, 2, slideJudgeD3Core(m, attr, user));
+        SET_GPR_U64(ctx, 16, m.get<uint64_t>(sp + 0x0u));
+        SET_GPR_U64(ctx, 31, m.get<uint64_t>(sp + 0x8u));
+        SET_GPR_U32(ctx, 29, entrySp);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void slideExceptionJudgeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            slideExceptionJudgeD3(rdram, ctx, runtime);
+        else
+            slideExceptionJudgeCB(rdram, ctx, runtime);
     }
 } // namespace decomp_hot47c

@@ -593,11 +593,296 @@ namespace decomp_layoutsimple
         returnTo(ctx);
     }
 
+    void updateSimpleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below)
     void updateSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            updateSimpleD1(rdram, ctx, runtime);
+            updateSimpleD3(rdram, ctx, runtime);
         else
             updateSimple(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native): UpdateLayoutClassSimpleGeometry partial -> full ----------------------------------------------
+// The three helper calls as cores: iosGetScaleMatrixV twice through decomp_math.cpp's scaleMatrixVD3Core (the slot
+// holding round 42's native or its D3 dispatcher), iosGetScaleInverseVector (0x1be980, four 1 / x through the EE divide,
+// ps2FpuDivide with its fcr31 flags; at / f0 / f1 / f2 as its MIPS leaves them) inline. Every register the old chain
+// leaves (the callees' a0 / a1 / a2..t1 / v0 / at / f0-f2 / fcr31 included) in a state struct the adapter loads at the
+// entry and stores at the exit; the frame's matrices stay where the old body puts them (sp .. sp + 0x120).
+namespace decomp_copymatrix
+{
+    struct D3ScaleMatrixOut // decomp_math.cpp's (the same declaration)
+    {
+        __m128 rows[4];
+        uint32_t f0, f1;
+    };
+    void scaleMatrixVD3Core(d1::Mem m, uint32_t to, uint32_t scale, D3ScaleMatrixOut &r);
+    void scaleMatrixV(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void scaleMatrixVSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_layoutsimple
+{
+    struct D3SimpleRegs
+    {
+        __m128 vf[18]; // vf0 .. vf17 (vf0 read only)
+        __m128 acc;
+        __m128 r2, r6, r7, r8, r9; // 128-bit GPRs (a `SET_GPR_U32` keeps the upper doubleword)
+        uint64_t r1, r4, r5;
+        float f0, f1, f2;
+        uint32_t fcr31;
+    };
+    PS2_FORCE_INLINE void d3SimpleLo(__m128 &r, uint32_t lo)
+    {
+        uint32_t w[4];
+        std::memcpy(w, &r, 16);
+        w[0] = lo;
+        w[1] = static_cast<uint32_t>(static_cast<int32_t>(lo) >> 31);
+        std::memcpy(&r, w, 16);
+    }
+    PS2_FORCE_INLINE uint64_t d3SimpleSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+    PS2_FORCE_INLINE float d3SimpleF(uint32_t b)
+    {
+        float f;
+        std::memcpy(&f, &b, 4);
+        return f;
+    }
+    // iosGetScaleMatrixV(to, scale) as the jal leaves it (a0 / a1, v0, a2..t1, f0 / f1).
+    PS2_FORCE_INLINE void d3SimpleScaleMatrix(const d1::Mem m, uint32_t to, uint32_t scale, D3SimpleRegs &s)
+    {
+        s.r4 = d3SimpleSx(to);
+        s.r5 = d3SimpleSx(scale);
+        decomp_copymatrix::D3ScaleMatrixOut o;
+        decomp_copymatrix::scaleMatrixVD3Core(m, to, scale, o);
+        d3SimpleLo(s.r2, 0x001E0F00u);
+        s.r6 = o.rows[0];
+        s.r7 = o.rows[1];
+        s.r8 = o.rows[2];
+        s.r9 = o.rows[3];
+        s.f0 = d3SimpleF(o.f0);
+        s.f1 = d3SimpleF(o.f1);
+    }
+    // iosGetScaleInverseVector(out, in) (0x1be980): out[i] = 1 / in[i] for the four, its MIPS's registers.
+    PS2_FORCE_INLINE void d3SimpleScaleInverse(const d1::Mem m, uint32_t out, uint32_t in, D3SimpleRegs &s)
+    {
+        s.r4 = d3SimpleSx(out);
+        s.r5 = d3SimpleSx(in);
+        float f1 = m.get<float>(in);
+        s.r1 = 0x3F800000u;
+        float f2 = d3SimpleF(0x3F800000u);
+        f1 = ps2FpuDivide(s.fcr31, f2, f1);
+        m.set<float>(out, f1);
+        float f0 = m.get<float>(in + 4u);
+        f0 = ps2FpuDivide(s.fcr31, f2, f0);
+        m.set<float>(out + 4u, f0);
+        f1 = m.get<float>(in + 8u);
+        f1 = ps2FpuDivide(s.fcr31, f2, f1);
+        m.set<float>(out + 8u, f1);
+        f0 = m.get<float>(in + 12u);
+        f2 = ps2FpuDivide(s.fcr31, f2, f0);
+        m.set<float>(out + 12u, f2);
+        s.f0 = f0;
+        s.f1 = f1;
+        s.f2 = f2;
+    }
+
+    // The whole function (o the layout class, count its +0x1b4, sp the frame, f12 the step, relocC the relocated
+    // 0x1e0f90 qword's address).
+    void d3SimpleCore(const d1::Mem m, uint32_t o, int32_t count, uint32_t sp, float f12, uint32_t relocC, D3SimpleRegs &s)
+    {
+        const __m128 v0 = s.vf[0];
+        uint8_t flags = m.get<uint8_t>(o + 0x1BCu);
+        if (flags & 0x01u)
+        {
+            d1St(m, m.get<uint32_t>(o + 0x154u), d1Ld(m, m.get<uint32_t>(o + 0x13Cu)));
+            flags = m.get<uint8_t>(o + 0x1BCu);
+        }
+        do
+        {
+            if (!(flags & 0x02u))
+                break;
+            {
+                D1Root r;
+                r.v10 = s.vf[10];
+                r.v12 = s.vf[12];
+                r.v13 = s.vf[13];
+                r.v14 = s.vf[14];
+                r.v15 = s.vf[15];
+                r.v16 = s.vf[16];
+                r.v17 = s.vf[17];
+                r.acc = s.acc;
+                d1SimpleRoot(m, m.get<uint32_t>(o + 0x158u), m.get<uint32_t>(o + 0x13Cu), m.get<uint32_t>(o + 0x134u), v0, r);
+                s.vf[4] = r.v4;
+                s.vf[10] = r.v10;
+                s.vf[11] = r.v11;
+                s.vf[12] = r.v12;
+                s.vf[13] = r.v13;
+                s.vf[14] = r.v14;
+                s.vf[15] = r.v15;
+                s.vf[16] = r.v16;
+                s.vf[17] = r.v17;
+                s.acc = r.acc;
+            }
+            flags = m.get<uint8_t>(o + 0x1BCu);
+            if (!(flags & 0x02u))
+                break;
+            const uint32_t bones = m.get<uint32_t>(o + 0x158u);
+            if (flags & 0x10u)
+            {
+                const uint32_t out = m.get<uint32_t>(o + 0x164u);
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    D1M4 a, inv;
+                    d1LdM(m, bones + i * 0x40u, a);
+                    d1InvRigid(a, v0, inv);
+                    d1StM(m, out + i * 0x40u, inv);
+                }
+            }
+            flags = m.get<uint8_t>(o + 0x1BCu);
+            if (!(flags & 0x04u))
+                break;
+            const uint32_t scaled = m.get<uint32_t>(o + 0x15Cu);
+            // iosScaleMatrixV(out, in, +0x90) inline (round 41's): rows x, y, z times the scale's x, y, z.
+            for (int32_t i = 0; i < count; ++i)
+            {
+                const uint32_t out = scaled + i * 0x40u, in = bones + i * 0x40u;
+                __m128 r0 = d1Ld(m, in), r1 = d1Ld(m, in + 0x10u), r2 = d1Ld(m, in + 0x20u);
+                const __m128 r3 = d1Ld(m, in + 0x30u), s8 = d1Ld(m, o + 0x90u);
+                r0 = d1::vmul(r0, d1::bc<0>(s8));
+                r1 = d1::vmul(r1, d1::bc<1>(s8));
+                r2 = d1::vmul(r2, d1::bc<2>(s8));
+                d1St(m, out, r0);
+                d1St(m, out + 0x10u, r1);
+                d1St(m, out + 0x20u, r2);
+                d1St(m, out + 0x30u, r3);
+                d3SimpleLo(s.r6, o + 0x90u);
+                s.r4 = d3SimpleSx(out);
+                s.r5 = d3SimpleSx(in);
+                s.vf[14] = r0;
+                s.vf[15] = r1;
+                s.vf[16] = r2;
+                s.vf[17] = r3;
+                s.vf[8] = s8;
+            }
+            flags = m.get<uint8_t>(o + 0x1BCu);
+            if (flags & 0x40u)
+            {
+                const uint32_t out = m.get<uint32_t>(o + 0x16Cu), local = m.get<uint32_t>(o + 0x168u);
+                d3SimpleScaleMatrix(m, sp, o + 0xB0u, s); // iosGetScaleMatrixV(sp, +0xb0)
+                D1M4 sm;
+                d1LdM(m, sp, sm);
+                for (int32_t i = 0; i < count; ++i)
+                {
+                    D1M4 l, t, a, r;
+                    d1LdM(m, local + i * 0x40u, l);
+                    d1MulM(sm, l, t);
+                    d1StM(m, sp + 0x40u, t);
+                    d1LdM(m, scaled + i * 0x40u, a);
+                    d1MulM(a, t, r);
+                    d1StM(m, out + i * 0x40u, r);
+                }
+                flags = m.get<uint8_t>(o + 0x1BCu);
+            }
+            if (!(flags & 0x80u))
+                break;
+            const uint32_t out = m.get<uint32_t>(o + 0x170u), local = m.get<uint32_t>(o + 0x168u), inverses = m.get<uint32_t>(o + 0x164u);
+            d3SimpleScaleInverse(m, sp + 0x90u, o + 0xB0u, s); // iosGetScaleInverseVector(sp + 0x90, +0xb0)
+            {
+                __m128 v5 = d1Ld(m, sp + 0x90u);
+                const __m128 v6 = d1Ld(m, o + 0xA0u);
+                v5 = d1::vsel(v5, d1::vmul(v5, v6), d1::mask(1, 1, 1, 0));
+                d1St(m, sp + 0x80u, v5);
+                s.vf[5] = v5;
+                s.vf[6] = v6;
+            }
+            d3SimpleScaleMatrix(m, sp + 0x40u, sp + 0x80u, s); // iosGetScaleMatrixV(sp + 0x40, sp + 0x80)
+            D1M4 sm;
+            d1LdM(m, sp + 0x40u, sm);
+            for (int32_t i = 0; i < count; ++i)
+            {
+                D1M4 b, t, l, inv, r;
+                d1LdM(m, inverses + i * 0x40u, b);
+                d1MulM(sm, b, t);
+                d1LdM(m, local + i * 0x40u, l);
+                d1InvRigid(l, v0, inv);
+                d1StM(m, sp + 0xA0u, t);
+                d1StM(m, sp + 0xE0u, inv);
+                d1MulM(inv, t, r);
+                d1StM(m, out + i * 0x40u, r);
+            }
+        } while (false);
+
+        // The root's velocity (+0x30).
+        const float zero = 0.0f;
+        s.f0 = zero;
+        const bool eq = d1::eq(f12, zero);
+        s.fcr31 = eq ? (s.fcr31 | 0x800000u) : (s.fcr31 & ~0x800000u);
+        if (eq)
+        {
+            d3SimpleLo(s.r2, relocC);
+            d1St(m, o + 0x30u, d1Ld(m, relocC));
+        }
+        else
+        {
+            const __m128 v7 = d1::vsub(d1Ld(m, m.get<uint32_t>(o + 0x134u)), d1Ld(m, m.get<uint32_t>(o + 0x138u)));
+            d1St(m, o + 0x30u, v7);
+            uint32_t bits;
+            std::memcpy(&bits, &f12, 4);
+            d3SimpleLo(s.r2, bits);
+            const __m128 v6 = s.r2; // f12's bits, sign-extended, over r2's upper half
+            __m128 v5 = d1Ld(m, o + 0x30u);
+            v5 = d1::vsel(v5, d1::vmul(v5, d1::bc<0>(v6)), d1::mask(1, 1, 1, 0));
+            d1St(m, o + 0x30u, v5);
+            s.vf[5] = v5;
+            s.vf[6] = v6;
+            s.vf[7] = v7;
+        }
+    }
+
+    void updateSimpleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const d1::Mem m{rdram};
+        const uint32_t o = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x180u;
+        const int16_t count16 = m.get<int16_t>(o + 0x1B4u);
+        const PS2Runtime::RecompiledFunction scaleSlot = sotc_decomp::guestFunction(runtime, kGetScaleMatrix);
+        if (!sotc_decomp::motionOn() || !sotc_decomp::leavesOn() || count16 < 0 || !sitesOk(rdram) ||
+            sotc_decomp::jalTarget(rdram, 0x010EEF48u) != kScaleMatrix || o >= PS2_RAM_SIZE - 0x1C0u || sp0 > PS2_RAM_SIZE || sp0 < 0x180u ||
+            (scaleSlot != &decomp_copymatrix::scaleMatrixV && scaleSlot != &decomp_copymatrix::scaleMatrixVSw) || sotc_decomp::onWorkerLane(runtime))
+            return updateSimple(rdram, ctx, runtime);
+        ++c_d1Simple.n;
+        D3SimpleRegs s;
+        for (int k = 0; k < 18; ++k)
+            s.vf[k] = ctx->vu0_vf[k];
+        s.acc = ctx->vu0_acc;
+        s.r2 = _mm_castsi128_ps(ctx->r[2]);
+        s.r6 = _mm_castsi128_ps(ctx->r[6]);
+        s.r7 = _mm_castsi128_ps(ctx->r[7]);
+        s.r8 = _mm_castsi128_ps(ctx->r[8]);
+        s.r9 = _mm_castsi128_ps(ctx->r[9]);
+        s.r1 = GPR_U64(ctx, 1);
+        s.r4 = GPR_U64(ctx, 4);
+        s.r5 = GPR_U64(ctx, 5);
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.fcr31 = ctx->fcr31;
+        d3SimpleCore(m, o, count16, sp, ctx->f[12], sotc_decomp::relocated(rdram, 0x010EF2A8u, 0x010EF2ACu), s);
+        for (int k = 1; k < 18; ++k)
+            ctx->vu0_vf[k] = s.vf[k];
+        ctx->vu0_acc = s.acc;
+        ctx->r[2] = _mm_castps_si128(s.r2);
+        ctx->r[6] = _mm_castps_si128(s.r6);
+        ctx->r[7] = _mm_castps_si128(s.r7);
+        ctx->r[8] = _mm_castps_si128(s.r8);
+        ctx->r[9] = _mm_castps_si128(s.r9);
+        SET_GPR_U64(ctx, 1, s.r1);
+        SET_GPR_U64(ctx, 4, s.r4);
+        SET_GPR_U64(ctx, 5, s.r5);
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->fcr31 = s.fcr31;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
     }
 }

@@ -1602,7 +1602,12 @@ namespace decomp_skeleton
         returnTo(ctx);
     }
 }
-SOTC_DECOMP_FUNCTION(0x010B1D60u, GetMotionMatrix, decomp_skeleton::motionMatrix);
+namespace decomp_skeleton
+{
+    void motionMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below)
+}
+SOTC_DECOMP_FUNCTION(0x010B1D60u, GetMotionMatrix, decomp_skeleton::motionMatrixSw);
+D1_ALIAS(0x010B1D60u, GetMotionMatrix, decomp_skeleton::motionMatrixSw, decomp_skeleton::motionMatrix);
 // Round A12: the path GetMotionMatrix's native took last (1 S3's rig, 2 pose82 / pose136, 3 the recompiled MIPS, 4 round 49's fast
 // native, 5 the Fast walk); a check build's A12_NCHK counts its checks per path (typed_a12_check_rt.h). A plain store per call.
 int g_a12MmPath = 0;
@@ -1755,5 +1760,98 @@ namespace decomp_skeleton
             regularizeMatAryD1(rdram, ctx, runtime);
         else
             regularizeMatAry(rdram, ctx, runtime);
+    }
+} // namespace decomp_skeleton
+
+// ---- Round D3 (d1native, d1_native.h): GetMotionMatrix as native C++ ------------------------------------------------
+// The old body's default path (round S3: s3chara::motionMatrix, SOTC_S3CHARA on) as a core on d1::Mem: the pose itself is
+// S3's host core (s3chara::pose: the rig, the flat visit-order loop, round 82's NEON operations in their order; no guest
+// context), called directly; then what S3 leaves: the quaternion stack's top = the root quaternion (0x1e0f40 relocated),
+// v0 = -1 when the root has no sibling, vf1..vf4 the unit matrix moved to t0 (the adapter). Gates at the entry, before any
+// side effect: S3 off, its log / timing (SOTC_S3CHARA_LOG), its check (SOTC_S3CHARA_CHECK), its jobs (SOTC_S3CHARA_JOBS),
+// a1 == 0, SOTC_MOTION off, the quaternion stack's top out of range: the old body. A skeleton S3 does not take (pose < 0:
+// nothing written) runs the old body's remaining paths (pose82 / the older natives), as it does after S3's refusal.
+namespace s3chara
+{
+    int pose(uint8_t *ram, int lane, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ);
+    int checkMode();
+    bool jobsOn();
+}
+namespace decomp_skeleton
+{
+    D1_COUNTER(c_d3MotionMatrix, "GetMotionMatrix");
+
+    struct D3MmArgs
+    {
+        uint32_t mats, quats, skel, locals, pos, scaleAt, rootQAt, topSlot;
+        int lane;
+    };
+    struct D3MmOut
+    {
+        __m128 vf4;     // t0's qword with w 1.0 (iosTransCurrentMatrix on the unit matrix)
+        bool noSibling; // the root bone's next sibling is none: v0 = -1
+    };
+
+    // The pose, then the words S3 leaves. Returns the bones posed; < 0: not taken (nothing written).
+    int d3MotionMatrixCore(const d1::Mem &m, const D3MmArgs &a, D3MmOut &o)
+    {
+        const __m128 rq = m.q(a.rootQAt & ~0xFu);
+        const int n = s3chara::pose(m.base, a.lane, a.mats, a.quats, a.skel, a.locals, a.pos, a.scaleAt, rq);
+        if (n < 0)
+            return n;
+        m.putq(a.topSlot & ~0xFu, rq);
+        o.vf4 = d1::vsel(m.q(a.pos & ~0xFu), d1::vf0(), d1::mask(0, 0, 0, 1));
+        o.noSibling = m.u32(m.u32(a.skel + 8u) + 0x34u) == 0xFFFFFFFFu; // Skeleton::bones -> Bone::sibling == chara::kNone
+        return n;
+    }
+
+    void motionMatrixD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!s3chara::on() || s3chara::timing() || GPR_U64(ctx, 5) == 0u || !sotc_decomp::motionOn(), 0))
+            return motionMatrix(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const int32_t top = m.s32(Ctx::kQuatTop);
+        const int lane = sotc_decomp::lane(runtime);
+        if (__builtin_expect(top < 0 || top >= 0x40 || (lane == 0 && (s3chara::jobsOn() || s3chara::checkMode() > 0)), 0))
+            return motionMatrix(rdram, ctx, runtime);
+        ++c_d3MotionMatrix.n;
+        D3MmArgs a;
+        a.mats = GPR_U32(ctx, 4);
+        a.quats = GPR_U32(ctx, 5);
+        a.skel = GPR_U32(ctx, 6);
+        a.locals = GPR_U32(ctx, 7);
+        a.pos = GPR_U32(ctx, 8);
+        a.scaleAt = GPR_U32(ctx, 9);
+        a.rootQAt = sotc_decomp::relocated(rdram, 0x010B1D64u, 0x010B1D78u);
+        a.topSlot = Ctx::kQuatStack + (static_cast<uint32_t>(top) << 4);
+        a.lane = lane;
+        D3MmOut o;
+        if (d3MotionMatrixCore(m, a, o) < 0)
+        {
+            // S3 refused (the old body: s3chara::motionMatrix false): its next paths, as it runs them.
+            if (!pose82::motionMatrix(rdram, ctx, runtime))
+            {
+                motionMatrixPrev(rdram, ctx, runtime);
+                pose82::after(rdram);
+            }
+            else
+                g_a12MmPath = 2;
+            return;
+        }
+        g_a12MmPath = 1;
+        ctx->vu0_vf[1] = d1::make(1.0f, 0.0f, 0.0f, 0.0f);
+        ctx->vu0_vf[2] = d1::make(0.0f, 1.0f, 0.0f, 0.0f);
+        ctx->vu0_vf[3] = d1::make(0.0f, 0.0f, 1.0f, 0.0f);
+        ctx->vu0_vf[4] = o.vf4;
+        if (o.noSibling)
+            SET_GPR_S32(ctx, 2, -1);
+        returnTo(ctx);
+    }
+    void motionMatrixSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            motionMatrixD3(rdram, ctx, runtime);
+        else
+            motionMatrix(rdram, ctx, runtime);
     }
 } // namespace decomp_skeleton

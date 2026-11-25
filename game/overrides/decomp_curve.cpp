@@ -856,11 +856,189 @@ namespace decomp_curve
         SET_GPR_U32(ctx, 31, ra0);
         returnTo(ctx);
     }
+    void motionKeysD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (below): the full body
     void motionKeysSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            motionKeysD1(rdram, ctx, runtime);
+            motionKeysD3(rdram, ctx, runtime);
         else
             motionKeys(rdram, ctx, runtime);
+    }
+} // namespace decomp_curve
+
+// ---- Round D3 (d1native): motionKeys (0x010B81F8) partial -> full; curveCore's refusals as a test for callers ----------
+// d3CurveTakes: curveCore's own refusals (pointers, the format's decoder, the packed formats' overlap / finite tests, the s16
+// key's record) evaluated without writing; d3CurveReadsMiss: none of the words a decode reads (the channel's 0x24 bytes,
+// the packed key word, the s16 record) lies in a range the caller writes first. A caller that checks both for every
+// decode it makes before its first store knows curveCore will take each one (the same tests on the same words), so it
+// calls curveCore directly with no guest fallback (decomp_hot46h's D3 bodies; motionKeys below).
+// motionKeys: every channel tested first (formats, channels, the motion's header and the decodes' words outside the out
+// array); then the old body's loop with each channel's key by curveCore (calls direct n), its leftovers chained from one
+// channel to the next as the old calls leave them (fcr31, the status, a2's upper half; f0 / vf7 / vf1 / Q as the last
+// decode that sets them). The adapter writes a0..a3, v0, f0, fcr31, vf1 / a2 (128 bits), vf7, Q, the status, sp / ra as
+// the old body leaves them. Any channel curveCore would refuse (format 13, a recompiled format, an overlap, a non-finite
+// word), fastnative off, SOTC_CURVE_STATS, a motion without its formats: the old body, before anything is written.
+namespace decomp_curve
+{
+    D1_COUNTER(c_d3MotionKeys, "motionKeys");
+
+    namespace d2c
+    {
+        bool d3CurveTakes(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index)
+        {
+            if (!d2InRam(out, 16u) || !d2InRam(chan, 0x20u))
+                return false;
+            const uint32_t target = format < 15u ? m.u32(kTable + static_cast<uint32_t>(format) * 4u) : 0x010AC700u;
+            switch (target)
+            {
+            case 0x010AD028u:
+            case 0x010AC700u:
+                return true;
+            case 0x010AC978u:
+            case 0x010ACAB0u:
+            case 0x010ACBE8u:
+            case 0x010ACD20u:
+            {
+                const uint32_t key = m.u32(chan + 0x20u) + (index << 2);
+                return d2InRam(key, 4u) && !d2Overlaps(out, 16u, chan, 0x20u) && !d2Overlaps(out, 16u, key, 4u) && !anyNonFinite8(m.at<uint8_t>(chan));
+            }
+            case 0x010AC8A8u:
+            {
+                const uint32_t rec = m.u32(chan + 0x18u) + index * 6u;
+                return d2InRam(rec, 6u) && !anyNonFinite8(m.at<uint8_t>(chan));
+            }
+            default:
+                return false;
+            }
+        }
+        bool d3CurveReadsMiss(const d1::Mem &m, uint32_t chan, uint32_t index, uint32_t lo, uint32_t hi)
+        {
+            const uint32_t n = hi - lo;
+            if (d2Overlaps(chan & ~0xFu, (chan - (chan & ~0xFu)) + 0x24u, lo, n))
+                return false;
+            const uint32_t key = m.u32(chan + 0x20u) + (index << 2), rec = m.u32(chan + 0x18u) + index * 6u;
+            return !(d2InRam(key, 4u) && d2Overlaps(key, 4u, lo, n)) && !(d2InRam(rec, 6u) && d2Overlaps(rec, 6u, lo, n));
+        }
+
+        struct D3KeysLast
+        {
+            uint32_t a0, chan;
+            uint64_t a1;
+            bool vu1; // the last channel's decode set vf1 / a2
+        };
+        // false: a channel curveCore would refuse, or a word read inside the out array (nothing written).
+        bool d3MotionKeysCore(const d1::Mem &m, uint32_t out, uint32_t motion, int32_t n, uint64_t key64, __m128 a2In, CurveRegs &acc, D3KeysLast &last)
+        {
+            const uint32_t index = static_cast<uint32_t>(key64);
+            const uint32_t lo = out, hi = out + static_cast<uint32_t>(n) * 16u;
+            if (n > 0x100000 || !d2InRam(out, static_cast<uint32_t>(n) * 16u) || d2Overlaps(motion + 8u, 0xCu, lo, hi - lo))
+                return false;
+            {
+                const uint32_t formats = m.u32(motion + 8u), chans = m.u32(motion + 0x10u);
+                if (!d2InRam(formats, static_cast<uint32_t>(n)) || !d2InRam(chans, static_cast<uint32_t>(n) * 4u) || d2Overlaps(formats, static_cast<uint32_t>(n), lo, hi - lo) ||
+                    d2Overlaps(chans, static_cast<uint32_t>(n) * 4u, lo, hi - lo))
+                    return false;
+                for (int32_t i = 0; i < n; ++i)
+                {
+                    const uint32_t chan = m.u32(chans + static_cast<uint32_t>(i) * 4u);
+                    const uint64_t fmt = m.get<uint8_t>(formats + static_cast<uint32_t>(i));
+                    if (!d3CurveTakes(m, out + static_cast<uint32_t>(i) * 16u, fmt, chan, index) || !d3CurveReadsMiss(m, chan, index, lo, hi))
+                        return false;
+                }
+            }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                const uint32_t formats = m.u32(motion + 8u), chans = m.u32(motion + 0x10u);
+                const uint32_t o = out + static_cast<uint32_t>(i) * 16u;
+                const uint64_t fmt = m.get<uint8_t>(formats + static_cast<uint32_t>(i));
+                const uint32_t chan = m.u32(chans + static_cast<uint32_t>(i) * 4u);
+                CurveRegs r;
+                r.fcr31 = acc.fcr31;
+                r.status = acc.status;
+                r.a2q = a2In;
+                const uint64_t low = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(chan)));
+                std::memcpy(&r.a2q, &low, 8); // SET_GPR_S32(a2, chan): the low 64 bits, the upper kept
+                r.setF0 = r.vu1 = r.vu7 = false;
+                curveCore(m, o, fmt, chan, index, r); // (taken: tested above)
+                if (r.setF0)
+                {
+                    acc.f0 = r.f0;
+                    acc.setF0 = true;
+                }
+                acc.fcr31 = r.fcr31;
+                if (r.vu7)
+                {
+                    acc.vf7 = r.vf7;
+                    acc.vu7 = true;
+                }
+                if (r.vu1)
+                {
+                    acc.vf1 = r.vf1;
+                    acc.q = r.q;
+                    acc.status = r.status;
+                    acc.vu1 = true;
+                }
+                acc.v0 = r.v0;
+                last.a0 = o;
+                last.a1 = fmt;
+                last.chan = chan;
+                last.vu1 = r.vu1;
+            }
+            return true;
+        }
+    } // namespace d2c
+
+    // curveEval's default state for the D3 callers (decomp_hot46h): fastnative on, SOTC_CURVE_STATS read and off.
+    bool d3CurveDefault() { return sotc_decomp::fastNativeOn() && g_statsOn == 0; }
+
+    void motionKeysD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), motion = GPR_U32(ctx, 5);
+        const d1::Mem m{rdram};
+        if (!sotc_decomp::fastNativeOn() || g_statsOn != 0 || !inRam(motion, 0x18u) || m.u32(motion + 8u) == 0u)
+            return motionKeys(rdram, ctx, runtime);
+        const int32_t channels = m.s32(motion + 0x14u);
+        int32_t n = GPR_S32(ctx, 7);
+        const bool fewer = channels < n;
+        if (n != channels && fewer)
+            n = channels;
+        const uint64_t key64 = GPR_U64(ctx, 6);
+        if (n <= 0)
+        {
+            ++c_d3MotionKeys.n;
+            SET_GPR_U64(ctx, 2, fewer ? 1u : 0u);
+            return returnTo(ctx);
+        }
+        d2c::CurveRegs acc;
+        acc.fcr31 = ctx->fcr31;
+        acc.status = ctx->vu0_status;
+        acc.setF0 = acc.vu1 = acc.vu7 = false;
+        acc.v0 = 0u;
+        d2c::D3KeysLast last;
+        if (!d2c::d3MotionKeysCore(m, out, motion, n, key64, _mm_castsi128_ps(ctx->r[6]), acc, last))
+            return motionKeys(rdram, ctx, runtime); // (nothing written)
+        ++c_d3MotionKeys.n;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        SET_GPR_U32(ctx, 4, last.a0);
+        SET_GPR_U64(ctx, 5, last.a1);
+        SET_GPR_S32(ctx, 6, static_cast<int32_t>(last.chan));
+        SET_GPR_U64(ctx, 7, key64);
+        if (acc.setF0)
+            ctx->f[0] = acc.f0;
+        ctx->fcr31 = acc.fcr31;
+        if (acc.vu7)
+            ctx->vu0_vf[7] = acc.vf7;
+        if (acc.vu1)
+        {
+            ctx->vu0_vf[1] = acc.vf1;
+            ctx->vu0_q = acc.q;
+            ctx->vu0_status = acc.status;
+        }
+        if (last.vu1)
+            ctx->r[6] = _mm_castps_si128(acc.vf1);
+        SET_GPR_U64(ctx, 2, acc.v0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
     }
 } // namespace decomp_curve

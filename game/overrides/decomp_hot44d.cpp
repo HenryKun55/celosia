@@ -696,12 +696,14 @@ namespace decomp_hot44d
     // round D2 (d1native): the dispatchers (end of file)
     void setNodeHPBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void setNodeHPBIllegalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void nodeQuatPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3
 }
 SOTC_DECOMP_FUNCTION(0x0137D9E8u, _setNodeHPB, decomp_hot44d::setNodeHPBSw);
 D1_ALIAS(0x0137D9E8u, _setNodeHPB, decomp_hot44d::setNodeHPBSw, decomp_hot44d::setNodeHPB);
 SOTC_DECOMP_FUNCTION(0x0137D790u, _setNodeHPBIllegal, decomp_hot44d::setNodeHPBIllegalSw);
 D1_ALIAS(0x0137D790u, _setNodeHPBIllegal, decomp_hot44d::setNodeHPBIllegalSw, decomp_hot44d::setNodeHPBIllegal);
-SOTC_DECOMP_FUNCTION(0x010AC4A0u, manager_sub_010AC4A0, decomp_hot44d::nodeQuatPos);
+SOTC_DECOMP_FUNCTION(0x010AC4A0u, manager_sub_010AC4A0, decomp_hot44d::nodeQuatPosSw);
+D1_ALIAS(0x010AC4A0u, manager_sub_010AC4A0, decomp_hot44d::nodeQuatPosSw, decomp_hot44d::nodeQuatPos);
 SOTC_DECOMP_FUNCTION(0x01102638u, manager_sub_01102638, decomp_hot44d::scriptPass);
 
 // =====================================================================================================================
@@ -911,10 +913,12 @@ namespace decomp_hot44d
         SET_GPR_U32(ctx, 29, sp + 0x70u);
         ctx->pc = GPR_U32(ctx, 31);
     }
+    void setNodeHPBD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);        // round D3 (end of file)
+    void setNodeHPBIllegalD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void setNodeHPBSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            setNodeHPBD1(rdram, ctx, runtime);
+            setNodeHPBD3(rdram, ctx, runtime);
         else
             setNodeHPB(rdram, ctx, runtime);
     }
@@ -1031,8 +1035,511 @@ namespace decomp_hot44d
     void setNodeHPBIllegalSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            setNodeHPBIllegalD1(rdram, ctx, runtime);
+            setNodeHPBIllegalD3(rdram, ctx, runtime);
         else
             setNodeHPBIllegal(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot44d
+
+// =====================================================================================================================
+// Round D3 (switch d1native, docs/decomp_d1.md): the D2 bodies' guest calls as direct calls of their callees' D cores.
+// - _setNodeHPB (t0 0: GetEulerYXZFromQuaternion): decomp_quat's eulerYXZD1Core (the e136 statements the slot's native
+//   runs with euler136 on) and decomp_hot44b's GetQuaternionByEulerYXZ core (EulerRegs: the VU0 / FPU / GPR state it
+//   leaves, round 122's axis-rotation core inside) called directly: the core has no guest call left. t0 set (the
+//   ZHalfPI extraction, not a D core) goes to the D2 body.
+// - _setNodeHPBIllegal: the three SetQuaternionByAxisRotateVWithNoRegularize calls as decomp_quat's axisRotateD1Core
+//   (round 122's core: the quaternion stored, its w the f0 the callee leaves; nothing else changed).
+// - manager_sub_010AC4A0 (new): GetCharacterClass (the object's +8 type 9 / 0x16: +0x90) and
+//   GetCharacterClassNodeQuaternionPos (cam126's D3 core) direct; the class's own -2 / -1 frames and the node path as a
+//   core. The option-node path (GetCharacterClassOptionNodeGeo, partial), -3 (the half turn), no character class
+//   (GetLayoutClass's call-out cases) and GetMotionMatrix's first-use path go to the old body. The callee-saved
+//   registers' spill slots (the frame below the caller's sp: dead after the return) are not written.
+// Each adapter checks the slots its direct calls replace (the callee's native or its dispatcher), the callee's own
+// default-path switches, main-RAM addresses, and the game thread (a worker lane's calls go through its hooks: D2 / old).
+// =====================================================================================================================
+namespace decomp_quat
+{
+    void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void axisRotateSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void eulerYXZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d1q
+    {
+        float axisRotateD1Core(const d1::Mem m, uint32_t out, uint32_t angle, uint32_t axis);
+        void eulerYXZD1Core(const d1::Mem m, uint32_t qa, float res[4]);
+    }
+}
+namespace decomp_hot44b
+{
+    void eulerYXZ(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d1e
+    {
+        // (decomp_hot44b.cpp's definition, the same tokens)
+        using V4 = __m128;
+        struct EulerRegs
+        {
+            V4 v11, v12, v13, v14, v15, v16, acc;
+            float f0, f1, q;
+            uint32_t fcr31, g4, g5, g6;
+            uint16_t status;
+            bool used; // an axis turned (v0 1; at, a1, f0, f1 set)
+        };
+        uint32_t eulerYXZD1Core(const d1::Mem m, uint32_t s0, float fx, float fy, float fz, uint32_t sp1, EulerRegs &s);
+    }
+}
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+    namespace quat
+    {
+        bool on();
+    }
+}
+namespace dc2
+{
+    void entryCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryCharacterClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_characlass
+{
+    void getCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace cam126
+{
+    void ccNodeQP(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d3c
+    {
+        bool ccNodeQPD3Plan(const d1::Mem &m, uint32_t cls, uint32_t node, uint32_t t0, uint32_t &q, uint32_t &p);
+        void ccNodeQPD3Core(const d1::Mem &m, uint32_t qOut, uint32_t pOut, uint32_t cls, uint32_t node, uint32_t t0, uint32_t &v0, uint32_t &v1);
+    }
+}
+
+namespace decomp_hot44d
+{
+    namespace d3h
+    {
+        D1_COUNTER(c_d3HPB, "_setNodeHPB.d3");
+        D1_COUNTER(c_d3HPBIllegal, "_setNodeHPBIllegal.d3");
+        D1_COUNTER(c_d3NodeQuatPos, "manager_sub_010AC4A0");
+
+        constexpr uint32_t kD3EulerFromQ = 0x001BA880u, kD3QFromEuler = 0x001BCB10u, kD3AxisRotate = 0x001BBDA8u;
+        constexpr uint32_t kD3CharClass = 0x010C0A70u, kD3CcNodeQP = 0x010C1580u;
+
+        inline bool d3holds(PS2Runtime::RecompiledFunction fn, PS2Runtime::RecompiledFunction sw, PS2Runtime::RecompiledFunction old)
+        {
+            return fn == sw || fn == old || (fn != nullptr && d1::aliasOf(fn) == old);
+        }
+        inline bool d3axisRotateReady(const PS2Runtime *runtime)
+        {
+            return char122::quat::on() && char122::checkEvery() <= 0 &&
+                   d3holds(sotc_decomp::guestFunction(runtime, kD3AxisRotate), &decomp_quat::axisRotateSw, &decomp_quat::axisRotate);
+        }
+        // round 122's guest-RAM test (decomp_quat's d1in122: the axis-rotation D core's own condition).
+        PS2_FORCE_INLINE bool d3in122(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a + bytes <= PS2_RAM_SIZE && a + bytes > a; }
+        PS2_FORCE_INLINE uint64_t d3sx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+
+        // ---- _setNodeHPB (t0 0) ---------------------------------------------------------------------------------
+        struct HpbD3
+        {
+            // in
+            uint32_t sp, a2, ref;
+            float f12, f13, f14, f20, f21, f22;
+            uint64_t s0, s1, ra;
+            // out (the VU0 / FPU / GPR state GetQuaternionByEulerYXZ leaves: the EulerRegs)
+            __m128 refQ;
+            float f0pre, f1pre, f2, f3, f4, f5;
+            uint32_t v0;
+        };
+        void setNodeHPBD3Core(const d1::Mem &m, HpbD3 &h, d1h::D1Vu &s, decomp_hot44b::d1e::EulerRegs &e)
+        {
+            const uint32_t sp = h.sp;
+            // the frame: s1, the three saved floats, s0, ra (in the old body's order)
+            m.set<uint64_t>(sp + 0x48u, h.s1);
+            m.set<float>(sp + 0x68u, h.f22);
+            m.set<float>(sp + 0x60u, h.f21);
+            m.set<float>(sp + 0x58u, h.f20);
+            m.set<uint64_t>(sp + 0x40u, h.s0);
+            m.set<uint64_t>(sp + 0x50u, h.ra);
+            const float bank = h.f12, pitch = h.f14, heading = h.f13; // the old body's f22, f21, f20
+            // 0x137da3c: the reference to sp+0x10, its conjugate to sp+0x30, conj x node into sp.
+            h.refQ = m.q(h.ref & ~0xFu);
+            m.putq(sp + 0x10u, h.refQ);
+            d1h::conjugateD1(m, s, sp + 0x10u, sp + 0x30u);
+            d1h::quatMulAtD1(m, s, sp + 0x30u, h.a2, sp);
+            // GetEulerYXZFromQuaternion(sp + 0x20, sp): decomp_quat's D core (e136's statements; f0 its z angle, overwritten
+            // below before anything reads it).
+            {
+                float r[4];
+                decomp_quat::d1q::eulerYXZD1Core(m, sp, r);
+                std::memcpy(m.at<uint8_t>(sp + 0x20u), r, 16);
+            }
+            // 0x137dabc: the offsets x pi / 180 added to the angles (heading negated).
+            const float k = fb(0x3C8EFA35u);
+            const float f5 = d1::mul(pitch, k), f3 = d1::mul(-heading, k), f0 = d1::mul(bank, k);
+            const float f2 = d1::add(m.f32(sp + 0x28u), f5), f1 = d1::add(m.f32(sp + 0x20u), f3), f4 = d1::add(m.f32(sp + 0x24u), f0);
+            m.set<float>(sp + 0x28u, f2);
+            m.set<float>(sp + 0x20u, f1);
+            m.set<float>(sp + 0x24u, f4);
+            h.f0pre = f0;
+            h.f1pre = f1;
+            h.f2 = f2;
+            h.f3 = f3;
+            h.f4 = f4;
+            h.f5 = f5;
+            // GetQuaternionByEulerYXZ(sp, f12 f1, f13 f4, f14 f2): decomp_hot44b's D core on the VU0 set as it stands.
+            e.v11 = s.vf11;
+            e.v12 = s.vf12;
+            e.v13 = s.vf13;
+            e.v14 = s.vf14;
+            e.v15 = s.vf15;
+            e.v16 = s.vf16;
+            e.acc = s.acc;
+            e.f0 = f0;
+            e.f1 = f1;
+            e.g4 = e.g5 = e.g6 = 0u;
+            e.used = false;
+            h.v0 = decomp_hot44b::d1e::eulerYXZD1Core(m, sp, f1, f4, f2, sp - 0x60u, e);
+            s.vf11 = e.v11;
+            s.vf12 = e.v12;
+            s.vf13 = e.v13;
+            s.vf14 = e.v14;
+            s.vf15 = e.v15;
+            s.vf16 = e.v16;
+            s.acc = e.acc;
+            // 0x137db0c: reference x the new rotation into the node, normalised (vrsqrt: Q / status as the callee left them).
+            d1h::quatMulAtD1(m, s, sp + 0x10u, sp, h.a2);
+            d1h::normaliseD1(m, s, e.status, e.q, h.a2);
+        }
+
+        // ---- _setNodeHPBIllegal ---------------------------------------------------------------------------------
+        struct IllD3
+        {
+            uint32_t sp, node, s1, ref, axis[3];
+            float f12, f13, f14, f20, f21, f22;
+            uint64_t s0, s1reg, ra;
+            // out
+            __m128 prod;
+            float f0, f1;
+            uint32_t a1;
+        };
+        // the 16-bit negated angle of a cvt.w.s result (sll 16, negu, sra 16), as negAngle.
+        PS2_FORCE_INLINE uint32_t d3negAngle(int32_t w) { return static_cast<uint32_t>(static_cast<int32_t>(0u - (static_cast<uint32_t>(w) << 16)) >> 16); }
+        void setNodeHPBIllegalD3Core(const d1::Mem &m, IllD3 &h, d1h::D1Vu &s)
+        {
+            const uint32_t sp = h.sp, s1 = h.s1;
+            m.set<uint64_t>(sp + 0x68u, h.s1reg);
+            m.set<float>(sp + 0x88u, h.f22);
+            m.set<float>(sp + 0x80u, h.f21);
+            m.set<uint64_t>(sp + 0x60u, h.s0);
+            m.set<uint64_t>(sp + 0x70u, h.ra);
+            m.set<float>(sp + 0x78u, h.f20);
+            // 0x137d7dc: reference x the node record's +0x20 into sp, its conjugate to sp+0x10, conj x node into sp+0x20.
+            d1h::quatMulAtD1(m, s, h.ref, h.node + 0x20u, sp);
+            d1h::conjugateD1(m, s, sp, sp + 0x10u);
+            const uint32_t s0 = sp + 0x20u;
+            d1h::quatMulAtD1(m, s, sp + 0x10u, s1, s0);
+            const float k = fb(0x43360B60u); // 182.04 (0x10000 / 360)
+            h.prod = m.q(sp);
+            m.putq(s1 & ~0xFu, h.prod);
+            // the bank turn (f12, the first axis), the heading (f13 negated), the pitch (f14): each
+            // SetQuaternionByAxisRotateVWithNoRegularize's D core into its frame slot, multiplied into the node.
+            int32_t w = ps2FpuConvertToWord(d1::mul(h.f12, k));
+            std::memcpy(&h.f1, &w, 4);
+            (void)decomp_quat::d1q::axisRotateD1Core(m, sp + 0x30u, d3negAngle(w), h.axis[0]);
+            d1h::quatMulAtD1(m, s, s1, sp + 0x30u, s1);
+            w = ps2FpuConvertToWord(d1::mul(-h.f13, k));
+            std::memcpy(&h.f1, &w, 4);
+            (void)decomp_quat::d1q::axisRotateD1Core(m, sp + 0x40u, d3negAngle(w), h.axis[1]);
+            d1h::quatMulAtD1(m, s, s1, sp + 0x40u, s1);
+            w = ps2FpuConvertToWord(d1::mul(h.f14, k));
+            h.a1 = d3negAngle(w);
+            h.f0 = decomp_quat::d1q::axisRotateD1Core(m, sp + 0x50u, h.a1, h.axis[2]);
+            d1h::quatMulAtD1(m, s, s1, sp + 0x50u, s1);
+            d1h::quatMulAtD1(m, s, s1, s0, s1);
+        }
+
+        // ---- manager_sub_010AC4A0 -------------------------------------------------------------------------------
+        // GetCharacterClass (decomp_characlass / dc2: the object's +8 type 9 or 0x16: the object + 0x90, else 0).
+        PS2_FORCE_INLINE uint32_t d3charClass(const d1::Mem &m, uint32_t object)
+        {
+            const uint8_t type = m.get<uint8_t>(object + 8u);
+            return (type == 9u || type == 0x16u) ? object + 0x90u : 0u;
+        }
+        PS2_FORCE_INLINE bool d3main(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+        // The path the core takes (0: the old body's): 1 node -2 (the class's +0x134 / +0x13c), 2 node -1 (+0x460 and
+        // +0x13c), 3 a node (GetCharacterClassNodeQuaternionPos). Every address the core reads or writes checked first.
+        int nodeQuatPosD3Plan(const d1::Mem &m, uint32_t cls, uint64_t node, uint64_t t1, uint32_t q, uint32_t p, uint64_t third, uint32_t sp)
+        {
+            if (cls == 0u || !d3main(cls, 0x540u) || !d3main(q & ~0xFu, 16u) || !d3main(p & ~0xFu, 16u) || !d3main(sp, 0x60u))
+                return 0;
+            if (third != 0u && !d3main(static_cast<uint32_t>(third) & ~0xFu, 16u))
+                return 0;
+            if (static_cast<int32_t>(static_cast<uint32_t>(node)) > 0 && (node & 0x10000u) != 0u)
+                return 0; // the option node: GetCharacterClassOptionNodeGeo
+            if (node == static_cast<uint64_t>(-2))
+                return d3main(m.u32(cls + 0x134u) & ~0xFu, 16u) && d3main(m.u32(cls + 0x13Cu) & ~0xFu, 16u) ? 1 : 0;
+            if (node == static_cast<uint64_t>(-1))
+                return d3main(m.u32(cls + 0x13Cu) & ~0xFu, 16u) ? 2 : 0;
+            if (node == static_cast<uint64_t>(-3))
+                return 0; // the half turn: the old body
+            uint32_t qp = 0u, pp = 0u;
+            if (!cam126::d3c::ccNodeQPD3Plan(m, cls, static_cast<uint32_t>(node), static_cast<uint32_t>(t1), qp, pp))
+                return 0;
+            return d3main(qp & ~0xFu, 16u) && d3main(pp & ~0xFu, 16u) ? 3 : 0;
+        }
+        // The node's quaternion to q, its position to p (p64: a1 as the caller set it), the class's +0x90 to `third` (a2) when
+        // set, as the old body. object: a3 (the layout id), node: t0, t1: t1. vec: r2 / r3 (128 bits) in and out; gpr: r4-r8's
+        // low 64 bits out.
+        void nodeQuatPosD3Core(const d1::Mem &m, int path, uint32_t sp, uint32_t q, uint64_t p64, uint64_t third, uint64_t object, uint32_t cls,
+                               uint64_t node, uint64_t t1, __m128 vec[2], uint64_t gpr[5])
+        {
+            const uint32_t p = static_cast<uint32_t>(p64);
+            const uint64_t clsReg = d3sx(cls);
+            uint64_t r4 = object, r5 = p64, r7 = object, r8 = node;
+            if (static_cast<int32_t>(static_cast<uint32_t>(node)) > 0)
+                r7 = clsReg;
+            if (path == 1)
+            {
+                // 0x10ac578: the class's own position / rotation.
+                m.putq(p & ~0xFu, m.q(m.u32(cls + 0x134u) & ~0xFu));
+                const uint32_t rot = m.u32(cls + 0x13Cu);
+                const __m128 r = m.q(rot & ~0xFu);
+                m.putq(q & ~0xFu, r);
+                vec[0] = r;
+                const uint64_t lo = d3sx(rot);
+                std::memcpy(&vec[1], &lo, 8);
+            }
+            else if (path == 2)
+            {
+                // 0x10ac598: the class's +0x460 position, the +0x13c rotation.
+                const __m128 pos = m.q((cls + 0x460u) & ~0xFu);
+                m.putq(p & ~0xFu, pos);
+                const __m128 r = m.q(m.u32(cls + 0x13Cu) & ~0xFu);
+                m.putq(q & ~0xFu, r);
+                vec[0] = r;
+                vec[1] = pos;
+                r4 = d3sx(sp + 0x10u);
+            }
+            else
+            {
+                // 0x10ac638: GetCharacterClassNodeQuaternionPos(sp+0x10, sp+0x14, class, node, t1), then the copies.
+                uint32_t v0 = 0u, v1 = 0u;
+                cam126::d3c::ccNodeQPD3Core(m, sp + 0x10u, sp + 0x14u, cls, static_cast<uint32_t>(node), static_cast<uint32_t>(t1), v0, v1);
+                const uint32_t pp = m.u32(sp + 0x14u), qp = m.u32(sp + 0x10u);
+                const __m128 pos = m.q(pp & ~0xFu);
+                m.putq(p & ~0xFu, pos);
+                const __m128 r = m.q(qp & ~0xFu);
+                m.putq(q & ~0xFu, r);
+                vec[0] = pos;
+                vec[1] = r;
+                r4 = d3sx(qp);
+                r5 = d3sx(sp + 0x14u);
+                r7 = node;
+                r8 = t1;
+            }
+            // 0x10ac684: the class's +0x90 to a2's qword.
+            if (third != 0u)
+            {
+                const __m128 t = m.q((cls + 0x90u) & ~0xFu);
+                m.putq(static_cast<uint32_t>(third) & ~0xFu, t);
+                vec[0] = t;
+            }
+            gpr[0] = r4;
+            gpr[1] = r5;
+            gpr[2] = clsReg;
+            gpr[3] = r7;
+            gpr[4] = r8;
+        }
+    } // namespace d3h
+
+    // ---- adapters ---------------------------------------------------------------------------------------------------
+    void setNodeHPBD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On() || GPR_U64(ctx, 8) != 0u || sotc_decomp::onWorkerLane(runtime))
+            return setNodeHPBD1(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t entrySp = GPR_U32(ctx, 29), a0 = GPR_U32(ctx, 4), skel = GPR_U32(ctx, 5);
+        if (entrySp < 0x10D0u || !d1h::inMain(entrySp - 0x70u, 0x70u) || !d1h::inMain(skel, 0xCu))
+            return setNodeHPBD1(rdram, ctx, runtime);
+        const uint32_t node = m.u32(skel + 8u) + (a0 << 6);
+        const uint32_t a2 = GPR_U32(ctx, 6) + (a0 << 4);
+        if (!d1h::inMain(node, 0x40u) || !d1h::inMain(a2 & ~0xFu, 0x10u))
+            return setNodeHPBD1(rdram, ctx, runtime);
+        const uint32_t parent = m.u32(node + 0x38u);
+        const uint32_t ref = static_cast<int32_t>(parent) >= 0 ? relocated(rdram, 0x0137DA34u, 0x0137DA38u) : GPR_U32(ctx, 7);
+        if (!d1h::inMain(ref & ~0xFu, 0x10u) || jalTarget(rdram, 0x0137DAB0u) != d3h::kD3EulerFromQ || jalTarget(rdram, 0x0137DB04u) != d3h::kD3QFromEuler ||
+            !sotc_decomp::switchOn(sotc_decomp::kEuler136) ||
+            !d3h::d3holds(sotc_decomp::guestFunction(runtime, d3h::kD3EulerFromQ), &decomp_quat::eulerYXZSw, &decomp_quat::eulerYXZ) ||
+            !d3h::d3holds(sotc_decomp::guestFunction(runtime, d3h::kD3QFromEuler), &decomp_hot44b::eulerYXZSw, &decomp_hot44b::eulerYXZ) ||
+            !d3h::d3axisRotateReady(runtime))
+            return setNodeHPBD1(rdram, ctx, runtime);
+        ++d3h::c_d3HPB.n;
+        const uint32_t sp = entrySp - 0x70u;
+        d3h::HpbD3 h;
+        h.sp = sp;
+        h.a2 = a2;
+        h.ref = ref;
+        h.f12 = ctx->f[12];
+        h.f13 = ctx->f[13];
+        h.f14 = ctx->f[14];
+        h.f20 = ctx->f[20];
+        h.f21 = ctx->f[21];
+        h.f22 = ctx->f[22];
+        h.s0 = GPR_U64(ctx, 16);
+        h.s1 = GPR_U64(ctx, 17);
+        h.ra = GPR_U64(ctx, 31);
+        d1h::D1Vu s;
+        d1h::loadVu(s, ctx);
+        decomp_hot44b::d1e::EulerRegs e;
+        e.q = ctx->vu0_q;
+        e.status = ctx->vu0_status;
+        e.fcr31 = ctx->fcr31;
+        d3h::setNodeHPBD3Core(m, h, s, e);
+        // the exit: what the old body and its two callees leave (the callee-saved ones restored from the frame: unchanged).
+        d1h::storeVu(ctx, s);
+        ctx->vu0_q = e.q;
+        ctx->vu0_status = e.status;
+        ctx->fcr31 = e.fcr31;
+        float *const f = ctx->f;
+        f[0] = e.used ? e.f0 : h.f0pre;
+        f[1] = e.used ? e.f1 : h.f1pre;
+        f[2] = h.f2;
+        f[3] = h.f3;
+        f[4] = h.f4;
+        f[5] = h.f5;
+        f[12] = h.f1pre;
+        f[13] = h.f4;
+        f[14] = h.f2;
+        SET_GPR_U64(ctx, 2, h.v0);
+        SET_GPR_VEC(ctx, 3, _mm_castps_si128(h.refQ));
+        SET_GPR_U32(ctx, 4, e.g4);
+        SET_GPR_U32(ctx, 6, e.g6);
+        if (e.used)
+        {
+            SET_GPR_U64(ctx, 1, d3h::d3sx(0x40490FDAu));
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(e.g5));
+        }
+        else
+        {
+            SET_GPR_U64(ctx, 1, 0x3C8EFA35u);
+            SET_GPR_U32(ctx, 5, sp);
+        }
+        if (static_cast<int32_t>(parent) >= 0)
+            SET_GPR_U32(ctx, 7, ref);
+        SET_GPR_U32(ctx, 9, sp);
+        SET_GPR_U64(ctx, 31, h.ra);
+        SET_GPR_U32(ctx, 29, entrySp);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void setNodeHPBIllegalD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On() || sotc_decomp::onWorkerLane(runtime) || !d3h::d3axisRotateReady(runtime) ||
+            jalTarget(rdram, 0x0137D890u) != d3h::kD3AxisRotate || jalTarget(rdram, 0x0137D8F4u) != d3h::kD3AxisRotate ||
+            jalTarget(rdram, 0x0137D954u) != d3h::kD3AxisRotate)
+            return setNodeHPBIllegalD1(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t entrySp = GPR_U32(ctx, 29), a0 = GPR_U32(ctx, 4), skel = GPR_U32(ctx, 5);
+        if (entrySp < 0x1090u || !d1h::inMain(entrySp - 0x90u, 0x90u) || !d1h::inMain(skel, 0xCu))
+            return setNodeHPBIllegalD1(rdram, ctx, runtime);
+        const uint32_t node = m.u32(skel + 8u) + (a0 << 6);
+        const uint32_t s1 = GPR_U32(ctx, 6) + (a0 << 4);
+        if (!d1h::inMain(node, 0x40u) || !d1h::inMain(s1 & ~0xFu, 0x10u))
+            return setNodeHPBIllegalD1(rdram, ctx, runtime);
+        const uint32_t parent = m.u32(node + 0x38u);
+        const uint32_t ref = static_cast<int32_t>(parent) >= 0 ? relocated(rdram, 0x0137D7D4u, 0x0137D7D8u) : GPR_U32(ctx, 7);
+        d3h::IllD3 h;
+        h.axis[0] = relocated(rdram, 0x0137D868u, 0x0137D870u);
+        h.axis[1] = relocated(rdram, 0x0137D8D4u, 0x0137D8D8u);
+        h.axis[2] = relocated(rdram, 0x0137D938u, 0x0137D93Cu);
+        if (!d1h::inMain(ref & ~0xFu, 0x10u) || !d3h::d3in122(h.axis[0], 16u) || !d3h::d3in122(h.axis[1], 16u) || !d3h::d3in122(h.axis[2], 16u))
+            return setNodeHPBIllegalD1(rdram, ctx, runtime);
+        ++d3h::c_d3HPBIllegal.n;
+        const uint32_t sp = entrySp - 0x90u;
+        h.sp = sp;
+        h.node = node;
+        h.s1 = s1;
+        h.ref = ref;
+        h.f12 = ctx->f[12];
+        h.f13 = ctx->f[13];
+        h.f14 = ctx->f[14];
+        h.f20 = ctx->f[20];
+        h.f21 = ctx->f[21];
+        h.f22 = ctx->f[22];
+        h.s0 = GPR_U64(ctx, 16);
+        h.s1reg = GPR_U64(ctx, 17);
+        h.ra = GPR_U64(ctx, 31);
+        d1h::D1Vu s;
+        d1h::loadVu(s, ctx);
+        d3h::setNodeHPBIllegalD3Core(m, h, s);
+        // the exit: the last axis rotation's f0, f1 the second cvt, v0 the last frame slot; callee-saved unchanged.
+        d1h::storeVu(ctx, s);
+        ctx->f[0] = h.f0;
+        ctx->f[1] = h.f1;
+        SET_GPR_U64(ctx, 1, 0x43360B60u);
+        ctx->r[2] = _mm_castps_si128(h.prod);
+        SET_GPR_U32(ctx, 2, sp + 0x50u);
+        SET_GPR_U32(ctx, 3, parent);
+        SET_GPR_U32(ctx, 4, sp + 0x50u);
+        SET_GPR_U32(ctx, 5, h.a1);
+        SET_GPR_U32(ctx, 6, h.axis[2]);
+        if (static_cast<int32_t>(parent) >= 0)
+            SET_GPR_U32(ctx, 7, ref);
+        SET_GPR_U64(ctx, 31, h.ra);
+        SET_GPR_U32(ctx, 29, entrySp);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    // manager_sub_010AC4A0's D3 path is open (the slots its direct calls replace hold what the core stands for; geo126 on:
+    // GetCharacterClassNodeQuaternionPos's native body is the host one).
+    bool nodeQuatPosD3Ready(const PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::hotList44On() || !sotc_decomp::switchOn(sotc_decomp::kGeo126) || sotc_decomp::onWorkerLane(runtime))
+            return false;
+        const PS2Runtime::RecompiledFunction cc = sotc_decomp::guestFunction(runtime, d3h::kD3CharClass);
+        if (!(d3h::d3holds(cc, &dc2::entryCharacterClassSw, &dc2::entryCharacterClass) || cc == &decomp_characlass::getCharacterClass))
+            return false;
+        // (GetCharacterClassNodeQuaternionPos keeps its old function in the slot: rounds A12 / A13 test it by identity)
+        return sotc_decomp::guestFunction(runtime, d3h::kD3CcNodeQP) == &cam126::ccNodeQP;
+    }
+    // The whole call (the arguments as the old body reads them) decided before any side effect: the path, 0 for the old body.
+    int nodeQuatPosD3Path(const d1::Mem &m, uint32_t q, uint32_t p, uint64_t third, uint64_t object, uint64_t node, uint64_t t1, uint32_t sp, uint32_t &cls)
+    {
+        const uint32_t obj = static_cast<uint32_t>(object);
+        if (obj >= PS2_RAM_SIZE - 8u)
+            return 0;
+        cls = d3h::d3charClass(m, obj);
+        return d3h::nodeQuatPosD3Plan(m, cls, node, t1, q, p, third, sp);
+    }
+
+    void nodeQuatPosD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!nodeQuatPosD3Ready(runtime))
+            return nodeQuatPos(rdram, ctx, runtime);
+        const d1::Mem m{rdram};
+        const uint32_t entrySp = GPR_U32(ctx, 29), sp = entrySp - 0x60u;
+        const uint32_t q = GPR_U32(ctx, 4), p = GPR_U32(ctx, 5);
+        const uint64_t third = GPR_U64(ctx, 6), object = GPR_U64(ctx, 7), node = GPR_U64(ctx, 8), t1 = GPR_U64(ctx, 9);
+        uint32_t cls = 0u;
+        const int path = entrySp >= 0x1060u ? nodeQuatPosD3Path(m, q, p, third, object, node, t1, sp, cls) : 0;
+        if (path == 0)
+            return nodeQuatPos(rdram, ctx, runtime);
+        ++d3h::c_d3NodeQuatPos.n;
+        __m128 vec[2];
+        std::memcpy(vec, &ctx->r[2], 32);
+        uint64_t gpr[5];
+        d3h::nodeQuatPosD3Core(m, path, sp, q, GPR_U64(ctx, 5), third, object, cls, node, t1, vec, gpr);
+        std::memcpy(&ctx->r[2], vec, 32);
+        for (int i = 0; i < 5; ++i)
+            SET_GPR_U64(ctx, 4 + i, gpr[i]);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void nodeQuatPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            nodeQuatPosD3(rdram, ctx, runtime);
+        else
+            nodeQuatPos(rdram, ctx, runtime);
     }
 } // namespace decomp_hot44d

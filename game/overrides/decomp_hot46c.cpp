@@ -61,6 +61,7 @@
 // code leaves them; the FPU registers, the condition bit and the VU0
 // registers by the generator's statements on the context.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1232,6 +1233,678 @@ namespace decomp_hot46c
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010C4220u, manager_sub_010C4220, decomp_hot46c::rootBlend);
+namespace decomp_hot46c { void rootBlendSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3 (d1native)
+SOTC_DECOMP_FUNCTION(0x010C4220u, manager_sub_010C4220, decomp_hot46c::rootBlendSw);
+D1_ALIAS(0x010C4220u, manager_sub_010C4220, decomp_hot46c::rootBlendSw, decomp_hot46c::rootBlend);
 SOTC_DECOMP_FUNCTION(0x010CABA0u, manager_sub_010CABA0, decomp_hot46c::charaCtrl);
-SOTC_DECOMP_FUNCTION(0x010CBD48u, CheckControlDef, decomp_hot46c::checkControlDef);
+namespace decomp_hot46c { void checkControlDefSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3 (d1native)
+SOTC_DECOMP_FUNCTION(0x010CBD48u, CheckControlDef, decomp_hot46c::checkControlDefSw);
+D1_ALIAS(0x010CBD48u, CheckControlDef, decomp_hot46c::checkControlDefSw, decomp_hot46c::checkControlDef);
+
+// ---- Round D3 (switch d1native, d1_native.h): CheckControlDef as native C++ (full) ---------------------------------------
+// The adapter checkControlDefD3 reads a0-a3 once; the core d3h::checkControlDefD3Core resolves the packed handle (the mult's
+// HI / LO kept for the exit) and walks the 0x30-byte conditions with manager_sub_010C7B28's D3 core called directly
+// (decomp_ctrldef.cpp: calls direct 1), stopping at the first false one. The conditions only read memory: a condition that
+// core does not do (the Surface types, the types left to the recompiled code ...) returns false before anything is written
+// and the adapter runs the old body from the start. Gate: hotlist46 on, the condition's slot holding its native (old body or
+// dispatcher) and its stats off (condD3Ready), the record inside RAM. The exit as the old body leaves it: v0 (1 when every
+// condition held, else the false one's 0), v1 = 1, HI / LO (a resolved handle), and after a condition ran a3 = its
+// address, f0 / fcr31's condition bit as it left them; a0-a2 hold their entry values, sp / ra / pc as the old exit.
+namespace decomp_ctrldef
+{
+    bool condD3Ready(PS2Runtime *runtime);
+    namespace d3c
+    {
+        int condD3Core(const d1::Mem &m, uint32_t a0In, uint32_t t0, uint32_t a2, uint32_t c, bool hotList, bool &cBit, uint32_t &f0Bits);
+    }
+}
+namespace decomp_hot46c
+{
+    D1_COUNTER(c_d3CheckControlDef, "CheckControlDef");
+
+    namespace d3h
+    {
+        PS2_FORCE_INLINE uint64_t d3ccdSx(uint32_t v) { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); }
+        // lui at hi + the signed immediate at lo (the module's relocated pair, read from the code).
+        PS2_FORCE_INLINE uint32_t d3ccdReloc(const d1::Mem &m, uint32_t hi, uint32_t lo)
+        {
+            return (m.u32(hi) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(m.u32(lo) & 0xFFFFu)));
+        }
+        struct CcdD3Out
+        {
+            uint64_t v0 = 0u;
+            bool hiLo = false;
+            uint64_t hi = 0u, lo = 0u;
+            bool ran = false; // a condition ran: a3 / f0 / the condition bit are its
+            bool c = false;
+            uint32_t f0 = 0u;
+            uint32_t last = 0u;
+        };
+        bool checkControlDefD3Core(const d1::Mem &m, uint32_t obj, uint32_t cls, uint32_t status, uint32_t rec, bool hotList, CcdD3Out &o)
+        {
+            // The packed word: the handle 18 bits back, the index above.
+            const uint32_t word = m.u32(rec);
+            const uint32_t back = word & 0x3FFFFu;
+            const uint32_t handle = back != 0u ? m.u32(rec - back) : 0u;
+            uint32_t list = 0u;
+            if (handle != 0u && handle != m.u32(d3ccdReloc(m, kEmptyHi, kEmptyLo)))
+            {
+                const uint32_t index = (word >> 18) & 0xFFFu;
+                const uint32_t table = m.u32(handle + 8u), base = m.u32(handle + 0x10u);
+                const int64_t product = static_cast<int64_t>(static_cast<int32_t>(index)) * static_cast<int64_t>(m.s32(table + 0xCu));
+                o.lo = d3ccdSx(static_cast<uint32_t>(product));
+                o.hi = d3ccdSx(static_cast<uint32_t>(product >> 32));
+                o.hiLo = true;
+                list = base + static_cast<uint32_t>(product);
+            }
+            uint32_t s0 = list;
+            bool all = m.u32(s0) == 1u;
+            while (!all)
+            {
+                const uint32_t condition = s0;
+                s0 += 0x30u;
+                bool cb = false;
+                uint32_t f0 = 0u;
+                const int r = decomp_ctrldef::d3c::condD3Core(m, obj, cls, status, condition, hotList, cb, f0);
+                if (r < 0)
+                    return false;
+                o.ran = true;
+                o.c = cb;
+                o.f0 = f0;
+                o.last = condition;
+                if (r == 0)
+                    break; // v0 0 as the condition left it
+                all = m.u32(s0) == 1u;
+            }
+            o.v0 = all ? 1u : 0u;
+            return true;
+        }
+    } // namespace d3h
+
+    void checkControlDefD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t rec = GPR_U32(ctx, 7);
+        if (!sotc_decomp::hotList46On() || rec >= PS2_RAM_SIZE || !decomp_ctrldef::condD3Ready(runtime))
+            return checkControlDef(rdram, ctx, runtime);
+        d3h::CcdD3Out o;
+        if (!d3h::checkControlDefD3Core(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), rec, sotc_decomp::hotListOn(), o))
+            return checkControlDef(rdram, ctx, runtime);
+        ++c_d3CheckControlDef.n;
+        if (o.hiLo)
+        {
+            ctx->lo = o.lo;
+            ctx->hi = o.hi;
+        }
+        SET_GPR_U64(ctx, 3, 1u);
+        if (o.ran)
+        {
+            SET_GPR_S32(ctx, 7, o.last);
+            std::memcpy(&ctx->f[0], &o.f0, 4);
+            setC(ctx, o.c);
+        }
+        SET_GPR_U64(ctx, 2, o.v0);
+        ctx->pc = GPR_U32(ctx, 31);
+    }
+    void checkControlDefSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            checkControlDefD3(rdram, ctx, runtime);
+        else
+            checkControlDef(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot46c
+
+// ---- Round D3 (switch d1native, d1_native.h): manager_sub_010C4220 (rootBlend) as a partial D-body ----------------------
+// rootBlendD3 is rootBlend's code with its VU0 blocks as d1 vec4 ops on a local VU0 register file (vf5-vf17, ACC, Q,
+// status: loaded from the context at the entry, written back around each guest call and at the exit, so every callee and
+// the caller see the registers the old body leaves), the operand clamps of the old PS2_VMUL / VADD / VSUB kept (d3rbMul /
+// Add / Sub: lanes such as the frame's quaternions' and the GPR images' upper lanes are not all game-written finite data),
+// guest memory through d1::Mem, the FPU compares by d1::lt. The guest calls are kept with the old body's argument
+// registers, ra and sp (GetMotionRootIntFrame, GetMotionResourceRotAngle, GetMotionRootInfo, SetQuaternionByAxisRotateV-
+// WithNoRegularize, 010C3FD8, GetMotionFloatFrame, MultiGlobalQuaternionToRootSkeleton, 010C3CC0: none but the axis
+// rotation has a full core, and that one sits between guest calls whose VU0 state it shares): partial. The GPR images
+// the VU0 moves read (qmtc2 of t0 / t1 / v0) and v0 / v1 / at / f0 / f12-f14 / f20-f22 / fcr31 stay on the context as the
+// old body sets them. hotlist46 off -> the old body (the recompiled code).
+namespace decomp_hot46c
+{
+    D1_COUNTER(c_d3RootBlend, "manager_sub_010C4220");
+
+    namespace d3rb
+    {
+        struct RbVu
+        {
+            __m128 vf[18]; // vf5..vf17 used (vf0 is d1::vf0())
+            __m128 acc;
+            float q;
+            uint16_t status;
+        };
+        PS2_FORCE_INLINE __m128 d3rbC(__m128 v) { return ps2VuClampNF(v); }
+        PS2_FORCE_INLINE __m128 d3rbMul(__m128 a, __m128 b) { return d1::vmul(d3rbC(a), d3rbC(b)); }
+        PS2_FORCE_INLINE __m128 d3rbAdd(__m128 a, __m128 b) { return d1::vadd(d3rbC(a), d3rbC(b)); }
+        PS2_FORCE_INLINE __m128 d3rbSub(__m128 a, __m128 b) { return d1::vsub(d3rbC(a), d3rbC(b)); }
+        template <int A, int B, int C, int D>
+        PS2_FORCE_INLINE __m128 d3rbPerm(__m128 v)
+        {
+#if defined(__clang__)
+            return __builtin_shufflevector(v, v, A, B, C, D);
+#else
+            typedef int d3rbv4i __attribute__((vector_size(16)));
+            return __builtin_shuffle(v, d3rbv4i{A, B, C, D});
+#endif
+        }
+        PS2_FORCE_INLINE __m128 d3rbYzx(__m128 v) { return d3rbPerm<1, 2, 0, 3>(v); }
+        PS2_FORCE_INLINE __m128 d3rbZxy(__m128 v) { return d3rbPerm<2, 0, 1, 3>(v); }
+        PS2_FORCE_INLINE __m128 d3rbQ(const d1::Mem &m, uint32_t a) { return m.q(a & ~0xFu); }
+        PS2_FORCE_INLINE void d3rbPut(const d1::Mem &m, uint32_t a, __m128 v) { m.putq(a & ~0xFu, v); }
+
+        // *dst = *a x *b (quatMul's statements: vf11 = *a, vf12 = *b, vf13 the product).
+        inline void d3rbQuatMul(RbVu &u, const d1::Mem &m, uint32_t a, uint32_t b, uint32_t dst)
+        {
+            const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1), mXyz = d1::mask(1, 1, 1, 0);
+            __m128 *const vf = u.vf;
+            vf[11] = d3rbQ(m, a);
+            vf[12] = d3rbQ(m, b);
+            vf[13] = d3rbMul(vf[11], vf[12]);
+            vf[13] = d1::vsel(vf[13], d3rbAdd(vf[13], d1::bc<1>(vf[13])), mX);
+            vf[13] = d1::vsel(vf[13], d3rbAdd(vf[13], d1::bc<2>(vf[13])), mX);
+            vf[13] = d1::vsel(vf[13], d3rbSub(vf[13], d1::bc<0>(vf[13])), mW);
+            vf[14] = d1::vsel(vf[14], d3rbMul(vf[12], d1::bc<3>(vf[11])), mXyz);
+            vf[15] = d1::vsel(vf[15], d3rbMul(vf[11], d1::bc<3>(vf[12])), mXyz);
+            u.acc = d1::vsel(u.acc, d3rbMul(d3rbYzx(vf[12]), d3rbZxy(vf[11])), mXyz);
+            vf[16] = d1::vsel(vf[16], d3rbSub(u.acc, d3rbMul(d3rbYzx(vf[11]), d3rbZxy(vf[12]))), mXyz);
+            vf[13] = d1::vsel(vf[13], d3rbAdd(vf[14], vf[15]), mXyz);
+            vf[13] = d1::vsel(vf[13], d3rbAdd(vf[13], vf[16]), mXyz);
+            d3rbPut(m, dst, vf[13]);
+        }
+        // The rotation rows of *q in vf14..vf16 (quatRows' statements).
+        inline void d3rbQuatRows(RbVu &u, const d1::Mem &m, uint32_t q)
+        {
+            const __m128 z = d1::vf0();
+            const __m128 mXyz = d1::mask(1, 1, 1, 0), mW = d1::mask(0, 0, 0, 1), mY = d1::mask(0, 1, 0, 0), mZ = d1::mask(0, 0, 1, 0);
+            __m128 *const vf = u.vf;
+            vf[12] = d1::vsel(vf[12], d3rbAdd(z, d1::bc<3>(z)), mXyz);
+            vf[11] = d3rbQ(m, q);
+            const __m128 w0 = d3rbPerm<1, 2, 3, 0>(z);
+            vf[14] = d1::vsel(vf[14], w0, mW);
+            vf[15] = d1::vsel(vf[15], w0, mW);
+            vf[16] = d1::vsel(vf[16], w0, mW);
+            u.acc = d1::vsel(u.acc, d3rbMul(d3rbYzx(vf[11]), d3rbZxy(vf[12])), mXyz);
+            vf[11] = d1::vsel(vf[11], d3rbAdd(u.acc, d3rbMul(z, z)), mXyz);
+            vf[10] = d1::vsel(vf[10], d3rbAdd(u.acc, d3rbMul(vf[11], vf[12])), mXyz);
+            vf[13] = d1::vsel(vf[13], d3rbMul(vf[11], vf[10]), mXyz);
+            u.acc = d1::vsel(u.acc, d3rbMul(d3rbYzx(vf[11]), d3rbZxy(vf[10])), mXyz);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(u.acc, d3rbMul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+            vf[16] = d1::vsel(vf[16], d3rbSub(u.acc, d3rbMul(vf[10], d1::bc<3>(vf[11]))), mXyz);
+            u.acc = d1::vsel(u.acc, d3rbMul(d3rbYzx(vf[13]), d3rbZxy(vf[12])), mXyz);
+            vf[17] = d1::vsel(vf[17], d3rbAdd(u.acc, d3rbMul(vf[13], vf[12])), mXyz);
+            u.acc = d1::vsel(u.acc, d3rbMul(d3rbYzx(vf[15]), d3rbZxy(vf[12])), mXyz);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(u.acc, d3rbMul(z, z)), mXyz);
+            vf[14] = d1::vsel(vf[14], d3rbSub(vf[12], vf[17]), mXyz);
+            vf[17] = d1::vsel(vf[17], vf[14], d1::mask(0, 1, 1, 0));
+            vf[14] = d1::vsel(vf[14], vf[16], mY);
+            vf[16] = d1::vsel(vf[16], vf[15], mY);
+            vf[15] = d1::vsel(vf[15], vf[17], mY);
+            vf[14] = d1::vsel(vf[14], vf[15], mZ);
+            vf[15] = d1::vsel(vf[15], vf[16], mZ);
+            vf[16] = d1::vsel(vf[16], vf[17], mZ);
+        }
+        inline void d3rbQuatMatrix(RbVu &u, const d1::Mem &m, uint32_t q, uint32_t dst)
+        {
+            d3rbQuatRows(u, m, q);
+            d3rbPut(m, dst + 0x00u, u.vf[14]);
+            d3rbPut(m, dst + 0x10u, u.vf[15]);
+            d3rbPut(m, dst + 0x20u, u.vf[16]);
+            d3rbPut(m, dst + 0x30u, d1::vf0());
+        }
+        // *dst = M x *v (vf8 = *v, vf14..vf17 = M's rows, vf10; ACC the three accumulates).
+        inline void d3rbMatApply(RbVu &u, const d1::Mem &m, uint32_t mat, uint32_t v, uint32_t dst)
+        {
+            __m128 *const vf = u.vf;
+            vf[8] = d3rbQ(m, v);
+            vf[14] = d3rbQ(m, mat + 0x00u);
+            vf[15] = d3rbQ(m, mat + 0x10u);
+            vf[16] = d3rbQ(m, mat + 0x20u);
+            vf[17] = d3rbQ(m, mat + 0x30u);
+            u.acc = d3rbMul(vf[14], d1::bc<0>(vf[8]));
+            u.acc = d3rbAdd(u.acc, d3rbMul(vf[15], d1::bc<1>(vf[8])));
+            u.acc = d3rbAdd(u.acc, d3rbMul(vf[16], d1::bc<2>(vf[8])));
+            vf[10] = d3rbAdd(u.acc, d3rbMul(vf[17], d1::bc<3>(vf[8])));
+            d3rbPut(m, dst, vf[10]);
+        }
+        // *a.xyz += *b.xyz (vf5 / vf6).
+        inline void d3rbAddXyz(RbVu &u, const d1::Mem &m, uint32_t a, uint32_t b)
+        {
+            u.vf[5] = d3rbQ(m, a);
+            u.vf[6] = d3rbQ(m, b);
+            u.vf[5] = d1::vsel(u.vf[5], d3rbAdd(u.vf[5], u.vf[6]), d1::mask(1, 1, 1, 0));
+            d3rbPut(m, a, u.vf[5]);
+        }
+        // *dst = *a with xyz x *b's (vf5 / vf6).
+        inline void d3rbMulXyz(RbVu &u, const d1::Mem &m, uint32_t a, uint32_t b, uint32_t dst)
+        {
+            u.vf[5] = d3rbQ(m, a);
+            u.vf[6] = d3rbQ(m, b);
+            u.vf[5] = d1::vsel(u.vf[5], d3rbMul(u.vf[5], u.vf[6]), d1::mask(1, 1, 1, 0));
+            d3rbPut(m, dst, u.vf[5]);
+        }
+        // *dst = *a with xyz x v0's x (vf6 = v0's 128 bits: qmtc2).
+        inline void d3rbScaleXyz(RbVu &u, const d1::Mem &m, uint32_t a, uint32_t dst, __m128 v0bits)
+        {
+            u.vf[5] = d3rbQ(m, a);
+            u.vf[6] = v0bits;
+            u.vf[5] = d1::vsel(u.vf[5], d3rbMul(u.vf[5], d1::bc<0>(u.vf[6])), d1::mask(1, 1, 1, 0));
+            d3rbPut(m, dst, u.vf[5]);
+        }
+        // One bone of the pose blends (blendBone's statements): t1v = t1's 128 bits (its x the -1.0 of a flip), t0v = t0's
+        // 128 bits after the weight's sw (its x the weight). Returns the dot's bits (f0 / the slot).
+        inline uint32_t d3rbBlendBone(RbVu &u, const d1::Mem &m, uint32_t from, uint32_t other, uint32_t dst, uint32_t dotSlot, __m128 t1v, __m128 t0v)
+        {
+            const __m128 mX = d1::mask(1, 0, 0, 0), mW = d1::mask(0, 0, 0, 1);
+            __m128 *const vf = u.vf;
+            vf[14] = d3rbQ(m, from);
+            vf[15] = d3rbQ(m, other);
+            vf[15] = d3rbMul(vf[14], vf[15]);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<1>(vf[15])), mX);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<2>(vf[15])), mX);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<3>(vf[15])), mX);
+            const uint32_t dot = lane0(vf[15]); // qmfc2: the bits as they are
+            m.set<uint32_t>(dotSlot, dot);
+            if (static_cast<int32_t>(dot) < 0)
+            {
+                vf[5] = d3rbQ(m, other);
+                vf[6] = t1v;
+                vf[5] = d3rbMul(vf[5], d1::bc<0>(vf[6]));
+                d3rbPut(m, other, vf[5]);
+            }
+            vf[7] = t0v;
+            vf[5] = d3rbQ(m, from);
+            vf[6] = d3rbQ(m, other);
+            vf[8] = d1::vsel(vf[8], d3rbSub(d1::vf0(), d1::bc<0>(vf[7])), mW);
+            u.acc = d3rbMul(vf[5], d1::bc<0>(vf[7]));
+            vf[9] = d3rbAdd(u.acc, d3rbMul(vf[6], d1::bc<3>(vf[8])));
+            d3rbPut(m, dst, vf[9]);
+            vf[14] = d3rbQ(m, dst);
+            vf[15] = d3rbMul(vf[14], vf[14]);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<1>(vf[15])), mX);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<2>(vf[15])), mX);
+            vf[15] = d1::vsel(vf[15], d3rbAdd(vf[15], d1::bc<3>(vf[15])), mX);
+            u.q = ps2VuRsqrt(u.status, 1.0f, d1::lane<0>(vf[15]));
+            vf[15] = d3rbMul(vf[14], d1::splat(u.q));
+            d3rbPut(m, dst, vf[15]);
+            return dot;
+        }
+        inline void d3rbLoad(const R5900Context *c, RbVu &u)
+        {
+            for (int i = 5; i <= 17; ++i)
+                u.vf[i] = c->vu0_vf[i];
+            u.acc = c->vu0_acc;
+            u.q = c->vu0_q;
+            u.status = c->vu0_status;
+        }
+        inline void d3rbStore(R5900Context *c, const RbVu &u)
+        {
+            for (int i = 5; i <= 17; ++i)
+                c->vu0_vf[i] = u.vf[i];
+            c->vu0_acc = u.acc;
+            c->vu0_q = u.q;
+            c->vu0_status = u.status;
+        }
+    } // namespace d3rb
+
+    void rootBlendD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t entrySp32 = GPR_U32(ctx, 29);
+        if (!sotc_decomp::hotList46On() || entrySp32 < 0x10000u || entrySp32 >= PS2_RAM_SIZE)
+            return rootBlend(rdram, ctx, runtime);
+        ++c_d3RootBlend.n;
+        using namespace d3rb;
+        const d1::Mem m{rdram};
+        RbVu u;
+        d3rbLoad(ctx, u);
+        __m128 *const vf = u.vf;
+        // A guest call: the local VU0 registers to the context and back.
+        auto gcall = [&](uint32_t target, uint32_t ra, uint32_t sp)
+        {
+            d3rbStore(ctx, u);
+            callGuest(rdram, ctx, runtime, target, ra, sp);
+            d3rbLoad(ctx, u);
+        };
+        float *f = ctx->f;
+        const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);
+        const uint32_t fp = static_cast<uint32_t>(entrySp) - 0x1B0u;
+        const uint64_t s5 = GPR_U64(ctx, 4), s6 = GPR_U64(ctx, 5);
+        const uint64_t s7 = GPR_U64(ctx, 11) != 0u ? sx(GPR_U32(ctx, 11) + 0x50u) : 0u;
+        m.set<uint64_t>(fp + 0x168u, GPR_U64(ctx, 21));
+        m.set<uint64_t>(fp + 0x170u, GPR_U64(ctx, 22));
+        m.set<uint64_t>(fp + 0x178u, GPR_U64(ctx, 23));
+        m.set<uint64_t>(fp + 0x180u, GPR_U64(ctx, 30));
+        m.set<uint32_t>(fp + 0x1A0u, bf(f[22]));
+        f[22] = f[12];
+        m.set<uint32_t>(fp + 0x198u, bf(f[21]));
+        f[21] = f[14];
+        m.set<uint32_t>(fp + 0x190u, bf(f[20]));
+        f[20] = f[13];
+        m.set<uint64_t>(fp + 0x140u, GPR_U64(ctx, 16));
+        m.set<uint64_t>(fp + 0x148u, GPR_U64(ctx, 17));
+        m.set<uint64_t>(fp + 0x150u, GPR_U64(ctx, 18));
+        m.set<uint64_t>(fp + 0x158u, GPR_U64(ctx, 19));
+        m.set<uint64_t>(fp + 0x160u, GPR_U64(ctx, 20));
+        m.set<uint64_t>(fp + 0x188u, ra);
+        m.set<uint32_t>(fp + 0x104u, GPR_U32(ctx, 11));
+        const uint32_t prevClass = m.u32(fp + 0x1B0u);
+        m.set<uint32_t>(fp + 0xF0u, GPR_U32(ctx, 6));
+        m.set<uint32_t>(fp + 0xF4u, GPR_U32(ctx, 7));
+        m.set<uint32_t>(fp + 0xF8u, GPR_U32(ctx, 8));
+        m.set<uint32_t>(fp + 0xFCu, GPR_U32(ctx, 9));
+        m.set<uint32_t>(fp + 0x100u, GPR_U32(ctx, 10));
+        m.set<uint32_t>(fp + 0x108u, prevClass != 0u ? prevClass + 0x50u : 0u);
+        const uint32_t s4 = m.u32(fp + 0x1B8u);
+        const uint32_t s3 = fp + 0x10u;
+
+        auto turn = [&](const TurnSite &site, uint32_t q, uint32_t rot, uint32_t sp)
+        {
+            d3rbPut(m, q, d1::vf0());
+            const uint32_t neg = 0u - (GPR_U32(ctx, 2) << 16);
+            SET_GPR_S32(ctx, 5, static_cast<int32_t>(neg) >> 16);
+            SET_GPR_S32(ctx, 6, relocated(rdram, site.hi, site.lo));
+            SET_GPR_S32(ctx, 4, rot);
+            gcall(jalTarget(rdram, site.jal), site.jal + 8u, sp);
+            d3rbQuatMul(u, m, q, rot, q);
+        };
+
+        uint64_t v0;
+        if (s5 != 0u || s6 != 0u || m.u32(fp + 0x1D0u) != 0u)
+        {
+            if (s7 != 0u)
+            {
+                const uint32_t prevMotion = m.u32(fp + 0x108u);
+                uint32_t s0;
+                bool turned = false;
+                SET_GPR_S32(ctx, 4, fp + 0x20u);
+                SET_GPR_U64(ctx, 6, 0u);
+                if (prevMotion != 0u)
+                {
+                    SET_GPR_S32(ctx, 5, prevMotion);
+                    gcall(kRootIntFrame, 0x010C42DCu, fp);
+                    s0 = m.u32(m.u32(fp + 0x1B0u) + 0x34u);
+                    SET_GPR_S32(ctx, 4, s0);
+                    gcall(kRotAngle, 0x010C42F4u, fp);
+                    if (s0 != 0u)
+                    {
+                        turn(kTurnPrev, fp + 0x30u, fp + 0x80u, fp);
+                        turned = true;
+                    }
+                }
+                else
+                {
+                    SET_GPR_U64(ctx, 5, s7);
+                    gcall(kRootIntFrame, 0x010C43E0u, fp);
+                    s0 = m.u32(m.u32(fp + 0x104u) + 0x34u);
+                    SET_GPR_S32(ctx, 4, s0);
+                    gcall(kRotAngle, 0x010C43F8u, fp);
+                    if (s0 != 0u)
+                    {
+                        turn(kTurnCur, fp + 0x30u, fp + 0x80u, fp);
+                        turned = true;
+                    }
+                }
+                if (turned)
+                {
+                    d3rbQuatMatrix(u, m, fp + 0x30u, fp + 0x40u);
+                    d3rbMatApply(u, m, fp + 0x40u, fp + 0x20u, fp + 0x20u);
+                }
+                const uint32_t rec = m.u32(fp + 0xF4u);
+                f[14] = f[22];
+                f[12] = fb(m.u32(rec + 8u));
+                SET_GPR_S32(ctx, 5, s3);
+                f[13] = fb(m.u32(rec + 0xCu));
+                SET_GPR_S32(ctx, 4, fp + 0x30u);
+                SET_GPR_U64(ctx, 6, s7);
+                gcall(kRootInfo, 0x010C453Cu, fp);
+                s0 = m.u32(m.u32(fp + 0x104u) + 0x34u);
+                SET_GPR_S32(ctx, 4, s0);
+                gcall(kRotAngle, 0x010C4550u, fp);
+                if (s0 != 0u)
+                {
+                    turn(kTurnInfo, fp + 0x90u, fp + 0xE0u, fp);
+                    d3rbQuatMatrix(u, m, fp + 0x90u, fp + 0xA0u);
+                    d3rbMatApply(u, m, fp + 0xA0u, fp + 0x30u, fp + 0x30u);
+                    d3rbMatApply(u, m, fp + 0xA0u, s3, s3);
+                }
+                vf[5] = d3rbQ(m, fp + 0x30u);
+                vf[6] = d3rbQ(m, fp + 0x20u);
+                vf[7] = d3rbSub(vf[5], vf[6]);
+                d3rbPut(m, fp, vf[7]);
+            }
+            else
+            {
+                d3rbPut(m, fp, d1::zero4());
+                d3rbPut(m, s3, d1::zero4());
+            }
+            // with f21 < 1, *fp = *s4 = *fp x f21 + *s4 x (1 - f21); else *s4 = *fp.
+            SET_GPR_S32(ctx, 1, 0x3F800000u);
+            f[0] = fb(0x3F800000u);
+            setC(ctx, d1::lt(f[21], f[0]));
+            SET_GPR_VEC(ctx, 2, _mm_castps_si128(d3rbQ(m, fp)));
+            if (cBit(ctx))
+            {
+                SET_GPR_U32(ctx, 8, bf(f[21]));
+                vf[7] = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+                vf[5] = d3rbQ(m, fp);
+                vf[6] = d3rbQ(m, s4);
+                vf[8] = d1::vsel(vf[8], d3rbSub(d1::vf0(), d1::bc<0>(vf[7])), d1::mask(0, 0, 0, 1));
+                u.acc = d1::vsel(u.acc, d3rbMul(vf[5], d1::bc<0>(vf[7])), d1::mask(1, 1, 1, 0));
+                vf[5] = d1::vsel(vf[5], d3rbAdd(u.acc, d3rbMul(vf[6], d1::bc<3>(vf[8]))), d1::mask(1, 1, 1, 0));
+                d3rbPut(m, s4, vf[5]);
+                SET_GPR_VEC(ctx, 2, _mm_castps_si128(d3rbQ(m, s4)));
+                d3rbPut(m, fp, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+            }
+            else
+                d3rbPut(m, s4, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+            // the stack's +0x10 output = *s3; with f20 < 1, *fp and *s3 scaled by f20 and the scale vector (t1).
+            SET_GPR_S32(ctx, 1, 0x3F800000u);
+            f[0] = fb(0x3F800000u);
+            SET_GPR_VEC(ctx, 2, _mm_castps_si128(d3rbQ(m, fp + 0x10u)));
+            setC(ctx, d1::lt(f[20], f[0]));
+            const uint32_t out2 = m.u32(fp + 0x1C0u);
+            d3rbPut(m, out2, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+            if (cBit(ctx))
+            {
+                SET_GPR_U32(ctx, 2, bf(f[20]));
+                d3rbScaleXyz(u, m, s4, fp, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+                const uint32_t scale = m.u32(fp + 0xFCu);
+                d3rbMulXyz(u, m, fp, scale, fp);
+                d3rbScaleXyz(u, m, out2, s3, _mm_castsi128_ps(GPR_VEC(ctx, 2)));
+                d3rbMulXyz(u, m, s3, scale, s3);
+            }
+            // through the rotation's matrix (t2) into a0 / a1.
+            d3rbQuatMatrix(u, m, m.u32(fp + 0x100u), fp + 0x20u);
+            if (s5 != 0u)
+            {
+                d3rbMatApply(u, m, fp + 0x20u, fp, fp + 0x60u);
+                d3rbAddXyz(u, m, static_cast<uint32_t>(s5), fp + 0x60u);
+            }
+            if (s6 != 0u)
+            {
+                d3rbMatApply(u, m, fp + 0x20u, s3, fp + 0x60u);
+                d3rbAddXyz(u, m, static_cast<uint32_t>(s6), fp + 0x60u);
+            }
+        }
+        v0 = sx(m.u32(fp + 0xF0u));
+
+        auto finish = [&](uint64_t result)
+        {
+            d3rbStore(ctx, u);
+            SET_GPR_U64(ctx, 2, result);
+            f[22] = fb(m.u32(fp + 0x1A0u));
+            f[21] = fb(m.u32(fp + 0x198u));
+            f[20] = fb(m.u32(fp + 0x190u));
+            SET_GPR_U64(ctx, 31, ra);
+            SET_GPR_U64(ctx, 29, entrySp);
+            ctx->pc = static_cast<uint32_t>(ra);
+        };
+        if (v0 == 0u)
+            return finish(v0);
+
+        // the pose: s2 = count x 16 bytes below the frame (the calls get the moved sp).
+        uint32_t sp = fp;
+        const int32_t s1 = m.s32(m.u32(fp + 0xF8u) + 4u);
+        const uint32_t bytes = static_cast<uint32_t>(s1) << 4;
+        v0 = sx(bytes);
+        sp -= bytes;
+        const uint32_t s2 = sp;
+        if (s7 != 0u)
+        {
+            const uint32_t back = sp;
+            sp -= bytes;
+            SET_GPR_S32(ctx, 6, m.u32(fp + 0x1B0u));
+            SET_GPR_S32(ctx, 5, m.u32(fp + 0x108u));
+            SET_GPR_S32(ctx, 8, m.u32(fp + 0x104u));
+            SET_GPR_S32(ctx, 4, sp);
+            SET_GPR_S32(ctx, 9, m.u32(fp + 0xF8u));
+            SET_GPR_U64(ctx, 7, s7);
+            SET_GPR_S32(ctx, 10, s1);
+            gcall(kPoseFromMotion, 0x010C48ACu, sp);
+            SET_GPR_S32(ctx, 4, s2);
+            SET_GPR_U64(ctx, 5, s7);
+            SET_GPR_S32(ctx, 6, m.u32(fp + 0xF8u));
+            f[12] = fb(m.u32(m.u32(fp + 0xF4u) + 8u));
+            gcall(kFloatFrame, 0x010C48C4u, sp);
+            const uint32_t s0 = m.u32(m.u32(fp + 0x104u) + 0x34u);
+            SET_GPR_S32(ctx, 4, s0);
+            gcall(kRotAngle, 0x010C48D4u, sp);
+            if (s0 != 0u)
+            {
+                turn(kTurnPose, s3, fp + 0x20u, sp);
+                SET_GPR_S32(ctx, 6, m.u32(fp + 0xF8u));
+                SET_GPR_S32(ctx, 5, s3);
+                SET_GPR_S32(ctx, 4, s2);
+                gcall(kToRootSkeleton, 0x010C4948u, sp);
+            }
+            if (m.u32(fp + 0x1D0u) != 0u)
+            {
+                SET_GPR_S32(ctx, 4, m.u32(fp + 0xF8u));
+                SET_GPR_S32(ctx, 5, sp);
+                SET_GPR_S32(ctx, 8, m.u32(fp + 0xF0u));
+                SET_GPR_S32(ctx, 6, s2);
+                SET_GPR_S32(ctx, 7, fp);
+                gcall(kPoseCallback, 0x010C4968u, sp);
+                v0 = GPR_U64(ctx, 2);
+            }
+            else
+            {
+                // each bone times the second array's conjugate (xyz x -1).
+                v0 = sx(m.u32(fp + 0xF8u));
+                const int32_t n = m.s32(static_cast<uint32_t>(v0) + 4u);
+                for (int32_t i = 0; i < n; ++i)
+                {
+                    const uint32_t off = static_cast<uint32_t>(i) << 4;
+                    vf[11] = d3rbQ(m, off + sp);
+                    vf[5] = d1::vsel(vf[5], d3rbSub(d1::vf0(), d1::bc<3>(d1::vf0())), d1::mask(1, 0, 0, 0)); // vf5.x = -1
+                    vf[11] = d1::vsel(vf[11], d3rbMul(vf[11], d1::bc<0>(vf[5])), d1::mask(1, 1, 1, 0));
+                    d3rbPut(m, fp + 0x30u, vf[11]);
+                    d3rbQuatMul(u, m, fp + 0x30u, off + s2, off + s2);
+                    v0 = 0u;
+                }
+            }
+            sp = back;
+        }
+        else if (s1 > 0)
+        {
+            for (int32_t i = 0; i < s1; ++i)
+                d3rbPut(m, sp + (static_cast<uint32_t>(i) << 4), d1::vf0());
+            v0 = sx(sp + (static_cast<uint32_t>(s1) << 4));
+        }
+
+        // with f21 < 1, each bone blended with the previous pose (D, both get the result); else the bones copied to D.
+        SET_GPR_S32(ctx, 1, 0x3F800000u);
+        f[0] = fb(0x3F800000u);
+        setC(ctx, d1::lt(f[21], f[0]));
+        if (cBit(ctx))
+        {
+            if (s1 > 0)
+            {
+                SET_GPR_S32(ctx, 9, 0xBF800000u);
+                SET_GPR_U32(ctx, 8, bf(f[21]));
+                const __m128 t1v = _mm_castsi128_ps(GPR_VEC(ctx, 9)), t0v = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+                const uint32_t dArr = m.u32(fp + 0x1C8u);
+                __m128 lastPrev = d1::zero4();
+                uint32_t dot = 0u;
+                for (int32_t i = 0; i < s1; ++i)
+                {
+                    const uint32_t off = static_cast<uint32_t>(i) << 4;
+                    const uint32_t bone = off + s2, prev = off + dArr;
+                    const __m128 pv = d3rbQ(m, prev);
+                    if (i + 1 == s1)
+                        SET_GPR_VEC(ctx, 3, _mm_castps_si128(pv));
+                    d3rbPut(m, fp + 0x10u, pv);
+                    dot = d3rbBlendBone(u, m, bone, fp + 0x10u, prev, fp + 0x10Cu, t1v, t0v);
+                    lastPrev = d3rbQ(m, prev);
+                    d3rbPut(m, bone, lastPrev);
+                }
+                std::memcpy(&f[0], &dot, 4);
+                SET_GPR_VEC(ctx, 2, _mm_castps_si128(lastPrev));
+                v0 = GPR_U64(ctx, 2);
+                SET_GPR_S32(ctx, 1, 0x3F800000u);
+                f[0] = fb(0x3F800000u);
+            }
+        }
+        else
+        {
+            int32_t i = 0;
+            const uint32_t dArr = m.u32(fp + 0x1C8u);
+            for (; i < s1; ++i)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                const __m128 b = d3rbQ(m, off + s2);
+                if (i + 1 == s1)
+                    SET_GPR_VEC(ctx, 3, _mm_castps_si128(b));
+                d3rbPut(m, off + dArr, b);
+            }
+            v0 = sx(static_cast<uint32_t>(i) << 4);
+            SET_GPR_S32(ctx, 1, 0x3F800000u);
+            f[0] = fb(0x3F800000u);
+        }
+        // with f20 < 1, each bone = D's blended with the rest quaternion.
+        setC(ctx, d1::lt(f[20], f[0]));
+        if (cBit(ctx) && s1 > 0)
+        {
+            SET_GPR_S32(ctx, 9, 0xBF800000u);
+            SET_GPR_U32(ctx, 8, bf(f[20]));
+            const __m128 t1v = _mm_castsi128_ps(GPR_VEC(ctx, 9)), t0v = _mm_castsi128_ps(GPR_VEC(ctx, 8));
+            const uint32_t rest = relocated(rdram, kRestHi, kRestLo);
+            const uint32_t dArr = m.u32(fp + 0x1C8u);
+            const __m128 rv = d3rbQ(m, rest);
+            SET_GPR_VEC(ctx, 3, _mm_castps_si128(rv));
+            uint32_t dot = 0u;
+            for (int32_t i = 0; i < s1; ++i)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                const uint32_t prev = off + dArr, bone = off + s2;
+                d3rbPut(m, fp + 0x10u, d3rbQ(m, rest));
+                dot = d3rbBlendBone(u, m, prev, fp + 0x10u, bone, fp + 0x110u, t1v, t0v);
+            }
+            std::memcpy(&f[0], &dot, 4);
+            v0 = 0u;
+        }
+        // the output quaternions times the bones.
+        {
+            const uint32_t outArr = m.u32(fp + 0xF0u);
+            for (int32_t i = 0; i < s1; ++i)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                const uint32_t out = off + outArr;
+                d3rbQuatMul(u, m, out, off + s2, out);
+                v0 = 0u;
+            }
+        }
+        finish(v0);
+    }
+    void rootBlendSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            rootBlendD3(rdram, ctx, runtime);
+        else
+            rootBlend(rdram, ctx, runtime);
+    }
+} // namespace decomp_hot46c

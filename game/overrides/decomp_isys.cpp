@@ -476,7 +476,9 @@ namespace decomp_isys
     D1_ALIAS(kForFirst, isysGroupForFirst, forFirstSw, forFirst);
     SOTC_DECOMP_FUNCTION(kForExit, isysGroupForExit, forExitSw);
     D1_ALIAS(kForExit, isysGroupForExit, forExitSw, forExit);
-    SOTC_DECOMP_FUNCTION(kLockObj, iosDlLockObj, lockObj);
+    void lockObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
+    SOTC_DECOMP_FUNCTION(kLockObj, iosDlLockObj, lockObjSw);
+    D1_ALIAS(kLockObj, iosDlLockObj, lockObjSw, lockObj);
 }
 
 // ---- Round D1 (d1native, SOTC_D1NATIVE=1): isysGroupForFirst / isysGroupForExit ------------------------------------------
@@ -711,5 +713,73 @@ namespace decomp_isys
             addGroupD1(rdram, ctx, runtime);
         else
             addGroup(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): iosDlLockObj ----------------------------------------------------------------
+// Partial: isysObjDeleteLock (the object's +8 count up), the frame's saves (s0, s1, ra) and the group's count after the add
+// as typed cores on d1::Mem in the old order, 0 math; the add (isysAddGroupWithLinkParam through the table, the jal at
+// 0x1c0100: its lock is GetThreadId / PollSema / SignalSema, a scheduler call, and its return label can be where this
+// thread goes on after a wait) stays the guest call with the old registers, ra and sp. Not difftest-checkable when the
+// add switches threads (as the old body).
+namespace decomp_isys
+{
+    D1_COUNTER(c_d3LockObj, "iosDlLockObj");
+
+    constexpr uint32_t kD3LockDl = 0x002132D8u;
+
+    // isysObjDeleteLock and the frame (s0, s1 at sp, ra at sp + 0x10); the group the object goes into.
+    uint32_t d3LockObjEnterCore(const d1::Mem m, uint32_t object, uint32_t sp, uint64_t s0, uint64_t s1, uint64_t ra)
+    {
+        const uint32_t w = m.u32(object + 8u);
+        m.set<uint32_t>(object + 8u, (w & 0xFFFFu) | (((w >> 17) + 1u) << 17));
+        const uint32_t group = (m.u32(kD3LockDl + 0x18u) << 2) + kD3LockDl + 0x20u;
+        m.set<uint64_t>(sp, s0);
+        m.set<uint64_t>(sp + 8u, s1);
+        m.set<uint64_t>(sp + 0x10u, ra);
+        return group;
+    }
+
+    // The group's count up (v0).
+    uint32_t d3LockObjCountCore(const d1::Mem m)
+    {
+        const uint32_t counter = (m.u32(kD3LockDl + 0x18u) << 2) + kD3LockDl + 0x28u;
+        const uint32_t count = m.u32(counter) + 1u;
+        m.set<uint32_t>(counter, count);
+        return count;
+    }
+
+    void lockObjD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4);
+        const uint32_t ra = GPR_U32(ctx, 31), spIn = GPR_U32(ctx, 29), sp = spIn - 0x20u;
+        const d1::Mem m{rdram};
+        if (!M::ok(object, 0x10u) || !M::ok(sp, 0x20u) || m.u32(kD3LockDl + 0x18u) > 0x100u)
+            return lockObj(rdram, ctx, runtime);
+        ++c_d3LockObj.n;
+        const uint64_t s0 = GPR_U64(ctx, 16), s1 = GPR_U64(ctx, 17);
+        const uint32_t group = d3LockObjEnterCore(m, object, sp, s0, s1, GPR_U64(ctx, 31));
+        // The add as the jal at 0x1c0100 makes it, from the registers the original has there.
+        SET_GPR_U32(ctx, 16, kD3LockDl);
+        SET_GPR_U32(ctx, 17, object);
+        SET_GPR_U32(ctx, 4, object);
+        SET_GPR_U32(ctx, 5, group);
+        SET_GPR_U64(ctx, 6, 0u);
+        SET_GPR_U64(ctx, 7, 0u);
+        sotc_decomp::callGuest(rdram, ctx, runtime, kAdd, 0x001C0108u, sp);
+        SET_GPR_U64(ctx, 16, s0);
+        SET_GPR_U64(ctx, 17, s1);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(d3LockObjCountCore(m)));
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        returnTo(ctx);
+    }
+
+    void lockObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            lockObjD3(rdram, ctx, runtime);
+        else
+            lockObj(rdram, ctx, runtime);
     }
 }

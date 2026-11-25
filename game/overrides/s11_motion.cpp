@@ -350,7 +350,8 @@ namespace s11motion
         uint64_t v0, v0Upper, t0;
         bool v0Full, cEq, lerp;
     };
-    bool rootFrameD2Core(const d1::Mem &m, const RootFrameD2In &in, RootFrameD2Out &o)
+    // Round D3: the answer without the write (the 16 bytes into key), for GetMotionRootInfo's two calls (below).
+    bool rootFrameD2Calc(const d1::Mem &m, const RootFrameD2In &in, RootFrameD2Out &o, float key[4])
     {
         if (!okAddr(in.out) || !okAddr(in.ref) || (in.ref & 3u) != 0u || (in.out & 0xFu) != 0u)
             return false;
@@ -382,7 +383,6 @@ namespace s11motion
         // The frame: cvt.w.s, the fraction (sub.s), c.eq.s against 0.
         const int32_t i = ps2FpuConvertToWord(in.frame);
         const float frac = d1::sub(in.frame, static_cast<float>(i));
-        float key[4];
         if (d1::eq(frac, 0.0f))
         {
             KeyD2 k;
@@ -431,6 +431,13 @@ namespace s11motion
             key[3] = 1.0f;
             o.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(in.sp + 0x10u)));
         }
+        return true;
+    }
+    bool rootFrameD2Core(const d1::Mem &m, const RootFrameD2In &in, RootFrameD2Out &o)
+    {
+        float key[4];
+        if (!rootFrameD2Calc(m, in, o, key))
+            return false;
         m.putq(in.out, d1::make(key[0], key[1], key[2], key[3]));
         return true;
     }
@@ -479,3 +486,231 @@ namespace s11motion
             rootFloatFrame(rdram, ctx, runtime);
     }
 } // namespace s11motion
+
+// ---- Round D3 (d1native): S13's root getters (registered in s13_motion.cpp) as native C++, on D2's cores above ---------
+// GetMotionRootIntFrame (0x10b4098): s13motion::rootIntFrame's default path (computeInt + applyInt) as a core on d1::Mem:
+// the MotionRef's root track (rootTrack: S13's own three relocated words, decoded by the adapter) and its key at the
+// integer frame by D2's keyD2 (rootKey's view: the packed key's 3 FPU sites as d1::mul / add, called directly), the 16
+// bytes (w 1) written out; the adapter leaves v0 (its upper half when the key is a kind < 6 one) and f0 (the key's z).
+// GetMotionRootInfo (0x10b67a8): s13motion::rootInfo's default path (computeInfo + applyInfo) as a core: f13 <= f12
+// (c.le.s -> d1::le), GetMotionRootFloatFrame's answer twice by D2's rootFrameD2Calc (called directly: calls direct 2;
+// the second sees t0 / vf8 / ACC as the first's lerp leaves them), the move as two VU0 ops (vsub.xyz, vmulx.xyz ->
+// d1::vsub / vmul / vsel; operand clamps dropped: the roots are motion keys / their lerps (w 1.0), vf6.x the f14 scale),
+// the four stores in the old order; the adapter leaves vf5 / vf6, the last lerp's vf7 / vf8 / ACC / t0, v0 (128 bits),
+// f0 = 1, fcr31's C bit set. Gates (the old body): s13mot kRoot off, SOTC_S13MOT_CHECK; any refusal of the cores
+// (nothing written): the old body, which refuses the same way (the recompiled function).
+namespace s13motion
+{
+    void rootIntFrame(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void rootInfo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace s11motion
+{
+    D1_COUNTER(c_d3RootInt, "GetMotionRootIntFrame");
+    D1_COUNTER(c_d3RootInfo, "GetMotionRootInfo");
+
+    // S13's rootTrack (GetMotionRootIntFrame 0x10b40b8..0x10b4188) on d1::Mem; 0: refused.
+    uint32_t d3RootTrack(const d1::Mem &m, uint32_t ref, uint32_t g1, uint32_t kindWord, uint32_t g2)
+    {
+        if (!okAddr(ref) || (ref & 3u) != 0u)
+            return 0u;
+        const uint32_t word = m.u32(ref);
+        if (!okAddr(g1 & ~3u))
+            return 0u;
+        const uint32_t off = word & layout::kRefOffsetMask;
+        const uint32_t owner1 = off != 0u ? m.u32(ref - off) : 0u;
+        if (owner1 == 0u || owner1 == m.u32(g1) || !okAddr(owner1) || m.u32(owner1 + layout::kSetDescriptor) != kindWord)
+            return 0u;
+        if (!okAddr(g2 & ~3u))
+            return 0u;
+        const uint32_t owner = off != 0u ? m.u32(ref - off) : 0u;
+        if (owner == 0u || owner == m.u32(g2) || !okAddr(owner))
+            return 0u;
+        const uint32_t desc = m.u32(owner + layout::kSetDescriptor);
+        if (!okAddr(desc))
+            return 0u;
+        const uint32_t index = (word >> layout::kRefIndexShift) & layout::kRefIndexMask;
+        const uint32_t motion = m.u32(owner + layout::kSetMotions) + index * m.u32(desc + layout::kDescStride);
+        if (!okAddr(motion))
+            return 0u;
+        const uint32_t root = m.u32(motion + layout::kMotionRoot);
+        if (root == 0u || !okAddr(root))
+            return 0u;
+        return m.u32(root + layout::kRootTrack);
+    }
+
+    struct RootIntD3Out
+    {
+        uint64_t v0, v0Upper;
+        float f0;
+        bool full;
+    };
+    bool d3RootIntCore(const d1::Mem &m, uint32_t out, uint32_t ref, uint32_t frame, uint32_t g1, uint32_t kindWord, uint32_t g2, bool packedHost, RootIntD3Out &o)
+    {
+        if (!okAddr(out) || (out & 0xFu) != 0u)
+            return false;
+        const uint32_t track = d3RootTrack(m, ref, g1, kindWord, g2);
+        if (track == 0u)
+            return false;
+        KeyD2 k;
+        if (!keyD2(m, track, frame, packedHost, k))
+            return false;
+        m.putq(out, d1::make(k.v[0], k.v[1], k.v[2], 1.0f));
+        o.v0 = k.v0;
+        o.full = k.full;
+        o.v0Upper = keyUpper(k.v);
+        o.f0 = k.v[2];
+        return true;
+    }
+
+    void rootIntFrameD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!s13mot::on(s13mot::kRoot) || s13mot::g_check, 0))
+            return s13motion::rootIntFrame(rdram, ctx, runtime);
+        RootIntD3Out o;
+        if (__builtin_expect(!d3RootIntCore(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), sotc_decomp::relocated(rdram, 0x010B40E0u, 0x010B40E4u),
+                                            sotc_decomp::relocated(rdram, 0x010B40F4u, 0x010B40FCu), sotc_decomp::relocated(rdram, 0x010B4128u, 0x010B412Cu),
+                                            s11rt::g_packed || s13mot::on(s13mot::kPacked), o),
+                             0))
+            return s13motion::rootIntFrame(rdram, ctx, runtime); // (nothing written: the old body refuses the same way)
+        ++c_d3RootInt.n;
+        SET_GPR_U64(ctx, 2, o.v0);
+        if (o.full)
+            std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &o.v0Upper, 8);
+        ctx->f[0] = o.f0;
+        returnTo(ctx);
+    }
+
+    struct RootInfoD3In
+    {
+        __m128 t0v, vf8, acc;
+        uint64_t v0UpperIn; // v0's upper half at the entry (kept when neither key is a kind < 6 one)
+        uint32_t curOut, moveOut, ref, g1, kindWord, g2, sp0;
+        float now, before, scale;
+        bool packedHost;
+    };
+    struct RootInfoD3Out
+    {
+        __m128 vf5, vf6, vf7, vf8, acc;
+        uint64_t v0, v0Upper, t0;
+        bool lerp; // the last lerp's registers (vf7 / vf8 / ACC / t0) to leave
+    };
+    bool d3RootInfoCore(const d1::Mem &m, const RootInfoD3In &in, RootInfoD3Out &o)
+    {
+        if (!okAddr(in.curOut) || (in.curOut & 0xFu) != 0u || !okAddr(in.moveOut) || (in.moveOut & 0xFu) != 0u)
+            return false;
+        // f13 > f12 (c.le.s false): the looped motion's path (recompiled)
+        if (!d1::le(in.before, in.now))
+            return false;
+        const uint32_t sp = in.sp0 - 0x90u;
+        RootFrameD2In a;
+        a.t0v = in.t0v;
+        a.vf8 = in.vf8;
+        a.acc = in.acc;
+        a.out = in.curOut;
+        a.ref = in.ref;
+        a.g1 = in.g1;
+        a.kindWord = in.kindWord;
+        a.g2 = in.g2;
+        a.sp = sp - 0x50u;
+        a.frame = in.now;
+        a.packedHost = in.packedHost;
+        RootFrameD2Out c;
+        float ck[4];
+        if (!rootFrameD2Calc(m, a, c, ck))
+            return false;
+        if (c.lerp)
+        {
+            std::memcpy(&a.t0v, &c.t0, 8);
+            a.vf8 = c.vf8;
+            a.acc = c.acc;
+        }
+        a.out = sp;
+        a.frame = in.before;
+        RootFrameD2Out p;
+        float pk[4];
+        if (!rootFrameD2Calc(m, a, p, pk))
+            return false;
+        const __m128 cur = d1::make(ck[0], ck[1], ck[2], ck[3]), prev = d1::make(pk[0], pk[1], pk[2], pk[3]);
+        const __m128 xyz = d1::mask(1, 1, 1, 0);
+        const __m128 diff = d1::vsel(cur, d1::vsub(cur, prev), xyz);
+        uint32_t sb;
+        std::memcpy(&sb, &in.scale, 4);
+        o.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(sb)));
+        o.v0Upper = p.v0Full ? p.v0Upper : (c.v0Full ? c.v0Upper : in.v0UpperIn);
+        uint64_t v6[2] = {o.v0, o.v0Upper};
+        std::memcpy(&o.vf6, v6, 16);
+        o.vf5 = d1::vsel(diff, d1::vmul(diff, d1::bc<0>(o.vf6)), xyz);
+        m.putq(in.curOut, cur);
+        m.putq(sp, prev); // (the original's stack slot for root(f13))
+        m.putq(in.moveOut, o.vf5);
+        m.set<uint32_t>(in.moveOut + 0xCu, 0u);
+        const RootFrameD2Out &last = p.lerp ? p : c;
+        o.lerp = last.lerp;
+        if (last.lerp)
+        {
+            o.vf7 = last.vf7;
+            o.vf8 = last.vf8;
+            o.acc = last.acc;
+            o.t0 = last.t0;
+        }
+        return true;
+    }
+
+    void rootInfoD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (__builtin_expect(!s13mot::on(s13mot::kRoot) || s13mot::g_check, 0))
+            return s13motion::rootInfo(rdram, ctx, runtime);
+        RootInfoD3In in;
+        in.t0v = _mm_castsi128_ps(ctx->r[8]);
+        in.vf8 = ctx->vu0_vf[8];
+        in.acc = ctx->vu0_acc;
+        std::memcpy(&in.v0UpperIn, reinterpret_cast<const uint8_t *>(&ctx->r[2]) + 8, 8);
+        in.curOut = GPR_U32(ctx, 4);
+        in.moveOut = GPR_U32(ctx, 5);
+        in.ref = GPR_U32(ctx, 6);
+        in.sp0 = GPR_U32(ctx, 29);
+        in.now = ctx->f[12];
+        in.before = ctx->f[13];
+        in.scale = ctx->f[14];
+        in.g1 = sotc_decomp::relocated(rdram, 0x010B44C0u, 0x010B44C4u);
+        in.kindWord = sotc_decomp::relocated(rdram, 0x010B44D4u, 0x010B44DCu);
+        in.g2 = sotc_decomp::relocated(rdram, 0x010B4508u, 0x010B450Cu);
+        in.packedHost = s11rt::g_packed || s13mot::on(s13mot::kPacked);
+        RootInfoD3Out o;
+        if (__builtin_expect(!d3RootInfoCore(d1::Mem{rdram}, in, o), 0))
+            return s13motion::rootInfo(rdram, ctx, runtime); // (nothing written: the old body refuses the same way)
+        ++c_d3RootInfo.n;
+        if (o.lerp)
+        {
+            ctx->vu0_vf[7] = o.vf7;
+            ctx->vu0_vf[8] = o.vf8;
+            ctx->vu0_acc = o.acc;
+            SET_GPR_U64(ctx, 8, o.t0);
+        }
+        ctx->vu0_vf[5] = o.vf5;
+        ctx->vu0_vf[6] = o.vf6;
+        std::memcpy(&ctx->r[2], &o.v0, 8);
+        std::memcpy(reinterpret_cast<uint8_t *>(&ctx->r[2]) + 8, &o.v0Upper, 8);
+        ctx->f[0] = 1.0f;
+        ctx->fcr31 |= 0x800000u; // c.le.s f13, f12: true on this path
+        returnTo(ctx);
+    }
+} // namespace s11motion
+namespace s13motion
+{
+    void rootIntFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            s11motion::rootIntFrameD3(rdram, ctx, runtime);
+        else
+            rootIntFrame(rdram, ctx, runtime);
+    }
+    void rootInfoSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            s11motion::rootInfoD3(rdram, ctx, runtime);
+        else
+            rootInfo(rdram, ctx, runtime);
+    }
+} // namespace s13motion

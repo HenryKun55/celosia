@@ -2137,7 +2137,9 @@ namespace decomp_ptclupdate
 }
 
 namespace decomp_ptclupdate { void listSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); void emitterSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); void stepSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D1
-SOTC_DECOMP_FUNCTION(0x0113F500u, ptclGeodisp, decomp_ptclupdate::geodisp);
+namespace decomp_ptclupdate { void geodispSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3
+SOTC_DECOMP_FUNCTION(0x0113F500u, ptclGeodisp, decomp_ptclupdate::geodispSw);
+D1_ALIAS(0x0113F500u, ptclGeodisp, decomp_ptclupdate::geodispSw, decomp_ptclupdate::geodisp);
 SOTC_DECOMP_FUNCTION(0x0113AAE0u, ptclEmitterList, decomp_ptclupdate::listSw);
 D1_ALIAS(0x0113AAE0u, ptclEmitterList, decomp_ptclupdate::listSw, decomp_ptclupdate::list);
 SOTC_DECOMP_FUNCTION(0x0113B610u, ptclEmitter, decomp_ptclupdate::emitterSw);
@@ -3574,5 +3576,63 @@ namespace decomp_ptclupdate
             listD1(rdram, ctx, runtime);
         else
             list(rdram, ctx, runtime);
+    }
+} // namespace decomp_ptclupdate
+
+// ---- Round D3 (d1native): doit_particle_geodisp (0113F500) partial ---------------------------------------------------------
+// The frame's ra store as a typed store and GetGeoDispClass inline on typed memory (decomp_ptcl62's D3 core: what its slot's
+// native / dispatcher leaves, v0 the class, v1 the type ^ 0x24, a0 0x24, then a0 the list), when that slot holds the native
+// or its dispatcher and ptcl62 is on. The tail jump to 0113AAE0 (ptclEmitterList, D1 partial) stays as the old body makes
+// it (the old list straight when the table holds it, else the table's function). Anything else: the old body.
+namespace decomp_ptcl62
+{
+    void geoDispClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void geoDispClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d3p
+    {
+        uint64_t geoClassCoreD3(const d1::Mem &m, uint32_t a0, uint64_t &v1);
+    }
+}
+namespace decomp_ptclupdate
+{
+    D1_COUNTER(c_d3Geodisp, "ptclGeodisp");
+
+    void geodispD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t a0 = GPR_U32(ctx, 4);
+        const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x10u;
+        const PS2Runtime::RecompiledFunction cls = sotc_decomp::guestFunction(runtime, 0x010ED688u);
+        if ((sp & 0xFu) != 0u || !inRam(sp, 0x10u) || (a0 != 0u && !inRam(a0 + 8u, 1u)) || !sotc_decomp::switchOn(sotc_decomp::kParticles62) ||
+            (cls != &decomp_ptcl62::geoDispClassSw && cls != &decomp_ptcl62::geoDispClass))
+            return geodisp(rdram, ctx, runtime);
+        ++c_d3Geodisp.n;
+        const d1::Mem m{rdram};
+        const uint64_t ra0 = GPR_U64(ctx, 31);
+        m.set<uint64_t>(sp, static_cast<uint64_t>(static_cast<uint32_t>(ra0))); // as the old body's put64 of the 32-bit ra
+        uint32_t list = 0u;
+        if (a0 != 0u)
+        {
+            uint64_t v1;
+            const uint64_t v0 = decomp_ptcl62::d3p::geoClassCoreD3(m, a0, v1);
+            SET_GPR_U64(ctx, 3, v1);
+            SET_GPR_U64(ctx, 2, v0);
+            list = static_cast<uint32_t>(v0) + 0xE8u;
+        }
+        // ld ra; j 0113AAE0 with sp back.
+        SET_GPR_S32(ctx, 4, static_cast<int32_t>(list));
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, static_cast<uint32_t>(ra0));
+        ctx->pc = kList;
+        if (runtime->guestFunctionAt(kList) == &decomp_ptclupdate::list)
+            decomp_ptclupdate::list(rdram, ctx, runtime);
+        else
+            runtime->guestFunctionAt(kList)(rdram, ctx, runtime);
+    }
+    void geodispSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            geodispD3(rdram, ctx, runtime);
+        else
+            geodisp(rdram, ctx, runtime);
     }
 } // namespace decomp_ptclupdate

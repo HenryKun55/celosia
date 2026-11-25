@@ -42,6 +42,7 @@
 // is read from the site (relocated), as the generated code reads it.
 // SOTC_MOTION=0: the recompiled code.
 #include "sotc_decomp.h"
+#include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -478,4 +479,326 @@ namespace decomp_ctrlwalk
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010CA230u, manager_sub_010CA230, decomp_ctrlwalk::walk);
+namespace decomp_ctrlwalk { void walkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3 (d1native)
+SOTC_DECOMP_FUNCTION(0x010CA230u, manager_sub_010CA230, decomp_ctrlwalk::walkSw);
+D1_ALIAS(0x010CA230u, manager_sub_010CA230, decomp_ctrlwalk::walkSw, decomp_ctrlwalk::walk);
+
+// ---- Round D3 (switch d1native, d1_native.h): manager_sub_010CA230 (partial) ----------------------------------------------
+// walkD3 is walk's code with the conditions through manager_sub_010C7B28's D3 core called directly (decomp_ctrldef.cpp:
+// the walk's ~all calls a frame) while that slot holds its native and its stats are off (condD3Ready); a condition the core
+// does not do (Surface types, the recompiled ones) stays the guest call. After a direct one the context holds what the old
+// callee leaves (v0, f0, fcr31's condition bit, a0-a3 the arguments, ra / sp as the jal left them), so the rest of the walk
+// (the actions' VU0 / FPU statements on the context, their guest calls: RequestCharacterClassMotionDirection / ...,
+// iosGetRotYVector, the records' callbacks) runs as before: partial. SOTC_MOTION=0: the old body.
+namespace decomp_ctrldef
+{
+    bool condD3Ready(PS2Runtime *runtime);
+    namespace d3c
+    {
+        int condD3Core(const d1::Mem &m, uint32_t a0In, uint32_t t0, uint32_t a2, uint32_t c, bool hotList, bool &cBit, uint32_t &f0Bits);
+    }
+}
+namespace decomp_ctrlwalk
+{
+    D1_COUNTER(c_d3Walk, "manager_sub_010CA230");
+
+    void walkD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::motionOn())
+            return walk(rdram, ctx, runtime);
+        ++c_d3Walk.n;
+        const bool condDirect = decomp_ctrldef::condD3Ready(runtime), hot = sotc_decomp::hotListOn();
+        const d1::Mem dm{rdram};
+        const G g{rdram, ctx, runtime};
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x90u;
+        const uint32_t obj = GPR_U32(ctx, 4), s1 = GPR_U32(ctx, 5), s4 = GPR_U32(ctx, 6), a3in = GPR_U32(ctx, 7);
+        const uint32_t s5 = s4 + 0x80u;
+        // The prologue's stores.
+        for (int r = 16; r <= 23; ++r)
+            g.put64(sp + 0x30u + 8u * static_cast<uint32_t>(r - 16), GPR_U64(ctx, r));
+        g.put64(sp + 0x70u, GPR_U64(ctx, 30));
+        g.put64(sp + 0x78u, GPR_U64(ctx, 31));
+        {
+            uint32_t f20;
+            std::memcpy(&f20, &ctx->f[20], 4);
+            g.put32(sp + 0x80u, f20);
+        }
+        g.put32(sp + 0x10u, obj);
+        g.put32(sp + 0x14u, a3in);
+
+        const uint32_t emptyCount = relocated(rdram, 0x010CA2B0u, 0x010CA2B4u), emptyList = relocated(rdram, 0x010CA2F8u, 0x010CA2FCu);
+        const uint32_t s7 = codeWord(rdram, 0x010CA360u) << 16;
+        auto low = [&](uint32_t lo) { return s7 + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(codeWord(rdram, lo) & 0xFFFFu))); };
+        const uint32_t emptyEntry = low(0x010CA388u), emptyMask = low(0x010CA428u), emptyAction = low(0x010CA4D0u),
+                       emptyJump = low(0x010CA900u), emptyParam = low(0x010CAA98u);
+
+        uint32_t list = g.u32(s1 + 0x750u);
+        for (;;)
+        {
+            // 0x10ca274
+            g.put32(sp + 0x18u, 0xFFFFFFFFu);
+            if (list == 0u)
+                break;
+            {
+                const uint32_t v = g.u32(list), off = v & 0x3FFFFu;
+                const uint32_t t = off ? g.u32(list - off) : 0u;
+                g.put32(sp + 0x20u, t == 0u || t == g.u32(emptyCount) ? 0u : g.u32(t + 0xCu));
+            }
+            uint32_t s3 = g.resolve(list, emptyList);
+            g.put32(sp + 0x1Cu, 0u);
+            g.put64(sp + 0x28u, g.u64(s4 + 0x1C0u) | g.u64(s4 + 0x1C8u));
+            if (g.s32(sp + 0x20u) <= 0)
+                break;
+            bool restart = false;
+            for (;;)
+            {
+                // 0x10ca368: the entry's conditions
+                uint32_t s0 = g.resolve(s3, emptyEntry);
+                bool pass = true;
+                if (g.s32(s0) != 1)
+                {
+                    for (;;)
+                    {
+                        SET_GPR_U32(ctx, 4, g.u32(sp + 0x10u));
+                        SET_GPR_U32(ctx, 5, s1);
+                        SET_GPR_U32(ctx, 6, s4);
+                        SET_GPR_U32(ctx, 7, s0);
+                        bool cb = false;
+                        uint32_t f0 = 0u;
+                        const int r = condDirect ? decomp_ctrldef::d3c::condD3Core(dm, g.u32(sp + 0x10u), s1, s4, s0, hot, cb, f0) : -1;
+                        if (r >= 0)
+                        {
+                            // the direct call: the context as the callee's exit leaves it
+                            SET_GPR_U32(ctx, 31, 0x010CA3E0u);
+                            SET_GPR_U32(ctx, 29, sp);
+                            std::memcpy(&ctx->f[0], &f0, 4);
+                            condBit(ctx, cb);
+                            SET_GPR_U64(ctx, 2, static_cast<uint64_t>(r));
+                        }
+                        else
+                            g.call(kCond, 0x010CA3E0u, sp);
+                        const uint64_t v0 = GPR_U64(ctx, 2);
+                        s0 += 0x30u;
+                        if (v0 == 0u)
+                        {
+                            pass = false;
+                            break;
+                        }
+                        if (g.s32(s0) == 1)
+                            break;
+                    }
+                }
+                // 0x10ca3fc: the mask bit
+                if (g.u32(sp + 0x14u) != 0u)
+                {
+                    const uint32_t r = g.resolve(s3 + 4u, emptyMask);
+                    if (r != 0u)
+                    {
+                        const uint64_t bit = g.u64(sp + 0x28u) & (1ull << (g.u32(r + 4u) & 63u));
+                        const int32_t type = g.s32(r + 8u);
+                        if (type != 1 && type == 2)
+                        {
+                            if (bit != 0u)
+                                pass = false;
+                        }
+                        else if (bit != 0u)
+                            pass = true;
+                    }
+                    if (pass && r != 0u)
+                        g.put32(sp + 0x18u, g.u32(r + 4u));
+                }
+                if (pass)
+                {
+                    // 0x10ca4a8: the action
+                    s0 = g.resolve(s3 + 8u, emptyAction);
+                    int which = 25;
+                    for (int k = 0; k < 25; ++k)
+                        if (s0 == g.u32(relocated(rdram, kActions[k][0], kActions[k][1])))
+                        {
+                            which = k;
+                            break;
+                        }
+                    auto direction = [&](uint32_t a1, uint32_t ra)
+                    {
+                        SET_GPR_U32(ctx, 4, s1);
+                        SET_GPR_U32(ctx, 5, a1);
+                        g.call(kDirection, ra, sp);
+                    };
+                    auto plain = [&](uint32_t target, uint32_t ra)
+                    {
+                        SET_GPR_U32(ctx, 4, s1);
+                        g.call(target, ra, sp);
+                    };
+                    auto rotY = [&]()
+                    {
+                        // 0x10caa38: iosGetRotYVector(sp, sp, f12 x f0), then the direction from sp
+                        SET_GPR_U32(ctx, 4, sp);
+                        SET_GPR_U32(ctx, 5, sp);
+                        ctx->f[12] = FPU_MUL_S(ctx->f[12], ctx->f[0]);
+                        g.call(sotc_decomp::jalTarget(rdram, 0x010CAA3Cu), 0x010CAA44u, sp);
+                        direction(sp, 0x010CAA50u);
+                    };
+                    bool callback = true;
+                    switch (which)
+                    {
+                    case 0:
+                        if (g.u32(s4 + 0x100u) != 0u)
+                            direction(s5 + 0x10u, 0x010CA520u);
+                        break;
+                    case 1: direction(relocated(rdram, 0x010CA534u, 0x010CA540u), 0x010CA544u); break;
+                    case 2: direction(relocated(rdram, 0x010CA55Cu, 0x010CA568u), 0x010CA56Cu); break;
+                    case 3: direction(relocated(rdram, 0x010CA584u, 0x010CA590u), 0x010CA594u); break;
+                    case 4: direction(relocated(rdram, 0x010CA5ACu, 0x010CA5B8u), 0x010CA5BCu); break;
+                    case 5: plain(kByGPTop, 0x010CA5DCu); break;
+                    case 6: direction(s4 + 0x190u, 0x010CA600u); break;
+                    case 7:
+                        negNormalised(g, s4 + 0x190u, sp);
+                        direction(sp, 0x010CAA50u);
+                        break;
+                    case 8:
+                        negNormalised(g, s4 + 0x160u, sp);
+                        direction(sp, 0x010CAA50u);
+                        break;
+                    case 9:
+                    {
+                        ctx->f[0] = g.f32(s5);
+                        ctx->f[0] = ps2FpuSqrt(ctx->fcr31, ctx->f[0]);
+                        uint32_t bits;
+                        std::memcpy(&bits, &ctx->f[0], 4);
+                        __m128i v1 = ctx->r[3];
+                        v1 = _mm_insert_epi64(v1, static_cast<int64_t>(static_cast<int32_t>(bits)), 0);
+                        __m128 *vf = ctx->vu0_vf;
+                        vf[5] = g.q(s5 + 0x10u);
+                        vf[6] = _mm_castsi128_ps(v1);
+                        { __m128 res = PS2_VMUL(vf[5], _mm_shuffle_ps(vf[6], vf[6], _MM_SHUFFLE(0,0,0,0))); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); vf[5] = _mm_blendv_ps(vf[5], res, _mm_castsi128_ps(mask)); }
+                        g.putq(sp, vf[5]);
+                        SET_GPR_U32(ctx, 4, s1);
+                        SET_GPR_U32(ctx, 5, sp);
+                        g.call(kRootOffset, 0x010CA6E0u, sp);
+                        break;
+                    }
+                    case 10: plain(kByGPTail, 0x010CA6FCu); break;
+                    case 11:
+                        turnRatio(g, s1, s5, false);
+                        plain(kTurnLevel, 0x010CA804u);
+                        break;
+                    case 12:
+                        ctx->f[12] = fbits(0xBF800000u);
+                        plain(kTurnLevel, 0x010CA804u);
+                        break;
+                    case 13:
+                        ctx->f[12] = fbits(0x3F800000u);
+                        plain(kTurnLevel, 0x010CA804u);
+                        break;
+                    case 14:
+                        turnRatio(g, s1, s5, true);
+                        plain(kTurnLevel, 0x010CA804u);
+                        break;
+                    case 15: plain(kSpeedUp, 0x010CA824u); break;
+                    case 16: plain(kSpeedDown, 0x010CA844u); break;
+                    case 17: plain(kSpeedDown2, 0x010CA864u); break;
+                    case 18: plain(kWind, 0x010CA884u); break;
+                    case 19: plain(kSlip, 0x010CA8A4u); break;
+                    case 20: plain(kNoClimbSlip, 0x010CA8C4u); break;
+                    case 21:
+                    {
+                        // 0x10ca8dc: another list (+0xc); the list restarts
+                        const uint32_t next = g.resolve(s3 + 0xCu, emptyJump);
+                        const uint32_t cur = g.u32(s1 + 0x750u);
+                        if (cur != next)
+                        {
+                            g.put32(s1 + 0x754u, cur);
+                            g.put32(s1 + 0x750u, next);
+                        }
+                        list = next;
+                        restart = true;
+                        callback = false;
+                        break;
+                    }
+                    case 22:
+                    {
+                        ctx->f[12] = g.f32(s1 + 0xF50u);
+                        const bool c = FPU_C_OLT_S(ctx->f[12], 0.0f);
+                        condBit(ctx, c);
+                        ctx->f[0] = fbits(0x42B40000u);
+                        if (c)
+                        {
+                            ctx->f[0] = FPU_ADD_S(ctx->f[12], ctx->f[0]);
+                            ctx->f[0] = FPU_NEG_S(ctx->f[0]);
+                        }
+                        else
+                            ctx->f[0] = FPU_SUB_S(ctx->f[0], ctx->f[12]);
+                        quatDirection(g, s1, sp);
+                        ctx->f[12] = fbits(0x3C8EFA35u);
+                        rotY();
+                        break;
+                    }
+                    case 23:
+                        ctx->f[12] = g.f32(s1 + 0xF50u);
+                        quatDirection(g, s1, sp);
+                        ctx->f[0] = fbits(0x3C8EFA35u);
+                        rotY();
+                        break;
+                    case 24: break;
+                    default:
+                        // 0x10caa64: the motion change, unless the record's bit 0
+                        if ((g.u32(s0) & 1u) == 0u)
+                        {
+                            const uint32_t param = g.resolve(s3 + 0xCu, emptyParam);
+                            ctx->f[12] = 0.0f;
+                            SET_GPR_U32(ctx, 4, s1);
+                            SET_GPR_U32(ctx, 5, s0);
+                            SET_GPR_U32(ctx, 6, param);
+                            g.call(kChange, 0x010CAAD4u, sp);
+                        }
+                        break;
+                    }
+                    if (restart)
+                        break;
+                    if (callback)
+                    {
+                        // 0x10caad8: the record's callback
+                        const uint32_t fn = g.u32(s0 + 4u);
+                        if (fn != 0u)
+                        {
+                            SET_GPR_U32(ctx, 4, g.u32(sp + 0x10u));
+                            g.call(fn, 0x010CAAE8u, sp);
+                        }
+                    }
+                }
+                // 0x10caaec: the next entry
+                s3 += 0x10u;
+                const int32_t i = g.s32(sp + 0x1Cu) + 1;
+                g.put32(sp + 0x1Cu, static_cast<uint32_t>(i));
+                if (!(i < g.s32(sp + 0x20u)))
+                    break;
+            }
+            if (!restart)
+                break;
+        }
+        // 0x10cab04: the kept bit number against the class's +0x930
+        const int32_t kept = g.s32(sp + 0x18u);
+        uint64_t v0 = ~0ull;
+        if (kept >= 0 && kept == g.s32(s1 + 0x930u))
+        {
+            uint8_t buf[0x1C];
+            std::memcpy(buf, rdram + ((s1 + 0x930u) & PS2_RAM_MASK), sizeof(buf));
+            std::memcpy(&v0, buf + 8, 8);
+            std::memcpy(rdram + ((s1 + 0xC98u) & PS2_RAM_MASK), buf, sizeof(buf));
+        }
+        else
+            g.put32(s1 + 0xC98u, 0xFFFFFFFFu);
+        rdram[(s1 + 0x9C5u) & PS2_RAM_MASK] = 0u;
+        SET_GPR_U64(ctx, 2, v0);
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
+    }
+    void walkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            walkD3(rdram, ctx, runtime);
+        else
+            walk(rdram, ctx, runtime);
+    }
+} // namespace decomp_ctrlwalk

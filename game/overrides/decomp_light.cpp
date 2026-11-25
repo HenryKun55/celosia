@@ -2052,15 +2052,22 @@ SOTC_DECOMP_FUNCTION(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMat
 D1_ALIAS(0x010F5F60u, lightMatrices_010F5F60, decomp_light::lightMatricesSw, decomp_light::lightMatrices);
 SOTC_DECOMP_FUNCTION(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw);
 D1_ALIAS(0x010F8728u, ExecGlobalLightMan, decomp_light::execGlobalLightManSw, decomp_light::execGlobalLightMan);
-SOTC_DECOMP_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLights);
 namespace decomp_light
 {
     void setWorkFromGlobalLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    // round D3 (d1native): the dispatchers (end of file)
+    void blendLightsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void getInverseMatrixFromQuaternionPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void getRateInOutCubeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 }
+SOTC_DECOMP_FUNCTION(0x010F8360u, blendLights_010F8360, decomp_light::blendLightsSw);
+D1_ALIAS(0x010F8360u, blendLights_010F8360, decomp_light::blendLightsSw, decomp_light::blendLights);
 SOTC_DECOMP_FUNCTION(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLightSw);
 D1_ALIAS(0x010F9168u, SetWorkFromGlobalLight, decomp_light::setWorkFromGlobalLightSw, decomp_light::setWorkFromGlobalLight);
-SOTC_DECOMP_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPos);
-SOTC_DECOMP_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCube);
+SOTC_DECOMP_FUNCTION(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPosSw);
+D1_ALIAS(0x001BBE60u, GetInverseMatrixFromQuaternionPos, decomp_light::getInverseMatrixFromQuaternionPosSw, decomp_light::getInverseMatrixFromQuaternionPos);
+SOTC_DECOMP_FUNCTION(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCubeSw);
+D1_ALIAS(0x01136F30u, GetRateInOutCube, decomp_light::getRateInOutCubeSw, decomp_light::getRateInOutCube);
 
 // ---- Round D1 (d1native, SOTC_D1NATIVE=1): the light natives' D1 bodies ------------------------------------------------
 // The work area lives in the scratchpad, the objects in main RAM: the cores reach both through D1Spr (the same mapping
@@ -2604,10 +2611,11 @@ namespace decomp_light
         returnTo(ctx);
     }
 
+    void objectLightD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void objectLightSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            objectLightD1(rdram, ctx, runtime);
+            objectLightD3(rdram, ctx, runtime);
         else
             objectLight(rdram, ctx, runtime);
     }
@@ -2644,6 +2652,8 @@ namespace decomp_light
             return lightPass(rdram, ctx, runtime);
         const SortList sorted{mo, list, true};
         auto call = [&](uint32_t target, uint32_t site) { sotc_decomp::callGuest(rdram, ctx, runtime, target, site + 8u, frame); };
+        // Round D3: the slot holds objectLight's dispatcher (d1native on): its D3 body called directly.
+        const bool objDirect = sotc_decomp::guestFunction(runtime, kObjLight) == &objectLightSw && !sotc_decomp::onWorkerLane(runtime);
         // GetLayoutClass (the inline cases; another one as a guest call).
         auto layoutClass = [&](uint32_t object, uint32_t site) -> uint32_t
         {
@@ -2732,7 +2742,16 @@ namespace decomp_light
                 if (geo != 0u && m.d1u32(geo + 224u) != 0u && m.d1u32(lc + 408u) == 0u)
                 {
                     SET_GPR_U32(ctx, 4, id);
-                    call(kObjLight, 0x010F5100u);
+                    if (objDirect)
+                    {
+                        // Round D3: objectLight's D3 body straight (the jal's ra / sp, as callGuest gives them).
+                        SET_GPR_U32(ctx, 31, 0x010F5108u);
+                        SET_GPR_U32(ctx, 29, frame);
+                        ctx->pc = kObjLight;
+                        objectLightD3(rdram, ctx, runtime);
+                    }
+                    else
+                        call(kObjLight, 0x010F5100u);
                     r = m.d1u32(lc + 324u);
                 }
             }
@@ -3204,5 +3223,762 @@ namespace decomp_light
             setWorkFromGlobalLightD1(rdram, ctx, runtime);
         else
             setWorkFromGlobalLight(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native): GetInverseMatrixFromQuaternionPos, GetRateInOutCubeVolumeWithInverseMatrix, blendLights
+// (manager_sub_010F8360) as typed cores, and objectLight (manager_sub_010F4A18) partial -> full -------------------------
+// The VU0 lane math as d1 vec4 ops, the FPU's as d1 scalar ops (the EE divide kept: ps2FpuDivide with a local fcr31 and
+// its flags), registers in state structs the adapters load at the entry and store at the exit. Operand clamps
+// (ps2VuOperand) kept where a lane can be stale: the query point's lanes in the cube rate, the full-width products of
+// RAM vectors in the blend (their w lanes reach the registers left). objectLight: the two iosgluGetCameraContext guest
+// calls as the camera context's core (the table index at 0x118fe4c, the context at 0x122a8f0 + 4 x index, the callee's
+// frame word ra, the hook's note s4NoteCamera when sotc_native's hook holds the slot over decomp_leaves'
+// gluCameraContext): calls direct 2.
+namespace sotc_native
+{
+    void getCameraContextHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    bool a10CamHookHolds();
+    void s4NoteCamera(uint32_t context);
+}
+namespace decomp_leaves
+{
+    void gluCameraContext(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_light
+{
+    D1_COUNTER(c_d3InvQuatPos, "GetInverseMatrixFromQuaternionPos");
+    D1_COUNTER(c_d3RateCube, "GetRateInOutCube");
+    D1_COUNTER(c_d3Blend, "blendLights_010F8360");
+
+    // fs.yzx / ft.zxy (vopmula / vopmsub operands) as NEON lane moves.
+    PS2_FORCE_INLINE __m128 d3LYzx(__m128 v)
+    {
+        const float32x4_t e = vextq_f32(v, v, 1); // y z w x
+        return vcombine_f32(vget_low_f32(e), vrev64_f32(vget_high_f32(e)));
+    }
+    PS2_FORCE_INLINE __m128 d3LZxy(__m128 v) { return d3LYzx(d3LYzx(v)); }
+    // A VU0 operand that can hold a stale lane: the macros' operand clamp.
+    PS2_FORCE_INLINE __m128 d3LOp(__m128 v) { return ps2VuOperand(v); }
+
+    // ---- GetInverseMatrixFromQuaternionPos (out, quat, pos) --------------------------------------------------------------
+    struct D3InvQuatPosRegs
+    {
+        __m128 vf0, vf1, vf2, vf3, vf4, vf8, vf9, vf10, vf11, vf12, vf13, vf14, vf15, vf16, vf17, acc;
+        __m128 t[8]; // r8..r15
+    };
+    // The quaternion's rotation (the w lanes of vf14 / vf15 / vf16 vf0.x) and the position (w vf0.w), inverted as
+    // iosInverseMatrix into out.
+    void d3InvQuatPosCore(const D1Spr m, uint32_t out, uint32_t quat, uint32_t pos, D3InvQuatPosRegs &s)
+    {
+        const __m128 vf0 = s.vf0, xyz = d1::mask(1, 1, 1, 0), lw = d1::mask(0, 0, 0, 1), ly = d1::mask(0, 1, 0, 0), lz = d1::mask(0, 0, 1, 0);
+        __m128 vf12 = d1::vsel(s.vf12, d1::vadd(vf0, d1::bc<3>(vf0)), xyz);
+        __m128 vf11 = m.d1q(quat);
+        __m128 vf14 = d1::vsel(s.vf14, d1::bc<0>(vf0), lw), vf15 = d1::vsel(s.vf15, d1::bc<0>(vf0), lw), vf16 = d1::vsel(s.vf16, d1::bc<0>(vf0), lw);
+        __m128 acc = d1::vsel(s.acc, d1::vmul(d3LYzx(vf11), d3LZxy(vf12)), xyz);
+        vf11 = d1::vsel(vf11, d1::vadd(acc, d1::vmul(vf0, vf0)), xyz);
+        const __m128 vf10 = d1::vsel(s.vf10, d1::vadd(acc, d1::vmul(vf11, vf12)), xyz);
+        const __m128 vf13 = d1::vsel(s.vf13, d1::vmul(vf11, vf10), xyz);
+        acc = d1::vsel(acc, d1::vmul(d3LYzx(vf11), d3LZxy(vf10)), xyz);
+        vf15 = d1::vsel(vf15, d1::vadd(acc, d1::vmul(vf10, d1::bc<3>(vf11))), xyz);
+        vf16 = d1::vsel(vf16, d1::vsub(acc, d1::vmul(vf10, d1::bc<3>(vf11))), xyz);
+        acc = d1::vsel(acc, d1::vmul(d3LYzx(vf13), d3LZxy(vf12)), xyz);
+        __m128 vf17 = d1::vsel(s.vf17, d1::vadd(acc, d1::vmul(vf13, vf12)), xyz);
+        acc = d1::vsel(acc, d1::vmul(d3LYzx(vf15), d3LZxy(vf12)), xyz);
+        vf15 = d1::vsel(vf15, d1::vadd(acc, d1::vmul(vf0, vf0)), xyz);
+        vf14 = d1::vsel(vf14, d1::vsub(vf12, vf17), xyz);
+        vf17 = d1::vsel(vf17, vf14, d1::mask(0, 1, 1, 0));
+        vf14 = d1::vsel(vf14, vf16, ly);
+        vf16 = d1::vsel(vf16, vf15, ly);
+        vf15 = d1::vsel(vf15, vf17, ly);
+        vf14 = d1::vsel(vf14, vf15, lz);
+        vf15 = d1::vsel(vf15, vf16, lz);
+        vf16 = d1::vsel(vf16, vf17, lz);
+        __m128 vf4 = m.d1q(pos);
+        vf4 = d1::vsel(vf4, vf0, lw);
+        const __m128 rows[4] = {vf14, vf15, vf16, vf4};
+        D1Inverse inv;
+        d1InverseMatrix(rows, acc, inv);
+        m.d1putq(out, inv.vf3);
+        m.d1putq(out + 0x10u, inv.vf4);
+        m.d1putq(out + 0x20u, inv.vf8);
+        m.d1putq(out + 0x30u, inv.vf1);
+        s.vf1 = inv.vf1;
+        s.vf2 = inv.vf2;
+        s.vf3 = inv.vf3;
+        s.vf4 = inv.vf4;
+        s.vf8 = inv.vf8;
+        s.vf9 = inv.vf9;
+        s.vf10 = vf10;
+        s.vf11 = vf11;
+        s.vf12 = vf12;
+        s.vf13 = vf13;
+        s.vf14 = vf14;
+        s.vf15 = vf15;
+        s.vf16 = vf16;
+        s.vf17 = vf17;
+        s.acc = inv.acc;
+        for (int k = 0; k < 8; ++k)
+            s.t[k] = inv.t[k];
+    }
+
+    void getInverseMatrixFromQuaternionPosD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t out = GPR_U32(ctx, 4), quat = GPR_U32(ctx, 5), pos = GPR_U32(ctx, 6), frame = GPR_U32(ctx, 29) - 0x50u;
+        if (!Mem::ok(out, 0x40u) || !Mem::ok(quat, 0x10u) || !Mem::ok(pos, 0x10u))
+            return getInverseMatrixFromQuaternionPos(rdram, ctx, runtime);
+        ++c_d3InvQuatPos.n;
+        D3InvQuatPosRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf12 = ctx->vu0_vf[12];
+        s.vf13 = ctx->vu0_vf[13];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.vf16 = ctx->vu0_vf[16];
+        s.vf17 = ctx->vu0_vf[17];
+        s.acc = ctx->vu0_acc;
+        d3InvQuatPosCore(d1Spr(rdram, runtime), out, quat, pos, s);
+        ctx->vu0_vf[1] = s.vf1;
+        ctx->vu0_vf[2] = s.vf2;
+        ctx->vu0_vf[3] = s.vf3;
+        ctx->vu0_vf[4] = s.vf4;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[9] = s.vf9;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[11] = s.vf11;
+        ctx->vu0_vf[12] = s.vf12;
+        ctx->vu0_vf[13] = s.vf13;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+        for (int k = 0; k < 8; ++k)
+            ctx->r[8 + k] = _mm_castps_si128(s.t[k]);
+        SET_GPR_U32(ctx, 2, frame);
+        SET_GPR_U32(ctx, 5, frame);
+        returnTo(ctx);
+    }
+    void getInverseMatrixFromQuaternionPosSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            getInverseMatrixFromQuaternionPosD3(rdram, ctx, runtime);
+        else
+            getInverseMatrixFromQuaternionPos(rdram, ctx, runtime);
+    }
+
+    // ---- GetRateInOutCubeVolumeWithInverseMatrix (matrix, point, inner, outer) -> f0 -------------------------------------
+    struct D3RateCubeRegs
+    {
+        __m128 vf5, vf6, vf8, vf10, vf14, vf15, vf16, vf17, acc;
+        float f0, f1, f2, f3;
+        uint32_t fcr31;
+        bool c, setF2, setF3, setV; // f2 / f3 / v0 + v1 written on this path
+    };
+    // The point through the matrix, |p| (iosAbsVector: denormal lanes +0) against the boxes: -1 outside the outer one, 1
+    // inside the inner one, else the smallest (outer - |p|) / (outer - inner) over the axes past the inner box.
+    void d3RateCubeCore(const D1Spr m, uint32_t matrix, uint32_t point, uint32_t inner, uint32_t outer, D3RateCubeRegs &s)
+    {
+        const __m128 xyz = d1::mask(1, 1, 1, 0);
+        const __m128 vf8 = m.d1q(point);
+        const __m128 vf14 = m.d1q(matrix), vf15 = m.d1q(matrix + 0x10u), vf16 = m.d1q(matrix + 0x20u), vf17 = m.d1q(matrix + 0x30u);
+        const __m128 p = d3LOp(vf8);
+        __m128 acc = d1::vmul(d3LOp(vf14), d1::bc<0>(p));
+        acc = d1::vadd(acc, d1::vmul(d3LOp(vf15), d1::bc<1>(p)));
+        acc = d1::vadd(acc, d1::vmul(d3LOp(vf16), d1::bc<2>(p)));
+        const __m128 vf10 = d1::vadd(acc, d1::vmul(d3LOp(vf17), d1::bc<3>(p)));
+        // iosAbsVector: |v| with denormals as +0.
+        const uint32x4_t bits = vreinterpretq_u32_f32(vf10);
+        const uint32x4_t normal = vtstq_u32(bits, vdupq_n_u32(0x7F800000u));
+        const __m128 absP = vreinterpretq_f32_u32(vandq_u32(vandq_u32(bits, vdupq_n_u32(0x7FFFFFFFu)), normal));
+        __m128 vf5 = vf10, vf6 = absP;
+        s.vf8 = vf8;
+        s.vf10 = vf10;
+        s.vf14 = vf14;
+        s.vf15 = vf15;
+        s.vf16 = vf16;
+        s.vf17 = vf17;
+        s.acc = acc;
+        s.setF2 = s.setF3 = s.setV = false;
+        const float a0 = d1Lane<0>(absP), a1 = d1Lane<1>(absP), a2 = d1Lane<2>(absP);
+        const float in0 = m.d1f32(inner), in1 = m.d1f32(inner + 4u), in2 = m.d1f32(inner + 8u);
+        const float out0 = m.d1f32(outer), out1 = m.d1f32(outer + 4u), out2 = m.d1f32(outer + 8u);
+        float f20 = d1LightBitsF(0xBF800000u), f0, f1 = a0, f2, f3;
+        bool c;
+        do
+        {
+            // Outside the outer box: -1.
+            c = d1::le(a0, out0);
+            if (!c)
+                break;
+            f2 = a1;
+            c = d1::le(f2, out1);
+            s.f2 = f2;
+            s.setF2 = true;
+            if (!c)
+                break;
+            f3 = a2;
+            c = d1::le(f3, out2);
+            s.f3 = f3;
+            s.setF3 = true;
+            if (!c)
+                break;
+            // Inside the inner box: 1.
+            bool inside = d1::le(f1, in0);
+            c = inside;
+            if (inside)
+            {
+                inside = d1::le(f2, in1);
+                c = inside;
+                if (inside)
+                {
+                    f20 = 1.0f;
+                    inside = d1::le(f3, in2);
+                    c = inside;
+                    if (inside)
+                        break;
+                }
+            }
+            f20 = 1.0f;
+            const __m128 span = d1::vsel(m.d1q(outer), d1::vsub(d3LOp(m.d1q(outer)), d3LOp(m.d1q(inner))), xyz);
+            const __m128 past = d1::vsel(absP, d1::vsub(absP, d3LOp(m.d1q(inner))), xyz);
+            vf5 = d1::vsel(span, d1::vsub(span, past), xyz);
+            vf6 = past;
+            const float s0 = d1Lane<0>(span), s1 = d1Lane<1>(span), s2 = d1Lane<2>(span);
+            const float d0 = d1Lane<0>(vf5), d1v = d1Lane<1>(vf5), d2 = d1Lane<2>(vf5);
+            s.setV = true;
+            f1 = a0;
+            f0 = in0;
+            c = d1::lt(f0, f1);
+            f1 = a1;
+            if (c)
+            {
+                f1 = d0;
+                f0 = s0;
+                f20 = ps2FpuDivide(s.fcr31, f1, f0);
+                f1 = a1;
+            }
+            f0 = in1;
+            c = d1::lt(f0, f1);
+            if (!c)
+                f1 = in2;
+            else
+            {
+                f1 = d1v;
+                f0 = s1;
+                f1 = ps2FpuDivide(s.fcr31, f1, f0);
+                c = d1::le(f1, f20);
+                if (c)
+                    f20 = f1;
+                f1 = in2;
+            }
+            f0 = a2;
+            c = d1::lt(f1, f0);
+            if (!c)
+                break;
+            f1 = d2;
+            f0 = s2;
+            f1 = ps2FpuDivide(s.fcr31, f1, f0);
+            c = d1::le(f1, f20);
+            if (c)
+                f20 = f1;
+        } while (false);
+        s.vf5 = vf5;
+        s.vf6 = vf6;
+        s.f1 = f1;
+        s.c = c;
+        s.f0 = f20;
+    }
+
+    void getRateInOutCubeD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t matrix = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5), inner = GPR_U32(ctx, 6), outer = GPR_U32(ctx, 7);
+        const uint32_t frame = GPR_U32(ctx, 29) - 0x50u;
+        if (!Mem::ok(matrix, 0x40u) || !Mem::ok(point, 0x10u) || !Mem::ok(inner, 0x10u) || !Mem::ok(outer, 0x10u) ||
+            sotc_decomp::jalTarget(rdram, 0x01136F80u) != kIosAbsVector)
+            return getRateInOutCube(rdram, ctx, runtime);
+        ++c_d3RateCube.n;
+        D3RateCubeRegs s;
+        s.fcr31 = ctx->fcr31;
+        d3RateCubeCore(d1Spr(rdram, runtime), matrix, point, inner, outer, s);
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+        SET_GPR_U32(ctx, 4, frame);
+        SET_GPR_U32(ctx, 5, frame);
+        if (s.setV)
+        {
+            SET_GPR_U32(ctx, 3, frame + 0x10u);
+            SET_GPR_U32(ctx, 2, frame + 0x20u);
+        }
+        if (s.setF2)
+            ctx->f[2] = s.f2;
+        if (s.setF3)
+            ctx->f[3] = s.f3;
+        ctx->f[1] = s.f1;
+        ctx->f[0] = s.f0;
+        ctx->fcr31 = s.fcr31;
+        cond(ctx, s.c);
+        returnTo(ctx);
+    }
+    void getRateInOutCubeSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            getRateInOutCubeD3(rdram, ctx, runtime);
+        else
+            getRateInOutCube(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_010F8360 (blendLights: a0 the work area, a1 the lights that reach the object) ----------------------
+    struct D3BlendRegs
+    {
+        __m128 vf0, vf5, vf6, vf7, vf8, vf9, vf14, vf15, acc;
+        __m128 r2, r3, r5, r8; // the GPRs as 128 bits (a `SET_GPR_U32` keeps the upper doubleword)
+        float f0, f1, f2, f3, f4, f5;
+        uint32_t fcr31;
+        bool c;
+    };
+    // `SET_GPR_U32(reg, bits(f))` then the register as a VU0 operand.
+    PS2_FORCE_INLINE __m128 d3LGprF(__m128 &reg, float f)
+    {
+        reg = d1GprVec(d1LightFBits(f), reg);
+        return reg;
+    }
+    void d3BlendCore(const D1Spr m, uint32_t work, int32_t s2, D3BlendRegs &s)
+    {
+        const __m128 xyz = d1::mask(1, 1, 1, 0), mx = d1::mask(1, 0, 0, 0), mw = d1::mask(0, 0, 0, 1);
+        const uint32_t s0 = work + 0x240u;
+        const __m128 vf0 = s.vf0;
+        float sum[3] = {0.0f, 0.0f, 0.0f}; // sp + 16
+        __m128 tmp = d1::zero4();          // sp + 32
+        m.d1put32(s0 + 272u, m.d1u32(s0 + 272u) | 0x3Cu);
+        float f20 = 0.0f;
+        for (uint32_t i = 0; i < 3u; ++i)
+            m.d1putq(s0 + i * 64u, vf0);
+
+        int32_t t5 = 0;
+        if (s2 > 0)
+        {
+            s.f2 = 1.0f;
+            uint32_t t0 = work + 0x540u;
+            for (;;)
+            {
+                const uint32_t t1 = m.d1u32(t0);
+                s.f1 = d1::sub(s.f2, f20);
+                s.f0 = m.d1f32(t1 + 284u);
+                s.f4 = d1::mul(s.f0, s.f1);
+                m.d1putf(t1 + 312u, s.f4);
+                if (m.d1u32(t1 + 272u) & 4u)
+                {
+                    s.vf5 = m.d1q(t1 + 256u);
+                    s.vf6 = d3LGprF(s.r3, s.f4);
+                }
+                else
+                {
+                    s.vf5 = m.d1q(work + 0x1F0u);
+                    s.vf6 = d3LGprF(s.r2, s.f4);
+                }
+                s.vf5 = d1::vmul(d3LOp(s.vf5), d1::bc<0>(d3LOp(s.vf6)));
+                tmp = s.vf5;
+                s.vf5 = m.d1q(work + 0x340u);
+                s.vf6 = tmp;
+                s.vf5 = d1::vsel(s.vf5, d1::vadd(d3LOp(s.vf5), d3LOp(s.vf6)), xyz);
+                m.d1putq(work + 0x340u, s.vf5);
+                s.f0 = m.d1f32(s0 + 300u);
+                s.f1 = d1::mul(s.f0, s.f4);
+                s.f0 = d1::add(s.f0, s.f1);
+                m.d1putf(s0 + 300u, s.f0);
+                f20 = d1::add(f20, s.f4);
+                m.d1put32(s0 + 272u, m.d1u32(s0 + 272u) | (m.d1u32(t1 + 272u) & 0x1C0u));
+                for (uint32_t k = 0; k < 3u; ++k)
+                {
+                    s.f0 = d1::mul(m.d1f32(t1 + 40u + k * 64u), s.f4);
+                    s.f1 = d1::add(sum[k], s.f0);
+                    sum[k] = s.f1;
+                }
+                s.c = d1::le(s.f2, f20);
+                ++t5;
+                if (s.c)
+                    break;
+                t0 += 4u;
+                if (!(t5 < s2))
+                    break;
+            }
+        }
+        // 0x10f84d0: the ambient record takes what is left below 1.
+        s.f0 = 1.0f;
+        s.c = d1::lt(f20, s.f0);
+        s2 = t5;
+        if (s.c)
+        {
+            s.f4 = d1::sub(s.f0, f20);
+            const uint32_t ambient = work + 0xF0u;
+            m.d1put32(work + static_cast<uint32_t>(t5) * 4u + 0x540u, ambient);
+            m.d1putf(ambient + 312u, s.f4);
+            s.vf5 = m.d1q(work + 0x1F0u);
+            s.vf6 = d3LGprF(s.r2, s.f4);
+            s.vf5 = d1::vmul(d3LOp(s.vf5), d1::bc<0>(d3LOp(s.vf6)));
+            tmp = s.vf5;
+            s.vf5 = m.d1q(s0 + 256u);
+            s.vf6 = tmp;
+            s.vf5 = d1::vsel(s.vf5, d1::vadd(d3LOp(s.vf5), d3LOp(s.vf6)), xyz);
+            m.d1putq(s0 + 256u, s.vf5);
+            s.f0 = m.d1f32(s0 + 300u);
+            f20 = d1::add(f20, s.f4);
+            s.f1 = d1::mul(s.f0, s.f4);
+            s.f0 = d1::add(s.f0, s.f1);
+            m.d1putf(s0 + 300u, s.f0);
+            for (uint32_t k = 0; k < 3u; ++k)
+            {
+                s.f0 = d1::mul(m.d1f32(work + 280u + k * 64u), s.f4);
+                s.f1 = d1::add(sum[k], s.f0);
+                sum[k] = s.f1;
+            }
+            s2 = t5 + 1;
+        }
+        // 0x10f857c: each light's share of the three records.
+        if (s2 > 0)
+        {
+            const float f6 = 0.0f, f7 = 1.0f;
+            s.r5 = d1GprVec(0xBF800000u, s.r5);
+            for (t5 = 0; t5 < s2; ++t5)
+            {
+                const uint32_t t1 = m.d1u32(work + 0x540u + static_cast<uint32_t>(t5) * 4u);
+                s.f4 = m.d1f32(t1 + 312u);
+                for (uint32_t t2 = 0; t2 < 3u; ++t2)
+                {
+                    s.f1 = sum[t2];
+                    const uint32_t a2 = t1 + t2 * 64u, a3 = s0 + t2 * 64u;
+                    s.f0 = m.d1f32(a2 + 40u);
+                    s.f0 = d1::mul(s.f0, s.f4);
+                    s.f5 = ps2FpuDivide(s.fcr31, s.f0, s.f1);
+                    s.vf5 = m.d1q(a2 + 16u);
+                    s.vf6 = d3LGprF(s.r2, s.f4);
+                    s.vf5 = d1::vsel(s.vf5, d1::vmul(d3LOp(s.vf5), d1::bc<0>(d3LOp(s.vf6))), xyz);
+                    tmp = s.vf5;
+                    s.vf5 = m.d1q(a3 + 16u);
+                    s.vf6 = tmp;
+                    s.vf5 = d1::vsel(s.vf5, d1::vadd(d3LOp(s.vf5), d3LOp(s.vf6)), xyz);
+                    m.d1putq(a3 + 16u, s.vf5);
+                    s.f0 = m.d1f32(a2 + 32u);
+                    s.c = d1::eq(s.f4, f6);
+                    s.f1 = m.d1f32(a3 + 32u);
+                    s.f0 = d1::mul(s.f0, s.f4);
+                    s.f2 = m.d1f32(a3 + 36u);
+                    s.f3 = m.d1f32(a3 + 40u);
+                    s.f1 = d1::add(s.f1, s.f0);
+                    m.d1putf(a3 + 32u, s.f1);
+                    s.f0 = d1::mul(m.d1f32(a2 + 36u), s.f4);
+                    s.f2 = d1::add(s.f2, s.f0);
+                    m.d1putf(a3 + 36u, s.f2);
+                    s.f0 = d1::mul(m.d1f32(a2 + 40u), s.f4);
+                    s.f3 = d1::add(s.f3, s.f0);
+                    m.d1putf(a3 + 40u, s.f3);
+                    if (t5 == 0)
+                    {
+                        // The first light: its direction as is (unless its weight is 0).
+                        if (!s.c)
+                            m.d1putq(a3, m.d1q(a2));
+                        continue;
+                    }
+                    if (s.c)
+                        continue;
+                    // The others: the directions blended by brightness, the second turned round when they point apart.
+                    s.f1 = d1::add(f20, s.f5);
+                    tmp = m.d1q(a2);
+                    s.f0 = d1::sub(f7, s.f5);
+                    s.f0 = ps2FpuDivide(s.fcr31, s.f0, s.f1);
+                    s.vf14 = m.d1q(a3);
+                    s.vf15 = d1::vmul(d3LOp(s.vf14), d3LOp(tmp));
+                    s.vf15 = d1::vsel(s.vf15, d1::vadd(s.vf15, d1::bc<1>(s.vf15)), mx);
+                    s.vf15 = d1::vsel(s.vf15, d1::vadd(s.vf15, d1::bc<2>(s.vf15)), mx);
+                    s.vf15 = d1::vsel(s.vf15, d1::vadd(s.vf15, d1::bc<3>(s.vf15)), mx);
+                    s.r2 = s.vf15;
+                    s.f1 = d1Lane<0>(s.vf15);
+                    if (static_cast<int32_t>(d1LightFBits(s.f1)) < 0)
+                    {
+                        s.vf5 = tmp;
+                        s.vf6 = s.r5;
+                        s.vf5 = d1::vmul(d3LOp(s.vf5), d1::bc<0>(d3LOp(s.vf6)));
+                        tmp = s.vf5;
+                    }
+                    s.vf7 = d3LGprF(s.r8, s.f0);
+                    s.vf5 = m.d1q(a3);
+                    s.vf6 = tmp;
+                    s.vf8 = d1::vsel(s.vf8, d1::vsub(d3LOp(vf0), d1::bc<0>(d3LOp(s.vf7))), mw);
+                    s.acc = d1::vmul(d3LOp(s.vf5), d1::bc<0>(d3LOp(s.vf7)));
+                    s.vf9 = d1::vadd(s.acc, d1::vmul(d3LOp(s.vf6), d1::bc<3>(d3LOp(s.vf8))));
+                    m.d1putq(a3, s.vf9);
+                }
+            }
+        }
+    }
+
+    void blendLightsD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const Mem mo(rdram, runtime);
+        const uint32_t work = GPR_U32(ctx, 4);
+        const int32_t s2 = GPR_S32(ctx, 5);
+        bool ok = Mem::ok(work, 0x5C4u) && s2 <= 32 && sotc_decomp::jalTarget(rdram, 0x010F8394u) == kMemset;
+        for (int32_t i = 0; ok && i < s2; ++i)
+            ok = Mem::ok(mo.u32(work + 0x540u + static_cast<uint32_t>(i) * 4u), 0x140u);
+        if (!ok)
+            return blendLights(rdram, ctx, runtime);
+        ++c_d3Blend.n;
+        D3BlendRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf9 = ctx->vu0_vf[9];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.acc = ctx->vu0_acc;
+        s.r2 = _mm_castsi128_ps(ctx->r[2]);
+        s.r3 = _mm_castsi128_ps(ctx->r[3]);
+        s.r5 = _mm_castsi128_ps(ctx->r[5]);
+        s.r8 = _mm_castsi128_ps(ctx->r[8]);
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.f3 = ctx->f[3];
+        s.f4 = ctx->f[4];
+        s.f5 = ctx->f[5];
+        s.fcr31 = ctx->fcr31;
+        s.c = (ctx->fcr31 & 0x800000u) != 0u;
+        d3BlendCore(D1Spr{mo.rdram, mo.spr}, work, s2, s);
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[9] = s.vf9;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_acc = s.acc;
+        ctx->r[2] = _mm_castps_si128(s.r2);
+        ctx->r[3] = _mm_castps_si128(s.r3);
+        ctx->r[5] = _mm_castps_si128(s.r5);
+        ctx->r[8] = _mm_castps_si128(s.r8);
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->f[3] = s.f3;
+        ctx->f[4] = s.f4;
+        ctx->f[5] = s.f5;
+        ctx->fcr31 = s.fcr31;
+        cond(ctx, s.c);
+        SET_GPR_U64(ctx, 2, 0u);
+        returnTo(ctx);
+    }
+    void blendLightsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            blendLightsD3(rdram, ctx, runtime);
+        else
+            blendLights(rdram, ctx, runtime);
+    }
+
+    // ---- manager_sub_010F4A18 (objectLight) partial -> full --------------------------------------------------------------
+    struct D3ObjLightRegs
+    {
+        __m128 vf[28]; // vf0 .. vf27 (vf0 read only)
+        __m128 acc;
+        __m128 r2, t[8]; // r2 and r8..r15 as 128 bits
+        uint64_t r3, r4;
+        float f0, f1, f2, f3;
+    };
+    // iosgluGetCameraContext as a jal at `ra` with sp = frame leaves it (decomp_leaves::gluCameraContext: its frame's ra
+    // word, v1 the index x 4, v0 the context) and the hook's note.
+    PS2_FORCE_INLINE uint32_t d3LCamera(const D1Spr m, uint32_t frame, uint32_t ra, bool note, D3ObjLightRegs &s)
+    {
+        const uint64_t raw = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(ra)));
+        std::memcpy(m.ram + ((frame - 0x10u) & PS2_RAM_MASK), &raw, 8);
+        const uint32_t v1 = m.d1u32(0x0118FE4Cu) << 2;
+        const uint32_t v0 = m.d1u32(0x0122A8F0u + v1);
+        s.r3 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v1)));
+        s.r2 = d1GprVec(v0, s.r2);
+        if (note)
+            sotc_native::s4NoteCamera(v0);
+        return v0;
+    }
+    // id the object, lc its layout class, frame the old body's frame (sp - 0x90).
+    void d3ObjectLightCore(const D1Spr m, uint32_t id, uint32_t lc, uint32_t frame, bool note, D3ObjLightRegs &s)
+    {
+        const __m128 vf0 = s.vf[0];
+        auto matrices = [&] { return m.d1u32(m.d1u32(lc + 324u) + 12u); };
+        uint64_t flags;
+        std::memcpy(&flags, m.d1ptr((m.d1u32(lc + 324u) + 608u) & ~7u), 8);
+        if (flags & 4u)
+        {
+            D1ObjLightOwn r;
+            objectLightOwnCore(m, lc, flags, vf0, s.acc, r);
+            if (r.moved)
+            {
+                const D1Inverse &v = r.inv;
+                s.vf[1] = v.vf1;
+                s.vf[2] = v.vf2;
+                s.vf[3] = v.vf3;
+                s.vf[4] = v.vf4;
+                s.vf[9] = v.vf9;
+                for (int k = 0; k < 8; ++k)
+                    s.t[k] = v.t[k];
+                s.vf[8] = r.vf8;
+                s.vf[10] = r.vf10;
+                s.vf[14] = v.vf3;
+                s.vf[15] = v.vf4;
+                s.vf[16] = v.vf8;
+                s.vf[17] = v.vf1;
+                s.acc = r.acc;
+                s.f0 = r.f0;
+            }
+            s.r2 = d1GprVec(r.v0, s.r2);
+            return;
+        }
+        const float f20 = 1.0f;
+        const uint32_t geo = m.d1u32(lc + 320u);
+        const __m128 facing = d1::make(m.d1f32(geo + 64u), m.d1f32(geo + 80u), m.d1f32(geo + 96u), f20);
+        s.f0 = m.d1f32(geo + 96u);
+        s.r4 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(id)));
+        const uint32_t camera = d3LCamera(m, frame, 0x010F4B4Cu, note, s);
+        const uint32_t specularity = 0x0118BA60u; // getSpecularity (lui 0x119, addiu -0x45a0)
+        const __m128 white = m.d1q(0x001E2BD0u);
+        // iosCalcFColorToBrightness(geo + 0xb0).
+        const __m128 b = d1::vmul(m.d1q(m.d1u32(lc + 320u) + 176u), white);
+        s.f0 = d1::add(d1::add(d1Lane<0>(b), d1Lane<1>(b)), d1Lane<2>(b));
+        s.f2 = d1::mul(m.d1f32(specularity), s.f0);
+        m.d1putf(matrices() + 212u, s.f2);
+        const __m128 vf5 = m.d1q(camera + 336u);
+        const __m128 mx = d1::mask(1, 0, 0, 0);
+        const __m128 vf7 = d1::vsel(s.vf[7], d1::vadd(vf0, d1::bc<3>(vf0)), mx);
+        __m128 vf6 = d1::vsel(facing, d1::vmul(vf5, facing), d1::mask(1, 1, 1, 0));
+        __m128 acc = d1::vsel(s.acc, d1::vadd(vf0, d1::bc<0>(vf6)), mx);
+        acc = d1::vsel(acc, d1::vadd(acc, d1::vmul(vf7, d1::bc<1>(vf6))), mx);
+        vf6 = d1::vsel(vf6, d1::vadd(acc, d1::vmul(vf7, d1::bc<2>(vf6))), mx);
+        s.r2 = vf6;
+        s.f1 = d1::add(d1Lane<0>(vf6), f20);
+        const float f3 = 0.25f;
+        s.f2 = 0.5f;
+        s.f1 = d1::mul(s.f1, f3);
+        s.f0 = m.d1f32(matrices() + 212u);
+        s.f1 = d1::add(s.f1, s.f2);
+        s.f0 = d1::mul(s.f0, s.f1);
+        m.d1putf(matrices() + 216u, s.f0);
+        s.vf[5] = vf5;
+        s.vf[6] = vf6;
+        s.vf[7] = vf7;
+        s.f3 = f3;
+        // GetCharacterClass(id): kind 4 has its light matrix's +0x1c / +0x2c / +0x3c set first.
+        const uint8_t type = m.ram[(id + 8u) & PS2_RAM_MASK];
+        const uint32_t character = (type == 9u || type == 22u) ? id + 144u : 0u;
+        if (character != 0u)
+        {
+            int16_t kind;
+            std::memcpy(&kind, m.d1ptr((character + 880u) & ~1u), 2);
+            if (kind == 4)
+            {
+                m.d1put32(matrices() + 28u, 0u);
+                m.d1putf(matrices() + 44u, f20);
+                m.d1put32(matrices() + 60u, 0u);
+            }
+        }
+        const uint32_t camera2 = d3LCamera(m, frame, 0x010F4C20u, note, s);
+        // iosCopyMatrix(frame, camera + 0x1a0), w row 0 0 0 1, iosTransposeMatrix(frame, frame).
+        __m128 rot[4];
+        for (int k = 3; k >= 0; --k)
+            rot[k] = m.d1q(camera2 + 416u + static_cast<uint32_t>(k) * 16u);
+        rot[3] = vf0;
+        const float32x4x2_t z01 = vzipq_f32(rot[0], rot[1]); // t12, t13
+        const float32x4x2_t z23 = vzipq_f32(rot[2], rot[3]); // t14, t15
+        const __m128 cols[4] = {vcombine_f32(vget_low_f32(z01.val[0]), vget_low_f32(z23.val[0])), vcombine_f32(vget_high_f32(z01.val[0]), vget_high_f32(z23.val[0])),
+                                vcombine_f32(vget_low_f32(z01.val[1]), vget_low_f32(z23.val[1])), vcombine_f32(vget_high_f32(z01.val[1]), vget_high_f32(z23.val[1]))};
+        for (int k = 0; k < 4; ++k)
+            s.t[k] = cols[k];
+        s.t[4] = z01.val[0];
+        s.t[5] = z01.val[1];
+        s.t[6] = z23.val[0];
+        s.t[7] = z23.val[1];
+        // The light matrix (+0x10..) times the transposed rotation.
+        const uint32_t lm = matrices() + 16u;
+        const __m128 rows[4] = {m.d1q(lm), m.d1q(lm + 16u), m.d1q(lm + 32u), m.d1q(lm + 48u)};
+        __m128 out[4];
+        for (int k = 0; k < 4; ++k)
+            out[k] = d1Xform(rows, cols[k], acc);
+        for (int k = 0; k < 4; ++k)
+            m.d1putq(lm + static_cast<uint32_t>(k) * 16u, out[k]);
+        for (int k = 0; k < 4; ++k)
+        {
+            s.vf[14 + k] = rows[k];
+            s.vf[24 + k] = out[k];
+        }
+        s.acc = acc;
+        for (uint32_t at : {28u, 44u, 60u})
+        {
+            const uint32_t r = m.d1u32(lc + 324u);
+            s.f1 = m.d1f32(r + 648u);
+            s.f2 = m.d1f32(r + 652u);
+            s.f1 = -s.f1;
+            const uint32_t mat = m.d1u32(r + 12u);
+            s.f0 = m.d1f32(mat + at);
+            s.f1 = d1::mul(s.f1, s.f2);
+            s.f0 = d1::mul(s.f0, s.f1);
+            m.d1putf(mat + at, s.f0);
+        }
+        s.r2 = d1GprVec(m.d1u32(lc + 324u), s.r2);
+    }
+
+    void objectLightD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const Mem mo(rdram, runtime);
+        const D1Spr m{mo.rdram, mo.spr};
+        const uint32_t id = GPR_U32(ctx, 4), sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x90u;
+        const uint32_t index = static_cast<uint32_t>(rdram[(id + 8u) & PS2_RAM_MASK]) - 9u;
+        const uint32_t target = index < 0xEu ? m.d1u32(0x01194070u + index * 4u) : 0u;
+        const uint32_t lc = target == 0x010F1A58u ? id + 0x20u : (target == 0x010F1A98u ? id + 0x90u : 0u);
+        const PS2Runtime::RecompiledFunction camSlot = sotc_decomp::guestFunction(runtime, kCameraContext);
+        const bool hook = camSlot == &sotc_native::getCameraContextHook && sotc_native::a10CamHookHolds();
+        const bool plain = camSlot == &decomp_leaves::gluCameraContext;
+        if (lc == 0u || !Mem::ok(id, 0x10u) || frame >= PS2_RAM_SIZE || frame < 0x10u || sotc_decomp::jalTarget(rdram, 0x010F4A60u) != kCopyMatrix ||
+            sotc_decomp::jalTarget(rdram, 0x010F4A6Cu) != kInverse || sotc_decomp::jalTarget(rdram, 0x010F4B60u) != kBrightness ||
+            sotc_decomp::jalTarget(rdram, 0x010F4C24u) != kCopyMatrix || sotc_decomp::jalTarget(rdram, 0x010F4C38u) != kTranspose ||
+            !(hook || plain) || !sotc_decomp::leavesOn() || runtime->transferPending() || sotc_decomp::onWorkerLane(runtime))
+            return objectLight(rdram, ctx, runtime);
+        ++c_d1ObjectLight.n;
+        D3ObjLightRegs s;
+        for (int k = 0; k < 28; ++k)
+            s.vf[k] = ctx->vu0_vf[k];
+        s.acc = ctx->vu0_acc;
+        s.r2 = _mm_castsi128_ps(ctx->r[2]);
+        for (int k = 0; k < 8; ++k)
+            s.t[k] = _mm_castsi128_ps(ctx->r[8 + k]);
+        s.r3 = GPR_U64(ctx, 3);
+        s.r4 = GPR_U64(ctx, 4);
+        s.f0 = ctx->f[0];
+        s.f1 = ctx->f[1];
+        s.f2 = ctx->f[2];
+        s.f3 = ctx->f[3];
+        d3ObjectLightCore(m, id, lc, frame, hook, s);
+        for (int k = 1; k < 28; ++k)
+            ctx->vu0_vf[k] = s.vf[k];
+        ctx->vu0_acc = s.acc;
+        ctx->r[2] = _mm_castps_si128(s.r2);
+        for (int k = 0; k < 8; ++k)
+            ctx->r[8 + k] = _mm_castps_si128(s.t[k]);
+        SET_GPR_U64(ctx, 3, s.r3);
+        SET_GPR_U64(ctx, 4, s.r4);
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->f[2] = s.f2;
+        ctx->f[3] = s.f3;
+        SET_GPR_U32(ctx, 29, sp0);
+        SET_GPR_U32(ctx, 31, ra0);
+        returnTo(ctx);
     }
 }

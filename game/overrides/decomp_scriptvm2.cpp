@@ -66,6 +66,7 @@
 // read from the live code words as the generated code does.
 // Not as the original: the record loop's EE checkpoint (as every native loop).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 
@@ -1320,9 +1321,18 @@ SOTC_DECOMP_COROUTINE(0x01455FA8u, execSCRBaseFunc, decomp_scriptvm2::execSCRBas
 SOTC_DECOMP_RESUME(0x01456078u, execSCRBaseFunc, r078, decomp_scriptvm2::execSCRBaseFunc);
 SOTC_DECOMP_COROUTINE(0x01450BB8u, SCRFuncSubFunc, decomp_scriptvm2::scrFuncSubFunc);
 SOTC_DECOMP_COROUTINE(0x01450B60u, SCRFuncConditionExecFunc, decomp_scriptvm2::scrFuncConditionExecFunc);
-SOTC_DECOMP_FUNCTION(0x01455F80u, getSCRDataCtrlWork, decomp_scriptvm2::getSCRDataCtrlWork);
-SOTC_DECOMP_FUNCTION(0x013CFAE8u, GetSCRCharaAIWorkPtr, decomp_scriptvm2::getSCRCharaAIWorkPtr);
-SOTC_DECOMP_FUNCTION(0x013CFB08u, CheckSCRCharaAIWorkPtr, decomp_scriptvm2::checkSCRCharaAIWorkPtr);
+namespace decomp_scriptvm2 // round D3: the dispatchers (end of file)
+{
+    void ctrlWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void aiWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void checkAiWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x01455F80u, getSCRDataCtrlWork, decomp_scriptvm2::ctrlWorkSw);
+D1_ALIAS(0x01455F80u, getSCRDataCtrlWork, decomp_scriptvm2::ctrlWorkSw, decomp_scriptvm2::getSCRDataCtrlWork);
+SOTC_DECOMP_FUNCTION(0x013CFAE8u, GetSCRCharaAIWorkPtr, decomp_scriptvm2::aiWorkSw);
+D1_ALIAS(0x013CFAE8u, GetSCRCharaAIWorkPtr, decomp_scriptvm2::aiWorkSw, decomp_scriptvm2::getSCRCharaAIWorkPtr);
+SOTC_DECOMP_FUNCTION(0x013CFB08u, CheckSCRCharaAIWorkPtr, decomp_scriptvm2::checkAiWorkSw);
+D1_ALIAS(0x013CFB08u, CheckSCRCharaAIWorkPtr, decomp_scriptvm2::checkAiWorkSw, decomp_scriptvm2::checkSCRCharaAIWorkPtr);
 SOTC_DECOMP_FUNCTION(0x0137C348u, SCRGetFirstObj, decomp_scriptvm2::scrGetFirstObj);
 SOTC_DECOMP_FUNCTION(0x01457648u, SCRConditionPlayerLastMotionShiftCheck, decomp_scriptvm2::scrConditionPlayerLastMotionShiftCheck);
 SOTC_DECOMP_FUNCTION(0x01457708u, SCRConditionPlayerControlModeCheck, decomp_scriptvm2::scrConditionPlayerControlModeCheck);
@@ -1333,3 +1343,150 @@ SOTC_DECOMP_FUNCTION(0x01451468u, SCRFuncStartEventDemoGameModeCheck, decomp_scr
 SOTC_DECOMP_FUNCTION(0x014582D8u, SCRFuncVolumeCheckByGameObjForSelfPos, decomp_scriptvm2::scrFuncVolumeCheckByGameObjForSelfPos);
 SOTC_DECOMP_FUNCTION(0x0137C798u, SCRCharaTurnDirectInput, decomp_scriptvm2::scrCharaTurnDirectInput);
 SOTC_DECOMP_FUNCTION(0x0137D640u, SCRGetGetGeometryPointerLegalParentObj, decomp_scriptvm2::scrGetGetGeometryPointerLegalParentObj);
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): GetSCRCharaAIWorkPtr / CheckSCRCharaAIWorkPtr / getSCRDataCtrlWork ------------
+// Full: GetScriptCharacterClass (the jal at 0x13cfaf0 / 0x13cfb18) is decomp_scriptvm3's D3 core called directly (calls
+// direct 1; getSCRDataCtrlWork: GetSCRCharaAIWorkPtr's core, calls direct 1), the frames' ra saves and the +0x1200 load
+// on d1::Mem; integer only, 0 math. The adapters write what the old chain leaves: v0 (its upper 64 bits as
+// GetScriptCharacterClass leaves them), v1, a0 = 9 after the class call, ra / sp from the frame. scriptvm off, a jal that
+// does not reach GetScriptCharacterClass, its slot (or GetSCRCharaAIWorkPtr's, for getSCRDataCtrlWork) not holding the
+// D3 dispatcher, the object or the frame outside main RAM: the old body.
+namespace decomp_scriptvm3
+{
+    uint32_t d3ScriptCharaCore(const d1::Mem m, uint32_t obj, uint32_t &type); // decomp_scriptvm3.cpp (round D3)
+    void d3ScriptCharaRegs(R5900Context *ctx, uint32_t type, uint32_t cls);
+    void scriptCharaSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
+namespace decomp_scriptvm2
+{
+    D1_COUNTER(c_d3AiWork, "GetSCRCharaAIWorkPtr");
+    D1_COUNTER(c_d3CheckAiWork, "CheckSCRCharaAIWorkPtr");
+    D1_COUNTER(c_d3CtrlWork, "getSCRDataCtrlWork");
+
+    constexpr uint32_t kD3ScriptChara = 0x0110CB28u; // GetScriptCharacterClass
+
+    inline bool d3Svm2InRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a; }
+
+    // GetSCRCharaAIWorkPtr: the frame's ra save at sp, the class, its +0x1200 word (v0); `type` the object's type byte.
+    uint32_t d3AiWorkCore(const d1::Mem m, uint32_t obj, uint32_t sp, uint64_t ra, uint32_t &type)
+    {
+        m.set<uint64_t>(sp, ra);
+        const uint32_t cls = decomp_scriptvm3::d3ScriptCharaCore(m, obj, type);
+        return m.u32(cls + 0x1200u);
+    }
+
+    // getSCRDataCtrlWork: its frame's ra save, GetSCRCharaAIWorkPtr's (ra 0x1455f90, 0x10 below), the work rounded up to 16
+    // bytes (v0, 64 bits).
+    uint64_t d3CtrlWorkCore(const d1::Mem m, uint32_t obj, uint32_t sp, uint64_t ra, uint32_t &type)
+    {
+        m.set<uint64_t>(sp, ra);
+        const uint32_t work = d3AiWorkCore(m, obj, sp - 0x10u, 0x01455F90u, type);
+        const uint64_t v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(work + 0x13u)));
+        return v0 & 0xFFFFFFFFFFFFFFF0ull;
+    }
+
+    // The class call's entry state the old bodies need: the jal reaching GetScriptCharacterClass, its slot holding D3's
+    // dispatcher, the object's type byte in main RAM.
+    inline bool d3CharaCallOk(uint8_t *rdram, PS2Runtime *runtime, uint32_t site, uint32_t obj)
+    {
+        return jalTarget(rdram, site) == kD3ScriptChara && sotc_decomp::guestFunction(runtime, kD3ScriptChara) == &decomp_scriptvm3::scriptCharaSw &&
+               d3Svm2InRam(obj, 9u);
+    }
+
+    // v0 after the old chain: GetScriptCharacterClass's v0 (upper 64 bits kept for a character, all cleared otherwise),
+    // then the low 64 bits set.
+    inline void d3AiWorkV0(R5900Context *ctx, uint32_t type, uint64_t low)
+    {
+        if (type != 9u)
+            SET_GPR_VEC(ctx, 2, GPR_VEC(ctx, 0));
+        SET_GPR_U64(ctx, 2, low);
+    }
+
+    void aiWorkD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t obj = GPR_U32(ctx, rA0), sp = GPR_U32(ctx, rSP) - 0x10u;
+        if (!sotc_decomp::scriptVmOn() || !d3CharaCallOk(rdram, runtime, 0x013CFAF0u, obj) || !d3Svm2InRam(sp, 0x10u))
+            return getSCRCharaAIWorkPtr(rdram, ctx, runtime);
+        ++c_d3AiWork.n;
+        uint32_t type = 0u;
+        const uint32_t work = d3AiWorkCore(d1::Mem{rdram}, obj, sp, GPR_U64(ctx, rRA), type);
+        SET_GPR_U64(ctx, rV1, static_cast<uint64_t>(type ^ 9u));
+        SET_GPR_S32(ctx, rA0, 9);
+        d3AiWorkV0(ctx, type, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(work))));
+        SET_GPR_U64(ctx, rRA, d1::Mem{rdram}.get<uint64_t>(sp));
+        SET_GPR_S32(ctx, rSP, static_cast<int32_t>(sp + 0x10u));
+        ret(ctx);
+    }
+
+    void checkAiWorkD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t obj = GPR_U32(ctx, rA0), sp = GPR_U32(ctx, rSP) - 0x10u;
+        const bool none = GPR_U64(ctx, rA0) == 0u;
+        if (!sotc_decomp::scriptVmOn() || !d3Svm2InRam(sp, 0x10u) || (!none && !d3CharaCallOk(rdram, runtime, 0x013CFB18u, obj)))
+            return checkSCRCharaAIWorkPtr(rdram, ctx, runtime);
+        ++c_d3CheckAiWork.n;
+        const d1::Mem m{rdram};
+        if (none)
+        {
+            m.set<uint64_t>(sp, GPR_U64(ctx, rRA));
+            SET_GPR_U64(ctx, rV0, 0u);
+        }
+        else
+        {
+            uint32_t type = 0u;
+            const uint32_t work = d3AiWorkCore(m, obj, sp, GPR_U64(ctx, rRA), type);
+            SET_GPR_U64(ctx, rV1, static_cast<uint64_t>(type ^ 9u));
+            SET_GPR_S32(ctx, rA0, 9);
+            d3AiWorkV0(ctx, type, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(work))));
+        }
+        SET_GPR_U64(ctx, rRA, m.get<uint64_t>(sp));
+        SET_GPR_S32(ctx, rSP, static_cast<int32_t>(sp + 0x10u));
+        ret(ctx);
+    }
+
+    void aiWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+
+    void ctrlWorkD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t obj = GPR_U32(ctx, rA0), sp = GPR_U32(ctx, rSP) - 0x10u;
+        if (!sotc_decomp::scriptVmOn() || !d3CharaCallOk(rdram, runtime, 0x013CFAF0u, obj) || !d3Svm2InRam(sp - 0x10u, 0x20u) ||
+            sotc_decomp::guestFunction(runtime, kAiWork) != &aiWorkSw)
+            return getSCRDataCtrlWork(rdram, ctx, runtime);
+        ++c_d3CtrlWork.n;
+        ++c_d3AiWork.n;
+        uint32_t type = 0u;
+        const d1::Mem m{rdram};
+        const uint64_t v0 = d3CtrlWorkCore(m, obj, sp, GPR_U64(ctx, rRA), type);
+        SET_GPR_S32(ctx, rA0, 9);
+        d3AiWorkV0(ctx, type, v0);
+        SET_GPR_S32(ctx, rV1, -0x10);
+        SET_GPR_U64(ctx, rRA, m.get<uint64_t>(sp));
+        SET_GPR_S32(ctx, rSP, static_cast<int32_t>(sp + 0x10u));
+        ret(ctx);
+    }
+
+    void aiWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            aiWorkD3(rdram, ctx, runtime);
+        else
+            getSCRCharaAIWorkPtr(rdram, ctx, runtime);
+    }
+
+    void checkAiWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            checkAiWorkD3(rdram, ctx, runtime);
+        else
+            checkSCRCharaAIWorkPtr(rdram, ctx, runtime);
+    }
+
+    void ctrlWorkSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            ctrlWorkD3(rdram, ctx, runtime);
+        else
+            getSCRDataCtrlWork(rdram, ctx, runtime);
+    }
+}

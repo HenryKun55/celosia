@@ -343,10 +343,12 @@ namespace decomp_heap120
 namespace decomp_heap120
 {
     void allocSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void insertSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
 }
 SOTC_DECOMP_FUNCTION(0x001ADDC0u, kernel_sub_001ADDC0, decomp_heap120::allocSw);
 D1_ALIAS(0x001ADDC0u, kernel_sub_001ADDC0, decomp_heap120::allocSw, decomp_heap120::allocFn);
-SOTC_DECOMP_FUNCTION(0x001ADBC0u, kernel_sub_001ADBC0, decomp_heap120::insertFn);
+SOTC_DECOMP_FUNCTION(0x001ADBC0u, kernel_sub_001ADBC0, decomp_heap120::insertSw);
+D1_ALIAS(0x001ADBC0u, kernel_sub_001ADBC0, decomp_heap120::insertSw, decomp_heap120::insertFn);
 
 // ---- Round D2 (d1native, SOTC_D1NATIVE=1): the block allocator as a typed core ------------------------------------------
 // allocFn's steps on d1::Mem (the same class, the same first fitting block, the same split, the same words in the same
@@ -618,5 +620,129 @@ namespace decomp_heap120
             allocD1(rdram, ctx, runtime);
         else
             allocFn(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round D3 (d1native, SOTC_D1NATIVE=1): kernel_sub_001ADBC0 as a typed core --------------------------------------------
+// insertFree's steps (block t0 into its size class: the same class, the same walk, the same words in the same order) on
+// d1::Mem, returning the last word written as the old body's v0. Integer only, 0 math. The adapter reads a0..a3 once and
+// writes v0 (sign-extended); heap120 off: the old body. (d1::Mem masks the address as insertFn's Ram does.)
+namespace decomp_heap120
+{
+    D1_COUNTER(c_d3Insert, "kernel_sub_001ADBC0");
+
+    uint32_t d3InsertFreeCore(const d1::Mem m, uint32_t t0, uint32_t classes, uint32_t count, uint32_t heap)
+    {
+        const uint32_t t1 = (m.u32(t0) & kIdx) << 2;
+        int32_t v0;
+        if (heap == kSmallHeap)
+        {
+            const int32_t s = static_cast<int32_t>(t1);
+            if (s < 0x401)
+            {
+                if (s < 0x81)
+                    v0 = m.get<int8_t>(kSmallClass + t1) - 1;
+                else if (s < 0xC1)
+                    v0 = 7;
+                else if (s < 0x101)
+                    v0 = 8;
+                else
+                    v0 = (s < 0x201 ? 0xA : 0xB) - 1;
+            }
+            else
+            {
+                const int32_t a0 = s;
+                int32_t v1 = a0 >> 10;
+                if ((v1 & 0xFF00) != 0)
+                {
+                    v1 = a0 >> 18;
+                    v0 = 0x14;
+                }
+                else
+                    v0 = 0xC;
+                v1 >>= 1;
+                while (v1 != 0)
+                {
+                    v1 >>= 1;
+                    ++v0;
+                }
+                v0 -= 1;
+            }
+        }
+        else
+        {
+            uint32_t v1 = t1 >> 11; // srl
+            int32_t n = 1;
+            int32_t w = static_cast<int32_t>(v1);
+            while (w != 0)
+            {
+                w >>= 1;
+                ++n;
+            }
+            v0 = n - 1;
+        }
+        if (!(static_cast<uint32_t>(v0) < count))
+            v0 = static_cast<int32_t>(count - 1u);
+        const uint32_t bin = classes + (static_cast<uint32_t>(v0) << 3);
+        uint32_t a2 = m.u32(bin);
+        if (a2 == 0u)
+        {
+            m.set<uint32_t>(bin, t0);
+            m.set<uint32_t>(bin + 4u, t0);
+            m.set<uint32_t>(t0 + 0x1Cu, 0u);
+            const uint32_t v = m.u32(t0 + 0x14u) & kTop;
+            m.set<uint32_t>(t0 + 0x14u, v);
+            return v;
+        }
+        const uint32_t words = static_cast<uint32_t>(sra(t1, 2));
+        const uint32_t self = static_cast<uint32_t>(sra(t0, 2)) & kIdx;
+        for (;;)
+        {
+            if (words < (m.u32(a2) & kIdx))
+            {
+                // Before a2.
+                const uint32_t prev = m.u32(a2 + 0x14u) & kIdx;
+                const uint32_t v1 = (m.u32(t0 + 0x14u) & kTop) | prev;
+                m.set<uint32_t>(t0 + 0x14u, v1);
+                if (prev != 0u)
+                    m.set<uint32_t>(((v1 & kIdx) << 2) + 0x1Cu, t0);
+                else
+                    m.set<uint32_t>(bin, t0);
+                m.set<uint32_t>(t0 + 0x1Cu, a2);
+                const uint32_t v = (m.u32(a2 + 0x14u) & kTop) | self;
+                m.set<uint32_t>(a2 + 0x14u, v);
+                return v;
+            }
+            const uint32_t next = m.u32(a2 + 0x1Cu);
+            if (next == 0u)
+                break;
+            a2 = next;
+        }
+        // At the end.
+        const uint32_t v1 = static_cast<uint32_t>(sra(a2, 2));
+        m.set<uint32_t>(bin + 4u, t0);
+        m.set<uint32_t>(a2 + 0x1Cu, t0);
+        m.set<uint32_t>(t0 + 0x1Cu, 0u);
+        const uint32_t v = (m.u32(t0 + 0x14u) & kTop) | (v1 & kIdx);
+        m.set<uint32_t>(t0 + 0x14u, v);
+        return v;
+    }
+
+    void insertD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kHeap120))
+            return insertFn(rdram, ctx, runtime);
+        ++c_d3Insert.n;
+        const uint32_t v0 = d3InsertFreeCore(d1::Mem{rdram}, GPR_U32(ctx, 4), GPR_U32(ctx, 5), GPR_U32(ctx, 6), GPR_U32(ctx, 7));
+        SET_GPR_U64(ctx, 2, sx(v0));
+        sotc_decomp::returnTo(ctx);
+    }
+
+    void insertSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            insertD3(rdram, ctx, runtime);
+        else
+            insertFn(rdram, ctx, runtime);
     }
 }

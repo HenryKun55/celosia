@@ -295,5 +295,14 @@ namespace s13motion
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010B4098u, GetMotionRootIntFrame, s13motion::rootIntFrame);
-SOTC_DECOMP_FUNCTION(0x010B67A8u, GetMotionRootInfo, s13motion::rootInfo);
+#include "d1_native.h"
+namespace s13motion
+{
+    // Round D3 (d1native): the dispatchers, with the D3 bodies in s11_motion.cpp (on D2's cores there).
+    void rootIntFrameSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void rootInfoSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+SOTC_DECOMP_FUNCTION(0x010B4098u, GetMotionRootIntFrame, s13motion::rootIntFrameSw);
+D1_ALIAS(0x010B4098u, GetMotionRootIntFrame, s13motion::rootIntFrameSw, s13motion::rootIntFrame);
+SOTC_DECOMP_FUNCTION(0x010B67A8u, GetMotionRootInfo, s13motion::rootInfoSw);
+D1_ALIAS(0x010B67A8u, GetMotionRootInfo, s13motion::rootInfoSw, s13motion::rootInfo);

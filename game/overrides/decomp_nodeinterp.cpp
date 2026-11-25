@@ -804,11 +804,317 @@ namespace decomp_nodeinterp
         ++c_d1NodeInterp.n;
         calcNodeInterpD1Body(rdram, ctx, runtime);
     }
+    void calcNodeInterpD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round D3 (end of file)
     void calcNodeInterpSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (d1::on())
-            calcNodeInterpD1(rdram, ctx, runtime);
+            calcNodeInterpD3(rdram, ctx, runtime);
         else
             calcNodeInterp(rdram, ctx, runtime);
+    }
+} // namespace decomp_nodeinterp
+
+// ---- Round D3 (d1native): CalcNodeInterp partial -> full -------------------------------------------------------------------
+// calcNodeInterpD1Body's statements with SetQuaternionByAxisRotateVWithNoRegularize as decomp_quat's D1 core
+// (axisRotateD1Core: round 122's core, the quaternion stored, its w the f0 the callee leaves; nothing else changed), the
+// relocated words read from the code through d1::Mem, fcr31 (ps2FpuDivide's flags and the condition bit) as a local the
+// adapter writes back. The adapter checks the axis-rotation slot (decomp_quat's native or dispatcher), quat122 on and its
+// check mode off, and every axis / output qword the calls take in round 122's RAM range (the callee's own condition);
+// otherwise the D1 body. Exit: f0, fcr31, the VU0 registers / Q / status, v0, and a0-a2 as the last call set them.
+namespace decomp_quat
+{
+    void axisRotate(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void axisRotateSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    namespace d1q
+    {
+        float axisRotateD1Core(const d1::Mem m, uint32_t out, uint32_t angle, uint32_t axis);
+    }
+}
+namespace char122
+{
+    int checkEvery(); // decomp_char122.cpp: SOTC_CHAR122_CHECK's period (0: off)
+    namespace quat
+    {
+        bool on();
+    }
+}
+
+namespace decomp_nodeinterp
+{
+    D1_COUNTER(c_d3NodeInterp, "CalcNodeInterp.d3");
+
+    // The relocated words (lui / addiu pairs read from the code) the body uses.
+    struct NiD3Reloc
+    {
+        uint32_t emptyAt, motA, motB, motC, axA1, axA2, axD, axC1, axC2;
+    };
+    struct NiD3Out
+    {
+        float f0;
+        uint32_t v0, a0, a2;
+        int32_t a1;
+        bool called;
+    };
+    PS2_FORCE_INLINE bool d3in122(uint32_t a, uint32_t bytes) { return a >= 0x1000u && a + bytes <= PS2_RAM_SIZE && a + bytes > a; }
+
+    void calcNodeInterpD3Core(const d1::Mem &m, uint32_t a0, uint32_t cls, uint32_t sp, float f22, const NiD3Reloc &rl, Vu &u, uint32_t &fcr31, NiD3Out &o)
+    {
+        const uint32_t s3 = a0 + 0x90u;
+        float f0;
+        o.called = false;
+        auto d3rot = [&](uint32_t out, int32_t ang, uint32_t axis)
+        {
+            f0 = decomp_quat::d1q::axisRotateD1Core(m, out, static_cast<uint32_t>(ang), axis);
+            o.a0 = out;
+            o.a1 = ang;
+            o.a2 = axis;
+            o.called = true;
+        };
+        auto d3empty = [&](uint32_t h, uint32_t emptyAt)
+        {
+            const uint32_t v = m.u32(h), off = v & 0x3FFFFu;
+            const uint32_t t = off ? m.u32(h - off) : 0u;
+            if (t == 0u || t == m.u32(emptyAt))
+                return 0u;
+            return m.u32(t + 0x10u) + ((v >> 18) & 0xFFFu) * m.u32(m.u32(t + 8u) + 0xCu);
+        };
+
+        const float k32768 = bitsF(0x47000000u), kPi = bitsF(0x40490FDAu);
+        float f1 = d1::mul(m.f32(s3 + 0x728u), k32768);
+        f0 = d1::mul(m.f32(s3 + 0x440u), k32768);
+        f1 = ps2FpuDivide(fcr31, f1, kPi);
+        f0 = ps2FpuDivide(fcr31, f0, kPi);
+        const int32_t s4 = d1Angle(f1), s1a = d1Angle(f0);
+        m.set<uint64_t>(sp, 0u);
+        m.set<uint64_t>(sp + 8u, 0u);
+        f0 = bitsF(0x3F800000u);
+        m.set<float>(sp + 0xCu, f0);
+        m.putq((s3 + 0x40u) & ~0xFu, m.q(m.u32(s3 + 0x134u) & ~0xFu));
+        uint32_t a2 = m.u32(s3 + 0x13Cu);
+        m.putq((s3 + 0x80u) & ~0xFu, m.q(a2 & ~0xFu));
+        const uint32_t motion = d3empty(cls + 8u, rl.emptyAt);
+        const int32_t negS4 = static_cast<int16_t>(static_cast<uint32_t>(-s4));
+        if (motion == m.u32(rl.motA))
+        {
+            // A
+            m.set<uint64_t>(sp + 0x30u, 0u);
+            m.set<uint64_t>(sp + 0x38u, 0u);
+            f0 = m.f32(s3 + 0x6D4u);
+            m.set<uint64_t>(sp + 0x28u, m.get<uint64_t>(sp + 0x38u));
+            m.set<float>(sp + 0x34u, f0);
+            m.set<uint64_t>(sp + 0x20u, m.get<uint64_t>(sp + 0x30u));
+            const uint32_t rootQ = m.u32(s3 + 0x13Cu);
+            d3rot(sp + 0x30u, negS4, rl.axA1);
+            u.v11 = m.q(rootQ & ~0xFu);
+            u.v12 = m.q((sp + 0x30u) & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq((s3 + 0x80u) & ~0xFu, u.v13);
+            u.v8 = m.q((sp + 0x20u) & ~0xFu);
+            u.v11 = m.q((s3 + 0x80u) & ~0xFu);
+            d1Rotate(u);
+            m.putq((sp + 0x10u) & ~0xFu, u.v10);
+            f0 = m.f32(sp + 0x10u);
+            float f2 = m.f32(s3 + 0x48u);
+            f1 = d1::add(m.f32(s3 + 0x40u), f0);
+            float f3 = m.f32(s3 + 0x6D4u), f4 = m.f32(s3 + 0x44u);
+            m.set<float>(s3 + 0x40u, f1);
+            f0 = m.f32(sp + 0x18u);
+            f2 = d1::add(f2, f0);
+            m.set<float>(s3 + 0x48u, f2);
+            f0 = m.f32(sp + 0x14u);
+            f3 = d1::sub(f3, f0);
+            f4 = d1::sub(f4, f3);
+            m.set<float>(s3 + 0x44u, f4);
+            d3rot(sp + 0x40u, negS4, rl.axA2);
+            u.v11 = m.q(sp & ~0xFu);
+            u.v12 = m.q((sp + 0x40u) & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq(sp & ~0xFu, u.v13);
+            a2 = m.u32(s3 + 0x13Cu);
+        }
+        else if (motion == m.u32(rl.motB))
+        {
+            // B: nothing
+        }
+        else if (motion != m.u32(rl.motC))
+        {
+            // D
+            d3rot(sp + 0x10u, negS4, rl.axD);
+            u.v11 = m.q(sp & ~0xFu);
+            u.v12 = m.q((sp + 0x10u) & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq(sp & ~0xFu, u.v13);
+            a2 = m.u32(s3 + 0x13Cu);
+        }
+        else
+        {
+            // C
+            d3rot(sp + 0x10u, static_cast<int16_t>(static_cast<uint32_t>(-s1a)), rl.axC1);
+            u.v11 = m.q(sp & ~0xFu);
+            u.v12 = m.q((sp + 0x10u) & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq(sp & ~0xFu, u.v13);
+            d3rot(sp + 0x20u, negS4, rl.axC2);
+            u.v11 = m.q(sp & ~0xFu);
+            u.v12 = m.q((sp + 0x20u) & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq(sp & ~0xFu, u.v13);
+            u.v11 = m.q(m.u32(s3 + 0x13Cu) & ~0xFu);
+            u.v12 = m.q(sp & ~0xFu);
+            d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+            m.putq((s3 + 0x80u) & ~0xFu, u.v13);
+            a2 = m.u32(s3 + 0x13Cu);
+        }
+
+        // The nodes.
+        const float f21 = m.f32(s3 + 0x724u);
+        const uint32_t s7 = a2;
+        f0 = bitsF(0x3F800000u);
+        const uint32_t nodes = m.u32(s3 + 0x358u);
+        const bool full = d1::le(f0, f21);
+        fcr31 = full ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u);
+        uint32_t s2 = m.u32(s3 + 0x2D0u);
+        const int32_t n = m.s32(nodes + 4u);
+        uint32_t s0 = m.u32(s3 + 0x2DCu);
+        uint32_t s6 = m.u32(nodes + 8u);
+        auto d3root = [&]()
+        {
+            u.v29 = m.q(s7 & ~0xFu);
+            u.v30 = m.q(sp & ~0xFu);
+            d1Qmul(u.v29, u.v30, u.v31, u.v5, u.v6, u.v7, u.acc);
+            u.v30 = m.q(s2 & ~0xFu);
+            u.v29 = u.v31;
+            d1Qmul(u.v29, u.v30, u.v31, u.v5, u.v6, u.v7, u.acc);
+            return u.v31;
+        };
+        if (full)
+        {
+            m.set<uint32_t>(s3 + 0x340u, s0);
+            for (int32_t i = 0; i < n; ++i, s2 += 0x10u, s0 += 0x10u, s6 += 0x40u)
+            {
+                if (m.s32(s6 + 0x38u) >= 0)
+                    m.putq(s0 & ~0xFu, m.q(s2 & ~0xFu));
+                else
+                    m.putq(s0 & ~0xFu, d3root());
+            }
+            o.v0 = 0u;
+        }
+        else
+        {
+            uint32_t s1 = m.u32(s3 + 0x2E0u);
+            m.set<uint8_t>(s3 + 0x533u, 0u);
+            m.set<uint32_t>(s3 + 0x340u, s1);
+            const uint32_t a0b = sp + 0x20u;
+            for (int32_t i = 0; i < n; ++i, s1 += 0x10u, s2 += 0x10u, s0 += 0x10u, s6 += 0x40u)
+            {
+                uint32_t dotBits;
+                if (m.s32(s6 + 0x38u) >= 0)
+                {
+                    m.putq(s1 & ~0xFu, m.q(s2 & ~0xFu));
+                    m.putq(a0b & ~0xFu, m.q(s0 & ~0xFu));
+                    u.v14 = m.q(s1 & ~0xFu);
+                    u.v15 = m.q(a0b & ~0xFu);
+                    d1Dot(u);
+                    f0 = d1::lane<0>(u.v15);
+                    m.set<float>(sp + 0x54u, f0);
+                    dotBits = fBits(f0);
+                }
+                else
+                {
+                    m.putq(s1 & ~0xFu, d3root());
+                    if (m.get<uint8_t>(s3 + 0xA29u) != 0u)
+                    {
+                        const uint32_t s4b = sp + 0x10u, s5 = s3 + 0xA50u;
+                        const float f20 = m.f32(s3 + 0xA60u);
+                        f0 = d1::mul(f20, f22);
+                        f0 = d1::mul(f0, k32768);
+                        f0 = ps2FpuDivide(fcr31, f0, kPi);
+                        d3rot(s4b, d1Angle(f0), s5);
+                        u.v11 = m.q(s4b & ~0xFu);
+                        u.v12 = m.q(s0 & ~0xFu);
+                        d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+                        m.putq(s0 & ~0xFu, u.v13);
+                        f0 = d1::sub(bitsF(0x3F800000u), f21);
+                        const bool negative = d1::lt(f20, bitsF(0u));
+                        fcr31 = negative ? (fcr31 | 0x800000u) : (fcr31 & ~0x800000u);
+                        f0 = -f0;
+                        f0 = d1::mul(f0, bitsF(0x47400000u));
+                        if (negative)
+                            f0 = -f0;
+                        d3rot(s4b, d1Angle(f0), s5);
+                        u.v11 = m.q(s4b & ~0xFu);
+                        u.v12 = m.q(s1 & ~0xFu);
+                        d1Qmul(u.v11, u.v12, u.v13, u.v14, u.v15, u.v16, u.acc);
+                        m.putq(s1 & ~0xFu, u.v13);
+                    }
+                    m.putq(a0b & ~0xFu, m.q(s0 & ~0xFu));
+                    u.v14 = m.q(s1 & ~0xFu);
+                    u.v15 = m.q(a0b & ~0xFu);
+                    d1Dot(u);
+                    const float f2 = d1::lane<0>(u.v15);
+                    m.set<float>(sp + 0x50u, f2);
+                    dotBits = fBits(f2);
+                }
+                if (static_cast<int32_t>(dotBits) < 0)
+                {
+                    f0 = bitsF(0xBF800000u);
+                    u.v5 = m.q(a0b & ~0xFu);
+                    u.v6 = d1::make(bitsF(0xBF800000u), 0.0f, 0.0f, 0.0f);
+                    u.v5 = d1::vmul(u.v5, d1::bc<0>(u.v6));
+                    m.putq(a0b & ~0xFu, u.v5);
+                }
+                d1BlendNode(m, u, s0, s1, a0b, f21);
+            }
+            o.v0 = 1u;
+        }
+        o.f0 = f0;
+    }
+
+    void calcNodeInterpD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        static constexpr uint32_t kRotateSites[] = {0x010BB40Cu, 0x010BB51Cu, 0x010BB564u, 0x010BB5C0u, 0x010BB660u, 0x010BB858u, 0x010BB8DCu};
+        const uint32_t a0 = GPR_U32(ctx, 4), cls = GPR_U32(ctx, 5), sp0 = GPR_U32(ctx, 29), sp = sp0 - 0xE0u;
+        const uint8_t type = *d1::Mem{rdram}.at<uint8_t>(a0 + 8u);
+        bool sites = sotc_decomp::motionOn() && jalTarget(rdram, 0x010BB324u) == kMemset && jalTarget(rdram, 0x010BB3D0u) == kMemset;
+        for (uint32_t s : kRotateSites)
+            sites = sites && jalTarget(rdram, s) == kAxisRotate;
+        if (__builtin_expect(!sites || (type != 9u && type != 0x16u), 0))
+            return calcNodeInterp(rdram, ctx, runtime);
+        const PS2Runtime::RecompiledFunction rot = sotc_decomp::guestFunction(runtime, kAxisRotate);
+        NiD3Reloc rl;
+        rl.emptyAt = relocated(rdram, 0x010BB380u, 0x010BB384u);
+        rl.motA = relocated(rdram, 0x010BB3B4u, 0x010BB3B8u);
+        rl.motB = relocated(rdram, 0x010BB3C0u, 0x010BB530u);
+        rl.motC = relocated(rdram, 0x010BB538u, 0x010BB53Cu);
+        rl.axA1 = relocated(rdram, 0x010BB3F0u, 0x010BB3FCu);
+        rl.axA2 = relocated(rdram, 0x010BB4C8u, 0x010BB4F0u);
+        rl.axD = relocated(rdram, 0x010BB648u, 0x010BB650u);
+        rl.axC1 = relocated(rdram, 0x010BB550u, 0x010BB558u);
+        rl.axC2 = relocated(rdram, 0x010BB5A8u, 0x010BB5B0u);
+        // (the axis-rotation core's own condition, round 122's RAM range, on every out / axis qword the calls can take)
+        if (sotc_decomp::onWorkerLane(runtime) || !char122::quat::on() || char122::checkEvery() > 0 ||
+            !(rot == &decomp_quat::axisRotateSw || rot == &decomp_quat::axisRotate) || sp < 0x1000u || !d3in122(sp, 0x60u) || !d3in122(rl.axA1, 16u) ||
+            !d3in122(rl.axA2, 16u) || !d3in122(rl.axD, 16u) || !d3in122(rl.axC1, 16u) || !d3in122(rl.axC2, 16u) || !d3in122(a0 + 0x90u + 0xA50u, 16u))
+        {
+            ++c_d1NodeInterp.n;
+            return calcNodeInterpD1Body(rdram, ctx, runtime);
+        }
+        ++c_d3NodeInterp.n;
+        Vu u;
+        u.load(ctx);
+        uint32_t fcr31 = ctx->fcr31;
+        NiD3Out o;
+        calcNodeInterpD3Core(d1::Mem{rdram}, a0, cls, sp, ctx->f[12], rl, u, fcr31, o);
+        ctx->fcr31 = fcr31;
+        ctx->f[0] = o.f0;
+        u.store(ctx);
+        SET_GPR_U64(ctx, 2, o.v0);
+        if (o.called)
+        {
+            SET_GPR_U32(ctx, 4, o.a0);
+            SET_GPR_S32(ctx, 5, o.a1);
+            SET_GPR_U32(ctx, 6, o.a2);
+        }
+        returnTo(ctx);
     }
 } // namespace decomp_nodeinterp

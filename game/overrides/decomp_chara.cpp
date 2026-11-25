@@ -8,6 +8,7 @@
 // and "this character" are boot-ELF data the module is linked to at run
 // time (relocated lui / lw pairs, read from the code).
 #include "sotc_decomp.h"
+#include "d1_native.h"
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -380,7 +381,9 @@ namespace decomp_chara
     }
 }
 
-SOTC_DECOMP_FUNCTION(0x010CE558u, charaLinks, decomp_chara::charaLinks);
+namespace decomp_chara { void charaLinksSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); } // round D3 (d1native)
+SOTC_DECOMP_FUNCTION(0x010CE558u, charaLinks, decomp_chara::charaLinksSw);
+D1_ALIAS(0x010CE558u, charaLinks, decomp_chara::charaLinksSw, decomp_chara::charaLinks);
 // Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
 // SOTC_DECOMP_FUNCTION(0x010CDD10u, findRecord, decomp_chara::findRecord);
 
@@ -427,3 +430,140 @@ namespace decomp_classes
 }
 // Round DC2: registered in dc2_chara.cpp (its entry calls this native when SOTC_DC2CHARA=0 or outside its domain).
 // SOTC_DECOMP_FUNCTION(0x010BA7A8u, GetAnimationClass, decomp_classes::animationClass);
+
+// ---- Round D3 (switch d1native, d1_native.h): manager_sub_010CE558 (charaLinks) as native C++ (full) --------------------
+// The adapter charaLinksD3 reads a0 / a1 once; the core d3l::charaLinksD3Core is the two scans of charaLinksT on d1::Mem:
+// GetCharacterClass (the old body's first guest call) as its typed read (the object's type byte: 9 / 0x16 -> + 0x90; calls
+// direct 1, gated on the slot holding dc2's entry or its dispatcher, the object's type byte inside RAM), the relocated
+// words read once (nothing is written between them), the handles resolved with the last table's element base / size kept
+// (round 49's cache: the same reads). The scans only read memory; when one would make a guest call (a link from one of the
+// character's slots to the target: 010CE2E8; a link from the character itself to the target: 010CE138) the core returns
+// false and the adapter runs the old body from the start (nothing written yet: the scans are repeated there, the guest
+// calls made as before). Otherwise the exit writes what the old body leaves: v0 (the count <= 0 case: the lui of the empty
+// table's pointer; else the second scan's last resolved handle), a3 (the first scan's last handle, count > 0), sp / ra / pc;
+// the callee-saved registers and f20 end as they came (the old epilogue reloads them), the frame is below the final sp.
+namespace dc2
+{
+    void entryCharacterClass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+    void entryCharacterClassSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+namespace decomp_chara
+{
+    D1_COUNTER(c_d3CharaLinks, "charaLinks");
+
+    namespace d3l
+    {
+        // lui at hi + the signed immediate at lo (the module's relocated pairs, read from the code).
+        PS2_FORCE_INLINE uint32_t d3lReloc(const d1::Mem &m, uint32_t hi, uint32_t lo)
+        {
+            return (m.u32(hi) << 16) + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(m.u32(lo) & 0xFFFFu)));
+        }
+        struct D3lCache
+        {
+            uint32_t t = 0u, base = 0u, size = 0u;
+        };
+        // The element the handle at h names (0: none, or the empty table whose pointer is emptyWord).
+        PS2_FORCE_INLINE uint32_t d3lResolve(const d1::Mem &m, uint32_t h, uint32_t emptyWord, D3lCache &c)
+        {
+            const uint32_t v = m.u32(h), off = v & 0x3FFFFu;
+            if (off == 0u)
+                return 0u;
+            const uint32_t t = m.u32(h - off);
+            if (t == 0u || t == emptyWord)
+                return 0u;
+            if (t != c.t)
+            {
+                c.t = t;
+                c.base = m.u32(t + 0x10u);
+                c.size = m.u32(m.u32(t + 8u) + 0xCu);
+            }
+            return c.base + ((v >> 18) & 0xFFFu) * c.size;
+        }
+        struct D3lOut
+        {
+            uint64_t v0 = 0u;
+            bool setA3 = false;
+            uint32_t a3 = 0u;
+        };
+        // false: a guest call would be made (the old body); else o holds the exit's v0 / a3.
+        bool charaLinksD3Core(const d1::Mem &m, uint32_t object, uint32_t target, D3lOut &o)
+        {
+            const uint8_t type = m.get<uint8_t>(object + 8u);
+            const uint32_t chara = (type == 9u || type == 0x16u) ? object + 0x90u : 0u; // GetCharacterClass
+            const uint32_t self = m.u32(d3lReloc(m, 0x010CE5A8u, 0x010CE5B0u));
+            const uint32_t list = m.u32(chara + 0x10ECu);
+            const uint32_t lv = m.u32(list), loff = lv & 0x3FFFFu;
+            const uint32_t t = loff ? m.u32(list - loff) : 0u;
+            const int32_t count = t != 0u && t != m.u32(d3lReloc(m, 0x010CE5D8u, 0x010CE5DCu)) ? m.s32(t + 0xCu) : 0;
+            const uint32_t base = t != 0u && t != m.u32(d3lReloc(m, 0x010CE620u, 0x010CE624u)) ? m.u32(t + 0x10u) : 0u;
+            if (count <= 0)
+            {
+                o.v0 = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(m.u32(0x010CE620u) << 16)));
+                o.setA3 = false;
+                return true;
+            }
+            const uint32_t nt1a = m.u32(d3lReloc(m, 0x010CE64Cu, 0x010CE678u)), nt1b = m.u32(d3lReloc(m, 0x010CE64Cu, 0x010CE6D0u));
+            const uint32_t nt2a = m.u32(d3lReloc(m, 0x010CE7A0u, 0x010CE7C8u)), nt2b = m.u32(d3lReloc(m, 0x010CE7A0u, 0x010CE820u));
+            // The first scan: links to the target from something else; one of the character's live slots -> 010CE2E8.
+            D3lCache c1;
+            uint32_t a3 = 0u, e = base;
+            for (int32_t i = 0; i < count; ++i, e += 0x1Cu)
+            {
+                a3 = d3lResolve(m, e, nt1a, c1);
+                if (a3 == self || d3lResolve(m, e + 4u, nt1b, c1) != target)
+                    continue;
+                const int32_t slots = m.s32(chara + 0x3FCu);
+                uint32_t slot = m.u32(chara + 0x30Cu);
+                for (int32_t k = 0; k < slots; ++k, slot += 0x80u)
+                    if (m.u32(slot + 0x44u) != 0xFFFFFFFEu && m.u32(slot + 4u) == a3)
+                        return false;
+            }
+            // The second scan: links from the character to the target -> 010CE138.
+            D3lCache c2;
+            uint64_t v0 = 0u;
+            e = base;
+            for (int32_t i = count; i != 0; --i, e += 0x1Cu)
+            {
+                v0 = d3lResolve(m, e, nt2a, c2);
+                if (v0 != self)
+                    continue;
+                v0 = d3lResolve(m, e + 4u, nt2b, c2);
+                if (v0 != target)
+                    continue;
+                return false;
+            }
+            o.v0 = v0;
+            o.setA3 = true;
+            o.a3 = a3;
+            return true;
+        }
+    } // namespace d3l
+
+    void charaLinksD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t object = GPR_U32(ctx, 4), target = GPR_U32(ctx, 5);
+        if (object + 8u >= PS2_RAM_SIZE)
+            return charaLinks(rdram, ctx, runtime);
+        const auto cc = sotc_decomp::guestFunction(runtime, kGetCharacterClass);
+        if (cc != &dc2::entryCharacterClassSw && cc != &dc2::entryCharacterClass)
+            return charaLinks(rdram, ctx, runtime);
+        d3l::D3lOut o;
+        if (!d3l::charaLinksD3Core(d1::Mem{rdram}, object, target, o))
+            return charaLinks(rdram, ctx, runtime);
+        ++c_d3CharaLinks.n;
+        const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
+        SET_GPR_U32(ctx, 29, sp0); // (as the old exit writes them)
+        SET_GPR_U32(ctx, 31, ra0);
+        if (o.setA3)
+            SET_GPR_U32(ctx, 7, o.a3);
+        SET_GPR_U64(ctx, 2, o.v0);
+        returnTo(ctx);
+    }
+    void charaLinksSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        if (d1::on())
+            charaLinksD3(rdram, ctx, runtime);
+        else
+            charaLinks(rdram, ctx, runtime);
+    }
+} // namespace decomp_chara
