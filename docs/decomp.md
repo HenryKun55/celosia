@@ -24419,3 +24419,28 @@ Full write-up: docs/decomp_g1.md. Scratch: `build/agent-scratch/g1/`.
   intro and a 600 s ride on g1flags with everything on: pictures as the baseline. Vita3K speed: no change beyond noise.
 - **Console**: celosia-g1.vpk (+ env-g1-base / -on / -ab) and celosia-g1flags.vpk; the console decides. Expected:
   within noise. vitaGL flags stay as they are in `./celosia` unless the console shows a gain.
+
+## Decomp C1: the game's threads mapped, core 3 for the game alone through K2's module, thread placement maps (SOTC_C1CORE3 / SOTC_C1MAP off by default) (2026-11-25)
+
+docs/decomp_c1.md. Packages, env files, README: `build/agent-scratch/c1/` (celosia-c1.vpk). Nothing changes a computation: only
+where threads run.
+
+- **Thread map** (console run run-20261125-k2pmu, riding, 42.7 ms frames): game 39.8 ms on core 0 alone (never preempted); render
+  17.0 (core 2), worker 9.5, offload x4 5.7, loader x3 4.8, audio 4.3 (prio 64), lane 3.5, dma 1.6, main 1.3, log x2 1.2, build 0.2
+  (cores 1-2): 49.2 ms on two cores (~58% busy). The game thread waits only ~1.3 ms on render + ~0.9 ms on joins: core 3 can cut
+  little waiting; contention / headroom are what the console can show.
+- **SOTC_C1CORE3=1 | probe**: K2's module gets a second syscall library CelosiaK2C1 (celosiaK2Core3); it hooks SceKernelThreadMgr's
+  isIllegalAffinity at CapUnlocker's site (segment 0 + 0x114C, Thumb; no firmware branch in CapUnlocker) through taiHEN and answers
+  "legal" for the game's pid only (others go on to the original); probe reads the site and the module NID; SOTC_C1CORE3_EXPECT pins
+  the site's first word; released on request, at exit / kill (process-event handler) and module stop. New bridge
+  `module/celosia_c1u.suprx` (an older resident K2 without the library: no load, cores 0-2; reboot the console first). The game then
+  runs a test thread on 0x80000 alone before using core 3, and releases the hook if it fails. `[c1] core3 ...` line.
+- **SOTC_C1MAP=1-5** (threads::place): game alone on core 0 in all, no helper on core 0, priorities unchanged. 1 render alone on
+  core 2, helpers core 1; 2 (the plan) render alone on core 2, worker / lane / build core 1, audio / log / loader / main / offload /
+  dma core 3; 3 audio / log / loader / main core 3, rest cores 1-2; 4 helpers cores 1-3; 5 render on core 3. Without core 3: 2 -> 1,
+  3-5 -> the default layout. A refused core-3 mask is retried without core 3 (bootMap4F showed the refusal's any-core mask, core 0
+  included). SOTC_C1MAP_FORCE3 (tests), SOTC_THREAD_CORES bit 3.
+- **Checks**: p2 (package) spalign 0 of 2 884, ELF room 122 880, no overlap. 89 MB ride7 boots: off (no `[c1]`/`[k2]`, old
+  `[threads]` lines; mounted 5 355), C1CORE3 + map 2 (K2 off in Vita3K, core 3 off, map 2 -> 1 applied; mounted 2 219, 18 211
+  frames), map 4 / 5 forced (Vita3K refuses 0x80000 with 0x80028025, as the console without the hook), p2 map 5 forced (render
+  0x80000 refused, 0x40000 instead) and p2 as the console env; pictures normal. Console runs pending (README: reboot, probe first).
