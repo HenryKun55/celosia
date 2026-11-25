@@ -24284,3 +24284,30 @@ untouched (PGO), an adapter reading `ctx` at the entry, a core over `d1::Mem`, a
 - **Boots** (89 MB, ride7 600 s): d1native on x2 (mounted 2 372 / 2 218), default (2 478); pictures normal.
 - **Speed**: Vita3K A/B off - on: ride7 +0.21 +- 0.28 ms, lake6 +0.89 +- 0.05 ms (on faster). Count (d) 4 502 (49.89%), 23.26% of the
   bytes, **30.07% of the console time** (D1: 23.84%). Package celosia-d2.vpk + env-ab.txt, not installed.
+
+## Decomp M1: memory access on the console: the hot-code order refreshed, the guest RAM's own block, a PMU probe, the allocation census (m1ram / m1pmu / m1alloc off by default) (2026-11-24)
+
+docs/decomp_m1.md. Scripts, runs, packages: `build/agent-scratch/m1/` (README.txt: what to install for each A/B). Nothing changes a
+computation; Vita3K cannot judge any of it (no caches / TLBs), so the console decides.
+
+- **Hot-code order** (vita_hot_order.ld, link-time): round 137's order left the D1 / D2 bodies (351 functions, 621 KB) 36-64 MB into
+  `.text` and the game thread's 50% set over 62-70 64 KB pages spanning 64.6 MB. Regenerated with `tools/vita_hot_order.sh` from four
+  Vita3K profiles (ride7 / lake6 / attract with d1native on, ride7 default): the hottest 99.5% of the samples (the cluster stays inside
+  Thumb's 16 MB `bl` reach, 12.7 MB), the D bodies no profile kept added (`--natives docs/d*_natives.txt`), and numbered lambdas matched
+  under GCC's un-numbered section name too (obj125Run's 30 KB collision lambda, ~0.9% of the ride, had never been placed). 50% set now
+  28-46 64 KB pages, 90% set 124-137 (was 300-333), spans 12.6 MB (tools/hot_layout.py). Packages celosia-m1-old.vpk / -new.vpk, same
+  code. PGO: the committed profile is round 137's; every function since (all D1 / D2 bodies included) has no profile data; retraining
+  (~1.5 h) left for after D3.
+- **m1ram** (`SOTC_M1RAM=1`, boot-time, not AB-rotatable): a `--wrap` of crt0's `_init_vita_heap` reads env.txt with sceIo and takes a
+  33 MB USER_RW block, 1 MB aligned, before newlib's heap, which shrinks by 33 MB (same memory in all: 89 MB boot free user 92.0 MB
+  before vitaGL either way); the guest RAM + tail and the scratchpad live there for good. Whether the kernel maps it with large pages is
+  undocumented: the PMU probe's D-TLB line on the console answers it.
+- **m1pmu** (`SOTC_M1PMU=<frames>`): libperf's per-thread ARM counters on the game thread (I / D cache and TLB misses, stall cycles),
+  every return code logged; Vita3K refuses it cleanly (sysmodule 0xc05a1000). `SOTC_M1PMU_USERENR=1` also reads PMUSERENR (Vita3K aborts
+  on it). No plugin installed.
+- **Allocation census**: SOTC_HEAP_PROF's new "made" ranking: a few dozen allocations a frame in all (~10-20 us of 46 ms): not a data-miss
+  source. The one on the game thread's scheduler checkpoint (a std::deque built per call: 2 mallocs + 2 frees, ~6 times a frame) is gone
+  with **m1alloc** (`SOTC_M1ALLOC=1`, exact).
+- **Checks**: spalign 0 of 2 430 (p3 / p4), ELF room unchanged, no overlap. 89 MB ride7 boots: defaults (mounted 2 220, to frame
+  17 718), m1ram (mounted 2 305, heap 75.1 MB used), m1pmu + m1alloc (mounted 2 378), old order 300 s (boots; no mount this time,
+  timing-sensitive); pictures normal.
