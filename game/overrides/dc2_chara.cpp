@@ -49,6 +49,7 @@
 #include "chara_types.h"
 #include "sotc_pf141.h"
 #include "d1_native.h"
+#include "r1_chara.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1412,6 +1413,8 @@ namespace dc2
             } while (n != -1);
             return sum;
         }
+        // R1 (r1char): the same operations in the same order; the lines of the next row asked for ahead (r1_chara.h).
+        template <bool R1>
         void clothStepD1Core(const d1::Mem m, uint32_t a0, uint32_t owner, bool full, StepRegs &s)
         {
             const V4 xyz = d1::mask(1, 1, 1, 0), yOnly = d1::mask(0, 1, 0, 0);
@@ -1462,14 +1465,48 @@ namespace dc2
                     d1st(po, vf20);
                 };
                 uint32_t row = rows0;
+                if constexpr (R1)
+                    if (rows > 0 && cols > 0)
+                    {
+                        // The row records (24 bytes each), then the first row's buffers (the flip asked for them when it ran).
+                        r1chara::pfRange(m.base + (rows0 & PS2_RAM_MASK), static_cast<uint32_t>(rows) * 24u, 8u);
+                        const uint32_t bytes = static_cast<uint32_t>(cols) * 16u;
+                        r1chara::pfRange(m.base + (m.u32(rows0 + 8u) & kM16), bytes, 4u);
+                        r1chara::pfRange(m.base + (m.u32(rows0 + 20u) & kM16), bytes, 4u);
+                        r1chara::pfRange(m.base + (m.u32(rows0 + 16u) & kM16), bytes, 4u);
+                    }
                 for (int32_t i = rows - 1; i != -1; --i, row += 24u)
                 {
                     uint32_t vel = m.u32(row + 8u), pos = m.u32(row + 20u), out = m.u32(row + 16u);
                     if (__builtin_expect(d1linear(vel, cols) && d1linear(pos, cols) && d1linear(out, cols), 1))
                     {
                         uint8_t *pv = m.base + (vel & kM16), *pp = m.base + (pos & kM16), *po = m.base + (out & kM16);
-                        for (int32_t k = cols; k != 0; --k, pv += 16, pp += 16, po += 16)
-                            point(pv, pp, po);
+                        if constexpr (R1)
+                        {
+                            if (i != 0)
+                            {
+                                // The next row's three buffers, a line of each every second point; the record two rows on.
+                                const uint8_t *nv = m.base + (m.u32(row + 24u + 8u) & kM16), *np = m.base + (m.u32(row + 24u + 20u) & kM16);
+                                const uint8_t *no = m.base + (m.u32(row + 24u + 16u) & kM16);
+                                r1chara::pf(m.base + ((row + 48u) & PS2_RAM_MASK));
+                                for (int32_t k = cols, off = 0; k != 0; --k, pv += 16, pp += 16, po += 16, off += 16)
+                                {
+                                    if ((off & 31) == 0)
+                                    {
+                                        r1chara::pfw(nv + off);
+                                        r1chara::pf(np + off);
+                                        r1chara::pfw(no + off);
+                                    }
+                                    point(pv, pp, po);
+                                }
+                            }
+                            else
+                                for (int32_t k = cols; k != 0; --k, pv += 16, pp += 16, po += 16)
+                                    point(pv, pp, po);
+                        }
+                        else
+                            for (int32_t k = cols; k != 0; --k, pv += 16, pp += 16, po += 16)
+                                point(pv, pp, po);
                         rTouched |= cols != 0;
                     }
                     else
@@ -1506,8 +1543,17 @@ namespace dc2
                 const V4 c3 = d1::splat(f2), c4 = d1::splat(f0);
                 uint32_t row = v0, pins = m.u32(cloth + 40u);
                 const uint32_t bones = m.u32(owner + 348u);
+                if constexpr (R1)
+                    r1chara::pfRange(m.base + (pins & PS2_RAM_MASK), static_cast<uint32_t>(rows > 0 ? rows : 0) * 36u, 12u);
                 for (int32_t i = rows - 1; i != -1; --i, pins += 36u, row += 24u)
                 {
+                    if constexpr (R1)
+                        if (i != 0)
+                        {
+                            // The next row's two pin lists' entries (32 bytes each: the bone, the offset at +16).
+                            r1chara::pf(m.base + (m.u32(pins + 36u + 16u) & PS2_RAM_MASK));
+                            r1chara::pf(m.base + (m.u32(pins + 36u + 24u) & PS2_RAM_MASK));
+                        }
                     const V4 a = d1pin(m, pins + 20u, bones, acc, vf13);
                     const uint32_t out = m.u32(row + 16u);
                     const V4 b = d1pin(m, pins + 12u, m.u32(owner + 348u), acc, vf13);
@@ -1562,6 +1608,46 @@ namespace dc2
             s.r = r;
             s.rTouched = rTouched;
             s.v0 = v0;
+        }
+
+        // R1's census (SOTC_R1CHAR_CENSUS): the guest bytes the step reads / writes, record by record (r1_chara.h).
+        __attribute__((noinline, cold)) void clothStepCensus(const d1::Mem m, uint32_t a0, uint32_t owner)
+        {
+            using namespace r1chara;
+            call(kWClothStep);
+            call(kWClothPins);
+            const uint32_t grid = m.u32(a0);
+            const int32_t rows = m.s32(grid + 4u), cols = m.s32(grid + 8u);
+            if (rows <= 0 || rows > 256 || cols <= 0 || cols > 256)
+                return;
+            touch(kWClothStep, a0, 16u);
+            touch(kWClothStep, grid, 0x2Cu);
+            touch(kWClothStep, owner + 0x19Cu, 4u);
+            touch(kWClothStep, m.u32(owner + 0x19Cu) + 0x70u, 0x18u);
+            const uint32_t rows0 = m.u32(a0 + 12u), pins = m.u32(grid + 40u), bones = m.u32(owner + 348u);
+            for (int32_t i = 0; i < rows; ++i)
+            {
+                const uint32_t row = rows0 + static_cast<uint32_t>(i) * 24u;
+                touch(kWClothStep, row + 8u, 16u);
+                touch(kWClothStep, m.u32(row + 8u), static_cast<uint32_t>(cols) * 16u);
+                touch(kWClothStep, m.u32(row + 20u), static_cast<uint32_t>(cols) * 16u);
+                touch(kWClothStep, m.u32(row + 16u), static_cast<uint32_t>(cols) * 16u);
+            }
+            for (int32_t i = 0; i < rows; ++i)
+            {
+                const uint32_t p = pins + static_cast<uint32_t>(i) * 36u;
+                touch(kWClothPins, p + 12u, 16u);
+                for (uint32_t list = p + 12u; list <= p + 20u; list += 8u)
+                {
+                    const int32_t n = m.s32(list);
+                    const uint32_t e = m.u32(list + 4u);
+                    for (int32_t k = 0; k < n && k < 64; ++k)
+                    {
+                        touch(kWClothPins, e + static_cast<uint32_t>(k) * 32u, 32u);
+                        touch(kWClothPins, bones + m.u32(e + static_cast<uint32_t>(k) * 32u) * 64u, 64u);
+                    }
+                }
+            }
         }
 
         // ---- manager_sub_01137640 (the velocities; decomp_clothdyn::velocity, a type-0 cloth) -------------------------
@@ -1759,7 +1845,12 @@ namespace dc2
         s.acc = ctx->vu0_acc;
         s.f12 = ctx->f[12];
         std::memcpy(&s.r, &ctx->vu0_r, 4);
-        d1b::clothStepD1Core(d1::Mem{rdram}, a0, owner, full, s);
+        if (__builtin_expect(r1chara::census(), 0) && !ps2_worker::isShell(runtime))
+            d1b::clothStepCensus(d1::Mem{rdram}, a0, owner);
+        if (r1chara::on())
+            d1b::clothStepD1Core<true>(d1::Mem{rdram}, a0, owner, full, s);
+        else
+            d1b::clothStepD1Core<false>(d1::Mem{rdram}, a0, owner, full, s);
         // The GPRs the original's mfc1 / qmtc2 pairs leave (t1 -> vf6, a3, t0 -> vf5, then v1 -> vf3 and a0 -> vf4 of the pins).
         SET_GPR_U32(ctx, 9, d1b::d1bits(s.f2a));
         ctx->vu0_vf[6] = _mm_castsi128_ps(GPR_VEC(ctx, 9));
@@ -2026,6 +2117,42 @@ namespace dc2
                 m.set<uint32_t>(points + 0x14u, toggle != 0u ? a : b);
             }
         }
+        // R1 (r1char), before the flip: the grid and the row records the flip and the step walk; after it (after = true): the
+        // first two rows' buffers the step's guest call starts on. Prefetches only.
+        void clothFlipAhead(const d1::Mem m, uint32_t cloth, bool after)
+        {
+            const uint32_t grid = m.u32(cloth), recs = m.u32(cloth + 0xCu);
+            const int32_t rows = m.s32(grid + 4u), cols = m.s32(grid + 8u);
+            if (rows <= 0 || rows > 256 || cols <= 0 || cols > 256)
+                return;
+            if (!after)
+            {
+                r1chara::pf(m.base + (grid & PS2_RAM_MASK));
+                r1chara::pf(m.base + ((grid + 0x28u) & PS2_RAM_MASK));
+                r1chara::pfRange(m.base + (recs & PS2_RAM_MASK), static_cast<uint32_t>(rows) * 24u, 8u);
+                return;
+            }
+            const uint32_t bytes = static_cast<uint32_t>(cols) * 16u;
+            for (int32_t i = 0; i < rows && i < 2; ++i)
+            {
+                const uint32_t row = recs + static_cast<uint32_t>(i) * 24u;
+                r1chara::pfRange(m.base + (m.u32(row + 8u) & kM16), bytes, 4u);
+                r1chara::pfRange(m.base + (m.u32(row + 20u) & kM16), bytes, 4u);
+                r1chara::pfRange(m.base + (m.u32(row + 16u) & kM16), bytes, 4u);
+            }
+        }
+        __attribute__((noinline, cold)) void clothFlipCensus(const d1::Mem m, uint32_t cloth)
+        {
+            using namespace r1chara;
+            call(kWClothFlip);
+            const uint32_t grid = m.u32(cloth);
+            const int32_t rows = m.s32(grid + 4u);
+            touch(kWClothFlip, cloth, 16u);
+            touch(kWClothFlip, cloth + 0x80u, 1u);
+            touch(kWClothFlip, grid + 4u, 4u);
+            if (rows > 0 && rows <= 256)
+                touch(kWClothFlip, m.u32(cloth + 0xCu), static_cast<uint32_t>(rows) * 24u);
+        }
     } // namespace d1b
 
     void entryDynamicsD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -2062,7 +2189,14 @@ namespace dc2
         {
             if (!ps2_worker::isShell(runtime)) // (round S8: not from the guest worker: the notes are the game thread's)
                 pf141::noteCloth(rdram, cloth); // round 141 (prefetch only)
+            const bool r1 = r1chara::on();
+            if (__builtin_expect(r1chara::census(), 0) && !ps2_worker::isShell(runtime))
+                d1b::clothFlipCensus(m, cloth);
+            if (r1)
+                d1b::clothFlipAhead(m, cloth, false);
             d1b::clothFlipD1Core(m, cloth);
+            if (r1)
+                d1b::clothFlipAhead(m, cloth, true);
             SET_GPR_U64(ctx, 4, cloth64);
             SET_GPR_U64(ctx, 5, user);
             f[12] = f[20];

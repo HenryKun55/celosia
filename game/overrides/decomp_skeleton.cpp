@@ -1774,6 +1774,8 @@ namespace decomp_skeleton
 namespace s3chara
 {
     int pose(uint8_t *ram, int lane, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ);
+    // Round R1 (r1char): the same pose for the A9's caches (s3_chara.cpp, r1_chara.h).
+    int poseR1(uint8_t *ram, int lane, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ);
     int checkMode();
     bool jobsOn();
 }
@@ -1796,7 +1798,8 @@ namespace decomp_skeleton
     int d3MotionMatrixCore(const d1::Mem &m, const D3MmArgs &a, D3MmOut &o)
     {
         const __m128 rq = m.q(a.rootQAt & ~0xFu);
-        const int n = s3chara::pose(m.base, a.lane, a.mats, a.quats, a.skel, a.locals, a.pos, a.scaleAt, rq);
+        const int n = sotc_decomp::r1charOn() ? s3chara::poseR1(m.base, a.lane, a.mats, a.quats, a.skel, a.locals, a.pos, a.scaleAt, rq)
+                                              : s3chara::pose(m.base, a.lane, a.mats, a.quats, a.skel, a.locals, a.pos, a.scaleAt, rq);
         if (n < 0)
             return n;
         m.putq(a.topSlot & ~0xFu, rq);

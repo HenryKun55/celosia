@@ -9,6 +9,7 @@
 // time (relocated lui / lw pairs, read from the code).
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "r1_chara.h"
 #include "typed_a6_nchk.h" // a6: A6_NCHK
 #include "runtime/ps2_diag.h"
 
@@ -486,6 +487,9 @@ namespace decomp_chara
             uint32_t a3 = 0u;
         };
         // false: a guest call would be made (the old body); else o holds the exit's v0 / a3.
+        // R1 (r1char, r1_chara.h): the entries asked for four ahead, and each handle column with its own table cache (the
+        // scans only read memory: the cached words are the same words, read once instead of again).
+        template <bool R1>
         bool charaLinksD3Core(const d1::Mem &m, uint32_t object, uint32_t target, D3lOut &o)
         {
             const uint8_t type = m.get<uint8_t>(object + 8u);
@@ -505,12 +509,17 @@ namespace decomp_chara
             const uint32_t nt1a = m.u32(d3lReloc(m, 0x010CE64Cu, 0x010CE678u)), nt1b = m.u32(d3lReloc(m, 0x010CE64Cu, 0x010CE6D0u));
             const uint32_t nt2a = m.u32(d3lReloc(m, 0x010CE7A0u, 0x010CE7C8u)), nt2b = m.u32(d3lReloc(m, 0x010CE7A0u, 0x010CE820u));
             // The first scan: links to the target from something else; one of the character's live slots -> 010CE2E8.
-            D3lCache c1;
+            D3lCache c1, c1b;
+            D3lCache &c1s = R1 ? c1b : c1; // the second handle's cache
             uint32_t a3 = 0u, e = base;
+            if constexpr (R1)
+                r1chara::pfRange(m.base + (base & PS2_RAM_MASK), (count < 4 ? static_cast<uint32_t>(count) : 4u) * 0x1Cu, 4u);
             for (int32_t i = 0; i < count; ++i, e += 0x1Cu)
             {
+                if constexpr (R1)
+                    r1chara::pf(m.base + ((e + 4u * 0x1Cu) & PS2_RAM_MASK));
                 a3 = d3lResolve(m, e, nt1a, c1);
-                if (a3 == self || d3lResolve(m, e + 4u, nt1b, c1) != target)
+                if (a3 == self || d3lResolve(m, e + 4u, nt1b, c1s) != target)
                     continue;
                 const int32_t slots = m.s32(chara + 0x3FCu);
                 uint32_t slot = m.u32(chara + 0x30Cu);
@@ -519,15 +528,18 @@ namespace decomp_chara
                         return false;
             }
             // The second scan: links from the character to the target -> 010CE138.
-            D3lCache c2;
+            D3lCache c2, c2b;
+            D3lCache &c2s = R1 ? c2b : c2;
             uint64_t v0 = 0u;
             e = base;
             for (int32_t i = count; i != 0; --i, e += 0x1Cu)
             {
+                if constexpr (R1)
+                    r1chara::pf(m.base + ((e + 4u * 0x1Cu) & PS2_RAM_MASK));
                 v0 = d3lResolve(m, e, nt2a, c2);
                 if (v0 != self)
                     continue;
-                v0 = d3lResolve(m, e + 4u, nt2b, c2);
+                v0 = d3lResolve(m, e + 4u, nt2b, c2s);
                 if (v0 != target)
                     continue;
                 return false;
@@ -536,6 +548,47 @@ namespace decomp_chara
             o.setA3 = true;
             o.a3 = a3;
             return true;
+        }
+        // R1's census (SOTC_R1CHAR_CENSUS): what a scan of the list reads (the entries, each handle's table word, the tables'
+        // element base / size words).
+        __attribute__((noinline, cold)) void charaLinksCensus(const d1::Mem &m, uint32_t object)
+        {
+            using namespace r1chara;
+            call(kWLinks);
+            const uint8_t type = m.get<uint8_t>(object + 8u);
+            if (type != 9u && type != 0x16u)
+                return;
+            const uint32_t chara = object + 0x90u, list = m.u32(chara + 0x10ECu);
+            touch(kWLinks, object + 8u, 1u);
+            touch(kWLinks, chara + 0x10ECu, 4u);
+            const uint32_t lv = m.u32(list), loff = lv & 0x3FFFFu;
+            if (loff == 0u)
+                return;
+            const uint32_t t = m.u32(list - loff);
+            touch(kWLinks, list, 4u);
+            touch(kWLinks, list - loff, 4u);
+            if (t == 0u)
+                return;
+            const int32_t count = m.s32(t + 0xCu);
+            const uint32_t base = m.u32(t + 0x10u);
+            touch(kWLinks, t + 0xCu, 8u);
+            for (int32_t i = 0; i < count && i < 4096; ++i)
+            {
+                const uint32_t e = base + static_cast<uint32_t>(i) * 0x1Cu;
+                touch(kWLinks, e, 8u);
+                for (uint32_t h = e; h <= e + 4u; h += 4u)
+                {
+                    const uint32_t off = m.u32(h) & 0x3FFFFu;
+                    if (off == 0u)
+                        continue;
+                    const uint32_t tt = m.u32(h - off);
+                    touch(kWLinks, h - off, 4u);
+                    if (tt == 0u)
+                        continue;
+                    touch(kWLinks, tt + 8u, 12u);
+                    touch(kWLinks, m.u32(tt + 8u) + 0xCu, 4u);
+                }
+            }
         }
     } // namespace d3l
 
@@ -548,7 +601,9 @@ namespace decomp_chara
         if (cc != &dc2::entryCharacterClassSw && cc != &dc2::entryCharacterClass)
             return charaLinks(rdram, ctx, runtime);
         d3l::D3lOut o;
-        if (!d3l::charaLinksD3Core(d1::Mem{rdram}, object, target, o))
+        if (__builtin_expect(r1chara::census(), 0) && !ps2_worker::isShell(runtime))
+            d3l::charaLinksCensus(d1::Mem{rdram}, object);
+        if (!(r1chara::on() ? d3l::charaLinksD3Core<true>(d1::Mem{rdram}, object, target, o) : d3l::charaLinksD3Core<false>(d1::Mem{rdram}, object, target, o)))
             return charaLinks(rdram, ctx, runtime);
         ++c_d3CharaLinks.n;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);

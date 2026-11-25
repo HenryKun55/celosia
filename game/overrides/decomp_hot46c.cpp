@@ -1298,11 +1298,17 @@ namespace decomp_hot46c
                 list = base + static_cast<uint32_t>(product);
             }
             uint32_t s0 = list;
+            const bool r1 = sotc_decomp::r1charOn(); // round R1 (r1_chara.h): the next condition's lines asked for ahead
             bool all = m.u32(s0) == 1u;
             while (!all)
             {
                 const uint32_t condition = s0;
                 s0 += 0x30u;
+                if (r1)
+                {
+                    __builtin_prefetch(m.base + (s0 & PS2_RAM_MASK), 0, 3);
+                    __builtin_prefetch(m.base + ((s0 + 0x2Cu) & PS2_RAM_MASK), 0, 3);
+                }
                 bool cb = false;
                 uint32_t f0 = 0u;
                 const int r = decomp_ctrldef::d3c::condD3Core(m, obj, cls, status, condition, hotList, cb, f0);

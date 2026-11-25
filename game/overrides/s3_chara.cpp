@@ -39,6 +39,7 @@
 #include "pose82_math.h"
 #include "chara_types.h"
 #include "p1_chara.h"
+#include "r1_chara.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/native_renderer.h"
@@ -1035,4 +1036,141 @@ namespace s3chara
         }
     }
     void keysTime(bool state, uint64_t us) { g_keyTime.add(state ? 1 : 0, static_cast<double>(us)); }
+
+    // =================================================================================================================
+    // Round R1 (r1char, r1_chara.h, docs/decomp_r1.md): the pose for the A9's caches, called by GetMotionMatrix's D3 core.
+    // The same operations in the same order as poseRange (round 82's NEON helpers, the visit order), with:
+    //   - the rig compared with the guest's bone records on the frame's first pose of that skeleton only (round C1's
+    //     rule: a skeleton is resource data, its links and offsets are not written while it lives; C1 / P1's checks:
+    //     0 stale rigs in 1.4 M trusted), so the later poses of the frame do not read the bone records (2 lines a bone);
+    //   - the bone offsets from the rig's contiguous host array (P1's), compared in this frame;
+    //   - the outputs' lines (matrix 2, quaternion 1, local 1) asked for two visits ahead, the locals' first lines up front.
+    // =================================================================================================================
+    uint64_t g_r1Trusted = 0, g_r1Compared = 0;
+    Rig *rigForR1(const uint8_t *ram, uint32_t skel, uint32_t bones)
+    {
+        RigCache *c = t_rigs;
+        if (!c)
+            c = t_rigs = new RigCache();
+        const uint64_t fr = sotc_decomp::g_gameFrame;
+        for (int i = 0; i < kRigs; ++i)
+        {
+            Rig *g = c->r[i];
+            if (g && g->skel == skel && g->bones == bones && g->checked == fr)
+            {
+                ++c->tick;
+                ++g_r1Trusted;
+                g->used = c->tick;
+                return g;
+            }
+        }
+        ++g_r1Compared;
+        Rig *g = rigFor(ram, skel, bones); // compares (or makes) it and stamps it with this frame
+        if (__builtin_expect(r1chara::census(), 0) && g)
+            for (uint32_t k = 0; k < g->n; ++k) // the compare's reads: each bone record's links and offset
+            {
+                r1chara::touch(r1chara::kWPose, bones + static_cast<uint32_t>(g->bone[k]) * kBone + kChild, 8u);
+                r1chara::touch(r1chara::kWPose, bones + static_cast<uint32_t>(g->bone[k]) * kBone + kOffset, 16u);
+            }
+        return g;
+    }
+    int poseR1(uint8_t *ram, int lane, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ)
+    {
+        if (keepOn())
+            return pose(ram, lane, mats, quats, skel, locals, pos, scaleAt, rootQ);
+        const uint32_t bones = rd32(ram, skel + 8u);
+        if (!inRam(bones, 0x40u) || !inRam(scaleAt & ~0xFu, 16u) || !inRam(pos & ~0xFu, 16u))
+            return -1;
+        const Rig *g = rigForR1(ram, skel, bones);
+        if (!g)
+            return -1;
+        const uint32_t count = g->count;
+        if (!inRam(mats, count * 0x40u) || !inRam(quats, count * 0x10u) || !inRam(locals, count * 0x10u))
+            return -1;
+        Scratch *&sc = g_scratch[lane];
+        if (!sc)
+            sc = new Scratch();
+        uint8_t *const mp = at(ram, mats), *const qp = at(ram, quats), *const lp = at(ram, locals);
+        const int32_t n = static_cast<int32_t>(g->n);
+        if (__builtin_expect(r1chara::census(), 0) && lane == 0)
+        {
+            r1chara::call(r1chara::kWPose);
+            for (int32_t k = 0; k < n; ++k)
+            {
+                const uint32_t b = g->bone[k];
+                r1chara::touch(r1chara::kWPose, locals + b * 0x10u, 16u);
+                r1chara::touch(r1chara::kWPose, mats + b * 0x40u, 64u);
+                r1chara::touch(r1chara::kWPose, quats + b * 0x10u, 16u);
+            }
+        }
+        // The first visits' locals and outputs (the loop asks for the rest two visits ahead).
+        for (int32_t k = 0; k < n && k < 2; ++k)
+        {
+            const uint32_t b = g->bone[k];
+            r1chara::pfw(lp + b * 0x10u);
+            r1chara::pfw(mp + b * 0x40u);
+            r1chara::pfw(mp + b * 0x40u + 0x20u);
+            r1chara::pfw(qp + b * 0x10u);
+        }
+        const float32x4_t scale = vsetq_lane_f32(0.0f, ldq(ram, scaleAt), 3);
+        M4 root;
+        root.c[0] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 0);
+        root.c[1] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 1);
+        root.c[2] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 2);
+        root.c[3] = vsetq_lane_f32(1.0f, ldq(ram, pos), 3);
+        M4 *const hm = sc->hm;
+        float32x4_t *const hq = sc->hq;
+        M4 p = root;
+        float32x4_t pq = rootQ;
+        int32_t cur = -1;
+        for (int32_t k = 0; k < n; ++k)
+        {
+            const int32_t par = g->parent[k];
+            if (par != cur)
+            {
+                if (par < 0)
+                {
+                    p = root;
+                    pq = rootQ;
+                }
+                else
+                {
+                    p = hm[par];
+                    pq = hq[par];
+                }
+                cur = par;
+            }
+            const uint32_t b = g->bone[k];
+            const float32x4_t offRaw = vld1q_f32(reinterpret_cast<const float *>(g->off[k]));
+            if (k + 2 < n)
+            {
+                const uint32_t nb = g->bone[k + 2];
+                r1chara::pfw(lp + nb * 0x10u);
+                r1chara::pfw(mp + nb * 0x40u);
+                r1chara::pfw(mp + nb * 0x40u + 0x20u);
+                r1chara::pfw(qp + nb * 0x10u);
+            }
+            const float32x4_t off = vmulq_f32(offRaw, scale);
+            const float32x4_t loc = pose82::normalizeA9(vld1q_f32(reinterpret_cast<const float *>(lp + b * 0x10u)));
+            const M4 m = pose82::boneMatrix(p, loc, off);
+            const float32x4_t q = pose82::qmul(pq, loc);
+            const float32x4_t qn = pose82::normalizeA9(q);
+            float *dm = reinterpret_cast<float *>(mp + b * 0x40u);
+            vst1q_f32(dm, m.c[0]);
+            vst1q_f32(dm + 4, m.c[1]);
+            vst1q_f32(dm + 8, m.c[2]);
+            vst1q_f32(dm + 12, m.c[3]);
+            vst1q_f32(reinterpret_cast<float *>(qp + b * 0x10u), qn);
+            vst1q_f32(reinterpret_cast<float *>(lp + b * 0x10u), loc);
+            if (g->kids[k])
+            {
+                hm[k] = m;
+                hq[k] = q;
+                p = m;
+                pq = q;
+                cur = k;
+            }
+        }
+        return n;
+    }
 }
