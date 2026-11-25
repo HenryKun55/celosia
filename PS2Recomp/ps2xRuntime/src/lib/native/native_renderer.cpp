@@ -36,6 +36,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
+extern "C" int ps2x_c1_core3();                       // ps2_vita_runtime.cpp (round C1): 1 when core 3 is ours
 #endif
 
 #if defined(__APPLE__) || (defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
@@ -1430,6 +1431,60 @@ namespace native_renderer
             default:
                 break;
             }
+            // Round C1 (docs/decomp_c1.md): SOTC_C1MAP=<n>, the threads re-mapped over cores 1-3 (unset / 0: the layout
+            // above, unchanged). Core 3 (0x80000) only when SOTC_C1CORE3's test passed (ps2x_c1_core3); without it each
+            // map falls back to the core-3-less map named below. In every map the game thread (and the EE carrier) stays
+            // alone on core 0 and no helper has core 0 in its mask, so no helper can preempt it; priorities unchanged.
+            //   1  render alone on core 2; every helper on core 1 (no core 3 needed)
+            //   2  render alone on core 2; worker / lane / guest / build / recorder core 1; audio / log / loader / main /
+            //      offload / dma core 3 (the round's plan); without core 3: map 1
+            //   3  render core 2; worker / lane / guest / build / recorder / offload / dma cores 1-2; audio / log /
+            //      loader / main core 3; without core 3: the layout above
+            //   4  render core 2; every helper on cores 1-3 (the scheduler balances); without core 3: the layout above
+            //   5  render alone on core 3; every helper on cores 1-2; without core 3: the layout above
+            static const int c1map = []
+            {
+                const char *e = std::getenv("SOTC_C1MAP");
+                return e ? std::atoi(e) : 0;
+            }();
+            // SOTC_C1MAP_FORCE3=1: the maps use core 3 without the hook's test (for Vita3K, which ignores affinity; on
+            // the console without the hook the kernel refuses those masks and the thread keeps its cores: logged).
+            static const bool force3 = []
+            {
+                const char *e = std::getenv("SOTC_C1MAP_FORCE3");
+                return e && e[0] && e[0] != '0';
+            }();
+            const bool c3 = c1map > 0 && (force3 || ps2x_c1_core3() != 0);
+            int c1used = 0; // the map applied (0: none; a fallback is logged as its own number)
+            if (c1map > 0 && kind != kGame)
+            {
+                constexpr int U1 = SCE_KERNEL_CPU_MASK_USER_1, U2 = SCE_KERNEL_CPU_MASK_USER_2, C3 = SCE_KERNEL_CPU_MASK_SYSTEM;
+                const bool quiet = kind == kAudio || kind == kLog || kind == kLoader || kind == kMain; // off the frame's path
+                int m = c1map;
+                if (!c3)
+                    m = m == 2 ? 1 : m == 1 ? 1 : 0;
+                c1used = m;
+                switch (m)
+                {
+                case 1:
+                    mask = kind == kRender ? U2 : U1;
+                    break;
+                case 2:
+                    mask = kind == kRender ? U2 : (quiet || kind == kOffload || kind == kDma) ? C3 : U1;
+                    break;
+                case 3:
+                    mask = kind == kRender ? U2 : quiet ? C3 : U1 | U2;
+                    break;
+                case 4:
+                    mask = kind == kRender ? U2 : U1 | U2 | C3;
+                    break;
+                case 5:
+                    mask = kind == kRender ? C3 : U1 | U2;
+                    break;
+                default:
+                    break;
+                }
+            }
             // Round 70 (console experiments): SOTC_THREAD_PRIO=<kind>:<prio>,...
             // and SOTC_THREAD_CORES=<kind>:<mask bits 0-2>,... over the
             // placement above (the console's frame log showed the game thread
@@ -1453,7 +1508,8 @@ namespace native_renderer
             };
             override("SOTC_THREAD_PRIO", [&](int v) { prio = v; });
             override("SOTC_THREAD_CORES", [&](int v)
-                     { mask = ((v & 1) ? SCE_KERNEL_CPU_MASK_USER_0 : 0) | ((v & 2) ? SCE_KERNEL_CPU_MASK_USER_1 : 0) | ((v & 4) ? SCE_KERNEL_CPU_MASK_USER_2 : 0); });
+                     { mask = ((v & 1) ? SCE_KERNEL_CPU_MASK_USER_0 : 0) | ((v & 2) ? SCE_KERNEL_CPU_MASK_USER_1 : 0) | ((v & 4) ? SCE_KERNEL_CPU_MASK_USER_2 : 0) |
+                              ((v & 8) ? SCE_KERNEL_CPU_MASK_SYSTEM : 0); }); // (bit 3, core 3: round C1, only with SOTC_C1CORE3's hook)
             const int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
             const int prioResult = prio >= 64 && prio <= 191 ? sceKernelChangeThreadPriority(self, prio) : 0;
             SceKernelThreadInfo info{};
@@ -1467,9 +1523,16 @@ namespace native_renderer
                         g_slots[i].placed = info.currentPriority;
             }
             if (haveInfo)
-                std::fprintf(stderr, "[threads] %s (%s, layout %d): cores 0x%x%s, priority %d%s\n", kNames[kind], info.name, layout() ? 1 : 0,
-                             static_cast<unsigned>(info.currentCpuAffinityMask), maskResult < 0 ? " (refused)" : "", info.currentPriority,
-                             prioResult < 0 ? " (refused)" : "");
+            {
+                if (c1map > 0)
+                    std::fprintf(stderr, "[threads] %s (%s, layout %d, C1 map %d -> %d, core 3 %s): cores 0x%x%s (rc 0x%08x), priority %d%s\n", kNames[kind],
+                                 info.name, layout() ? 1 : 0, c1map, c1used, c3 ? "on" : "off", static_cast<unsigned>(info.currentCpuAffinityMask),
+                                 maskResult < 0 ? " (refused)" : "", static_cast<unsigned>(maskResult), info.currentPriority, prioResult < 0 ? " (refused)" : "");
+                else
+                    std::fprintf(stderr, "[threads] %s (%s, layout %d): cores 0x%x%s, priority %d%s\n", kNames[kind], info.name, layout() ? 1 : 0,
+                                 static_cast<unsigned>(info.currentCpuAffinityMask), maskResult < 0 ? " (refused)" : "", info.currentPriority,
+                                 prioResult < 0 ? " (refused)" : "");
+            }
         }
         // Round 100: every noted thread of a kind at priority `prio` (0: the
         // one place() left it at); threads placed later keep place()'s.

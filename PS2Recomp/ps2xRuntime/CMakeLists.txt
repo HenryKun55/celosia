@@ -690,7 +690,8 @@ if(PS2X_IS_VITA)
         add_custom_command(OUTPUT "${PS2X_K2_OUT}.skprx"
             COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
                     "${PS2X_K2_DIR}/celosia_k2.c" -o "${PS2X_K2_OUT}.elf" "-L${PS2X_VITASDK}/arm-vita-eabi/lib"
-                    -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub -lSceSysclibForDriver_stub -lSceProcEventForDriver_stub -lgcc
+                    -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub -lSceSysclibForDriver_stub -lSceProcEventForDriver_stub
+                    -ltaihenForKernel_stub -ltaihenModuleUtils_stub -lgcc
             COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/exports.yml" "${PS2X_K2_OUT}.elf" "${PS2X_K2_OUT}.velf"
             COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_K2_OUT}.velf" "${PS2X_K2_OUT}.skprx"
             DEPENDS "${PS2X_K2_DIR}/celosia_k2.c" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/exports.yml"
@@ -705,6 +706,18 @@ if(PS2X_IS_VITA)
             COMMENT "Building the K2 bridge celosia_k2u.suprx"
             VERBATIM)
         list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_K2_OUT}.skprx" "module/celosia_k2.skprx" FILE "${PS2X_K2_OUT}u.suprx" "module/celosia_k2u.suprx")
+        # Round C1 (docs/decomp_c1.md): the bridge to K2's second library CelosiaK2C1 (the core-3 hook), loaded by the game only
+        # with SOTC_C1CORE3 in env.txt, packed as module/celosia_c1u.suprx.
+        set(PS2X_C1_OUT "${CMAKE_CURRENT_BINARY_DIR}/celosia_c1u")
+        add_custom_command(OUTPUT "${PS2X_C1_OUT}.suprx"
+            COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
+                    "${PS2X_K2_DIR}/celosia_c1u.c" "${PS2X_K2_DIR}/c1u_stubs.S" -o "${PS2X_C1_OUT}.elf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/c1u_exports.yml" "${PS2X_C1_OUT}.elf" "${PS2X_C1_OUT}.velf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_C1_OUT}.velf" "${PS2X_C1_OUT}.suprx"
+            DEPENDS "${PS2X_K2_DIR}/celosia_c1u.c" "${PS2X_K2_DIR}/c1u_stubs.S" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/c1u_exports.yml"
+            COMMENT "Building the C1 bridge celosia_c1u.suprx"
+            VERBATIM)
+        list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_C1_OUT}.suprx" "module/celosia_c1u.suprx")
 
         vita_create_self(eboot.bin ps2EntryRunner UNSAFE)
         vita_create_vpk(ps2EntryRunner.vpk ${PS2X_VITA_TITLEID} eboot.bin

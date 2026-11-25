@@ -366,6 +366,108 @@ namespace k1
 //                    when the game exits or is killed. SOTC_K2REMAP_DRY=1: check only, change nothing.
 //   SOTC_K1_EVENTS   the six events, as K1.
 // Read at boot only. Vita3K never runs the module (no answer): the bridge is never loaded there and K2 is off.
+// Round C1 (docs/decomp_c1.md; SOTC_C1CORE3=1 | probe in env.txt, off by default; implies the K2 module): core 3
+// (SCE_KERNEL_CPU_MASK_SYSTEM, 0x80000) for this process. K2's module (its second library, CelosiaK2C1) hooks
+// SceKernelThreadMgr's isIllegalAffinity as CapUnlocker does, but answers "legal" for our pid only; it releases the hook
+// when the game exits or is killed. The C1 bridge celosia_c1u.suprx binds to that library (an older resident K2 without
+// it: the bridge does not load, no hook). After the hook a test thread is created with affinity 0x80000 and run: if that
+// is refused, or the thread does not run, the hook is released at once and the game stays on cores 0-2.
+//   SOTC_C1CORE3=probe   only find and read the hook site (SceKernelThreadMgr's NID, the site's bytes), no hook
+//   SOTC_C1CORE3_EXPECT=0x<word>  hook only if the site's first word is this one (pins a firmware once a probe told it)
+// The thread maps that use core 3 are SOTC_C1MAP's (native_renderer.cpp threads::place).
+namespace c1
+{
+    bool g_want = false, g_probe = false;
+    uint32_t g_expect = 0;
+    int g_bridge = 0, g_bridgeStatus = -1, g_rc = 1, g_offRc = 1;
+    int g_testCreate = 1, g_testStart = 1, g_testEnd = 1, g_testRan = 0, g_testMask = 0;
+    bool g_core3 = false;
+    K2C1Bridge g_br;
+    K2Core3 g_res, g_off;
+    volatile int g_ran = 0;
+    void read()
+    {
+        char v[16];
+        if (!bootenv::get("SOTC_C1CORE3=", v, sizeof(v)) || !v[0] || v[0] == '0')
+            return;
+        g_want = true;
+        g_probe = v[0] == 'p';
+        char e[24];
+        if (bootenv::get("SOTC_C1CORE3_EXPECT=", e, sizeof(e)))
+        {
+            bool ok;
+            bootenv::num(e, g_expect, ok);
+            if (!ok)
+                g_expect = 0;
+        }
+    }
+    int testEntry(SceSize, void *)
+    {
+        g_ran = 1;
+        return 0;
+    }
+    void boot()
+    {
+        if (!g_want)
+            return;
+        std::memset(&g_br, 0, sizeof(g_br));
+        std::memset(&g_res, 0, sizeof(g_res));
+        std::memset(&g_off, 0, sizeof(g_off));
+        K2C1Bridge *bp = &g_br;
+        g_bridge = sceKernelLoadStartModule("app0:module/celosia_c1u.suprx", sizeof(bp), &bp, 0, nullptr, &g_bridgeStatus);
+        if (g_bridge < 0 || g_br.magic != K2C1_MAGIC || g_br.version != K2C1_VERSION || !g_br.core3)
+            return;
+        g_rc = g_br.core3(g_probe ? K2_C3_PROBE : K2_C3_ON, g_expect, &g_res);
+        if (g_probe || g_rc < 0 || g_res.hook_uid < 0)
+            return;
+        // The test: a thread on core 3 alone, created, started and waited for.
+        const SceUID t = sceKernelCreateThread("celosia_c1_core3", testEntry, 0x10000100, 0x1000, 0, 0x80000, nullptr);
+        g_testCreate = t;
+        if (t >= 0)
+        {
+            SceKernelThreadInfo info;
+            std::memset(&info, 0, sizeof(info));
+            info.size = sizeof(info);
+            if (sceKernelGetThreadInfo(t, &info) >= 0)
+                g_testMask = static_cast<int>(info.currentCpuAffinityMask);
+            g_testStart = sceKernelStartThread(t, 0, nullptr);
+            SceUInt timeout = 500000u; // 0.5 s
+            int status = 0;
+            g_testEnd = g_testStart >= 0 ? sceKernelWaitThreadEnd(t, &status, &timeout) : -1;
+            g_testRan = g_ran;
+            if (g_testEnd >= 0 || g_testStart < 0)
+                sceKernelDeleteThread(t); // (one that never ended is left alone)
+        }
+        g_core3 = t >= 0 && g_testStart >= 0 && g_testEnd >= 0 && g_testRan;
+        if (!g_core3)
+            g_offRc = g_br.core3(K2_C3_OFF, 0, &g_off);
+    }
+    void log()
+    {
+        if (!g_want)
+            return;
+        const K2Core3 &r = g_res;
+        std::fprintf(stderr, "[c1] core3 %s: bridge app0:module/celosia_c1u.suprx 0x%08x status %d; call rc %d: SceKernelThreadMgr info rc 0x%08x "
+                             "modid 0x%08x nid 0x%08x; site +0x%x at 0x%08x (rc 0x%08x): %08x | %08x %08x %08x %08x; expect %08x; hook 0x%08x, answers "
+                             "for pid 0x%08x (calls %u, ours %u); test thread 0x%08x mask 0x%x start 0x%08x end 0x%08x ran %d; release %s (rc %d): %s\n",
+                     g_probe ? "probe" : "on", static_cast<unsigned>(g_bridge), g_bridgeStatus, g_rc, static_cast<unsigned>(r.info_rc),
+                     static_cast<unsigned>(r.modid), static_cast<unsigned>(r.module_nid), K2_C3_OFFSET, static_cast<unsigned>(r.addr),
+                     static_cast<unsigned>(r.addr_rc), static_cast<unsigned>(r.before), static_cast<unsigned>(r.code[0]),
+                     static_cast<unsigned>(r.code[1]), static_cast<unsigned>(r.code[2]), static_cast<unsigned>(r.code[3]),
+                     static_cast<unsigned>(g_expect), static_cast<unsigned>(r.hook_uid), static_cast<unsigned>(r.pid),
+                     static_cast<unsigned>(r.calls), static_cast<unsigned>(r.ours), static_cast<unsigned>(g_testCreate), g_testMask,
+                     static_cast<unsigned>(g_testStart), static_cast<unsigned>(g_testEnd), g_testRan, g_offRc == 1 ? "no" : "yes", g_offRc,
+                     g_core3 ? "CORE 3 ON (SOTC_C1MAP may use 0x80000)"
+                     : g_bridge < 0 ? "core 3 off (no C1 bridge: K2 off, or an older K2 module still resident: reboot the console)"
+                     : g_probe ? "core 3 off (probe only)"
+                               : "core 3 off (hook or test failed), the game on cores 0-2");
+    }
+}
+// SOTC_C1MAP's maps ask this (native_renderer.cpp threads::place): 1 when the core-3 test passed.
+extern "C" int ps2x_c1_core3()
+{
+    return c1::g_core3 ? 1 : 0;
+}
 namespace k2
 {
     bool g_on = false;       // any K2 switch
@@ -426,7 +528,8 @@ namespace k2
                     g_remapOps |= 2u;
             }
         g_dry = bootenv::on("SOTC_K2REMAP_DRY=");
-        g_on = g_on || g_remapOps;
+        c1::read();
+        g_on = g_on || g_remapOps || c1::g_want;
         if (!g_on)
             return;
         k1::parseEvents();
@@ -450,6 +553,8 @@ namespace k2
         }
         else
             bridge(); // the console only (Vita3K's load succeeds): a K2 module left resident by an earlier, killed run
+        if (g_ok)
+            c1::boot(); // round C1: SOTC_C1CORE3 (core 3 for this process)
     }
     void remapText()
     {
@@ -1560,6 +1665,7 @@ extern "C" void ps2x_k2_boot_log()
                  static_cast<unsigned>(g_start.procevent_rc), g_upath, static_cast<unsigned>(g_bridge), g_bridgeStatus,
                  static_cast<unsigned>(g_hello), static_cast<unsigned>(g_hello4[3]),
                  g_ok ? "K2 on" : "K2 off (no answer: Vita3K / not found / unsafe homebrew off), the game as without it");
+    c1::log();
     logRemap("guest RAM", g_remapRamRc, g_remapRam);
     logRemap("text", g_remapTextRc, g_remapText);
     if ((g_remapOps & 1u) && g_remapRamRc == 1)

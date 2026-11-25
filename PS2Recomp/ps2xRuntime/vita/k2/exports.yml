@@ -17,3 +17,8 @@ celosia_k2:
         - celosiaK2Walk: 0xC2C20004
         - celosiaK2Remap: 0xC2C20005
         - celosiaK2Restore: 0xC2C20006
+    CelosiaK2C1:
+      syscall: true
+      nid: 0xC2C2C2C1
+      functions:
+        - celosiaK2Core3: 0xC2C1C001

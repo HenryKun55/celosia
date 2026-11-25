@@ -123,8 +123,46 @@ typedef struct K2Remap
 #define K2_ERR_FULL (-6)
 #define K2_ERR_ARGS (-7)
 #define K2_ERR_BUSY (-8)
+#define K2_ERR_SITE (-9)       /* C1: the hook site is not what was expected (unreadable, odd, or not `expect`) */
 
 #define K2_MAX_SECTIONS 160
+
+/* Round C1 (docs/decomp_c1.md): core 3 for the owner. A second syscall library of the same module, CelosiaK2C1 (its own
+ * NID, so an older resident K2 instance without it simply does not bind: the C1 bridge celosia_c1u.suprx fails to load
+ * and the game runs on cores 0-2). celosiaK2Core3(flags, out): K2_C3_ON hooks SceKernelThreadMgr's isIllegalAffinity
+ * (CapUnlocker's offset, segment 0 + 0x114C, Thumb) so that it answers "legal" for the owner's process only (every other
+ * process goes on to the original), K2_C3_PROBE reads the hook site without hooking, K2_C3_OFF releases the hook.
+ * `expect` (non-zero): the hook site's first word must equal it, else no hook (K2_ERR_SITE). The
+ * hook is also released when the owner exits or is killed and at module stop. */
+#define K2C1_LIB_NID 0xC2C2C2C1u
+#define K2C1_MAGIC 0x3143324Bu /* "K2C1" */
+#define K2C1_VERSION 1u
+#define K2_C3_ON 0x1u
+#define K2_C3_OFF 0x2u
+#define K2_C3_PROBE 0x4u
+#define K2_C3_OFFSET 0x114Cu /* SceKernelThreadMgr text: isIllegalAffinity (CapUnlocker / CoreUnlocker80000H, no FW branch) */
+
+typedef struct K2Core3
+{
+    int32_t rc;          /* 0 hooked (or released / probed), < 0: K2_ERR_* or the failing call's rc */
+    int32_t info_rc;     /* taiGetModuleInfoForKernel(KERNEL_PID, "SceKernelThreadMgr") */
+    int32_t modid;
+    uint32_t module_nid; /* the firmware's SceKernelThreadMgr build (told apart in the log) */
+    int32_t addr_rc;     /* module_get_offset */
+    uint32_t addr;       /* the hook site's kernel VA */
+    uint32_t code[4];    /* the hook site's first 16 bytes (before hooking) */
+    uint32_t before;     /* the 4 bytes before it */
+    int32_t hook_uid;    /* taiHookFunctionOffsetForKernel (>= 0: hooked) */
+    int32_t release_rc;
+    int32_t pid;         /* the process the hook answers for */
+    uint32_t calls, ours; /* the hook's calls so far, and how many were the owner's */
+} K2Core3;
+
+typedef struct K2C1Bridge
+{
+    uint32_t magic, version;
+    int (*core3)(uint32_t flags, uint32_t expect, K2Core3 *out);
+} K2C1Bridge;
 
 /* The bridge (celosia_k2u.suprx): module_start(sizeof(K2Bridge *), &ptr) fills the table. */
 typedef struct K2Bridge

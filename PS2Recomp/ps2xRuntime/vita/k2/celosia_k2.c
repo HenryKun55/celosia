@@ -24,6 +24,7 @@
 #include <psp2kern/kernel/threadmgr.h>
 #include <psp2kern/kernel/sysclib.h>
 #include <psp2kern/kernel/proc_event.h>
+#include <taihen.h> /* round C1: the core-3 hook (taihenForKernel, taihenModuleUtils: both exported by taiHEN itself) */
 
 #include "celosia_k2.h"
 
@@ -673,15 +674,59 @@ static void remap(uint32_t va, uint32_t size, uint32_t flags, K2Remap *r)
     r->rc = 0;
 }
 
+/* ---------------------------------------------------------------- round C1: core 3 for the owner */
+
+/* CapUnlocker (GrapheneCt) makes every game-mode app use core 3 (SCE_KERNEL_CPU_MASK_SYSTEM, 0x80000) by hooking
+ * SceKernelThreadMgr's isIllegalAffinity (text + 0x114C, Thumb; the same offset on every firmware it supports: only its
+ * other patch branches on the version) to return 0. Here the hook answers 0 for the owner's process only; every other
+ * caller (the shell, other apps, the kernel) goes on to the original. The hook is ours alone: installed on the game's
+ * request, released on its request, when it exits or is killed (g_c3pid cleared first, so the hook is inert at once)
+ * and at module stop. */
+int module_get_offset(SceUID pid, SceUID modid, int segidx, size_t offset, uintptr_t *addr);
+
+static tai_hook_ref_t g_c3ref;
+static SceUID g_c3hook = -1;
+static volatile SceUID g_c3pid = -1;
+static volatile uint32_t g_c3calls, g_c3ours;
+
+static int isIllegalAffinityC1(int a1, int a2, int a3)
+{
+    ++g_c3calls;
+    const SceUID pid = g_c3pid;
+    if (pid >= 0 && ksceKernelGetProcessId() == pid)
+    {
+        ++g_c3ours;
+        return 0;
+    }
+    /* TAI_CONTINUE spelled out: its `type(*)()` cast means (void) under C23 */
+    typedef int (*Fn)(int, int, int);
+    const struct _tai_hook_user *cur = (const struct _tai_hook_user *)g_c3ref;
+    const struct _tai_hook_user *next = (const struct _tai_hook_user *)cur->next;
+    return next == NULL ? ((Fn)cur->old)(a1, a2, a3) : ((Fn)next->func)(a1, a2, a3);
+}
+
+static int c3Release(void)
+{
+    g_c3pid = -1;
+    if (g_c3hook < 0)
+        return 0;
+    const int rc = taiHookReleaseForKernel(g_c3hook, g_c3ref);
+    if (rc >= 0)
+        g_c3hook = -1;
+    return rc;
+}
+
 /* ---------------------------------------------------------------- process events */
 
 static int onGone(SceUID pid)
 {
     if (pid != g_owner)
         return 0;
+    g_c3pid = -1; /* C1: the hook stops answering for this pid at once */
     if (lock())
     {
         putBack(0);
+        c3Release();
         g_owner = -1;
         unlock();
     }
@@ -877,6 +922,81 @@ int celosiaK2Restore(K2Remap *out)
     return rc;
 }
 
+/* Round C1: celosiaK2Core3 (library CelosiaK2C1). K2_C3_PROBE / K2_C3_ON: the hook site found and read; ON then hooks
+ * (if not hooked) and answers for the calling owner's pid. K2_C3_OFF: released. */
+static K2Core3 g_c3;
+int celosiaK2Core3(uint32_t flags, uint32_t expect, K2Core3 *out)
+{
+    if (userMode())
+        return -1;
+    uint32_t state;
+    ENTER_SYSCALL(state);
+    int rc = K2_ERR_NOT_OWNER;
+    const SceUID pid = ksceKernelGetProcessId();
+    if (pid == g_owner && lock())
+    {
+        K2Core3 *c = &g_c3;
+        memset(c, 0, sizeof(*c));
+        c->hook_uid = g_c3hook;
+        c->release_rc = 1;
+        if (flags & K2_C3_OFF)
+        {
+            c->release_rc = c3Release();
+            c->rc = c->release_rc < 0 ? c->release_rc : 0;
+        }
+        else if (flags & (K2_C3_ON | K2_C3_PROBE))
+        {
+            tai_module_info_t info;
+            memset(&info, 0, sizeof(info));
+            info.size = sizeof(info);
+            c->info_rc = taiGetModuleInfoForKernel(KERNEL_PID, "SceKernelThreadMgr", &info);
+            c->modid = info.modid;
+            c->module_nid = info.module_nid;
+            c->rc = c->info_rc;
+            if (c->info_rc >= 0)
+            {
+                uintptr_t a = 0;
+                c->addr_rc = module_get_offset(KERNEL_PID, info.modid, 0, K2_C3_OFFSET, &a);
+                c->addr = (uint32_t)a;
+                c->rc = c->addr_rc;
+                /* a kernel text address, even (Thumb code), readable for a privileged read (ATS first: no access
+                 * before a translation succeeded) */
+                if (c->addr_rc >= 0 && a && (a & 1u) == 0u && parOk(ats((uint32_t)a - 4u, 0)) && parOk(ats((uint32_t)a + 15u, 0)))
+                {
+                    memcpy(&c->before, (const void *)(a - 4u), 4);
+                    memcpy(c->code, (const void *)a, 16);
+                    c->rc = 0;
+                }
+                else if (c->addr_rc >= 0)
+                    c->rc = K2_ERR_SITE;
+                if (c->rc == 0 && expect && c->code[0] != expect && g_c3hook < 0)
+                    c->rc = K2_ERR_SITE;
+                if (c->rc == 0 && (flags & K2_C3_ON))
+                {
+                    if (g_c3hook < 0)
+                        g_c3hook = taiHookFunctionOffsetForKernel(KERNEL_PID, &g_c3ref, info.modid, 0, K2_C3_OFFSET, 1, isIllegalAffinityC1);
+                    c->hook_uid = g_c3hook;
+                    if (g_c3hook >= 0)
+                        g_c3pid = pid;
+                    else
+                        c->rc = g_c3hook;
+                }
+            }
+        }
+        c->pid = g_c3pid;
+        c->calls = g_c3calls;
+        c->ours = g_c3ours;
+        rc = c->rc;
+        if (out)
+            ksceKernelMemcpyKernelToUser(out, c, sizeof(*c));
+        unlock();
+    }
+    else if (pid == g_owner)
+        rc = K2_ERR_BUSY;
+    EXIT_SYSCALL(state);
+    return rc;
+}
+
 /* ---------------------------------------------------------------- module */
 
 int module_start(SceSize args, void *argp);
@@ -917,9 +1037,11 @@ int module_stop(SceSize args, void *argp)
         return -1;
     (void)args;
     (void)argp;
+    g_c3pid = -1;
     if (lock())
     {
         putBack(0);
+        c3Release();
         unlock();
     }
     if (g_evh >= 0)
