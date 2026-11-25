@@ -666,6 +666,23 @@ if(PS2X_IS_VITA)
             message(STATUS "VPK: ${PS2X_VITA_SEED_COUNT} seeded shaders from ${PS2X_VITA_SHADER_SEED}")
         endif()
 
+        # Round K1 (docs/decomp_k1.md): the kernel module the game loads itself with taiLoadStartKernelModule
+        # (SOTC_K1 / SOTC_K1RAM in env.txt; never through ur0:tai/config.txt), packed as module/celosia_k1.skprx.
+        # Built with the SDK's tools directly: vita_create_self is a macro whose CONFIG flags would leak into the
+        # eboot's call below.
+        set(PS2X_K1_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vita/k1")
+        set(PS2X_K1_OUT "${CMAKE_CURRENT_BINARY_DIR}/celosia_k1")
+        add_custom_command(OUTPUT "${PS2X_K1_OUT}.skprx"
+            COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K1_DIR}"
+                    "${PS2X_K1_DIR}/celosia_k1.c" -o "${PS2X_K1_OUT}.elf" "-L${PS2X_VITASDK}/arm-vita-eabi/lib"
+                    -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub -lSceSysclibForDriver_stub -lgcc
+            COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K1_DIR}/exports.yml" "${PS2X_K1_OUT}.elf" "${PS2X_K1_OUT}.velf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_K1_OUT}.velf" "${PS2X_K1_OUT}.skprx"
+            DEPENDS "${PS2X_K1_DIR}/celosia_k1.c" "${PS2X_K1_DIR}/celosia_k1.h" "${PS2X_K1_DIR}/exports.yml"
+            COMMENT "Building the K1 kernel module celosia_k1.skprx"
+            VERBATIM)
+        list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_K1_OUT}.skprx" "module/celosia_k1.skprx")
+
         vita_create_self(eboot.bin ps2EntryRunner UNSAFE)
         vita_create_vpk(ps2EntryRunner.vpk ${PS2X_VITA_TITLEID} eboot.bin
             VERSION ${PS2X_VITA_VERSION}

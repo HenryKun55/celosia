@@ -278,6 +278,9 @@ namespace { const std::align_val_t kRdramAlignment{4096}; } // round 66: guest R
 extern "C" void *ps2x_m1_guest_block;
 extern "C" unsigned int ps2x_m1_guest_block_bytes;
 extern "C" int ps2x_m1_guest_block_aligned;
+// Round K1 (ps2_vita_runtime.cpp): where the guest RAM is (the probes), and the kernel module's boot answer in err.txt.
+extern "C" void *ps2x_k1_guest_ram;
+extern "C" void ps2x_k1_boot_log();
 #endif
 namespace
 {
@@ -597,7 +600,9 @@ bool PS2Memory::initialize(size_t ramSize)
         std::memset(m_rdram, 0, ramSize + 16u);
 #if defined(PLATFORM_VITA)
         std::fprintf(stderr, "[mem] guest RAM at %p (%u KB)%s\n", static_cast<void *>(m_rdram), static_cast<unsigned>(ramSize / 1024u),
-                     !s_ramInBlock ? "" : ps2x_m1_guest_block_aligned ? ", m1ram: own 33 MB block, 1 MB aligned" : ", m1ram: own 33 MB block (alignment option refused)");
+                     !s_ramInBlock ? "" : ps2x_m1_guest_block_aligned == 2 ? ", k1ram: 33 MB block allocated by the kernel module" : ps2x_m1_guest_block_aligned ? ", m1ram: own 33 MB block, 1 MB aligned" : ", m1ram: own 33 MB block (alignment option refused)");
+        ps2x_k1_guest_ram = m_rdram;
+        ps2x_k1_boot_log(); // round K1: nothing unless SOTC_K1 / SOTC_K1RAM
 #endif
 
         // Allocate scratchpad
