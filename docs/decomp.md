@@ -24510,3 +24510,25 @@ docs/decomp_i2.md. Packages, env files, README: `build/agent-scratch/i2/pkg` (ba
   ctx->pc at the call event).
 - **Checks**: spalign 0 (p0, p1, p2, p2o, p2s), ELF room 122 880, no overlap. 89 MB ride7 boots of base / I2a / I2b normal
   (pictures looked at). Console A/B: env-i2.txt (K2 counters); icache miss / stall / cycles per frame decide.
+
+## Decomp P3: K2 without a reboot between launches, brackets one level down, the probe's PPI / CPU-interface checks (SOTC_P2BRACKET=2, SOTC_P2BRACKET_CLOCK, SOTC_P2PMUSAMPLE=probe; off by default) (2026-11-25)
+
+docs/decomp_p3.md. Package, env file, README: `build/agent-scratch/p3/` (celosia-p3.vpk, built on 8d340e7). Nothing changes a
+computation; with the switches off the game is main's.
+
+- **Relaunch**: the second launch got `taiStartKernelModule 0x8002d013` (the resident module's id handed back by the load) and
+  never tried the bridge: k2::boot now bridges to the resident module whenever the start fails; the hello decides (version).
+  Kernel: the hello releases a previous owner's C1 hook / P2 handler / probe results if the process-event handler did not;
+  onGone also forgets P2's probe results. K2_VERSION 2 (P2_VERSION 2): reboot once after P2, never again.
+- **Brackets one level down** (SOTC_P2BRACKET=2): 57 more (79 in all), chosen from the P2 console run's own prof129 (pc, ra)
+  caller chains under execScript / ExecCharaGeometry / DispDispObjGroupModel and pruned to < ~200 calls a frame by a Vita3K count
+  (SOTC_P2BRACKET_CLOCK=1: the brackets on the process clock without K2). Game thread only (TPIDRURO), a child charges its parent
+  with one read, `nest` and `par=` per line; tools/p2_report.py subtracts (calls + 2 x nested) reads, prints the bracket cost and a
+  tree. ~920 bracket calls a frame on the ride: ~2.0 M cycles (~4.5 ms) of reads in that run, subtracted from the numbers.
+- **Vita3K's tree** (shape only): execScript's self is scriptPass's walk (10%), the script bodies in the wakes (4%),
+  ExecObjectAnimation (3%), charaCtrl (5%), frame-start / end graph work; ExecCharaGeometry's: root dynamics, cloth, IK, motion
+  matrices; the display's: the model walk, the light pass, ClipLayoutObjModel's remainder.
+- **Probe** (SOTC_P2PMUSAMPLE=probe, probe only): also this core's PPI word (A9 private lines 27-31) and the GIC CPU interface's
+  HPPIR / RPR while the overflow line is up; the console's -4 came back as 0xbffffffc: decoded now.
+- **Checks**: spalign 0 of 3 008, ELF room 122 880, no overlap; 89 MB ride7 boots off / on (pass-through and clock) normal,
+  pictures looked at. Console: reboot once, env-p3-bracket.txt, one ride.
