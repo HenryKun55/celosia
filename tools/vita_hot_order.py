@@ -148,6 +148,9 @@ def main():
                 '   regenerate after big native changes with tools/vita_hot_order.sh: round 121 found the round 66 order stale,\n'
                 '   round M1 the D rounds\' bodies outside it). */\n'
                 '.text : {\n')
+        # Round I2: the lifted code's shared call helpers (game/overrides/lift_outline.h, PS2X_VITA_LIFTED_OUTLINE=ON;
+        # every guest call of the lifted D files goes through them) first; with the option off nothing matches.
+        f.write('  *(.text.ps2lift_* .text.hot.ps2lift_*)\n')
         # (.text.hot.<name>: GCC's section for a function a PGO profile found hot, round 121)
         for k in order:
             # Round M1: GCC names a lambda's section after the first lambda of its scope (`..UljE_clEj`) while the
