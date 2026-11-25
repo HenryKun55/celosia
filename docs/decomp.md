@@ -24311,3 +24311,28 @@ computation; Vita3K cannot judge any of it (no caches / TLBs), so the console de
 - **Checks**: spalign 0 of 2 430 (p3 / p4), ELF room unchanged, no overlap. 89 MB ride7 boots: defaults (mounted 2 220, to frame
   17 718), m1ram (mounted 2 305, heap 75.1 MB used), m1pmu + m1alloc (mounted 2 378), old order 300 s (boots; no mount this time,
   timing-sensitive); pictures normal.
+
+## Decomp K1: a kernel module of our own: PMU in user mode, page sizes, a kernel-allocated guest RAM (SOTC_K1 / SOTC_K1RAM off by default) (2026-11-25)
+
+docs/decomp_k1.md. Packages, env files, README: `build/agent-scratch/k1/`. Why: the console refused ScePerf to the game (M1's probe:
+`sysmodule perf 0x805a1000 ... off`), and the console's ~44-48 ms game thread looks memory / TLB bound in ways Vita3K cannot model.
+Nothing changes a computation.
+
+- **celosia_k1.skprx** (PS2Recomp/ps2xRuntime/vita/k1/, 6.4 KB, packed as `module/celosia_k1.skprx`): loaded by the game itself at
+  boot (`taiLoadKernelModule` + `taiStartKernelModule`; never ur0:tai/config.txt, so it can never stop the console booting; needs
+  HENkaku's unsafe homebrew), runs once in the game's syscall, writes a K1Result into the game (believed only with this boot's
+  nonce), returns NO_RESIDENT (the game also unloads it). Only ForDriver imports taiHEN-era plugins use.
+- **SOTC_K1=1**: per core, a pinned kernel thread sets PMUSERENR.EN and programs six events + the cycle counter (left alone where
+  the PMU is already in use; `SOTC_K1_FORCE=1`); CP15 registers logged (ACTLR's prefetch bits are secure-world only: read, not set).
+  M1's `[m1pmu]` lines then come from the counters read in user mode on the game thread (core 0), + cycles; PMUSERENR re-checked
+  every frame. At the first frame: VA -> PA layouts of the text / guest RAM / heap (`[k1] layout`: physically contiguous aligned
+  64 KB / 1 MB chunks) and TLB probes (`[k1probe]`: 4 KB- / 64 KB-stride walks, dTLB refills per load give the page size).
+  `SOTC_K1_EVENTS` picks the events (env-k1-tlbstall.txt: main-TLB stall cycles, instructions ...).
+- **SOTC_K1RAM=1**: the 33 MB guest RAM block allocated by the module (kubridge's pattern: USER_* type from the game's syscall + a
+  user UID) from candidates (USER_RW + PHYCONT attr, USER_MAIN_GAME_RW, plain USER_RW), the one with the most large-page-capable
+  chunks kept; anything else falls back to M1's block / the default. Whether any gets large pages: the console's `[k1probe] guest RAM`.
+- **Vita3K**: its taiHEN HLE's `taiLoadStartKernelModuleForUser` hangs the boot (starts the module under its kernel mutex): hence
+  the two-step load (its start is a stub: the module never runs there); the module also leaves at once in user mode.
+- **Checks**: spalign 0 of 2 430; ELF room 122 880; no overlap. 89 MB ride7 boots 600 s: off (no `[k1]` line; mounted 3 261, to
+  11 118), K1 + K1RAM + probe + M1PMU (no answer, clean fallback; mounted 3 511, to 11 298); pictures normal. Console runs pending
+  (README: env-k1-pmu first, then tlbstall, ram, m1ram, off).
