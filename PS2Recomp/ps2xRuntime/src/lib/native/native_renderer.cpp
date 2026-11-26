@@ -177,6 +177,10 @@ namespace native_renderer
                 d.backgroundDepth = std::atoi(std::getenv("SOTC_BG_DEPTH")) != 0;
             d.mipmaps = !on("SOTC_NATIVE_NOMIPS");
             d.textureScroll = !on("SOTC_NATIVE_NOROW");
+            if (on("SOTC_TEXTURE_PACK"))
+                d.texturePack = std::atoi(std::getenv("SOTC_TEXTURE_PACK")) != 0;
+            if (on("SOTC_TEXTURE_DUMP"))
+                d.textureDump = std::atoi(std::getenv("SOTC_TEXTURE_DUMP")) != 0;
             d.rawMirror = on("SOTC_RAW_MIRROR");
             d.hazeSource = number("SOTC_HAZE_SOURCE", d.hazeSource);
             d.waterSource = number("SOTC_WATER_SOURCE", d.waterSource);
@@ -293,6 +297,10 @@ namespace native_renderer
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.frameCap30 != d.frameCap30)
             add(std::string("SOTC_CAP30=") + (t.frameCap30 ? "1" : "0"));
+        if (t.texturePack != d.texturePack)
+            add(std::string("SOTC_TEXTURE_PACK=") + (t.texturePack ? "1" : "0"));
+        if (t.textureDump != d.textureDump)
+            add(std::string("SOTC_TEXTURE_DUMP=") + (t.textureDump ? "1" : "0"));
         if (t.frameRate != d.frameRate)
             add(std::string("SOTC_CAP20=") + (t.frameRate >= 0.5f ? "1" : "0"));
         if (t.midFrameRedraw != d.midFrameRedraw)
@@ -457,6 +465,13 @@ namespace native_renderer
             {"heat_haze", "Heat haze", "Distorção de calor", "The shimmering air the screen copy makes (behind the bird colossus, some fights). The underwater ripple stays.",
              "O ar tremulando feito com a cópia da tela (atrás do colosso pássaro, algumas lutas). A ondulação embaixo d'água continua.",
              &Tuning::heatHaze, nullptr, 0, 1, 1, "SOTC_NATIVE_NOHAZE"},
+            // Worklist #21: texture packs (runtime/texture_pack.h).
+            {"texture_pack", "Texture pack", "Pacote de texturas",
+             "Mac only: textures that have a picture in textures/pack/ (named by the texture's id, see Debug \"Dump textures\") are drawn with it "
+             "instead, at the same size or 2x, 4x or 8x. Off: the game's own textures.",
+             "Só Mac: as texturas que têm uma imagem em textures/pack/ (com o nome pelo id da textura, veja Debug \"Extrair texturas\") são "
+             "desenhadas com ela, no mesmo tamanho ou em 2x, 4x ou 8x. Desligado: as texturas do próprio jogo.",
+             &Tuning::texturePack, nullptr, 0, 1, 1, "SOTC_TEXTURE_PACK"},
             // (Round 62: a menu item on the Vita again, as the user asked; round
             // 64: off by default (the user's choice), a saved value honoured,
             // SOTC_CAP30 over both. On, it caps only the heavy frames: above 150
@@ -659,6 +674,12 @@ namespace native_renderer
             v.push_back(item);
         }
         debugToggle("dbg_mips", "Mipmaps", "Mipmaps", "Smaller textures far away.", "Texturas menores ao longe.", &Tuning::mipmaps, "SOTC_NATIVE_NOMIPS");
+        debugToggle("dbg_texture_dump", "Dump textures", "Extrair texturas",
+                    "Mac only: every texture decoded from now on is written once as textures/dump/<id>.png (alpha 0x80 saved as 255), to edit and copy into "
+                    "textures/pack/ for Graphics \"Texture pack\". Only new textures: go through an area again (or restart) to get the ones already loaded.",
+                    "Só Mac: cada textura decodificada daqui em diante é gravada uma vez como textures/dump/<id>.png (alfa 0x80 gravado como 255), pra editar "
+                    "e copiar para textures/pack/ no \"Pacote de texturas\" dos Gráficos. Só texturas novas: passe pela área de novo (ou reinicie) pra pegar as já carregadas.",
+                    &Tuning::textureDump, "SOTC_TEXTURE_DUMP");
         debugToggle("dbg_scroll", "Texture scrolling", "Rolagem de textura", "Water and cloth textures that move.", "Texturas que se movem (água, tecido).",
                     &Tuning::textureScroll, "SOTC_NATIVE_NOROW");
         debugToggle("dbg_subsys_prof", "Subsystem timing log", "Log de tempo por subsistema",
@@ -763,6 +784,8 @@ namespace native_renderer
             {"render_scale", 2, "Cost: GPU (pixels: 0.5x draws a quarter of 1x's, 2x four times) and GPU memory.",
              "Custo: GPU (pixels: 0,5x desenha um quarto dos de 1x, 2x quatro vezes) e memória da GPU."},
             {"texture_filter", 2, "Cost: GPU, small (texture reads).", "Custo: GPU, pequeno (leitura de texturas)."},
+            {"texture_pack", 2, "Cost: GPU memory (bigger pictures) and reading the PNGs when an area loads.",
+             "Custo: memória da GPU (imagens maiores) e a leitura dos PNGs quando uma área carrega."},
             {"msaa", 2, nullptr, nullptr},
             {"effect_detail", 2, nullptr, nullptr},
             {"bloom", 3, "Cost: GPU (the bloom chain's small passes and a full-screen composite).", "Custo: GPU (as passadas pequenas do bloom e uma composição na tela inteira)."},
@@ -821,6 +844,8 @@ namespace native_renderer
             item.inPreset = isPresetField(item);
             if (key == "msaa" || key == "effect_detail")
                 item.backends = 1;
+            if (key == "texture_pack")
+                item.restart = true; // the pack's folder is read once (texture_pack::packIds)
             if (key == "bloom_rounds" || key == "bloom_spread" || key == "dbg_haze_source" || key == "dbg_water_source" || key == "dbg_redraw_mode0" || key == "dbg_glow_vita" || key == "dbg_bloom_sameframe" ||
                 key == "dbg_gpu_skin" || key == "dbg_render_thread" || key == "dbg_gl_pools" || key == "dbg_gl_merge" || key == "dbg_gl_lean" ||
                 key == "dbg_gl_nodiscard")

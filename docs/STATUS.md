@@ -119,6 +119,14 @@ The heat haze item (new): the screen-copy draws (the shimmer behind the bird
 colossus, some fights) left out; the underwater ripple (layer 19) stays
 (`SOTC_NATIVE_NOHAZE=1`).
 
+Texture pack (`texture_pack`, Mac only, not in any preset): textures that
+have a picture in `textures/pack/<id>.png` are drawn with it, at the same
+size or 2x, 4x or 8x; the one Graphics item that needs a restart (the
+folder is read once). Debug "Dump textures" (`dbg_texture_dump`) writes
+each texture decoded from then on to `textures/dump/<id>.png`.
+`SOTC_TEXTURE_PACK=1`, `SOTC_TEXTURE_DUMP=1`. See
+[texture_packs.md](texture_packs.md).
+
 **Measuring.** A `[gfx124] frame F preset P key=value ...` line at start and
 whenever any preset item changes (menu, F10, A/B); every `[frame]` line ends
 with `| gfx <preset>` and `[stats]` has `gfx=<preset>`.

@@ -87,6 +87,12 @@ namespace native_renderer
         bool skyImage = true;       // the sky image laid behind the scene (bgEnd's copy)
         bool mipmaps = true;        // SOTC_NATIVE_NOMIPS
         bool textureScroll = true;  // VIF ROW scrolling (SOTC_NATIVE_NOROW)
+        // Texture packs (worklist #21, runtime/texture_pack.h; Mac only):
+        // the textures that have a picture in textures/pack/ drawn with it
+        // (SOTC_TEXTURE_PACK=1; read at start), and each decoded texture
+        // written once to textures/dump/ (SOTC_TEXTURE_DUMP=1).
+        bool texturePack = false;
+        bool textureDump = false;
         // The picture shown at most 30 times a second, evenly (SOTC_CAP30).
         // Off by default: above 30 fps (logos, menus, loading) the game
         // thread is held back, and with it every guest thread (in Vita3K's

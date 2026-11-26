@@ -30,6 +30,7 @@
 #include "runtime/native_recorder.h"
 #include "runtime/host_menu.h"
 #include "runtime/native_renderer.h"
+#include "runtime/texture_pack.h"
 #include "runtime/ps2_diag.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/ps2_gs_psmct32.h"
@@ -1370,7 +1371,9 @@ namespace sotc_native
             const uint64_t clut = clutBytes ? contentHash(header + word(header + 0x18u), clutBytes, 0xC1u) : 0u;
             native_recorder::textureSource(key, header, psm, width, height, format, clut);
         }
-        const auto finish = [key, width, height, header, psm](const std::vector<uint8_t> &rgba, uint32_t decoded)
+        // `width` x `height`: the picture's own size, which a texture pack's
+        // picture may change (texture_pack::apply; the UVs are normalised).
+        const auto finish = [key, header, psm](const std::vector<uint8_t> &rgba, uint32_t width, uint32_t height, uint32_t decoded)
         {
             if (dumpDir)
             {
@@ -1384,14 +1387,28 @@ namespace sotc_native
             }
             native_renderer::uploadTexture(key, width, height, rgba.data(), decoded);
         };
-        // On the worker: decoded there, uploaded at the next frame's start.
-        auto out = std::make_shared<std::pair<std::vector<uint8_t>, uint32_t>>();
+        // On the worker: decoded there (and a texture pack's picture read
+        // there), uploaded at the next frame's start.
+        struct Decoded
+        {
+            std::vector<uint8_t> rgba;
+            uint32_t width = 0, height = 0, levels = 0;
+        };
+        auto out = std::make_shared<Decoded>();
+        out->width = width;
+        out->height = height;
         auto ok = std::make_shared<bool>(false);
-        if (!changedInPlace && native_renderer::buildAsync({key}, [src, out, ok] { *ok = decodeTexture(*src, out->first, out->second); },
+        if (!changedInPlace && native_renderer::buildAsync({key},
+                                        [src, out, ok]
+                                        {
+                                            *ok = decodeTexture(*src, out->rgba, out->levels);
+                                            if (*ok && texture_pack::active())
+                                                texture_pack::apply(out->rgba, out->width, out->height, out->levels);
+                                        },
                                         [out, ok, finish]
                                         {
                                             if (*ok)
-                                                finish(out->first, out->second);
+                                                finish(out->rgba, out->width, out->height, out->levels);
                                         }))
         {
             if (decodeStart)
@@ -1399,12 +1416,16 @@ namespace sotc_native
             return key;
         }
         static std::vector<uint8_t> rgba;
-        uint32_t decoded = 0;
+        uint32_t decoded = 0, shownWidth = width, shownHeight = height;
         if (!decodeTexture(*src, rgba, decoded))
             return 0;
+        // A texture rewritten in place (animated) is a new picture each time:
+        // no pack lookup or dump for it.
+        if (!changedInPlace && texture_pack::active())
+            texture_pack::apply(rgba, shownWidth, shownHeight, decoded);
         if (decodeStart)
             native_renderer::frameCounters().decodeUs += native_renderer::nowUs() - decodeStart;
-        finish(rgba, decoded);
+        finish(rgba, shownWidth, shownHeight, decoded);
         return key;
     }
 

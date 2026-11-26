@@ -51,7 +51,7 @@ reflection detail) is what exists so far (STATUS.md, Settings).
 | # | Item | Feasibility |
 |---|------|-------------|
 | 20 | Widescreen 16:9 (hor+) | medium-hard: the projection is easy to widen, but the game culls models and parts against its 4:3 frustum (things would pop in at the sides), 2D, fades and cinema bars are laid out in 512 x 448, and the screen copies (refraction, haze, bloom mask, DoF) assume that frame; each needs its own fix |
-| 21 | Texture replacement packs (upscaled textures) by content hash | easy-medium: textures are already decoded once and cached by a content hash; load `<hash>.png` from a folder at decode time (mip chain rebuilt), dump mode to collect them |
+| 21 | Texture replacement packs (upscaled textures) by content hash | done (Mac): Graphics "Texture pack" (`SOTC_TEXTURE_PACK=1`) draws `textures/pack/<id>.png` over a texture, same size or 2x / 4x / 8x, mips by a box filter; Debug "Dump textures" (`SOTC_TEXTURE_DUMP=1`) writes `textures/dump/<id>.png`. The id is a hash of the decoded level 0, stable across runs. [docs/texture_packs.md](texture_packs.md) |
 | 22 | Longer draw distance | hard: what is drawn far is the game's choice (its own culling, fog distances and LOD tables); pushing the fog out shows the edges of what it loads |
 | 23 | Better shadows (shadow maps for the world) | hard: the game has character shadow volumes only; world shadows are baked into vertex colours, so new ones would double them |
 | 24 | SSAO | medium: the depth buffer is there after the opaque layers; a pass before the translucent layers, but it darkens the baked lighting too, so it needs tuning per scene |
