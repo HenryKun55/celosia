@@ -24553,3 +24553,23 @@ docs/decomp_w3.md. Package, env files, README: `build/agent-scratch/w3/` (celosi
   89 MB ride7 / lake6 on and off normal, pictures looked at; W3_CHECK 387 194 (ride7) and 428 611 (lake6) checks, 0 differ; no
   frozen-picture or difftest mode. Expected gain: the walk's share (~0.1-0.3 ms); the bodies (~3.6 ms console) are the next
   target. Console: env-w3-off / env-w3-on, two rides.
+
+## Decomp W1: the display walk Vita-style, first cut (SOTC_W1=1, off by default) (2026-11-25/26)
+
+docs/decomp_w1.md. Package, env files, README: `build/agent-scratch/w1/` (celosia-w1.vpk, built on 063f62c). One switch for the
+console's A/B; every part is exact (SOTC_W1_CHECK compares each one against the old code).
+
+- **Group as a host scene**: round C2's scene list comes on with W1, at prefetch level 2. The group pass, InitLayoutObjMatrix and
+  the light pass ask (PLD) for their next objects' lines from a dense host array instead of chasing the guest chain. Found on the
+  way: round 140's clip helper is off whenever d1native is on (its slot test sees the D1 dispatcher).
+- **iosDlLockObj in host code** in the draw loop while the walk holds the isys lock (`decomp_isys::w1LockHost`), with the same
+  writes as before (delete lock, frame, link into the group, depth, count). About 100-190 three-call guest chains a walk fewer.
+- **CalcLightLayoutObj's getters** (GetLayoutClass's plain cases, GetCharacterClass, GetGeometryPointerObject) as host reads,
+  about 55-130 guest calls a walk fewer.
+- **Bone palette** in one pass: one memcpy per UNPACK, no zero fill when the UNPACKs cover the range.
+- **Direct brackets** (`sotc_p2::DirectScope`, level >= 1, both halves): w1GroupPass / w1CopyList / w1LightPass / w1DrawLoop /
+  w1Palette / w1CalcLight.
+- **Checks**: spalign 0 of 3 008. Room 122 880, no overlap; a separate 4 KB `sotc_w1_elf_pad` moves this build's text end past a
+  64 KB boundary. Vita3K check rides with every check on: ride7 0 differences in 1.99 M locks, 1.39 M getters, 128 600 palettes;
+  lake6 0 differences (and a recheck of the packaged build). 89 MB boots off and on on ride7, off on lake6, pictures looked at; lake6 on-boots and short controls hit a save-load flake in off runs too (not W1; decomp_w1.md). Console: env-w1-off.txt then env-w1-on.txt,
+  one ride each.
