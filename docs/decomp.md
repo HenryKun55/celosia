@@ -24608,3 +24608,23 @@ README.txt), built on 8e39115. Needs SOTC_D1NATIVE=1.
 - spalign 0 of 3 314, ELF room 122 880, no overlap. Expected console gain ~0.1-0.2 ms a frame (body) plus a small part of xz's
   0.29 M cycles; console A/B pending.
 
+## Decomp X2: the script bodies ranked by weight; the heaviest (the small animals' script) as native C++ (SOTC_X2=1, off by default) (2026-11-26)
+
+docs/decomp_x2.md. Package, env files, README: `build/agent-scratch/x2/` (celosia-x2.vpk / .elf, env-x2-off / -on / -rank, built
+on 8e39115 + X2).
+
+- **Ranking tools**: `SOTC_X2_RANK=1` (one bracket per body function, level >= 2) and `SOTC_X2_ZONE=1` with prof129 (each sample
+  marked by the body it runs in, the P2 wrappers mark theirs, so the console splits execScript's self by body, type and function;
+  `tools/x2_zone.py`).
+- **Ranking** (Vita3K's zone split at the console's bracket level applied to the 2026-11-26 console samples, ms a frame): the
+  small animals' script 0.76, st_collisionalias 0.71 (the strand solver 0.25), st_playObjAnim 0.57 (the object animation),
+  the sheath script 0.31 (two collision functions), Agro's AI 0.28, the player 0.18, the sound / small-object manager 0.18, the
+  life bar 0.11; ~3.5 ms of execScript's 7.1 ms self. Per type (Vita3K): characters (0x09) lead on the ride, type 0x21 in the
+  lake. **The bodies are thin sequencers (under 2% of their own weight); the weight is the libraries they call** (AI, cloth /
+  strands, object animation, the sheath's collision test): the next rounds' targets.
+- **X2**: the animal body (gamecore_sub_013E3840) on a typed view of its work with a phase state machine for its sleeps, the
+  getters as host reads, AI_OptFloatFrameSample native; callee-saved registers and frame as the original at every call and
+  sleep (a sub-thread moves between the old and new body either way).
+- **Checks**: SOTC_X2_CHECK (each step against the old statements; the getters against the guest call): ride7 662 856 checks,
+  0 differ; lake6 4 073, 0 differ. spalign 0 of 3 026, ELF room 122 880, no overlap; rides on normal, pictures looked at.
+  Expected gain small (~0.02-0.05 ms); the rank ride (env-x2-rank) measures the body table on the console.

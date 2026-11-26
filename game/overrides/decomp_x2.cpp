@@ -1,10 +1,10 @@
 // Round X2 (SOTC_X2=1, off by default; docs/decomp_x2.md): the script bodies by weight, the heaviest as native C++.
 //
 // Ranking (round X2's zone split of execScript's self, decomp_w3.cpp's SOTC_X2_ZONE / SOTC_X2_RANK): the script bodies are
-// thin sequencers; their cost is the AI library they call. By the console's own samples per function (Vita3K's split applied
-// to the 2026-11-26 console run): the small animals' script (gamecore_sub_013E3840) ~0.43 ms a frame, the sheath script ~0.30,
-// Agro's AI (gamecore_sub_01395E20) ~0.25, the sound / small-object manager (013F6080) ~0.16, the player's script ~0.15, the
-// life bar ~0.11, the sword ~0.10; ~1.8 ms in all, a long tail.
+// thin sequencers; their cost is the libraries they call. By the console's own samples per function (Vita3K's zone split at
+// the console's bracket level applied to the 2026-11-26 console run, docs/decomp_x2.md): the small animals' script
+// (gamecore_sub_013E3840) ~0.76 ms a frame, st_collisionalias ~0.71, st_playObjAnim ~0.57, the sheath script ~0.31, Agro's AI
+// (gamecore_sub_01395E20) ~0.28, the player's script ~0.18, the sound / small-object manager ~0.18; ~3.5 ms in all.
 //
 // What X2 makes native (each a C++ function on a typed view of the guest structs; no lifted code, no guest call for a getter):
 //  - the animal script's body (decomp_scriptvm4's animalScript hands over while SOTC_X2=1): the animal's work as a struct view
