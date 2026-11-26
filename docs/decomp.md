@@ -24676,3 +24676,25 @@ README.txt), built on xm (X1 + X2 + X3).
   evaluators (still recompiled MIPS) and the updates: the next step.
 - **Console**: env-y3-off.txt then env-y3-on.txt, one ride each; expected ~0.05-0.15 ms a frame in the shrine area and while
   riding out of it, about nothing on the open plain.
+
+## Decomp Y2: the cloth / strand library as native C++ (SOTC_Y2=1, off by default) (2026-11-26)
+
+docs/decomp_y2.md. Package: `build/agent-scratch/y2/` (celosia-y2.vpk / .elf, env-y2-off.txt, env-y2-on.txt, README.txt),
+built on main bc473f3.
+
+- **The strand solver** (gamecore_sub_013B8DC8, 1 096 MIPS instructions, Wander's mantle: the whole-set callback
+  nico_execPlayerMantle hands getClothDynamics) as C++ on typed views (`y2_cloth.cpp`: StrandSet / Grid / Row / RowParams /
+  Limit / Params): the pair relaxation, the two anchor frames (bones 10 and 0; iosTransMatrixF / iosMulRotMatrixXInt16 as
+  host math, the sine table), the third frame (round 122's GetQuaternionByAxisDirZY core, the quaternion matrix), the
+  walk's constraint and cylinder pushes; its 0x2b0-byte frame as host locals, no guest calls, D1's float operations in
+  the old order. The demos' per-point callback keeps the D1 body.
+- **getClothDynamics** (`y2_dynamics.inc`): the flip, D1's step and velocity cores and the strands as C++ calls; the
+  context only for the other callbacks (reins, fringe, the horse's cloths) and type-1 velocities, set up as the D1 driver
+  has it there.
+- **Checks** (SOTC_Y2_CHECK, segment by segment old vs new on the game thread, callee-saved registers, page-hash scans for
+  writes outside the regions): chkG + lchkG + chkH (the package): flip + step 650 104, strands 59 708, velocity 174 988,
+  registers 650 104, **0 differ**; 1 729 scans, 0 pages outside. spalign 0 of 3 320, room 122 880, no overlap. Pictures
+  normal (cape, mane, tail, reins riding). One check run (chkG, p4) stalled in Vita3K at ~310 s, not reproduced (chkH 900 s).
+- **Speed**: Vita3K getClothDynamics 1 242 -> 1 185 us a frame (clock brackets; strands 40 us a solve). Expected on the
+  console ~0.1-0.2 ms a frame (the solver's frame / call traffic, the driver's hand-overs).
+- **Console**: env-y2-off.txt then env-y2-on.txt, one ride each.
