@@ -24573,3 +24573,19 @@ console's A/B; every part is exact (SOTC_W1_CHECK compares each one against the 
   64 KB boundary. Vita3K check rides with every check on: ride7 0 differences in 1.99 M locks, 1.39 M getters, 128 600 palettes;
   lake6 0 differences (and a recheck of the packaged build). 89 MB boots off and on on ride7, off on lake6, pictures looked at; lake6 on-boots and short controls hit a save-load flake in off runs too (not W1; decomp_w1.md). Console: env-w1-off.txt then env-w1-on.txt,
   one ride each.
+
+## Decomp W2: the character pipeline's hot math batched for the A9 (SOTC_W2, off by default) (2026-11-25)
+
+docs/decomp_w2.md. Package: `build/agent-scratch/w2/` (celosia-w2.vpk / .elf, env-w2-off.txt, env-w2-on.txt, README.txt), built
+on 063f62c. Inside d1native's D bodies; each element gets the same operations, clamps and order as before (four elements in the
+lanes of one register), and only where the arrays involved do not overlap.
+
+- **Pose** (GetMotionMatrix's D3 core -> s3chara::poseW2): the bones' locals and quaternions normalised four at a time before /
+  after the walk; the walk keeps only boneMatrix / qmul along the parent chain.
+- **ExecCharaGeometry's node quaternions** (w2geo::nodeQuats): the dot products four nodes at a time, VU0's rsqrt per node in order.
+- **Root blend** (rootBlendD3): its three bone loops four bones at a time; each loop's last bone runs the D3 code, so the VU0 /
+  frame state is left as before.
+- **Checks**: spalign 0 of 3 030, ELF room 122 880, no overlap; host lane test 0 mismatches; 89 MB ride7 boots on / off normal
+  (pictures looked at); SOTC_W2_CHECK (old code vs W2 on the same input, bit for bit) ride7: 3 720 967 nodes, 1 591 876 rootBlend bones, 0 mismatches; GetMotionMatrix difftest 100 checks 0 mismatches; ExecCharaGeometry's whole-call difftest is not repeatable even with W2 off (timer / allocation state), so not used.
+- **Speed**: Vita3K (instruction weight only) rootBlendD3 0.59% -> 0.24% of the game thread, the pose and the node loop even;
+  the console's off / on pair (the package) decides.
