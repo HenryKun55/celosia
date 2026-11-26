@@ -521,3 +521,54 @@ namespace decomp_aiparam
             aiParam(rdram, ctx, runtime);
     }
 }
+
+// ---- Round Y1 (SOTC_Y1=1; docs/decomp_y1.md): n consecutive AI_GetSmallAnimalAIParam calls of one caller (animalStep's
+// five) on the typed core, the registers loaded from the context once before and stored once after (the D2 adapter's set,
+// in its order): what the n table calls through aiParamD1 leave, without the n guest calls.
+namespace decomp_aiparam
+{
+    void aiParamBatchY1(uint8_t *rdram, R5900Context *ctx, const uint32_t (*args)[6], int n)
+    {
+        AiRegs s;
+        s.vf0 = ctx->vu0_vf[0];
+        s.vf5 = ctx->vu0_vf[5];
+        s.vf6 = ctx->vu0_vf[6];
+        s.vf7 = ctx->vu0_vf[7];
+        s.vf8 = ctx->vu0_vf[8];
+        s.vf10 = ctx->vu0_vf[10];
+        s.vf11 = ctx->vu0_vf[11];
+        s.vf12 = ctx->vu0_vf[12];
+        s.vf13 = ctx->vu0_vf[13];
+        s.vf14 = ctx->vu0_vf[14];
+        s.vf15 = ctx->vu0_vf[15];
+        s.vf16 = ctx->vu0_vf[16];
+        s.vf17 = ctx->vu0_vf[17];
+        s.acc = ctx->vu0_acc;
+        s.q = ctx->vu0_q;
+        s.status = ctx->vu0_status;
+        const d1::Mem m{rdram};
+        for (int i = 0; i < n; ++i)
+            aiParamCore(m, s, args[i][0], args[i][1], args[i][2], args[i][3], args[i][4], args[i][5]);
+        std::memcpy(&ctx->r[2], &s.v0, 16);
+        SET_GPR_U32(ctx, 3, s.v1);
+        SET_GPR_U32(ctx, 4, s.a0);
+        SET_GPR_U32(ctx, 5, s.a1);
+        ctx->f[0] = s.f0;
+        ctx->f[1] = s.f1;
+        ctx->vu0_q = s.q;
+        ctx->vu0_status = s.status;
+        ctx->vu0_vf[5] = s.vf5;
+        ctx->vu0_vf[6] = s.vf6;
+        ctx->vu0_vf[7] = s.vf7;
+        ctx->vu0_vf[8] = s.vf8;
+        ctx->vu0_vf[10] = s.vf10;
+        ctx->vu0_vf[11] = s.vf11;
+        ctx->vu0_vf[12] = s.vf12;
+        ctx->vu0_vf[13] = s.vf13;
+        ctx->vu0_vf[14] = s.vf14;
+        ctx->vu0_vf[15] = s.vf15;
+        ctx->vu0_vf[16] = s.vf16;
+        ctx->vu0_vf[17] = s.vf17;
+        ctx->vu0_acc = s.acc;
+    }
+}

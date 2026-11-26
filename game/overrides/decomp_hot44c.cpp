@@ -54,6 +54,7 @@
 // registers are never changed in the context (the code restores every one
 // from its frame), the frame's saves are written as the code writes them.
 #include "sotc_decomp.h"
+#include "y1_ai.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -528,6 +529,9 @@ namespace decomp_hot44c
 
     void animalMove(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round Y1 (SOTC_Y1=1): the typed body (y1_move.cpp) when its entry test passes.
+        if (__builtin_expect(y1ai::on(), 0) && y1ai::partOn(y1ai::kMove) && y1ai::animalMove(rdram, ctx, runtime))
+            return;
         if (!sotc_decomp::hotList44On())
             return fallback(kAnimalMove, rdram, ctx, runtime);
         const uint64_t ra = GPR_U64(ctx, 31), entrySp = GPR_U64(ctx, 29);

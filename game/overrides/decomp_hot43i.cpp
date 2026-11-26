@@ -51,6 +51,7 @@
 //
 // SOTC_HOTLIST=0 or SOTC_DECOMP_SKIP=gamecore_sub_013DD228: the recompiled code.
 #include "sotc_decomp.h"
+#include "y1_ai.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -160,6 +161,9 @@ namespace decomp_hot43i
 
     void steer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round Y1 (SOTC_Y1=1): the typed body (y1_steer.cpp) when its entry test passes.
+        if (__builtin_expect(y1ai::on(), 0) && y1ai::partOn(y1ai::kSteer) && y1ai::steer(rdram, ctx, runtime))
+            return;
         if (!sotc_decomp::hotListOn())
             return sotc_decomp::recompiled(kSteer)(rdram, ctx, runtime);
 
