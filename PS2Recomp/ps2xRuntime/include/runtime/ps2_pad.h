@@ -18,6 +18,10 @@ public:
     // Round S7: the left stick held at (x, y) (-1..1, y down) by game code while on.
     static void setSteerStick(bool on, float x, float y);
     static void setSteerButtons(uint16_t mask); // held down while set (PS2 masks)
+    // After the window: gamepad mappings raylib's GLFW lacks (built in, then an SDL-format
+    // gamecontrollerdb.txt in the working directory or at PS2X_GAMEPAD_DB), and a log line
+    // for a controller GLFW sees with no mapping (its buttons would never reach the game).
+    static void installGamepadMappings();
 };
 
 #endif
