@@ -2,7 +2,7 @@
 // by the round's mkref.py, docs/decomp_x1.md): the old body with its statements unchanged and only these substitutions,
 // so that SOTC_X1_CHECK compares X1 with the code the game runs without it: guest memory through the check's shadow
 // (reads see the body's own writes, writes never reach RAM); each guest call (and dc1mot::optionNodesCall,
-// s8cloth::lastCloth) a boundary where X1 makes the real call and hands the context back; pose82::boneProducts' NEON
+// s8cloth::lastCloth) a boundary compared with X1's recorded call, the context then set to what that call left; pose82::boneProducts' NEON
 // chain over the shadow; W2's batched node loop and the round 65 / 80 host modes left out (X1 runs without them: the
 // same results, W2's proven by SOTC_W2_CHECK).
 namespace x1geo
@@ -10,7 +10,7 @@ namespace x1geo
     struct RefRam
     {
         uint8_t *rdram;
-        Shadow *log;
+        Check::Replay *log;
         template <class T>
         T get(uint32_t a) const
         {
@@ -74,7 +74,7 @@ namespace x1geo
         namespace vu = sotc_decomp::vu;
         uint8_t *const rdram = k.rdram;
         R5900Context *const ctx = k.rc;
-        const RefRam r{rdram, &k.refLog};
+        const RefRam r{rdram, &k.replay};
         const uint32_t obj = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x110u;
         auto call = [&](uint32_t site, uint32_t target) { k.refBoundary(site, target); };

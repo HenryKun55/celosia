@@ -14,8 +14,8 @@
 //     for (PLD) ahead: the A9's prefetcher is off on the Vita;
 //   - the guest calls, their arguments, the frame slots callees read, s0-s7 / fp / f20 / f21 at each call and the
 //     epilogue's restores exactly as the original (a callee saves them into its frame; round 47).
-// SOTC_X1_CHECK=1 (the proof, game thread): the old body runs beside it, segment by segment, on a host thread; at
-// every guest call and at the exit the two are compared (every byte either wrote, GPRs, FPRs, fcr31, VU0 vf1-vf31 /
+// SOTC_X1_CHECK=1 (the proof, game thread): X1's run is recorded, then the old body replays the same call against the
+// record (the callees' results as X1's calls got them); at every guest call and at the exit the two are compared (every byte either wrote, GPRs, FPRs, fcr31, VU0 vf1-vf31 /
 // ACC / Q / status, the call's site and target). Rare states (pose82 off, far-character halving on, the per-callee
 // timing log) run the old body.
 #pragma once

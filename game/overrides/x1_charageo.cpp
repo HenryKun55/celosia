@@ -17,9 +17,10 @@
 // dot products at a time, the bone products with the next bones' lines prefetched. The guest calls, their arguments,
 // the frame slots and the callee-saved registers at each call are the original's.
 //
-// SOTC_X1_CHECK=1: the old body (a copy of decomp_charageo's, unchanged statements) runs on a host thread one segment
-// ahead (a segment: from one guest call to the next) on a copy of the context, its writes kept in a shadow, never in
-// RAM; at each guest call and at the exit X1's context and writes are compared with it. [x1chk] every 600 frames.
+// SOTC_X1_CHECK=1: X1's run is recorded segment by segment (a segment: from one guest call to the next; the bytes it
+// read, the bytes it wrote, the context at each call), then the old body (a copy of decomp_charageo's, unchanged
+// statements) replays the same call on a copy of the entry context against the record, its writes kept in a shadow,
+// never in RAM; at each guest call and at the exit the two are compared. [x1chk] every 600 frames.
 #include "x1_chara.h"
 
 #include "sotc_decomp.h"
@@ -31,13 +32,11 @@
 #include "runtime/ps2_memory.h"
 #include "runtime/native_tuning.h"
 
-#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <mutex>
-#include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace dc1mot
 {
@@ -124,51 +123,48 @@ namespace x1geo
         }
     };
 
-    // ---- guest memory: direct, or logging the before-images (check mode) ------------------------------------------------
+    // ---- guest memory: direct, or recorded (check mode: every byte read before X1 wrote it, every byte written) -----
+    struct Check;
+    void recRead(Check *k, uint32_t a, uint32_t n);
+    void recWrite(Check *k, uint32_t a, uint32_t n);
     template <bool Log>
     struct Mem
     {
         uint8_t *base;
-        Shadow *log;
+        Check *log;
         PS2_FORCE_INLINE uint8_t *p(uint32_t a) const { return base + (a & PS2_RAM_MASK); }
-        PS2_FORCE_INLINE uint32_t u32(uint32_t a) const
+        PS2_FORCE_INLINE void noteRead(uint32_t a, uint32_t n) const
         {
-            uint32_t v;
-            std::memcpy(&v, p(a), 4);
-            return v;
-        }
-        PS2_FORCE_INLINE int32_t s32(uint32_t a) const { return static_cast<int32_t>(u32(a)); }
-        PS2_FORCE_INLINE int16_t s16(uint32_t a) const
-        {
-            int16_t v;
-            std::memcpy(&v, p(a), 2);
-            return v;
-        }
-        PS2_FORCE_INLINE uint8_t u8(uint32_t a) const { return *p(a); }
-        PS2_FORCE_INLINE int8_t s8(uint32_t a) const { return static_cast<int8_t>(*p(a)); }
-        PS2_FORCE_INLINE float f(uint32_t a) const
-        {
-            float v;
-            std::memcpy(&v, p(a), 4);
-            return v;
-        }
-        PS2_FORCE_INLINE uint64_t u64(uint32_t a) const
-        {
-            uint64_t v;
-            std::memcpy(&v, p(a), 8);
-            return v;
-        }
-        // lq / sq: the address's low four bits ignored (as the Ram of decomp_charageo)
-        PS2_FORCE_INLINE __m128 q(uint32_t a) const
-        {
-            __m128 v;
-            std::memcpy(&v, base + (a & PS2_RAM_MASK & ~0xFu), 16);
-            return v;
+            if constexpr (Log)
+                recRead(log, a, n);
         }
         PS2_FORCE_INLINE void note(uint32_t a, uint32_t n) const
         {
             if constexpr (Log)
-                log->before(base, a, n);
+                recWrite(log, a, n);
+        }
+        template <class T>
+        PS2_FORCE_INLINE T get(uint32_t a) const
+        {
+            noteRead(a, sizeof(T));
+            T v;
+            std::memcpy(&v, p(a), sizeof(T));
+            return v;
+        }
+        PS2_FORCE_INLINE uint32_t u32(uint32_t a) const { return get<uint32_t>(a); }
+        PS2_FORCE_INLINE int32_t s32(uint32_t a) const { return get<int32_t>(a); }
+        PS2_FORCE_INLINE int16_t s16(uint32_t a) const { return get<int16_t>(a); }
+        PS2_FORCE_INLINE uint8_t u8(uint32_t a) const { return get<uint8_t>(a); }
+        PS2_FORCE_INLINE int8_t s8(uint32_t a) const { return get<int8_t>(a); }
+        PS2_FORCE_INLINE float f(uint32_t a) const { return get<float>(a); }
+        PS2_FORCE_INLINE uint64_t u64(uint32_t a) const { return get<uint64_t>(a); }
+        // lq / sq: the address's low four bits ignored (as the Ram of decomp_charageo)
+        PS2_FORCE_INLINE __m128 q(uint32_t a) const
+        {
+            noteRead(a & ~0xFu, 16);
+            __m128 v;
+            std::memcpy(&v, base + (a & PS2_RAM_MASK & ~0xFu), 16);
+            return v;
         }
         PS2_FORCE_INLINE void putq(uint32_t a, __m128 v) const
         {
@@ -366,6 +362,7 @@ namespace x1geo
         const uint32_t at = q & PS2_RAM_MASK & ~0xFu;
         if (count >= 4 && count <= 4096 && at + static_cast<uint32_t>(count) * 16u <= PS2_RAM_SIZE && (q & 0xFu) == 0u)
         {
+            m.noteRead(at, static_cast<uint32_t>(count) * 16u);
             m.note(at, static_cast<uint32_t>(count) * 16u);
             uint8_t *const base = m.base + at;
             for (; i + 4 <= count; i += 4)
@@ -424,6 +421,8 @@ namespace x1geo
         auto overlaps = [bytes](uint32_t x, uint32_t y) { return x < y + bytes && y < x + bytes; };
         if (overlaps(out, a) || overlaps(out, b))
             return false;
+        m.noteRead(a, bytes);
+        m.noteRead(b, bytes);
         m.note(out, bytes);
         const float *pa = reinterpret_cast<const float *>(m.p(a)), *pb = reinterpret_cast<const float *>(m.p(b));
         float *po = reinterpret_cast<float *>(m.p(out));
@@ -451,183 +450,271 @@ namespace x1geo
         return true;
     }
 
-    // ---- the check (SOTC_X1_CHECK=1): the old body one segment ahead on a host thread ---------------------------------
-    struct Check;
-    void refBody(Check &k);
+    // ---- the check (SOTC_X1_CHECK=1): X1 recorded, then the old body replayed against the record ------------------------
+    // While X1 runs (for real: its writes and its guest calls are the game's), each segment (from the entry or a guest
+    // call's return to the next guest call or the exit) records every byte it reads before writing it (the value then)
+    // and every byte it writes (the value before, and at the segment's end the value it left), and the whole context at
+    // each guest call (before it, and after it returns). Then the old body (x1_charageo_ref.inc) runs on a copy of the
+    // entry context, on the same thread: its reads see its own writes of the segment, then the segment's recorded
+    // values; at each of its guest calls its context, the call's site and target and every byte it wrote in the segment
+    // are compared with X1's, and its context is set to what X1's call left. No host thread, no second run of a callee.
+    // A byte the old body reads that X1 neither read nor wrote in the segment cannot be checked: counted (unrecorded).
     struct Check
     {
-        std::mutex mu;
-        std::condition_variable cv;
-        int turn = 0; // 0: X1 (the game thread) runs, 1: the old body runs
-        bool job = false, exited = false, abandon = false;
-        uint32_t site = 0, target = 0;
-        R5900Context *rc = nullptr; // the old body's context (heap, 16-byte aligned)
+        struct Line
+        {
+            uint8_t rv[16]; // the value before the segment wrote it (read first or written first)
+            uint8_t wv[16]; // the value X1 left (at the segment's end)
+            uint16_t rmask = 0, wmask = 0;
+        };
+        struct Seg
+        {
+            std::unordered_map<uint32_t, Line> lines;
+            std::vector<uint8_t> pre, post; // the context before the call (or at the exit), after it
+            uint32_t site = 0, target = 0;
+            bool exit = false;
+        };
+        std::vector<Seg> segs;
+        size_t cur = 0, used = 0;
+        std::vector<uint8_t> entry;
         uint8_t *rdram = nullptr;
-        Shadow refLog, x1Log;
-        uint64_t calls = 0, boundaries = 0, bytes = 0, bad = 0, from = 0, skipped = 0;
-        bool started = false, active = false;
+        uint64_t calls = 0, boundaries = 0, bytes = 0, bad = 0, from = 0, skipped = 0, unrecorded = 0;
+        bool active = false;
 
-        void wait(int who)
+        static std::vector<uint8_t> bytesOf(const R5900Context *ctx)
         {
-            std::unique_lock<std::mutex> lk(mu);
-            cv.wait(lk, [&] { return turn == who; });
+            const uint8_t *b = reinterpret_cast<const uint8_t *>(ctx);
+            return std::vector<uint8_t>(b, b + sizeof(R5900Context));
         }
-        void hand(int who)
+        Seg &seg() { return segs[cur]; }
+        void read(uint32_t a, uint32_t n)
         {
+            Seg &s = seg();
+            for (uint32_t i = 0; i < n; ++i)
             {
-                std::lock_guard<std::mutex> lk(mu);
-                turn = who;
-            }
-            cv.notify_all();
-        }
-        // the old body's side
-        void refBoundary(uint32_t s, uint32_t t)
-        {
-            if (abandon)
-                return;
-            site = s;
-            target = t;
-            hand(0);
-            wait(1);
-        }
-        void threadLoop()
-        {
-            ps2SetEeFloatingPointMode(); // the game thread's FPU mode (round toward zero, flush to zero)
-            for (;;)
-            {
-                wait(1);
-                refBody(*this);
-                exited = true;
-                hand(0);
+                const uint32_t x = (a + i) & PS2_RAM_MASK;
+                Line &l = s.lines[x >> 4];
+                const uint16_t bit = static_cast<uint16_t>(1u << (x & 15u));
+                if (!((l.rmask | l.wmask) & bit))
+                {
+                    l.rv[x & 15u] = rdram[x];
+                    l.rmask |= bit;
+                }
             }
         }
-        void start()
+        void write(uint32_t a, uint32_t n)
         {
-            if (started)
-                return;
-            started = true;
-            static R5900Context s_rc; // (static storage: aligned; never a by-value temporary)
-            rc = &s_rc;
-            std::thread([this] { threadLoop(); }).detach();
+            Seg &s = seg();
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                const uint32_t x = (a + i) & PS2_RAM_MASK;
+                Line &l = s.lines[x >> 4];
+                const uint16_t bit = static_cast<uint16_t>(1u << (x & 15u));
+                if (!((l.rmask | l.wmask) & bit))
+                {
+                    l.rv[x & 15u] = rdram[x];
+                    l.rmask |= bit;
+                }
+                l.wmask |= bit;
+            }
+        }
+        void open()
+        {
+            if (used == segs.size())
+                segs.emplace_back();
+            cur = used++;
+            Seg &s = segs[cur];
+            s.lines.clear();
+            s.exit = false;
+            s.site = s.target = 0;
+        }
+        void close(const R5900Context *ctx, uint32_t site, uint32_t target, bool exit)
+        {
+            Seg &s = seg();
+            for (auto &l : s.lines)
+                for (uint32_t b = 0; b < 16u; ++b)
+                    if (l.second.wmask & (1u << b))
+                        l.second.wv[b] = rdram[(l.first << 4) | b];
+            s.pre = bytesOf(ctx);
+            s.site = site;
+            s.target = target;
+            s.exit = exit;
         }
         // X1's side
         void begin(uint8_t *ram, const R5900Context *ctx)
         {
-            start();
             rdram = ram;
-            std::memcpy(rc, ctx, sizeof(R5900Context));
-            refLog.clear();
-            x1Log.clear();
-            exited = false;
-            abandon = false;
-            site = target = 0;
+            entry = bytesOf(ctx);
+            used = 0;
+            open();
             ++calls;
-            hand(1);
-            wait(0);
         }
-        void finishRef()
+        void boundary(const R5900Context *ctx, uint32_t s, uint32_t t) { close(ctx, s, t, false); }
+        void resume(const R5900Context *ctx)
         {
-            if (!exited)
+            seg().post = bytesOf(ctx);
+            open();
+        }
+        void end(const R5900Context *ctx);
+
+        // ---- the old body's side (the replay) ----
+        struct Replay
+        {
+            Check *k;
+            Shadow own; // the old body's writes of the current segment
+            size_t at = 0;
+            bool off = false; // a difference was found: the rest of this call is not compared
+            void read(const uint8_t *ram, uint32_t a, void *dst, uint32_t n)
             {
-                abandon = true;
-                hand(1);
-                wait(0);
+                uint8_t *d = static_cast<uint8_t *>(dst);
+                const Seg *s = at < k->used ? &k->segs[at] : nullptr;
+                for (uint32_t i = 0; i < n; ++i)
+                {
+                    const uint32_t x = (a + i) & PS2_RAM_MASK;
+                    const auto oi = own.lines.find(x >> 4);
+                    if (oi != own.lines.end() && (oi->second.valid & (1u << (x & 15u))))
+                    {
+                        d[i] = oi->second.b[x & 15u];
+                        continue;
+                    }
+                    if (s)
+                    {
+                        const auto li = s->lines.find(x >> 4);
+                        if (li != s->lines.end() && (li->second.rmask & (1u << (x & 15u))))
+                        {
+                            d[i] = li->second.rv[x & 15u];
+                            continue;
+                        }
+                    }
+                    d[i] = ram[x];
+                    ++k->unrecorded;
+                }
             }
-        }
+            void write(uint32_t a, const void *src, uint32_t n) { own.write(a, src, n); }
+        };
+        Replay replay{this};
+        R5900Context *rc = nullptr; // the old body's context (static storage)
+        R5900Context *xc = nullptr; // X1's recorded context, unpacked for the compare
+
         bool sameReg(const void *a, const void *b, size_t n) { return std::memcmp(a, b, n) == 0; }
-        void compare(const R5900Context *ctx, uint32_t s, uint32_t t, bool atExit)
+        // the old body at a guest call (exit = false) or at its exit
+        void refBoundary(uint32_t s, uint32_t t, bool atExit = false)
         {
-            if (abandon)
+            if (replay.off)
                 return;
             ++boundaries;
             const char *what = nullptr;
             int idx = -1;
-            if (atExit != exited || (!atExit && (s != site || t != target)))
-                what = "the next call";
-            for (int i = 0; !what && i < 32; ++i)
-                if (!sameReg(&ctx->r[i], &rc->r[i], 16))
-                    what = "a GPR", idx = i;
-            for (int i = 0; !what && i < 32; ++i)
-                if (!sameReg(&ctx->f[i], &rc->f[i], 4))
-                    what = "an FPR", idx = i;
-            for (int i = 1; !what && i < 32; ++i)
-                if (!sameReg(&ctx->vu0_vf[i], &rc->vu0_vf[i], 16))
-                    what = "a VU0 register", idx = i;
-            if (!what && !sameReg(&ctx->vu0_acc, &rc->vu0_acc, 16))
-                what = "ACC";
-            if (!what && !sameReg(&ctx->vu0_q, &rc->vu0_q, 4))
-                what = "Q";
-            if (!what && ctx->vu0_status != rc->vu0_status)
-                what = "the VU0 status";
-            if (!what && ctx->fcr31 != rc->fcr31)
-                what = "fcr31";
-            if (!what && atExit && ctx->pc != rc->pc)
-                what = "pc";
             uint32_t badAt = 0;
+            const Seg *g = replay.at < used ? &segs[replay.at] : nullptr;
+            if (!g || g->exit != atExit || (!atExit && (g->site != s || g->target != t)))
+                what = "the next call";
             if (!what)
             {
-                // every byte either side wrote: the old body's value (or the byte before the segment) against RAM now
-                auto check = [&](uint32_t line)
+                std::memcpy(static_cast<void *>(xc), g->pre.data(), sizeof(R5900Context));
+                for (int i = 0; !what && i < 32; ++i)
+                    if (!sameReg(&xc->r[i], &rc->r[i], 16))
+                        what = "a GPR", idx = i;
+                for (int i = 0; !what && i < 32; ++i)
+                    if (!sameReg(&xc->f[i], &rc->f[i], 4))
+                        what = "an FPR", idx = i;
+                for (int i = 1; !what && i < 32; ++i)
+                    if (!sameReg(&xc->vu0_vf[i], &rc->vu0_vf[i], 16))
+                        what = "a VU0 register", idx = i;
+                if (!what && !sameReg(&xc->vu0_acc, &rc->vu0_acc, 16))
+                    what = "ACC";
+                if (!what && !sameReg(&xc->vu0_q, &rc->vu0_q, 4))
+                    what = "Q";
+                if (!what && xc->vu0_status != rc->vu0_status)
+                    what = "the VU0 status";
+                if (!what && xc->fcr31 != rc->fcr31)
+                    what = "fcr31";
+                if (!what && atExit && xc->pc != rc->pc)
+                    what = "pc";
+            }
+            if (!what)
+            {
+                // every byte either side wrote in the segment: the old body's value (or the one before the segment)
+                // against X1's (or the one before the segment)
+                auto valueX1 = [&](uint32_t x, bool &known) -> uint8_t
                 {
-                    const auto ri = refLog.lines.find(line);
-                    const auto xi = x1Log.lines.find(line);
-                    for (uint32_t bI = 0; bI < 16u; ++bI)
-                    {
-                        const uint16_t bit = static_cast<uint16_t>(1u << bI);
-                        const bool rv = ri != refLog.lines.end() && (ri->second.valid & bit);
-                        const bool xv = xi != x1Log.lines.end() && (xi->second.valid & bit);
-                        if (!rv && !xv)
-                            continue;
-                        const uint32_t a = (line << 4) | bI;
-                        const uint8_t want = rv ? ri->second.b[bI] : xi->second.b[bI];
-                        ++bytes;
-                        if (rdram[a] != want)
-                            return a | 0x80000000u;
-                    }
-                    return 0u;
+                    known = true;
+                    const auto li = g->lines.find(x >> 4);
+                    const uint16_t bit = static_cast<uint16_t>(1u << (x & 15u));
+                    if (li != g->lines.end() && (li->second.wmask & bit))
+                        return li->second.wv[x & 15u];
+                    if (li != g->lines.end() && (li->second.rmask & bit))
+                        return li->second.rv[x & 15u];
+                    known = false;
+                    return 0;
                 };
-                for (const auto &l : refLog.lines)
-                    if (!what)
-                        if (const uint32_t r = check(l.first))
-                            what = "memory", badAt = r & 0x7FFFFFFFu;
-                for (const auto &l : x1Log.lines)
-                    if (!what)
-                        if (const uint32_t r = check(l.first))
-                            what = "memory", badAt = r & 0x7FFFFFFFu;
+                for (const auto &l : replay.own.lines)
+                    for (uint32_t b = 0; !what && b < 16u; ++b)
+                        if (l.second.valid & (1u << b))
+                        {
+                            const uint32_t x = (l.first << 4) | b;
+                            bool known;
+                            const uint8_t xv = valueX1(x, known);
+                            ++bytes;
+                            if (!known || xv != l.second.b[b])
+                                what = "memory (a byte the old body wrote)", badAt = x;
+                        }
+                for (const auto &l : g->lines)
+                    for (uint32_t b = 0; !what && b < 16u; ++b)
+                        if (l.second.wmask & (1u << b))
+                        {
+                            const uint32_t x = (l.first << 4) | b;
+                            const auto oi = replay.own.lines.find(l.first);
+                            if (oi != replay.own.lines.end() && (oi->second.valid & (1u << b)))
+                                continue; // compared above
+                            ++bytes;
+                            if (l.second.wv[b] != l.second.rv[b])
+                                what = "memory (a byte only X1 changed)", badAt = x;
+                        }
             }
             if (what)
             {
                 if (bad++ < 12)
-                    std::fprintf(stderr, "[x1chk] MISMATCH (%s %d, at %08x) before %s %08x -> %08x (the old body's %08x -> %08x, exited %d)\n", what, idx, badAt,
-                                 atExit ? "the exit" : "the call", s + 8u, t, site + 8u, target, exited ? 1 : 0);
-                finishRef();
-            }
-            refLog.clear();
-            x1Log.clear();
-        }
-        void boundary(const R5900Context *ctx, uint32_t s, uint32_t t) { compare(ctx, s, t, false); }
-        void resume(const R5900Context *ctx)
-        {
-            if (abandon || exited)
+                    std::fprintf(stderr, "[x1chk] MISMATCH (%s %d, at %08x) at the old body's %s %08x -> %08x (X1's segment %u of %u: %08x -> %08x%s)\n", what,
+                                 idx, badAt, atExit ? "exit" : "call", s + 8u, t, static_cast<unsigned>(replay.at), static_cast<unsigned>(used),
+                                 g ? g->site + 8u : 0u, g ? g->target : 0u, g && g->exit ? ", exit" : "");
+                replay.off = true;
                 return;
-            std::memcpy(rc, ctx, sizeof(R5900Context));
-            hand(1);
-            wait(0);
-        }
-        void end(const R5900Context *ctx)
-        {
-            compare(ctx, 0u, 0u, true);
-            finishRef();
-            const uint64_t fr = sotc_decomp::g_gameFrame;
-            if (fr >= from + 600u)
+            }
+            // the call made: its context as X1's call left it
+            if (!atExit)
             {
-                std::fprintf(stderr, "[x1chk] frame %llu: %llu calls checked, %llu boundaries compared, %llu bytes compared, %llu mismatches (%llu not checked: worker / nested)\n",
-                             (unsigned long long)fr, (unsigned long long)calls, (unsigned long long)boundaries, (unsigned long long)bytes,
-                             (unsigned long long)bad, (unsigned long long)skipped);
-                from = fr;
+                std::memcpy(static_cast<void *>(rc), g->post.data(), sizeof(R5900Context));
+                replay.own.clear();
+                ++replay.at;
             }
         }
     };
+    void refBody(Check &k);
+    void recRead(Check *k, uint32_t a, uint32_t n) { k->read(a, n); }
+    void recWrite(Check *k, uint32_t a, uint32_t n) { k->write(a, n); }
+    void Check::end(const R5900Context *ctx)
+    {
+        close(ctx, 0u, 0u, true);
+        static R5900Context s_rc, s_xc; // (static storage: aligned; never by-value temporaries)
+        rc = &s_rc;
+        xc = &s_xc;
+        std::memcpy(static_cast<void *>(rc), entry.data(), sizeof(R5900Context));
+        replay.own.clear();
+        replay.at = 0;
+        replay.off = false;
+        refBody(*this);
+        refBoundary(0u, 0u, true);
+        const uint64_t fr = sotc_decomp::g_gameFrame;
+        if (fr >= from + 600u)
+        {
+            std::fprintf(stderr,
+                         "[x1chk] frame %llu: %llu calls checked, %llu boundaries compared, %llu bytes compared, %llu mismatches, %llu bytes read unrecorded (%llu not checked: worker / nested)\n",
+                         (unsigned long long)fr, (unsigned long long)calls, (unsigned long long)boundaries, (unsigned long long)bytes,
+                         (unsigned long long)bad, (unsigned long long)unrecorded, (unsigned long long)skipped);
+            from = fr;
+        }
+    }
     Check g_check;
 
     // Bracket ids (SOTC_P2BRACKET >= 2: the X1 parts; -1 otherwise).
@@ -645,7 +732,7 @@ namespace x1geo
     template <bool Log>
     void body(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, Check *chk)
     {
-        const Mem<Log> r{rdram, Log ? &chk->x1Log : nullptr};
+        const Mem<Log> r{rdram, Log ? chk : nullptr};
         const uint32_t obj = GPR_U32(ctx, 4), point = GPR_U32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0x110u;
         const bool game = !sotc_decomp::onWorkerLane(runtime);
