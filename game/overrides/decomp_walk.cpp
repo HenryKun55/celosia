@@ -5908,8 +5908,9 @@ namespace decomp_walk
 // Round W1: the W1 build's text ended 0x690 bytes below a 64 KB boundary (vita-elf-create: "Cannot allocate 4828 bytes for
 // SCE data at end of segment 0; segment 1 overlaps") with sotc_vita_elf_room at 122 880. These 4 KB of read-only data move
 // the text end past that boundary (sotc_native.cpp's room left at 122 880, as the round rules ask); drop or resize them
-// when a merge moves the text end again (the same rule as sotc_vita_elf_room's).
-extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[4096] = {1};
+// when a merge moves the text end again (the same rule as sotc_vita_elf_room's). Round Y3: 4 KB -> 8 KB (Y3's text ended
+// 0x88c bytes below the next 64 KB boundary: the same vita-elf-create message).
+extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[8192] = {1};
 #endif
 
 // Round W1 (w1_disp.h): the [w1] counts every 600 walks (SOTC_W1_LOG=0: none).

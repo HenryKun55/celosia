@@ -2867,3 +2867,37 @@ namespace decomp_hot46h
             objectAnimSample(rdram, ctx, runtime);
     }
 } // namespace decomp_hot46h
+
+// ---- Round Y3 (SOTC_Y3=1; y3_objanim.h): the cores above as direct C++ calls from ExecObjectAnimation's native body ------
+#include "y3_objanim.h"
+
+namespace decomp_hot46h
+{
+    void y3PosKeyLerp(uint8_t *rdram, uint32_t out, uint64_t format, uint32_t table, bool hasTable, uint32_t i0, uint32_t i1, float frac, uint32_t sp,
+                      y3::Vu &vu, uint32_t &fcr31)
+    {
+        d2h::PosKeyLerpRegs r;
+        std::memset(&r, 0, sizeof(r));
+        r.v.t0 = vu.t0;
+        r.v.vf5 = vu.vf5;
+        r.v.vf6 = vu.vf6;
+        r.v.vf7 = vu.vf7;
+        r.v.vf8 = vu.vf8;
+        r.v.acc = vu.acc;
+        r.fcr31 = fcr31;
+        d2h::posKeyLerpCore(d1::Mem{rdram}, out, format, table, hasTable, i0, i1, frac, sp, r);
+        vu.t0 = r.v.t0;
+        vu.vf5 = r.v.vf5;
+        vu.vf6 = r.v.vf6;
+        vu.vf7 = r.v.vf7;
+        vu.vf8 = r.v.vf8;
+        vu.acc = r.v.acc;
+        fcr31 = r.fcr31;
+    }
+    void y3KeyVec3(uint8_t *rdram, uint32_t out, uint64_t format, uint32_t table, uint32_t index)
+    {
+        d3h::Vec3Regs k;
+        std::memset(&k, 0, sizeof(k));
+        d3h::d3Vec3Core(d1::Mem{rdram}, out, format, table, index, k);
+    }
+} // namespace decomp_hot46h
