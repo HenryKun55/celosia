@@ -67,7 +67,10 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace decomp_hot46c
 {
@@ -1642,6 +1645,72 @@ namespace decomp_hot46c
                 return 0;
             return (n - 1) & ~3;
         }
+        // SOTC_W2_CHECK=1: each batched loop also runs as the D3 body's own loop first (on the same memory and registers),
+        // its results kept, the memory and registers put back, then the W2 loop; the arrays, the frame (fp .. fp + 0x200)
+        // and the VU0 registers / ACC / Q / status compared bit for bit. A [w2chk] line every 600 game frames.
+        struct W2Check
+        {
+            uint64_t loops = 0, bones = 0, bad = 0, from = 0;
+            std::vector<uint8_t> snap, after;
+        };
+        inline bool w2CheckOn()
+        {
+            static const bool c = std::getenv("SOTC_W2_CHECK") && std::atoi(std::getenv("SOTC_W2_CHECK")) != 0;
+            return c;
+        }
+        inline bool w2SameVu(const RbVu &a, const RbVu &b)
+        {
+            for (int i = 5; i <= 17; ++i)
+                if (std::memcmp(&a.vf[i], &b.vf[i], 16) != 0)
+                    return false;
+            return std::memcmp(&a.acc, &b.acc, 16) == 0 && std::memcmp(&a.q, &b.q, 4) == 0 && a.status == b.status;
+        }
+        template <class Old, class New>
+        __attribute__((noinline)) void w2Checked(const char *what, RbVu &u, const d1::Mem &m, const uint32_t (&regs)[3][2], int32_t bones, Old old, New neu)
+        {
+            if (!w2CheckOn() || bones <= 0)
+            {
+                neu();
+                return;
+            }
+            static W2Check st;
+            static thread_local RbVu u0, uOld;
+            st.snap.clear();
+            for (const auto &r : regs)
+                st.snap.insert(st.snap.end(), m.base + (r[0] & PS2_RAM_MASK), m.base + (r[0] & PS2_RAM_MASK) + r[1]);
+            u0 = u;
+            old();
+            uOld = u;
+            st.after.clear();
+            for (const auto &r : regs)
+                st.after.insert(st.after.end(), m.base + (r[0] & PS2_RAM_MASK), m.base + (r[0] & PS2_RAM_MASK) + r[1]);
+            size_t off = 0;
+            for (const auto &r : regs)
+            {
+                std::memcpy(m.base + (r[0] & PS2_RAM_MASK), st.snap.data() + off, r[1]);
+                off += r[1];
+            }
+            u = u0;
+            neu();
+            bool same = w2SameVu(u, uOld);
+            off = 0;
+            for (const auto &r : regs)
+            {
+                same = same && std::memcmp(m.base + (r[0] & PS2_RAM_MASK), st.after.data() + off, r[1]) == 0;
+                off += r[1];
+            }
+            ++st.loops;
+            st.bones += static_cast<uint64_t>(bones);
+            if (!same && st.bad++ < 8)
+                std::fprintf(stderr, "[w2chk] rootBlend %s MISMATCH (%d bones batched)\n", what, bones);
+            const uint64_t fr = sotc_decomp::g_gameFrame;
+            if (fr >= st.from + 600u)
+            {
+                std::fprintf(stderr, "[w2chk] frame %llu: rootBlend loops %llu, bones batched %llu, mismatches %llu\n", (unsigned long long)fr,
+                             (unsigned long long)st.loops, (unsigned long long)st.bones, (unsigned long long)st.bad);
+                st.from = fr;
+            }
+        }
         inline void d3rbStore(R5900Context *c, const RbVu &u)
         {
             for (int i = 5; i <= 17; ++i)
@@ -1933,21 +2002,30 @@ namespace decomp_hot46c
                 uint32_t dot = 0u;
                 // Round W2: all but the last bone four at a time (w2Blend), the last as below.
                 const int32_t w2n = d3rb::w2Count(s1, fp, s2, dArr);
-                if (w2n > 0)
-                    d3rb::w2Blend(u, m, s2, dArr, d1::zero4(), false, dArr, true, w2n, t1v, t0v);
-                w2::c_blendBones.n += static_cast<uint64_t>(w2n);
-                for (int32_t i = w2n; i < s1; ++i)
+                auto loop1 = [&](int32_t from)
                 {
-                    const uint32_t off = static_cast<uint32_t>(i) << 4;
-                    const uint32_t bone = off + s2, prev = off + dArr;
-                    const __m128 pv = d3rbQ(m, prev);
-                    if (i + 1 == s1)
-                        SET_GPR_VEC(ctx, 3, _mm_castps_si128(pv));
-                    d3rbPut(m, fp + 0x10u, pv);
-                    dot = d3rbBlendBone(u, m, bone, fp + 0x10u, prev, fp + 0x10Cu, t1v, t0v);
-                    lastPrev = d3rbQ(m, prev);
-                    d3rbPut(m, bone, lastPrev);
-                }
+                    for (int32_t i = from; i < s1; ++i)
+                    {
+                        const uint32_t off = static_cast<uint32_t>(i) << 4;
+                        const uint32_t bone = off + s2, prev = off + dArr;
+                        const __m128 pv = d3rbQ(m, prev);
+                        if (i + 1 == s1)
+                            SET_GPR_VEC(ctx, 3, _mm_castps_si128(pv));
+                        d3rbPut(m, fp + 0x10u, pv);
+                        dot = d3rbBlendBone(u, m, bone, fp + 0x10u, prev, fp + 0x10Cu, t1v, t0v);
+                        lastPrev = d3rbQ(m, prev);
+                        d3rbPut(m, bone, lastPrev);
+                    }
+                };
+                const uint32_t regs1[3][2] = {{s2, static_cast<uint32_t>(s1) * 16u}, {dArr, static_cast<uint32_t>(s1) * 16u}, {fp, 0x200u}};
+                d3rb::w2Checked("prev blend", u, m, regs1, w2n, [&] { loop1(0); },
+                                [&]
+                                {
+                                    if (w2n > 0)
+                                        d3rb::w2Blend(u, m, s2, dArr, d1::zero4(), false, dArr, true, w2n, t1v, t0v);
+                                    loop1(w2n);
+                                });
+                w2::c_blendBones.n += static_cast<uint64_t>(w2n);
                 std::memcpy(&f[0], &dot, 4);
                 SET_GPR_VEC(ctx, 2, _mm_castps_si128(lastPrev));
                 v0 = GPR_U64(ctx, 2);
@@ -1985,16 +2063,25 @@ namespace decomp_hot46c
             uint32_t dot = 0u;
             // Round W2: all but the last bone four at a time (w2Blend), the last as below.
             const int32_t w2n = d3rb::w2Count(s1, fp, dArr, s2, rest);
-            if (w2n > 0)
-                d3rb::w2Blend(u, m, dArr, 0u, rv, true, s2, false, w2n, t1v, t0v);
-            w2::c_blendBones.n += static_cast<uint64_t>(w2n);
-            for (int32_t i = w2n; i < s1; ++i)
+            auto loop2 = [&](int32_t from)
             {
-                const uint32_t off = static_cast<uint32_t>(i) << 4;
-                const uint32_t prev = off + dArr, bone = off + s2;
-                d3rbPut(m, fp + 0x10u, d3rbQ(m, rest));
-                dot = d3rbBlendBone(u, m, prev, fp + 0x10u, bone, fp + 0x110u, t1v, t0v);
-            }
+                for (int32_t i = from; i < s1; ++i)
+                {
+                    const uint32_t off = static_cast<uint32_t>(i) << 4;
+                    const uint32_t prev = off + dArr, bone = off + s2;
+                    d3rbPut(m, fp + 0x10u, d3rbQ(m, rest));
+                    dot = d3rbBlendBone(u, m, prev, fp + 0x10u, bone, fp + 0x110u, t1v, t0v);
+                }
+            };
+            const uint32_t regs2[3][2] = {{s2, static_cast<uint32_t>(s1) * 16u}, {dArr, static_cast<uint32_t>(s1) * 16u}, {fp, 0x200u}};
+            d3rb::w2Checked("rest blend", u, m, regs2, w2n, [&] { loop2(0); },
+                            [&]
+                            {
+                                if (w2n > 0)
+                                    d3rb::w2Blend(u, m, dArr, 0u, rv, true, s2, false, w2n, t1v, t0v);
+                                loop2(w2n);
+                            });
+            w2::c_blendBones.n += static_cast<uint64_t>(w2n);
             std::memcpy(&f[0], &dot, 4);
             v0 = 0u;
         }
@@ -2003,16 +2090,25 @@ namespace decomp_hot46c
             const uint32_t outArr = m.u32(fp + 0xF0u);
             // Round W2: all but the last bone four at a time (w2QuatMul), the last as below.
             const int32_t w2n = d3rb::w2Count(s1, fp, outArr, s2);
-            if (w2n > 0)
-                d3rb::w2QuatMul(m, outArr, s2, w2n);
-            w2::c_mulBones.n += static_cast<uint64_t>(w2n);
-            for (int32_t i = w2n; i < s1; ++i)
+            auto loop3 = [&](int32_t from)
             {
-                const uint32_t off = static_cast<uint32_t>(i) << 4;
-                const uint32_t out = off + outArr;
-                d3rbQuatMul(u, m, out, off + s2, out);
-                v0 = 0u;
-            }
+                for (int32_t i = from; i < s1; ++i)
+                {
+                    const uint32_t off = static_cast<uint32_t>(i) << 4;
+                    const uint32_t out = off + outArr;
+                    d3rbQuatMul(u, m, out, off + s2, out);
+                    v0 = 0u;
+                }
+            };
+            const uint32_t regs3[3][2] = {{s2, static_cast<uint32_t>(s1) * 16u}, {outArr, static_cast<uint32_t>(s1) * 16u}, {fp, 0x200u}};
+            d3rb::w2Checked("output product", u, m, regs3, w2n, [&] { loop3(0); },
+                            [&]
+                            {
+                                if (w2n > 0)
+                                    d3rb::w2QuatMul(m, outArr, s2, w2n);
+                                loop3(w2n);
+                            });
+            w2::c_mulBones.n += static_cast<uint64_t>(w2n);
         }
         finish(v0);
     }

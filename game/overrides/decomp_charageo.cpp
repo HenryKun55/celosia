@@ -403,6 +403,61 @@ namespace decomp_charageo
             w2::c_nodes.n += static_cast<uint64_t>(count);
             return true;
         }
+        // SOTC_W2_CHECK=1 (game thread): every call also runs the old loop on a host copy of the nodes (and of Q / the status /
+        // vf14 / vf15) first, then nodeQuats on the guest's; the two compared bit for bit. A [w2chk] line every 600 game frames.
+        // (ExecCharaGeometry's whole-call difftest is not usable: its two legs differ even with w2 off, decomp_w2.md.)
+        struct NodeCheck
+        {
+            uint64_t calls = 0, nodes = 0, bad = 0, from = 0;
+            std::vector<uint8_t> ref;
+        };
+        __attribute__((noinline)) bool nodeQuatsChecked(uint8_t *rdram, uint32_t q, int32_t count, float fs, float &qv, uint16_t &status, __m128 &l14,
+                                                        __m128 &l15)
+        {
+            static const bool check = std::getenv("SOTC_W2_CHECK") && std::atoi(std::getenv("SOTC_W2_CHECK")) != 0;
+            if (!check)
+                return nodeQuats(rdram, q, count, fs, qv, status, l14, l15);
+            const uint32_t at = q & PS2_RAM_MASK & ~0xFu;
+            if (count < 4 || count > 4096 || at + static_cast<uint32_t>(count) * 16u > PS2_RAM_SIZE)
+                return nodeQuats(rdram, q, count, fs, qv, status, l14, l15);
+            static NodeCheck st;
+            const uint32_t bytes = static_cast<uint32_t>(count) * 16u;
+            st.ref.assign(rdram + at, rdram + at + bytes);
+            // the old loop (execCharaGeometryBody's phase 4) on the copy
+            float rq = qv;
+            uint16_t rs = status;
+            __m128 r14 = l14, r15 = l15;
+            for (int32_t i = 0; i < count; ++i)
+            {
+                uint8_t *const p = st.ref.data() + static_cast<uint32_t>(i) * 16u;
+                std::memcpy(&r14, p, 16);
+                { __m128 res = PS2_VMUL(r14, r14); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); r15 = PS2_VBLEND(r15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(r15, _mm_shuffle_ps(r15, r15, _MM_SHUFFLE(1,1,1,1))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); r15 = _mm_blendv_ps(r15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(r15, _mm_shuffle_ps(r15, r15, _MM_SHUFFLE(2,2,2,2))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); r15 = _mm_blendv_ps(r15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(r15, _mm_shuffle_ps(r15, r15, _MM_SHUFFLE(3,3,3,3))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); r15 = _mm_blendv_ps(r15, res, _mm_castsi128_ps(mask)); }
+                { float ft = _mm_cvtss_f32(r15); rq = ps2VuRsqrt(rs, fs, ft); }
+                { __m128 res = PS2_VMUL(r14, _mm_set1_ps(rq)); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); r15 = _mm_blendv_ps(r15, res, _mm_castsi128_ps(mask)); }
+                std::memcpy(p, &r15, 16);
+            }
+            const bool ok = nodeQuats(rdram, q, count, fs, qv, status, l14, l15);
+            const bool same = ok && std::memcmp(st.ref.data(), rdram + at, bytes) == 0 && std::memcmp(&rq, &qv, 4) == 0 && rs == status &&
+                              std::memcmp(&r14, &l14, 16) == 0 && std::memcmp(&r15, &l15, 16) == 0;
+            ++st.calls;
+            st.nodes += static_cast<uint64_t>(count);
+            if (!same)
+            {
+                if (st.bad++ < 8)
+                    std::fprintf(stderr, "[w2chk] nodeQuats MISMATCH at %08x count %d (status %04x / %04x)\n", q, count, rs, status);
+            }
+            const uint64_t fr = sotc_decomp::g_gameFrame;
+            if (fr >= st.from + 600u)
+            {
+                std::fprintf(stderr, "[w2chk] frame %llu: nodeQuats %llu calls, %llu nodes compared, %llu mismatches\n", (unsigned long long)fr,
+                             (unsigned long long)st.calls, (unsigned long long)st.nodes, (unsigned long long)st.bad);
+                st.from = fr;
+            }
+            return ok;
+        }
     } // namespace w2geo
     void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     // Round 141 (pf141): the character's object and class lines and the pose buffers its class points to, noted
@@ -958,7 +1013,7 @@ namespace decomp_charageo
                     float qv = ctx->vu0_q;
                     uint16_t status = ctx->vu0_status;
                     // Round W2 (w2_chara.h): the same loop with the dot products four nodes at a time.
-                    if (w2::on() && w2geo::nodeQuats(rdram, q, a0 + 1, fs, qv, status, l14, l15))
+                    if (w2::on() && w2geo::nodeQuatsChecked(rdram, q, a0 + 1, fs, qv, status, l14, l15))
                         a0 = -1;
                     else
                     do
