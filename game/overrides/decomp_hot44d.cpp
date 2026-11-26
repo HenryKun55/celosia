@@ -77,6 +77,12 @@ namespace char104 // round 104 (decomp_char104.cpp)
     void groupEnd();
 }
 
+namespace w3 // round W3 (decomp_w3.cpp)
+{
+    bool on();
+    void scriptPass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
 namespace decomp_hot44d
 {
     using sotc_decomp::callGuest;
@@ -534,6 +540,8 @@ namespace decomp_hot44d
     {
         if (!sotc_decomp::hotList44On())
             return fallback(kScriptPass, rdram, ctx, runtime);
+        if (w3::on() && !sotc_decomp::onWorkerLane(runtime))
+            return w3::scriptPass(rdram, ctx, runtime); // round W3 (SOTC_W3=1, decomp_w3.cpp)
         char104::wake();
         pf141::passBegin(); // round 141: a new frame's ranges; the last frame's first segments asked for
         const uint32_t sp = GPR_U32(ctx, 29) - 0x30u;

@@ -162,6 +162,32 @@ namespace sotc_p2
             {0x0108FCC8u, "display:graphFsEffectReset"},
             {0x010998B8u, "display:modelSetEnviroment"},
         };
+        // Round W3 (SOTC_P2BRACKET=3; docs/decomp_w3.md): the script walk's callees and the camera's steps (lifted code
+        // calls them as known natives; wrapped, the slot no longer holds the known one, so the call goes through the table).
+        constexpr Target kTargetsW3[] = {
+            {0x01102438u, "scripts:GetScriptClass"},
+            {0x001C7110u, "scripts:isysGroupForFirst"},
+            {0x001C76D0u, "scripts:isysGroupForNext"},
+            {0x001C77B8u, "scripts:isysGroupForExit"},
+            {0x001C82D8u, "scripts:LetterObjDiscardAll"},
+            {0x013CF4E0u, "scripts:charaTail"},
+            {0x0141CC90u, "camera:doit_cameraman"},
+            {0x01163C70u, "camera:region_manager"},
+            {0x01162498u, "camera:lws_anim_manager"},
+            {0x01418948u, "camera:obstacle_avoid"},
+            {0x01418738u, "camera:view_cut_avoid"},
+            {0x014137E8u, "camera:slope"},
+            {0x01416DC0u, "camera:subjective_vis"},
+            {0x0141A988u, "camera:objective_vis"},
+            {0x0141A370u, "camera:CAM_doit_target"},
+            {0x0141B380u, "camera:follow_rot"},
+            {0x01418350u, "camera:post_update"},
+            {0x01411C18u, "camera:final_update"},
+            {0x0140FF98u, "camera:default_angle"},
+            {0x0141C718u, "camera:view_angle_cntrl"},
+            {0x014167D0u, "camera:aim_angle_rot"},
+            {0x01417550u, "camera:target_offset"},
+        };
     }
 
     void install(PS2Runtime &runtime)
@@ -192,6 +218,9 @@ namespace sotc_p2
         if (ps2x_p2b_level() >= 2)
             for (const Target &t : kTargetsP3)
                 wrap(t.address, t.name);
+        if (ps2x_p2b_level() >= 3)
+            for (const Target &t : kTargetsW3)
+                wrap(t.address, t.name);
         static std::vector<std::string> extraNames;
         if (const char *extra = std::getenv("SOTC_P2BRACKET_EXTRA"))
         {
@@ -217,10 +246,27 @@ namespace sotc_p2
         }
         std::fprintf(stderr, "[p2b] %d functions wrapped, level %d (counters read when K2's counters run on the game thread)\n", slot, ps2x_p2b_level());
     }
+
+    // Round W3: a bracket opened by native code (not a table entry), at SOTC_P2BRACKET >= level only.
+    int named(const char *name, int level)
+    {
+        if (!ps2x_p2b_wanted() || ps2x_p2b_level() < level)
+            return -1;
+        return ps2x_p2b_register(name);
+    }
+    uint32_t open(int id) { return id < 0 ? 0u : ps2x_p2b_enter(id); }
+    void close(uint32_t token)
+    {
+        if (token)
+            ps2x_p2b_leave(token);
+    }
 }
 #else
 namespace sotc_p2
 {
     void install(PS2Runtime &) {}
+    int named(const char *, int) { return -1; }
+    uint32_t open(int) { return 0u; }
+    void close(uint32_t) {}
 }
 #endif
