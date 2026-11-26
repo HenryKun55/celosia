@@ -47,6 +47,7 @@
 // recompiled code at 0x1137728: that is the profile's lean copy).
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "decomp_hot44b.h"
 #include "typed_a9_core.h" // round D1: round 122's host cores
 #include "runtime/ps2_diag.h"
 
@@ -650,14 +651,7 @@ namespace decomp_hot44b
             return fn == &decomp_quat::axisRotateSw || fn == &decomp_quat::axisRotate || d1::aliasOf(fn) == &decomp_quat::axisRotate;
         }
 
-        struct EulerRegs
-        {
-            V4 v11, v12, v13, v14, v15, v16, acc;
-            float f0, f1, q;
-            uint32_t fcr31, g4, g5, g6;
-            uint16_t status;
-            bool used; // an axis turned (v0 1; at, a1, f0, f1 set)
-        };
+        // (EulerRegs: decomp_hot44b.h)
         // *s0 = *s0 x q (0x1bcb90-0x1bcbc0).
         PS2_FORCE_INLINE void d1quatMul(const d1::Mem m, uint32_t s0, V4 q, EulerRegs &s)
         {

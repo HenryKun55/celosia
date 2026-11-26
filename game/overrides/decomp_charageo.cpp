@@ -64,8 +64,8 @@
 #include <vector>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
-#include "a9sweep.h"
 #endif
+#include "a9sweep.h"
 
 namespace rest81
 {

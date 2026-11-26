@@ -569,6 +569,11 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/decomp_lift(d[0-9]+|alt)_[0-9]+\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
+    # The typed rounds' checks (aN_typed_check.cpp, tools/typed_lift2.py --check-tu) each set A3CK_NS before the
+    # #pragma once typed_a3_check_rt.h: two in one unity batch leave the second without its namespace (Mac).
+    if(PS2X_SOURCE MATCHES "/overrides/a[0-9]+_typed_check\\.cpp$")
+        set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
     # The second set (lean_part_tN.cpp) defines PS2X_EE_TRUST_FINITE before
     # ps2_runtime_macros.h: not with the precompiled header, which has it 0.
     if(PS2X_SOURCE MATCHES "/overrides/lean_part_t[0-9]+\\.cpp$")

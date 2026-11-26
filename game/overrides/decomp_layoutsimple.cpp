@@ -23,6 +23,7 @@
 // that names another function: the recompiled code.
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "decomp_copymatrix.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -611,11 +612,7 @@ namespace decomp_layoutsimple
 // entry and stores at the exit; the frame's matrices stay where the old body puts them (sp .. sp + 0x120).
 namespace decomp_copymatrix
 {
-    struct D3ScaleMatrixOut // decomp_math.cpp's (the same declaration)
-    {
-        __m128 rows[4];
-        uint32_t f0, f1;
-    };
+    // (D3ScaleMatrixOut: decomp_copymatrix.h)
     void scaleMatrixVD3Core(d1::Mem m, uint32_t to, uint32_t scale, D3ScaleMatrixOut &r);
     void scaleMatrixV(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void scaleMatrixVSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

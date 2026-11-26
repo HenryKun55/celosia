@@ -54,6 +54,7 @@
 // labels after each sleep, which a native callGuest cannot return through.
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "decomp_hot44b.h"
 #include "sotc_pf141.h"
 
 #include "ps2_runtime_macros.h"
@@ -1083,16 +1084,7 @@ namespace decomp_hot44b
     void eulerYXZSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     namespace d1e
     {
-        // (decomp_hot44b.cpp's definition, the same tokens)
-        using V4 = __m128;
-        struct EulerRegs
-        {
-            V4 v11, v12, v13, v14, v15, v16, acc;
-            float f0, f1, q;
-            uint32_t fcr31, g4, g5, g6;
-            uint16_t status;
-            bool used; // an axis turned (v0 1; at, a1, f0, f1 set)
-        };
+        // (V4, EulerRegs: decomp_hot44b.h)
         uint32_t eulerYXZD1Core(const d1::Mem m, uint32_t s0, float fx, float fy, float fz, uint32_t sp1, EulerRegs &s);
     }
 }

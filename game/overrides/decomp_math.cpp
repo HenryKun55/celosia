@@ -7,6 +7,7 @@
 // a3 / t0) is written back at the end.
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "decomp_copymatrix.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
 #include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "typed_a6_nchk.h" // a6: A6_NCHK
@@ -439,12 +440,7 @@ namespace decomp_copymatrix
     void copyMultiSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void pastSimpleSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     void scaleMatrixVSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
-    // iosGetScaleMatrixV's core's out-registers (also declared, identically, by decomp_layoutsimple.cpp's D3 body).
-    struct D3ScaleMatrixOut
-    {
-        __m128 rows[4];
-        uint32_t f0, f1;
-    };
+    // iosGetScaleMatrixV's core's out-registers (D3ScaleMatrixOut): decomp_copymatrix.h.
 }
 SOTC_DECOMP_FUNCTION(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMultiSw);
 D1_ALIAS(0x01132EC8u, CopyMultiMatrix, decomp_copymatrix::copyMultiSw, decomp_copymatrix::copyMulti);

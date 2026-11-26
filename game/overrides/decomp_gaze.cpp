@@ -37,6 +37,7 @@
 // curveEval would have put them. SOTC_P1CHARA_CHECK=1 runs every call both ways from the same state and compares.
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "decomp_curve.h"
 #include "p1_chara.h"
 
 #include "ps2_runtime_macros.h"
@@ -1131,18 +1132,7 @@ namespace decomp_curve
     bool d3CurveDefault();
     namespace d2c
     {
-        // (decomp_curve.cpp's definition, the same tokens)
-        // What the decoder leaves: f0, fcr31, vf1 (= a2's 128 bits after mfc1 a2 / qmtc2 a2), vf7, Q, the status, v0.
-        struct CurveRegs
-        {
-            float f0;
-            uint32_t fcr31;
-            __m128 vf1, vf7, a2q;
-            float q;
-            uint16_t status;
-            uint64_t v0;
-            bool setF0, vu1, vu7;
-        };
+        // (CurveRegs: decomp_curve.h)
         bool curveCore(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index, CurveRegs &r);
         bool d3CurveTakes(const d1::Mem &m, uint32_t out, uint64_t format, uint32_t chan, uint32_t index);
         bool d3CurveReadsMiss(const d1::Mem &m, uint32_t chan, uint32_t index, uint32_t lo, uint32_t hi);
