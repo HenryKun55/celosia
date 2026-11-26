@@ -124,7 +124,7 @@ instance's own lines, which a record would have to read again to stay exact; the
 
 Builds (main 8e39115 + X3): pbase (first cut: X3 with the 128-slot ring and the solid part on), p2 (the ring out of SOTC_X3),
 p3 (the solid part opt-in; the package). Each: 0 errors; spalign `0 sp-based :128/:256 NEON accesses (of 3026 with an
-alignment hint)`; `sotc_vita_elf_room` 0x1e000 = 122 880; no "segment 1 overlaps" (W1's 4 KB pad unchanged). P3_CHECKS
+alignment hint)`; `sotc_vita_elf_room` 0x1e000 = 122 880; no "segment 1 overlaps" (W1's 4 KB pad unchanged). The package (p3) rode again with X3 on: onD (ride7 600 s, mounted at 3 787, no `hookring` waits; lane woken 9-10 and the worker 3 times a walk) and lchkD (lake6 400 s, X3_CHECK on).
 
 **Exactness.** X3 changes when the hook worker and the lane are woken, never what they are given: the jobs are the same, with
 the same contents, in the same ring order. The in-run check of that is `SOTC_HOOK_ASYNC_VERIFY=1` (each job's copy hashed at
@@ -152,6 +152,9 @@ a normal picture.
 - chkC (p2 on + checks): on Agro at the foot of a stone tower, hills and sky normal (t0540).
 - poisonB: close behind Agro beside a pillar, normal (t0540).
 - lchkB (lake6, pbase on + checks): Wander swimming between the stone pillars, ripples, reflection, HUD normal (t0300).
+- onD (p3, the package, on): galloping past the tall tower on the plain (t0300); towards a weathered stone pillar, Agro's
+  shadow (t0540).
+- lchkD (lake6, p3 on + checks): Wander swimming at the tower's base, ripples, HUD normal (t0300).
 
 **Wait sites** (the frame log's `waits`, summed over each 600 s ride): offB hookjoin 9 500 ms / hookring 0; onB (pbase, 128
 slots) hookjoin 3 304 / **hookring 33 396**; onC (p2, 512 slots) hookjoin 9 402 / hookring 0. The ring cut was dropped for this
