@@ -24698,3 +24698,27 @@ built on main bc473f3.
 - **Speed**: Vita3K getClothDynamics 1 242 -> 1 185 us a frame (clock brackets; strands 40 us a solve). Expected on the
   console ~0.1-0.2 ms a frame (the solver's frame / call traffic, the driver's hand-overs).
 - **Console**: env-y2-off.txt then env-y2-on.txt, one ride each.
+
+## Decomp Y1: the small animals' AI library as typed native C++ (SOTC_Y1=1, off by default) (2026-11-26)
+
+docs/decomp_y1.md. Package: `build/agent-scratch/y1/` (celosia-y1.vpk / .elf, env-y1-off.txt, env-y1-on.txt, README.txt),
+built on 04986d4.
+
+- **Where it goes** (Vita3K clock brackets on 32 AI entries, ride7, Y1 off): animalStep 637, animalMove 273 and steer 167 us a
+  frame (~6.75 animals), their leaf table calls among them (AI_GetSmallAnimalAIParam 33.75 calls / 211 us a frame,
+  AI_UpdateVelocity 21.3, AI_GetRotVelocity 9.4 calls). Agro's AI (516 us) is next.
+- **What changed**: steer (013DD228) and animalMove (013E30D0) are new host functions: floats and VU0 registers as locals,
+  the leaves (AI_UpdateVelocity, AI_GetRotVelocity, AI_GetAreaDistScale, AI_GetInterRatio, AI_GetSideSignalFromDirLev,
+  the table sines) inline, written from their recompiled code; guest calls 14 -> 2 and 10 -> 3 a call. animalStep
+  (013E1E48) keeps round 43's body in a Y1 mode: the getters and leaves are on the host, and its five
+  AI_GetSmallAnimalAIParam calls run in one batch on the typed core (`aiParamBatchY1`); 12-17 -> ~2.5 guest calls.
+- **Vita3K** (us a call, off / on): animalStep 94.4 / 78.2, animalMove 40.5 / 39.0, steer 37.9 / 22.2; the three ~1.08 ->
+  ~0.89 ms a frame.
+- **Checks**: `SOTC_Y1_CHECK` (same thread; one 32 MB copy, only Y1's written words put back, every word either leg wrote
+  compared; checked only while the EE gate is not reached; void when the VBlank handler ran in a leg). ride7 (mounted
+  at 4261): steer 192, animalMove 256, animalStep 257 checks, 0 bad, 1 void. lake6 (the shrine's animals before the
+  teleport): 144 / 149 / 151, 0 bad, 2 void. The draft's two failures were the check, not Y1. Its lake6 "mismatch" at 0x1e0bd4 was the
+  VBlank handler and the threads it woke, run in the recompiled leg during the teleport's load. Its ride7 heap crash came
+  from putting all 32 MB back, which undid the other host threads' writes during the mount's loads. spalign 0 of 3 324,
+  room 122 880, no overlap; pictures normal on ride7 / lake6.
+- **Console**: env-y1-off.txt then env-y1-on.txt, one ride each; expected ~0.1-0.2 ms a frame while small animals are near.
