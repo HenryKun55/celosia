@@ -8,6 +8,7 @@
 #include "sotc_p2.h"
 
 #include "ps2_runtime.h"
+#include "runtime/ps2_thread_load.h"
 
 #include <array>
 #include <cstdint>
@@ -36,6 +37,7 @@ namespace sotc_p2
         };
         constexpr int kMax = 128; // (ps2_vita_p2.cpp's p2b::kMax)
         std::array<Wrapped, kMax> g_w;
+        bool g_zoneMark = false; // round X2: SOTC_X2_ZONE=1 (read at install)
 
         struct Bracket
         {
@@ -50,6 +52,15 @@ namespace sotc_p2
         void wrapped(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             const Wrapped &w = g_w[Slot];
+            if (__builtin_expect(g_zoneMark, 0))
+            {
+                // Round X2 (SOTC_X2_ZONE=1 with SOTC_PROF129=1): prof129's samples inside this bracket carry zone
+                // 0x5000 | slot, so a script body's zone (decomp_w3) marks only its own self.
+                const ps2_load::GameZone z(0x5000u | static_cast<uint32_t>(Slot));
+                const Bracket b(w.id);
+                w.inner(rdram, ctx, runtime);
+                return;
+            }
             const Bracket b(w.id);
             w.inner(rdram, ctx, runtime);
         }
@@ -216,6 +227,8 @@ namespace sotc_p2
     {
         if (!ps2x_p2b_wanted())
             return;
+        if (const char *z = std::getenv("SOTC_X2_ZONE"))
+            g_zoneMark = std::atoi(z) != 0;
         static const auto wrappers = makeWrappers(std::make_integer_sequence<int, kMax>{});
         int slot = 0;
         auto wrap = [&](uint32_t address, const char *name)

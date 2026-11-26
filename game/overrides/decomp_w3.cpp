@@ -32,6 +32,7 @@
 #include "sotc_p2.h"
 #include "sotc_pf141.h"
 #include "runtime/ps2_diag.h"
+#include "runtime/ps2_thread_load.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -137,6 +138,82 @@ namespace w3
                 g_typeId[type] = sotc_p2::named(names[type], 4);
             }
             return g_typeId[type];
+        }
+
+        // Round X2: the run-to-return loop split by the guest function it enters (keyed by the table's function: a script
+        // body's labels share one; up to 63, the rest under index 63).
+        // - SOTC_X2_RANK=1 with SOTC_P2BRACKET >= 2: one bracket per function ("scripts:fn_<first pc>"), for Vita3K's clock
+        //   brackets / the console's counters (bit 0 of g_rank);
+        // - SOTC_X2_ZONE=1 with SOTC_PROF129=1: prof129's samples carry zone 0x4000 | function index << 6 | (type & 0x3f)
+        //   while that function runs (the level-1 brackets inside set 0x5000 | slot, sotc_p2.cpp), the wake 0x6100, the
+        //   rest of the pass 0x6200: the console's samples of execScript's self by function and object type (bit 1). The
+        //   index -> pc map goes to stderr ("[x2z] fn <index> <pc>").
+        int g_rank = -1, g_zone = 0;
+        // A prof129 zone while g_zone is on (nothing touched otherwise: no thread-local read).
+        struct ZoneIf
+        {
+            bool on;
+            uint32_t prev = 0;
+            ZoneIf(uint32_t zone) : on(g_zone != 0)
+            {
+                if (__builtin_expect(on, 0))
+                {
+                    prev = ps2_load::gameZone.load(std::memory_order_relaxed);
+                    ps2_load::gameZone.store(zone, std::memory_order_relaxed);
+                }
+            }
+            ~ZoneIf()
+            {
+                if (__builtin_expect(on, 0))
+                    ps2_load::gameZone.store(prev, std::memory_order_relaxed);
+            }
+        };
+        __attribute__((cold, noinline)) void rankedFinish(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t ra, uint32_t sp, uint8_t type)
+        {
+            constexpr int kFns = 63;
+            static PS2Runtime::RecompiledFunction keys[kFns];
+            static int ids[kFns];
+            static char names[kFns][24];
+            static int used = 0;
+            while (!(ctx->pc == ra && GPR_U32(ctx, 29) == sp))
+            {
+                PS2Runtime::RecompiledFunction next = runtime->guestFunctionAt(ctx->pc);
+                if (!next)
+                    break;
+                int id = -1, i = 0;
+                for (; i < used; ++i)
+                    if (keys[i] == next)
+                        break;
+                if (i < used)
+                    id = ids[i];
+                else if (used < kFns)
+                {
+                    std::snprintf(names[used], sizeof(names[used]), "scripts:fn_%08x", ctx->pc);
+                    keys[used] = next;
+                    ids[used] = id = (g_rank & 1) ? sotc_p2::named(names[used], 2) : -1;
+                    if (g_zone)
+                        std::fprintf(stderr, "[x2z] fn %d %08x\n", used, ctx->pc);
+                    ++used;
+                }
+                {
+                    const ZoneIf z(0x4000u | static_cast<uint32_t>(i) << 6 | (type & 0x3Fu));
+                    const sotc_p2::Scope s(id);
+                    next(rdram, ctx, runtime);
+                }
+                runtime->checkTransfer();
+            }
+        }
+
+        __attribute__((cold, noinline)) void rankInit()
+        {
+            const char *r = ps2_diag::env("SOTC_X2_RANK");
+            const char *z = ps2_diag::env("SOTC_X2_ZONE");
+            g_zone = z && std::atoi(z) != 0 && ps2_load::zonesWanted();
+            if (g_runId == -2)
+                bracketInit();
+            g_rank = ((r && std::atoi(r) != 0 && g_level >= 2) ? 1 : 0) | (g_zone ? 2 : 0);
+            if (g_rank)
+                std::fprintf(stderr, "[x2z] rank %d (brackets %d, zones %d)\n", g_rank, g_rank & 1, g_zone);
         }
 
         __attribute__((cold, noinline)) void logLine()
@@ -287,7 +364,10 @@ namespace w3
             const PS2Runtime::RecompiledFunction fn = sotc_decomp::guestFunction(runtime, target);
             if (__builtin_expect(!fn, 0))
                 return sotc_decomp::callGuestSlow(rdram, ctx, runtime, target, ra, sp);
-            fn(rdram, ctx, runtime);
+            {
+                const ZoneIf z(0x6100u); // round X2: the wake's own samples (SOTC_X2_ZONE)
+                fn(rdram, ctx, runtime);
+            }
             runtime->checkTransfer(); // a thread switch below: off the stack (round 52)
             if (__builtin_expect(ctx->pc != ra || GPR_U32(ctx, 29) != sp, 1))
             {
@@ -295,6 +375,16 @@ namespace w3
                 if (g_runId == -2)
                     bracketInit();
                 const sotc_p2::Scope run(g_level >= 4 ? typeBracket(rdram[(obj + 8u) & PS2_RAM_MASK]) : g_runId);
+                if (__builtin_expect(g_rank != 0, 0))
+                {
+                    if (g_rank < 0)
+                        rankInit();
+                    if (g_rank)
+                    {
+                        rankedFinish(rdram, ctx, runtime, ra, sp, rdram[(obj + 8u) & PS2_RAM_MASK]);
+                        return;
+                    }
+                }
                 sotc_decomp::finishGuestCall(rdram, ctx, runtime, ra, sp);
             }
         }
@@ -311,6 +401,7 @@ namespace w3
     void scriptPass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++g_st.passes;
+        const ZoneIf passZone(0x6200u); // round X2: the walk's own samples (SOTC_X2_ZONE)
         char104::wake();
         pf141::passBegin(); // round 141: a new frame's ranges; the last frame's first segments asked for
         const uint32_t sp = GPR_U32(ctx, 29) - 0x30u;
