@@ -46,6 +46,8 @@
 #include "d1_native.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_prof.h"
+#include "w1_disp.h" // round W1
+#include "sotc_p2.h" // round W1: the direct brackets
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -942,8 +944,100 @@ namespace decomp_hot43b
             ctx->pc = static_cast<uint32_t>(ra);
         };
         auto call = [&](uint32_t target, uint32_t ret) { callGuest(rdram, ctx, runtime, target, ret, sp); };
+        // Round W1 (SOTC_W1=1, w1_disp.h): the three getters as host reads (no guest call through the table): the v0 / v1
+        // (and GetCharacterClass's a0 / a1) they leave; GetLayoutClass's other cases and GetGeometryPointerObject's other
+        // jump targets the guest call as before.
+        const bool w1h = w1::part(w1::kGetters);
+        // A getter done on the host; SOTC_W1_CHECK=1: the guest call too (its registers kept), v0 / v1 compared.
+        auto hostDone = [&](uint32_t target, uint32_t ret)
+        {
+            ++w1::g_st.lightGetters;
+            if (__builtin_expect(w1::checkOn(), 0))
+            {
+                const uint64_t v0 = GPR_U64(ctx, 2), v1 = GPR_U64(ctx, 3);
+                if (target == kGetCharacterClass)
+                    SET_GPR_S32(ctx, 4, static_cast<int32_t>(GPR_U32(ctx, 5) - 144u)); // (the argument back for the call: a1 is a0 + 0x90)
+                call(target, ret);
+                ++w1::g_st.lightChecks;
+                if ((v0 & 0xFFFFFFFFu) != (GPR_U64(ctx, 2) & 0xFFFFFFFFu) || (v1 & 0xFFFFFFFFu) != (GPR_U64(ctx, 3) & 0xFFFFFFFFu))
+                    if (w1::g_st.lightDiffer++ < 10u)
+                        std::fprintf(stderr, "[w1] getter %08x DIFFERS: v0 %08x / %08x, v1 %08x / %08x\n", target, static_cast<uint32_t>(v0), GPR_U32(ctx, 2),
+                                     static_cast<uint32_t>(v1), GPR_U32(ctx, 3));
+            }
+        };
+        auto getLayoutClassW1 = [&](uint32_t ret)
+        {
+            if (w1h)
+            {
+                const uint32_t a0 = GPR_U32(ctx, 4);
+                const uint32_t index = static_cast<uint32_t>(rdram[(a0 + 8u) & PS2_RAM_MASK]) - 9u;
+                if (index >= 0xEu)
+                {
+                    SET_GPR_U64(ctx, 3, 0u);
+                    SET_GPR_U64(ctx, 2, 0u);
+                    hostDone(kGetLayoutClass, ret);
+                    return;
+                }
+                const uint32_t t = m.d1get<uint32_t>(0x01194070u + index * 4u);
+                if (t == 0x010F1A58u || t == 0x010F1A98u || t == 0x010F1AA0u)
+                {
+                    SET_GPR_S32(ctx, 3, static_cast<int32_t>(t));
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(t == 0x010F1A58u ? a0 + 0x20u : t == 0x010F1A98u ? a0 + 0x90u : 0u));
+                    hostDone(kGetLayoutClass, ret);
+                    return;
+                }
+                ++w1::g_st.lightGuest;
+            }
+            call(kGetLayoutClass, ret);
+        };
+        auto getCharacterClassW1 = [&](uint32_t ret)
+        {
+            if (w1h)
+            {
+                // type 9 or 0x16: the object + 0x90 (sign-extended); a0 the type byte, a1 the object + 0x90.
+                const uint32_t a0 = GPR_U32(ctx, 4), a1 = a0 + 144u;
+                const uint32_t type = rdram[(a0 + 8u) & PS2_RAM_MASK];
+                const uint32_t v1 = type == 9u ? 9u : (type ^ 22u);
+                SET_GPR_U64(ctx, 4, type);
+                SET_GPR_S32(ctx, 5, static_cast<int32_t>(a1));
+                SET_GPR_U64(ctx, 3, v1);
+                if (type == 9u || v1 == 0u)
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(a1));
+                else
+                    SET_GPR_U64(ctx, 2, 0u);
+                hostDone(kGetCharacterClass, ret);
+                return;
+            }
+            call(kGetCharacterClass, ret);
+        };
+        auto getGeometryPointerObjectW1 = [&](uint32_t ret)
+        {
+            if (w1h)
+            {
+                // (a0 +0x30) - 1 below 10: the jump table at 0x1195700 (0x11329f0: *a0, 0x11329f8: 0); else 0.
+                const uint32_t a0 = GPR_U32(ctx, 4);
+                const uint32_t w = m.d1get<uint32_t>(a0 + 48u) - 1u;
+                if (w >= 10u)
+                {
+                    SET_GPR_U64(ctx, 3, 0u);
+                    SET_GPR_U64(ctx, 2, 0u);
+                    hostDone(kGetGeometryPointerObject, ret);
+                    return;
+                }
+                const uint32_t t = m.d1get<uint32_t>(0x01195700u + (w << 2));
+                if (t == 0x011329F0u || t == 0x011329F8u)
+                {
+                    SET_GPR_S32(ctx, 3, static_cast<int32_t>(t));
+                    SET_GPR_S32(ctx, 2, static_cast<int32_t>(t == 0x011329F0u ? m.d1get<uint32_t>(a0) : 0u));
+                    hostDone(kGetGeometryPointerObject, ret);
+                    return;
+                }
+                ++w1::g_st.lightGuest;
+            }
+            call(kGetGeometryPointerObject, ret);
+        };
 
-        call(kGetLayoutClass, 0x010F4D7Cu);
+        getLayoutClassW1(0x010F4D7Cu);
         const uint32_t s3 = GPR_U32(ctx, 2);
         const uint32_t light = m.d1get<uint32_t>(s3 + 0x144u);
         SET_GPR_S32(ctx, 3, light);
@@ -956,7 +1050,7 @@ namespace decomp_hot43b
         SET_GPR_S32(ctx, 2, block);
         m.d1set<uint32_t>(sp, block);
         SET_GPR_U64(ctx, 4, obj);
-        call(kGetLayoutClass, 0x010F4DA8u);
+        getLayoutClassW1(0x010F4DA8u);
 
         // The attachment walk.
         const uint32_t s5 = GPR_U32(ctx, 2);
@@ -974,16 +1068,16 @@ namespace decomp_hot43b
                     break;
                 }
                 SET_GPR_S32(ctx, 4, static_cast<uint32_t>(cls) + 0xC0u);
-                call(kGetGeometryPointerObject, 0x010F4DECu);
+                getGeometryPointerObjectW1(0x010F4DECu);
                 const uint64_t parent = GPR_U64(ctx, 2);
                 SET_GPR_U64(ctx, 4, current);
-                call(kGetCharacterClass, 0x010F4DF8u);
+                getCharacterClassW1(0x010F4DF8u);
                 const uint64_t currentChara = GPR_U64(ctx, 2);
                 SET_GPR_U64(ctx, 4, parent);
-                call(kGetCharacterClass, 0x010F4E04u);
+                getCharacterClassW1(0x010F4E04u);
                 const uint64_t parentChara = GPR_U64(ctx, 2);
                 SET_GPR_U64(ctx, 4, parent);
-                call(kGetLayoutClass, 0x010F4E10u);
+                getLayoutClassW1(0x010F4E10u);
                 cls = GPR_U64(ctx, 2);
                 if (parentChara == 0u || cls == 0u)
                 {
@@ -1100,6 +1194,7 @@ namespace decomp_hot43b
 
     void calcLightLayoutObjSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        const sotc_p2::DirectScope bracket(sotc_p2::kW1CalcLight); // round W1 (both halves)
         if (d1::on())
             calcLightLayoutObjD1(rdram, ctx, runtime);
         else

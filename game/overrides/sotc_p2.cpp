@@ -244,7 +244,15 @@ namespace sotc_p2
                 }
             }
         }
-        std::fprintf(stderr, "[p2b] %d functions wrapped, level %d (counters read when K2's counters run on the game thread)\n", slot, ps2x_p2b_level());
+        // Round W1: the direct brackets (natives' parts; both halves of the W1 A/B).
+        static const char *const kDirectNames[kDirectCount] = {"display:w1GroupPass", "display:w1CopyList", "display:w1LightPass",
+                                                               "display:w1DrawLoop", "display:w1Palette", "display:w1CalcLight"};
+        int direct = 0;
+        for (int i = 0; i < kDirectCount; ++i)
+            if ((g_direct[i] = ps2x_p2b_register(kDirectNames[i])) >= 0)
+                ++direct;
+        std::fprintf(stderr, "[p2b] %d functions wrapped, level %d, %d direct brackets (counters read when K2's counters run on the game thread)\n", slot,
+                     ps2x_p2b_level(), direct);
     }
 
     // Round W3: a bracket opened by native code (not a table entry), at SOTC_P2BRACKET >= level only.
@@ -260,6 +268,9 @@ namespace sotc_p2
         if (token)
             ps2x_p2b_leave(token);
     }
+    int g_direct[kDirectCount] = {-1, -1, -1, -1, -1, -1};
+    uint32_t directEnter(int id) { return ps2x_p2b_enter(id); }
+    void directLeave(uint32_t token) { ps2x_p2b_leave(token); }
 }
 #else
 namespace sotc_p2
@@ -268,5 +279,8 @@ namespace sotc_p2
     int named(const char *, int) { return -1; }
     uint32_t open(int) { return 0u; }
     void close(uint32_t) {}
+    int g_direct[kDirectCount] = {-1, -1, -1, -1, -1, -1};
+    uint32_t directEnter(int) { return 0u; }
+    void directLeave(uint32_t) {}
 }
 #endif

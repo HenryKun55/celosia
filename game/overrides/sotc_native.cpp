@@ -295,6 +295,8 @@ void a13ckExtra(unsigned long long frame);  // typed_a13_check_rt.h (in a13_type
 static uint64_t g_a13Frames[2] = {0, 0};
 // Round A14 (typed_a14_rt.h): the switch a14typed's flag (with A13's, so with A12's opt-in).
 #include "typed_a14_rt.h" // g_a14Typed, PS2X_A14_CHECK
+#include "w1_disp.h" // round W1
+#include "sotc_p2.h" // round W1: the direct brackets
 #if PS2X_A14_CHECK
 void a14ckReport(unsigned long long frame); // a14_typed_check.cpp
 void a14ckExtra(unsigned long long frame);  // typed_a14_check_rt.h (in a14_typed_check.cpp)
@@ -2367,7 +2369,125 @@ namespace sotc_native
     // without the 16 KB picture in between; the palette's lines asked for
     // ahead of the copy. *bytes: how far the packet reaches (the next
     // draw's prefetch).
+    bool readChainPaletteOld(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes);
+    // Round W1 (SOTC_W1=1, w1_disp.h): the same palette in one pass over its UNPACKs: each UNPACK's qwords one bulk copy
+    // when the block does not wrap at the 32 MB end (the per-qword masked copy otherwise), no zero fill when the UNPACKs
+    // cover lo..hi (later UNPACKs over earlier ones, as before). SOTC_W1_CHECK=1: the old copy too, compared.
+    __attribute__((noinline)) bool readChainPaletteW1(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes)
+    {
+        SOTC_READ_SITE(7);
+        if (__builtin_expect(t_p3InKick, false))
+            g_p3Reads.fetch_add(1, std::memory_order_relaxed);
+        ret = 0;
+        bytes = 0;
+        if (((word(own) >> 28) & 7u) != 2u)
+            return false;
+        ret = word(own + 4u);
+        const uint32_t qwc = word(ret) & 0xFFFFu;
+        if (qwc <= 5u)
+        {
+            ret = 0;
+            return false;
+        }
+        const uint32_t end = ret + 16u + qwc * 16u;
+        bytes = end - ret;
+        struct Unpack
+        {
+            uint32_t p, at, last;
+        };
+        constexpr int kMaxUnpacks = 32;
+        Unpack u[kMaxUnpacks];
+        int nu = 0;
+        lo = 1024u;
+        hi = 0u;
+        for (uint32_t p = ret + 8u; p < end;)
+        {
+            const uint32_t code = word(p);
+            p += 4;
+            const uint32_t cmd = (code >> 24) & 0x7Fu;
+            if ((cmd & 0x6Fu) != 0x6Cu)
+                continue;
+            const uint32_t n = ((code >> 16) & 0xFFu) ? ((code >> 16) & 0xFFu) : 256u, at = code & 0x3FFu;
+            const uint32_t last = std::min(at + n, 1024u);
+            if (last > at)
+            {
+                if (nu == kMaxUnpacks)
+                    return readChainPaletteOld(own, lo, hi, out, ret, bytes); // (not met on the routes: the old loop)
+                u[nu++] = Unpack{p, at, last};
+                lo = std::min(lo, at);
+                hi = std::max(hi, last);
+                for (uint32_t k = 0; k < 4u && k * 32u < (last - at) * 16u; ++k)
+                    prefetchGuest(p + k * 32u);
+            }
+            p += n * 16u;
+        }
+        if (hi <= lo)
+        {
+            out.clear();
+            return true;
+        }
+        // Covered: every qword of lo..hi written by some UNPACK (one UNPACK, or the ranges' union without a gap).
+        bool covered = nu == 1;
+        if (!covered)
+        {
+            uint32_t mask[32] = {};
+            for (int i = 0; i < nu; ++i)
+                for (uint32_t q = u[i].at; q < u[i].last; ++q)
+                    mask[q >> 5] |= 1u << (q & 31u);
+            covered = true;
+            for (uint32_t q = lo; q < hi && covered; ++q)
+                covered = (mask[q >> 5] >> (q & 31u)) & 1u;
+        }
+        const size_t count = static_cast<size_t>(hi - lo) * 4u;
+        if (covered)
+            out.resize(count); // every float written below
+        else
+            out.assign(count, 0.0f);
+        for (int i = 0; i < nu; ++i)
+        {
+            const Unpack &x = u[i];
+            const uint32_t span = (x.last - x.at) * 16u, base = x.p & 0x1FFFFFCu;
+            float *const to = out.data() + (x.at - lo) * 4u;
+            if (base + span <= 0x2000000u)
+            {
+                noteRead(x.p, span);
+                std::memcpy(to, g_ram + base, span);
+                ++w1::g_st.palHost;
+                w1::g_st.palBytes += span;
+            }
+            else
+                for (uint32_t q = x.at; q < x.last; ++q)
+                {
+                    const uint32_t from = x.p + (q - x.at) * 16u;
+                    noteRead(from, 16u);
+                    float *const t = out.data() + (q - lo) * 4u;
+                    if ((from & 0x1FFFFFCu) + 16u <= 0x2000000u)
+                        std::memcpy(t, g_ram + (from & 0x1FFFFFCu), 16);
+                    else
+                        for (uint32_t k = 0; k < 4u; ++k)
+                            t[k] = real(from + k * 4u);
+                }
+        }
+        if (__builtin_expect(w1::checkOn(), 0))
+        {
+            uint32_t olo = 0, ohi = 0, oret = 0, obytes = 0;
+            std::vector<float> old;
+            readChainPaletteOld(own, olo, ohi, old, oret, obytes);
+            ++w1::g_st.palChecks;
+            if (olo != lo || ohi != hi || oret != ret || obytes != bytes || old.size() != out.size() ||
+                (!old.empty() && std::memcmp(old.data(), out.data(), old.size() * 4u) != 0))
+                if (w1::g_st.palDiffer++ < 10u)
+                    std::fprintf(stderr, "[w1] palette of %08x DIFFERS (lo %u / %u, hi %u / %u, %u unpacks)\n", own, lo, olo, hi, ohi, static_cast<unsigned>(nu));
+        }
+        return true;
+    }
     bool readChainPaletteLean(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes)
+    {
+        if (w1::part(w1::kPalette))
+            return readChainPaletteW1(own, lo, hi, out, ret, bytes);
+        return readChainPaletteOld(own, lo, hi, out, ret, bytes);
+    }
+    bool readChainPaletteOld(uint32_t own, uint32_t &lo, uint32_t &hi, std::vector<float> &out, uint32_t &ret, uint32_t &bytes)
     {
         SOTC_READ_SITE(7);
         if (__builtin_expect(t_p3InKick, false)) // round P3's check (as readChainPalette)
@@ -13577,7 +13697,14 @@ namespace sotc_native
                 }
                 else
                 {
-                    job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                    if (sotc_p2::g_direct[sotc_p2::kW1Palette] >= 0 && ((word(own) >> 28) & 7u) == 2u && (word(word(own + 4u)) & 0xFFFFu) > 5u)
+                    {
+                        // Round W1: the palette copy's counters (both halves; only the models that have one).
+                        const sotc_p2::DirectScope bracketPalette(sotc_p2::kW1Palette);
+                        job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+                    }
+                    else
+                        job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
                     if (s14 && job.hasPalette)
                     {
                         ++s14hook::g_st.missed; // a palette read the old way (not skinned by dispSkinned's loop, or no layout yet)

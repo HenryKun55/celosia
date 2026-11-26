@@ -28,6 +28,7 @@
 #include "sotc_decomp.h"
 #include "d1_native.h"
 #include "s11rt.h"
+#include "w1_disp.h" // round W1
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -781,5 +782,122 @@ namespace decomp_isys
             lockObjD3(rdram, ctx, runtime);
         else
             lockObj(rdram, ctx, runtime);
+    }
+}
+
+// ---- Round W1 (SOTC_W1=1; docs/decomp_w1.md): iosDlLockObj from the display walk's draw loop as host code ---------------
+// While the calling thread holds the isys lock (the display walk does: the nested case of acquire, no semaphore, no
+// scheduler call), iosDlLockObj (D3 / old: the same writes) and its isysAddGroupWithLinkParam are host code called
+// straight from the walk: the object's delete lock (+8), the frame's saves (s0, s1, ra), the link from the free list into
+// the display list's current group (addPlanCore / addDoCore, word 0), the depth up and down (the same value), the group's
+// count up; the registers as the calls leave the ones read after them (a0..a3, v0 the count, ra, sp, pc). false: nothing
+// written, the caller makes the guest call (the lock not ours, a link the add would not take natively, odd addresses, the
+// table not holding the natives).
+namespace decomp_isys
+{
+    bool w1LockHost(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, uint32_t site, uint32_t spIn)
+    {
+        if (sotc_decomp::guestFunction(runtime, kLockObj) != &lockObjSw || sotc_decomp::guestFunction(runtime, kAdd) != &addGroupSw)
+            return false;
+        const d1::Mem dm{rdram};
+        const M m{rdram};
+        const uint32_t sp = spIn - 0x20u;
+        if (!M::ok(object, 0x10u) || !M::ok(sp, 0x20u) || m.u32(kD3LockDl + 0x18u) > 0x100u)
+            return false;
+        const uint32_t group = (m.u32(kD3LockDl + 0x18u) << 2) + kD3LockDl + 0x20u;
+        const uint32_t link = addPlanCore(dm, object, group);
+        if (link == 0u)
+            return false;
+        int tid = s11rt::threadId(rdram, runtime);
+        if (tid < 0)
+        {
+            sotc_decomp::getThreadId139(rdram, ctx, runtime);
+            tid = static_cast<int32_t>(GPR_U32(ctx, 2));
+        }
+        const int32_t depth = static_cast<int32_t>(m.u32(kDepth));
+        if (static_cast<uint32_t>(tid) != m.u32(kOwner) || depth < 1)
+            return false;
+        const uint32_t ra = site + 8u;
+        // SOTC_W1_CHECK=1: the guest call first (the words it may write kept), those words put back, then the host code
+        // below; the words and the registers read after the call compared ([w1] lock lines).
+        struct Span
+        {
+            uint32_t a, n;
+        };
+        Span spans[10];
+        int ns = 0;
+        uint8_t before[10][0x18], want[10][0x18];
+        uint64_t wantRegs[6] = {};
+        const bool check = w1::checkOn();
+        if (check)
+        {
+            auto add = [&](uint32_t a, uint32_t n)
+            {
+                if (a != 0u && M::ok(a, n) && ns < 10)
+                    spans[ns++] = Span{a, n};
+            };
+            add(object, 0x10u);
+            add(sp, 0x18u);
+            add(link, 0x18u);
+            add(group, 4u);
+            add(kFree, 4u);
+            add(kDepth, 4u);
+            add((m.u32(kD3LockDl + 0x18u) << 2) + kD3LockDl + 0x28u, 4u);
+            const uint32_t last = linkAt(m.u16(group + 2u));
+            add(last, 0x18u);
+            if (last != 0u && m.u16(last + 0xEu) != 0u)
+                add(linkAt(m.u16(last + 0xEu)), 0x18u);
+            if (m.u16(object + 0xCu) != 0u)
+                add(linkAt(m.u16(object + 0xEu)), 0x18u);
+            for (int i = 0; i < ns; ++i)
+                std::memcpy(before[i], rdram + spans[i].a, spans[i].n);
+            const uint64_t s0 = GPR_U64(ctx, 16), s1 = GPR_U64(ctx, 17);
+            sotc_decomp::callGuest(rdram, ctx, runtime, kLockObj, ra, spIn);
+            for (int i = 0; i < ns; ++i)
+                std::memcpy(want[i], rdram + spans[i].a, spans[i].n);
+            for (int i = ns - 1; i >= 0; --i)
+                std::memcpy(rdram + spans[i].a, before[i], spans[i].n);
+            wantRegs[0] = GPR_U64(ctx, 2), wantRegs[1] = GPR_U64(ctx, 4), wantRegs[2] = GPR_U64(ctx, 5);
+            wantRegs[3] = GPR_U64(ctx, 6), wantRegs[4] = GPR_U64(ctx, 7), wantRegs[5] = (GPR_U64(ctx, 16) != s0 || GPR_U64(ctx, 17) != s1) ? 1u : 0u;
+        }
+        // isysObjDeleteLock, the frame (s0, s1 at sp, ra at sp + 0x10).
+        const uint32_t w = m.u32(object + 8u);
+        m.put32(object + 8u, (w & 0xFFFFu) | (((w >> 17) + 1u) << 17));
+        dm.set<uint64_t>(sp, GPR_U64(ctx, 16));
+        dm.set<uint64_t>(sp + 8u, GPR_U64(ctx, 17));
+        dm.set<uint64_t>(sp + 0x10u, static_cast<uint64_t>(ra));
+        // The add (nested: the depth up, the links, the depth back down).
+        m.put32(kDepth, static_cast<uint32_t>(depth + 1));
+        addDoCore(dm, link, object, group, 0u);
+        m.put32(kDepth, static_cast<uint32_t>(depth));
+        // The group's count up.
+        const uint32_t counter = (m.u32(kD3LockDl + 0x18u) << 2) + kD3LockDl + 0x28u;
+        const uint32_t count = m.u32(counter) + 1u;
+        m.put32(counter, count);
+        SET_GPR_U32(ctx, 4, object);
+        SET_GPR_U32(ctx, 5, group);
+        SET_GPR_U64(ctx, 6, 0u);
+        SET_GPR_U64(ctx, 7, 0u);
+        SET_GPR_S32(ctx, 2, static_cast<int32_t>(count));
+        SET_GPR_U32(ctx, 31, ra);
+        SET_GPR_U32(ctx, 29, spIn);
+        ctx->pc = ra;
+        if (check)
+        {
+            bool differ = wantRegs[5] != 0u || wantRegs[0] != GPR_U64(ctx, 2) || wantRegs[1] != GPR_U64(ctx, 4) || wantRegs[2] != GPR_U64(ctx, 5) ||
+                          wantRegs[3] != GPR_U64(ctx, 6) || wantRegs[4] != GPR_U64(ctx, 7);
+            for (int i = 0; i < ns; ++i)
+                differ |= std::memcmp(want[i], rdram + spans[i].a, spans[i].n) != 0;
+            ++w1::g_st.lockChecks;
+            if (differ)
+            {
+                for (int i = 0; i < ns; ++i)
+                    std::memcpy(rdram + spans[i].a, want[i], spans[i].n); // the guest call's words stay
+                if (w1::g_st.lockDiffer++ < 10u)
+                    std::fprintf(stderr, "[w1] lock of %08x at %08x DIFFERS (v0 %llx / %llx)\n", object, site, (unsigned long long)wantRegs[0],
+                                 (unsigned long long)GPR_U64(ctx, 2));
+            }
+        }
+        return true;
     }
 }

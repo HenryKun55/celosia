@@ -178,7 +178,7 @@ namespace decomp_group
         SET_GPR_U32(ctx, 4, GPR_U32(ctx, 2));
         SET_GPR_U64(ctx, 5, 0u);
         // Round C2 (c2scene): the last display walk's scene of this group asks for the next objects' lines.
-        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && !sotc_decomp::onWorkerLane(runtime) &&
+        const bool c2 = c2scene::on() && !sotc_decomp::onWorkerLane(runtime) &&
                         GPR_U32(ctx, 4) == c2scene::lastGroup() && !c2scene::last().empty() && c2scene::prefetchLevel() >= 2;
         c2scene::Ahead ahead;
         call(kForFirst, 0x010F5840u);
@@ -405,7 +405,7 @@ namespace decomp_group
     void initLayoutObjMatrixD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++c_d1InitLayoutMatrix.n;
-        if (sotc_decomp::switchOn(sotc_decomp::kC2Scene))
+        if (c2scene::on()) // (round W1: on with SOTC_W1 too)
             return initLayoutObjMatrix(rdram, ctx, runtime);
         const d1::Mem m{rdram};
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), frame = sp0 - 0x20u;

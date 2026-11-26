@@ -74,6 +74,14 @@
 #include "sotc_prof.h"
 #include "r1sort.h"
 #include "c2scene.h"
+#include "w1_disp.h"
+#include "sotc_p2.h"
+
+namespace decomp_isys
+{
+    // Round W1 (decomp_isys.cpp): iosDlLockObj as host code while the walk holds the isys lock; false: make the guest call.
+    bool w1LockHost(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t object, uint32_t site, uint32_t spIn);
+}
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1545,7 +1553,8 @@ namespace decomp_walk
             if (__builtin_expect(g_pf < 0, 0))
             {
                 const char *e = std::getenv("SOTC_C2SCENE_PF");
-                const int v = e ? std::atoi(e) : 0;
+                // Round W1: level 2 with SOTC_W1 (the console has no hardware prefetcher; Vita3K models no cache).
+                const int v = e ? std::atoi(e) : w1::part(w1::kScene) ? 2 : 0;
                 g_pf = static_cast<signed char>(v < 0 ? 0 : v > 2 ? 2 : v);
             }
             return g_pf;
@@ -5145,9 +5154,10 @@ namespace decomp_walk
         g.callRel(0x010F532Cu, sp); // isysGroupForFirst
         uint32_t s4 = g.v0(), s3 = 0u;
         set(20, s4);
+        sotc_p2::DirectScope bracketGroup(sotc_p2::kW1GroupPass); // round W1: the group pass's counters (both halves)
         // Round C2 (c2scene): the switch latched for this walk (its scene record, the helper list, the prefetches);
         // the walk's every way out ends it (the record kept only when the group pass ends normally).
-        const bool c2on = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && !sotc_decomp::onWorkerLane(runtime);
+        const bool c2on = c2scene::on() && !sotc_decomp::onWorkerLane(runtime); // (round W1: on with SOTC_W1 too)
         struct EndC2
         {
             bool on;
@@ -5536,6 +5546,7 @@ namespace decomp_walk
         clip140::finish();
         if (c2on)
             c2::complete();
+        bracketGroup.close();
         set(18, 0x01190000u);
         if (s3 != 0u)
         {
@@ -5563,6 +5574,7 @@ namespace decomp_walk
             late95::report();
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[1] += t - wt0; wt0 = t; }
         // The second list: the first one without the objects with bit 4 of +0x260.
+        sotc_p2::DirectScope bracketCopy(sotc_p2::kW1CopyList); // round W1
         clearSortList(m, m.u32(kSortList2));
         std::vector<uint32_t> &order = a9s ? g_a9sOrder : []() -> std::vector<uint32_t> & { static std::vector<uint32_t> v; return v; }();
         size_t turn = 0;
@@ -5601,6 +5613,7 @@ namespace decomp_walk
             }
             s0 = s1;
         }
+        bracketCopy.close();
         // Round 95: no light pass ahead (nothing in the second list): the held
         // particle geodisps now, so the light pass below sees them as before.
         std::vector<uint32_t> nodes95;
@@ -5619,7 +5632,10 @@ namespace decomp_walk
             bool pending95 = !late95::g_deferred.empty() && sotc_decomp::draw95On();
             if (!late95::g_deferred.empty() && !pending95)
                 sotc_decomp::g_lightMid95 = late95::inLight;
-            g.call(kLightPass, 0x010F56E8u, sp);
+            {
+                const sotc_p2::DirectScope bracketLight(sotc_p2::kW1LightPass); // round W1
+                g.call(kLightPass, 0x010F56E8u, sp);
+            }
             // A particle geodisp's light callback (the light pass's geodisp branch).
             auto light95 = [&](uint32_t node)
             {
@@ -5677,6 +5693,19 @@ namespace decomp_walk
             if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[3] += t - wt0; wt0 = t; }
             const uint32_t list = m.u32(kSortList2);
             set(19, list);
+            sotc_p2::DirectScope bracketDraw(sotc_p2::kW1DrawLoop); // round W1
+            // Round W1: iosDlLockObj as host code while this walk holds the isys lock (w1lock below).
+            const bool w1Lock = w1::part(w1::kLock) && !sotc_decomp::onWorkerLane(runtime);
+            auto lockObj = [&](uint32_t obj, uint32_t site)
+            {
+                if (w1Lock && sotc_decomp::jalTarget(rdram, site) == 0x001C00C8u && decomp_isys::w1LockHost(rdram, ctx, runtime, obj, site, sp))
+                {
+                    ++w1::g_st.lockHost;
+                    return;
+                }
+                w1::g_st.lockGuest += w1Lock;
+                g.callRel(site, sp); // iosDlLockObj
+            };
             if (w67)
                 sortOrder(m, list, order);
             turn = 0;
@@ -5689,7 +5718,7 @@ namespace decomp_walk
                 if (obj != 0u)
                 {
                     g.a(4, obj);
-                    g.callRel(0x010F577Cu, sp); // iosDlLockObj
+                    lockObj(obj, 0x010F577Cu); // iosDlLockObj (round W1: host while the walk holds the lock)
                 }
                 g.a(5, obj);
                 g.a(4, s6);
@@ -5775,7 +5804,7 @@ namespace decomp_walk
                     {
                         g.a(4, obj);
                         const uint64_t t0_ = wprof::now();
-                        g.callRel(0x010F5728u, sp); // iosDlLockObj
+                        lockObj(obj, 0x010F5728u); // iosDlLockObj (round W1: host while the walk holds the lock)
                         if (wp) wprof::add('K', 0u, sotc_prof::ticks() - t0_);
                     }
                     if (const uint32_t lights = m.u32(cls + 0xD4u))
@@ -5806,7 +5835,7 @@ namespace decomp_walk
                     if (obj != 0u)
                     {
                         g.a(4, obj);
-                        g.callRel(0x010F577Cu, sp); // iosDlLockObj
+                        lockObj(obj, 0x010F577Cu); // iosDlLockObj (round W1: host while the walk holds the lock)
                     }
                     const uint32_t draw = m.u32(cls + 0xD0u);
                     g.a(5, obj);
@@ -5827,9 +5856,42 @@ namespace decomp_walk
             }
         }
         if (wp) { const uint64_t t = sotc_prof::ticks(); wprof::g_phase[4] += t - wt0; wprof::g_phase[0] += t - wstart; wprof::report(); }
+        if (w1::on())
+        {
+            ++w1::g_st.walks;
+            w1::report();
+        }
         g.callRel(0x010F57ACu, sp); // isysObjSignalSema
         m.put32(kStripsOff, 0u);
         finish();
+    }
+}
+
+#if defined(__vita__)
+// Round W1: the W1 build's text ended 0x690 bytes below a 64 KB boundary (vita-elf-create: "Cannot allocate 4828 bytes for
+// SCE data at end of segment 0; segment 1 overlaps") with sotc_vita_elf_room at 122 880. These 4 KB of read-only data move
+// the text end past that boundary (sotc_native.cpp's room left at 122 880, as the round rules ask); drop or resize them
+// when a merge moves the text end again (the same rule as sotc_vita_elf_room's).
+extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[4096] = {1};
+#endif
+
+// Round W1 (w1_disp.h): the [w1] counts every 600 walks (SOTC_W1_LOG=0: none).
+namespace w1
+{
+    void report()
+    {
+        static const bool log = !(std::getenv("SOTC_W1_LOG") && std::getenv("SOTC_W1_LOG")[0] == '0');
+        if (!log || g_st.walks % 600u != 0u)
+            return;
+        const double k = 1.0 / 600.0;
+        std::fprintf(stderr,
+                     "[w1] %llu walks: lock host %.1f guest %.1f (checked %llu, differ %llu) | palette blocks host %.1f (%.0f B), checked %llu, differ %llu | "
+                     "light getters host %.1f guest %.1f (checked %llu, differ %llu) a walk\n",
+                     (unsigned long long)g_st.walks, g_st.lockHost * k, g_st.lockGuest * k, (unsigned long long)g_st.lockChecks,
+                     (unsigned long long)g_st.lockDiffer, g_st.palHost * k, g_st.palBytes * k, (unsigned long long)g_st.palChecks,
+                     (unsigned long long)g_st.palDiffer, g_st.lightGetters * k, g_st.lightGuest * k, (unsigned long long)g_st.lightChecks,
+                     (unsigned long long)g_st.lightDiffer);
+        g_st.lockHost = g_st.lockGuest = g_st.palHost = g_st.palBytes = g_st.lightGetters = g_st.lightGuest = 0;
     }
 }
 
@@ -5858,7 +5920,7 @@ SOTC_DECOMP_AB_FUNCTION(0x0108EBC0u, glVertex3fv, decomp_walk::glVertex3fvEntry)
 // Round C2 (c2scene.h): the scene's public face.
 namespace c2scene
 {
-    bool on() { return sotc_decomp::switchOn(sotc_decomp::kC2Scene); }
+    bool on() { return sotc_decomp::switchOn(sotc_decomp::kC2Scene) || w1::part(w1::kScene); } // round W1: the scene is part of SOTC_W1
     bool checkOn() { return decomp_walk::c2::checkOn(); }
     int prefetchLevel() { return decomp_walk::c2::pfLevel(); }
     const std::vector<Obj> &last() { return decomp_walk::c2::g_last; }

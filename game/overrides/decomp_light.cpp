@@ -1604,7 +1604,7 @@ namespace decomp_light
         call(kReverb, 0x010F4FE4u);
         sotc_decomp::walk83LightBegin(rdram, runtime); // round 83: the lights' signature for this pass
         // Round C2 (c2scene, SOTC_C2SCENE_PF=2): the list's nodes and their scene records, for the first walk's prefetches (nothing else).
-        const bool c2 = sotc_decomp::switchOn(sotc_decomp::kC2Scene) && c2scene::prefetchLevel() >= 2;
+        const bool c2 = c2scene::on() && c2scene::prefetchLevel() >= 2;
         if (c2)
             c2scene::lightBegin(rdram, list);
 
@@ -2642,7 +2642,7 @@ namespace decomp_light
     void lightPassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++c_d1LightPass.n;
-        if (!sotc_decomp::fastNativeOn() || sotc_decomp::switchOn(sotc_decomp::kS23Light) || sotc_decomp::switchOn(sotc_decomp::kC2Scene))
+        if (!sotc_decomp::fastNativeOn() || sotc_decomp::switchOn(sotc_decomp::kS23Light) || c2scene::on())
             return lightPass(rdram, ctx, runtime);
         const Mem mo(rdram, runtime);
         const D1Spr m{mo.rdram, mo.spr};

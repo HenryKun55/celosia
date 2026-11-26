@@ -23,4 +23,34 @@ namespace sotc_p2
         Scope(const Scope &) = delete;
         Scope &operator=(const Scope &) = delete;
     };
+
+    // Round W1 (docs/decomp_w1.md): brackets opened from native code (parts of a native, natives called directly), with
+    // SOTC_P2BRACKET >= 1; the same counters and report lines as the table's. Each is in both halves of an A/B.
+    enum Direct : int
+    {
+        kW1GroupPass, // DispDispObjGroupModel's group pass (the clips, the sort adds)
+        kW1CopyList,  // its second sort list's copy
+        kW1LightPass, // the light pass (manager_sub_010F4FB8) as the walk calls it
+        kW1DrawLoop,  // the draw loop (lock, lights, draw callbacks)
+        kW1Palette,   // the model hook's bone palette copy (readChainPaletteLean)
+        kW1CalcLight, // CalcLightLayoutObj
+        kDirectCount
+    };
+    extern int g_direct[kDirectCount]; // the bracket ids (-1: not registered)
+    uint32_t directEnter(int id);
+    void directLeave(uint32_t token);
+    struct DirectScope
+    {
+        uint32_t token;
+        explicit DirectScope(int which) : token(g_direct[which] >= 0 ? directEnter(g_direct[which]) : 0u) {}
+        void close()
+        {
+            if (token)
+                directLeave(token);
+            token = 0u;
+        }
+        ~DirectScope() { close(); }
+        DirectScope(const DirectScope &) = delete;
+        DirectScope &operator=(const DirectScope &) = delete;
+    };
 }
