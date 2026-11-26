@@ -6526,9 +6526,9 @@ namespace sotc_native
         // Jobs outstanding at most (the game thread waits past it; an area
         // change's cut frame has ~180). Each slot keeps its vectors' room.
         constexpr uint32_t kRing = 512u;
-        // Round X3 (x3_draw.h kRingPart): the slots in use, a power of two <= kRing, set once before the first job
-        // (SOTC_X3=1: 128, SOTC_X3_RING=<n>); a slot is written again after g_ringLen jobs, not after 512 (~960 bytes a
-        // slot: 480 KB cycled through, every model hook's slot cold in L2; 128 slots: 120 KB, ~2 frames).
+        // Round X3 (SOTC_X3_RING=<n>, testing): the slots in use, a power of two <= kRing, set once before the first job;
+        // a slot is written again after g_ringLen jobs, not after 512 (1 144 bytes a slot: 585 KB cycled through, every
+        // model hook's slot cold; 256 slots: 293 KB). Off unless asked for (docs/decomp_x3.md: a full ring's waits).
         uint32_t g_ringLen = kRing, g_ringMask = kRing - 1u;
         uint32_t g_x3Unwoken = 0; // round X3 kWakePart: hand-overs since the last wake-up (game thread)
         HookJob g_ring[kRing];
@@ -8044,9 +8044,9 @@ namespace sotc_native
                 if (!once)
                 {
                     once = true;
+                    // (Not part of SOTC_X3 by default: in Vita3K 128 slots made the game thread wait for a full ring in the
+                    // frames with 130-265 jobs, 33 s of waits in a 600 s ride, where 512 never waited.)
                     uint32_t n = kRing;
-                    if (x3::on() && x3::part(x3::kRingPart))
-                        n = 128u;
                     if (const char *e = std::getenv("SOTC_X3_RING"))
                         n = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
                     uint32_t len = 16u;

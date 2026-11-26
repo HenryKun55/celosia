@@ -24628,3 +24628,25 @@ on 8e39115 + X2).
 - **Checks**: SOTC_X2_CHECK (each step against the old statements; the getters against the guest call): ride7 662 856 checks,
   0 differ; lake6 4 073, 0 differ. spalign 0 of 3 026, ELF room 122 880, no overlap; rides on normal, pictures looked at.
   Expected gain small (~0.02-0.05 ms); the rank ride (env-x2-rank) measures the body table on the console.
+
+## Decomp X3: the display walk's draw side measured to the phase, the model hand-overs' wake-ups batched (SOTC_X3=1, off by default) (2026-11-26)
+
+docs/decomp_x3.md. Package: `build/agent-scratch/x3/` (celosia-x3.vpk / .elf, env-x3-off.txt, env-x3-on.txt, env-x3-brk.txt,
+README.txt), built on 8e39115.
+
+- **Where it goes** (new `SOTC_X3_BRACKET=1` brackets inside the draw loop, DispLayoutObjModel and modelDispHook's six phases;
+  `[x3]` counts; the console's prof129 zones): modelDisp's console self is ~1/3 the frame change (syncFrame at the frame's
+  first hook, 0.76 ms, not draw work), ~1/3 the lane hand-over (0.46 ms), ~1/3 the rest (setup 0.12, decision 0.04, job
+  0.20). On ride7 61-65 of 62-66 solid models already skip their VU1 blocks (round 103); the hand-overs woke a sleeping lane
+  53-55 times and the hook worker 10-21 times a walk, each a kernel call on the game thread.
+- **What changed**: in the draw loop a hand-over wakes a sleeping hook worker / lane every 4 jobs, the loop's end wakes the
+  rest (joins wake / help as before). Testing only: `SOTC_X3_RING=<n>` (the hook job ring's length: 128 made Vita3K wait for a
+  full ring, 33 s in 600 s), `SOTC_X3_PARTS=6` (solidDisp's blocks left out for multi-part shadow models: none on ride7 /
+  lake6). Nothing drawn changes: the same jobs, contents and order.
+- **Vita3K** (clock brackets, us a frame at 222 MHz, off / on): x3MdState 732 / 229, x3MdPush 182 / 34; a model draw without
+  the frame change 36.5 / 23.1 us; lane wake-ups 53 -> 14-16 a walk, worker 10-21 -> 2-6; the game thread's joins ran ~0.01 ms
+  a frame more lane jobs themselves.
+- **Checks**: spalign 0 of 3 026, room 122 880, no overlap. `SOTC_HOOK_ASYNC_VERIFY` with X3 on: 1 206 818 and 1 665 218 jobs,
+  0 differ; no `hookring` waits with the shipped X3; pictures normal on ride7 / lake6 (t0300 / t0540).
+- **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
+  self (prof129's "state" zone).

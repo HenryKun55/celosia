@@ -27,14 +27,15 @@ namespace x3
             g_on = envOn("SOTC_X3", false) ? 1 : 0;
         return g_on != 0;
     }
-    // SOTC_X3_PARTS (debugging / the console's split; default all): bit 0 the hook job ring, 1 the hand-overs' wake-ups
-    // batched in the draw loop, 2 the solid parts' blocks.
+    // SOTC_X3_PARTS (default 2): bit 1 the hand-overs' wake-ups batched in the draw loop; bit 2 the solid parts' blocks
+    // (opt-in: no model it applies to was drawn on ride7 or lake6, so its check never ran there). (Bit 0 is unused: the hook
+    // job ring's length is SOTC_X3_RING=<n>, testing only.)
     enum : unsigned
     {
-        kRingPart = 1u,
         kWakePart = 2u,
         kSolidPart = 4u,
-        kAllParts = 7u
+        kAllParts = 6u,
+        kDefaultParts = kWakePart
     };
     // Round X3 kWakePart: set while the display walk's draw loop runs with the part on (the model hooks' hand-overs to
     // the hook worker and the lane wake a sleeping thread every kWakeEvery hand-overs, not at each; the loop's end wakes
@@ -47,7 +48,7 @@ namespace x3
         if (__builtin_expect(g_parts < 0, 0))
         {
             const char *e = std::getenv("SOTC_X3_PARTS");
-            g_parts = e ? static_cast<int>(std::strtoul(e, nullptr, 0) & kAllParts) : static_cast<int>(kAllParts);
+            g_parts = e ? static_cast<int>(std::strtoul(e, nullptr, 0) & kAllParts) : static_cast<int>(kDefaultParts);
         }
         return on() && (static_cast<unsigned>(g_parts) & p) != 0u;
     }
