@@ -48,6 +48,9 @@ namespace x1
         }
         return g_check != 0;
     }
+    // SOTC_X1_CHECK_FROM=<frame>: the check stays off until that game frame (the run at full speed until then).
+    inline long long g_checkFrom = -1;
+    bool checkFromReached();
     // ExecCharaGeometry's body (decomp_charageo's execCharaGeometryBody calls it first when on): true when it ran,
     // false (nothing done) for the states the old body keeps.
     bool execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);

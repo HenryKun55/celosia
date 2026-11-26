@@ -480,6 +480,7 @@ namespace x1geo
         uint8_t *rdram = nullptr;
         uint64_t calls = 0, boundaries = 0, bytes = 0, bad = 0, from = 0, skipped = 0, unrecorded = 0;
         bool active = false, abiOnly = false;
+        const char *name = "body";
         void (*ref)(Check &) = nullptr; // the replayed old code
 
         static std::vector<uint8_t> bytesOf(const R5900Context *ctx)
@@ -588,7 +589,8 @@ namespace x1geo
                         }
                     }
                     d[i] = ram[x];
-                    ++k->unrecorded;
+                    if (k->unrecorded++ < 16)
+                        std::fprintf(stderr, "[x1chk] %s: segment %u read %08x (%u bytes from %08x) unrecorded\n", k->name, static_cast<unsigned>(at), x, n, a);
                 }
             }
             void write(uint32_t a, const void *src, uint32_t n) { own.write(a, src, n); }
@@ -682,7 +684,7 @@ namespace x1geo
             if (what)
             {
                 if (bad++ < 12)
-                    std::fprintf(stderr, "[x1chk] MISMATCH (%s %d, at %08x) at the old body's %s %08x -> %08x (X1's segment %u of %u: %08x -> %08x%s)\n", what,
+                    std::fprintf(stderr, "[x1chk] %s MISMATCH (%s %d, at %08x) at the old body's %s %08x -> %08x (X1's segment %u of %u: %08x -> %08x%s)\n", name, what,
                                  idx, badAt, atExit ? "exit" : "call", s + 8u, t, static_cast<unsigned>(replay.at), static_cast<unsigned>(used),
                                  g ? g->site + 8u : 0u, g ? g->target : 0u, g && g->exit ? ", exit" : "");
                 replay.off = true;
@@ -716,8 +718,8 @@ namespace x1geo
         if (fr >= from + 600u)
         {
             std::fprintf(stderr,
-                         "[x1chk] frame %llu: %llu calls checked, %llu boundaries compared, %llu bytes compared, %llu mismatches, %llu bytes read unrecorded (%llu not checked: worker / nested)\n",
-                         (unsigned long long)fr, (unsigned long long)calls, (unsigned long long)boundaries, (unsigned long long)bytes,
+                         "[x1chk] %s frame %llu: %llu calls checked, %llu boundaries compared, %llu bytes compared, %llu mismatches, %llu bytes read unrecorded (%llu not checked: worker / nested)\n",
+                         name, (unsigned long long)fr, (unsigned long long)calls, (unsigned long long)boundaries, (unsigned long long)bytes,
                          (unsigned long long)bad, (unsigned long long)unrecorded, (unsigned long long)skipped);
             from = fr;
         }
@@ -1425,7 +1427,7 @@ namespace x1geo
         }
         ++c_calls.n;
         bracketIds();
-        if (__builtin_expect(x1::checkOn(), 0))
+        if (__builtin_expect(x1::checkOn(), 0) && x1::checkFromReached())
         {
             if (sotc_decomp::onWorkerLane(runtime) || g_check.active)
             {
@@ -1448,6 +1450,15 @@ namespace x1geo
 
 namespace x1
 {
+    bool checkFromReached()
+    {
+        if (__builtin_expect(g_checkFrom < 0, 0))
+        {
+            const char *e = std::getenv("SOTC_X1_CHECK_FROM");
+            g_checkFrom = e ? std::atoll(e) : 0;
+        }
+        return static_cast<long long>(sotc_decomp::g_gameFrame) >= g_checkFrom;
+    }
     bool execCharaGeometry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { return x1geo::run(rdram, ctx, runtime); }
 }
 

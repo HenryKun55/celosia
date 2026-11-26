@@ -824,10 +824,11 @@ namespace x1geo
     void xzRef(Check &k);
     void xzRun(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (__builtin_expect(x1::checkOn(), 0) && !sotc_decomp::onWorkerLane(runtime) && !g_checkXz.active)
+        if (__builtin_expect(x1::checkOn(), 0) && x1::checkFromReached() && !sotc_decomp::onWorkerLane(runtime) && !g_checkXz.active)
         {
             g_checkXz.active = true;
             g_checkXz.abiOnly = true;
+            g_checkXz.name = "xz";
             g_checkXz.ref = &xzRef;
             g_checkXz.begin(rdram, ctx);
             xzBody<true>(rdram, ctx, runtime, &g_checkXz);
