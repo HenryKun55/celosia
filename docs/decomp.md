@@ -24532,3 +24532,24 @@ computation; with the switches off the game is main's.
   HPPIR / RPR while the overflow line is up; the console's -4 came back as 0xbffffffc: decoded now.
 - **Checks**: spalign 0 of 3 008, ELF room 122 880, no overlap; 89 MB ride7 boots off / on (pass-through and clock) normal,
   pictures looked at. Console: reboot once, env-p3-bracket.txt, one ride.
+
+## Decomp W3: the script pass's self is the script bodies; the pass as a native walk (SOTC_W3=1, off by default) (2026-11-26)
+
+docs/decomp_w3.md. Package, env files, README: `build/agent-scratch/w3/` (celosia-w3.vpk, built on 063f62c + W3).
+
+- **What scriptPass's 1.98 M console self is**: a woken sub-thread resumes at a label whose function returns into a frame that
+  exists only on the guest stack, so the wake returns early (its bracket closes) and the pass's callGuest runs the script body
+  in its run-to-return loop. The bodies (AI, frame-end per-type work, ExecObjectAnimation, the characters' geometry) were in
+  the pass's self. Vita3K clock brackets (level 3): of the pass's 4.0 ms self, 3.3 ms is the bodies (new bracket
+  `scripts:subThreadRun`), ~0.6 ms the walk; the camera's self is doit_cameraman's lifted helpers plus the collision callbacks
+  under the target-visibility steps.
+- **W3 pass** (decomp_w3.cpp; decomp_hot44d's scriptPass hands over when SOTC_W3=1): same calls, order, registers and stores;
+  the bodies' loop in its own bracket (SOTC_P2BRACKET >= 2; per object type at 4); GetScriptClass's plain cases inline;
+  isysGroupForNext called directly (the native the slot holds); the next object's lines prefetched; rare calls out of line.
+  SOTC_W3_CHECK=1 (inline GetScriptClass vs the native on a context copy), SOTC_W3_LOG=<n>.
+- **sotc_p2**: native-code brackets (named / open / close / Scope); SOTC_P2BRACKET=3 adds the walk's callees and the camera's
+  steps (22 more, 101 in all).
+- **Checks**: spalign 0 of 3 008, ELF room 122 880, no overlap (after moving W3's rare calls out of line: 12.7 -> 8.5 KB);
+  89 MB ride7 / lake6 on and off normal, pictures looked at; W3_CHECK 387 194 (ride7) and 428 611 (lake6) checks, 0 differ; no
+  frozen-picture or difftest mode. Expected gain: the walk's share (~0.1-0.3 ms); the bodies (~3.6 ms console) are the next
+  target. Console: env-w3-off / env-w3-on, two rides.
