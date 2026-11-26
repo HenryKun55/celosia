@@ -24589,3 +24589,22 @@ lanes of one register), and only where the arrays involved do not overlap.
   (pictures looked at); SOTC_W2_CHECK (old code vs W2 on the same input, bit for bit) ride7: 3 720 967 nodes, 1 591 876 rootBlend bones, 0 mismatches; GetMotionMatrix difftest 100 checks 0 mismatches; ExecCharaGeometry's whole-call difftest is not repeatable even with W2 off (timer / allocation state), so not used.
 - **Speed**: Vita3K (instruction weight only) rootBlendD3 0.59% -> 0.24% of the game thread, the pose and the node loop even;
   the console's off / on pair (the package) decides.
+
+## Decomp X1: ExecCharaGeometry and xz as native C++ (SOTC_X1, off by default) (2026-11-26)
+
+docs/decomp_x1.md. Package: `build/agent-scratch/x1/` (celosia-x1.vpk / .elf, env-x1-off.txt, env-x1-on.txt, env-x1-parts.txt,
+README.txt), built on 8e39115. Needs SOTC_D1NATIVE=1.
+
+- **ExecCharaGeometry's body** (x1_charageo.cpp): the class through a host pointer, VU0 math on host vectors with the same ops /
+  clamps / order written to the context only at guest calls and the exit, the node quaternions four dot products at a time,
+  the bone products with PLD three bones ahead; calls, frame slots, callee-saved registers as the original.
+- **xz** (0x10e7610, the player's root dynamics step, recompiled MIPS until now; x1_xz.inc): host code from the MIPS in its order,
+  the context holding only what callees / the caller can read.
+- **Check** (SOTC_X1_CHECK=1, SOTC_X1_CHECK_FROM=<frame>): thread-free record / replay; X1's run recorded per segment, the old body
+  (x1_charageo_ref.inc) and the recompiled xz (x1_xz_ref.inc) replayed against it, compared at every guest call and the exit.
+  ride7 with riding: body 38 613 calls, xz 4 956 calls, 0 mismatches (xz's 12 unrecorded bytes a call are its own relocatable
+  instruction words, read by the recompiled code, constant at run time).
+- **Brackets** (SOTC_P2BRACKET=2): x1Nodes / x1Bones and 17 recompiled charrootdyn_* / collision helpers under xz (kTargetsX1).
+- spalign 0 of 3 314, ELF room 122 880, no overlap. Expected console gain ~0.1-0.2 ms a frame (body) plus a small part of xz's
+  0.29 M cycles; console A/B pending.
+

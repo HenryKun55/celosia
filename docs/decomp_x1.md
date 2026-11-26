@@ -82,13 +82,36 @@ Results: section 5.
 
 ## 4. Builds
 
-p1 (X1 body), p2 (check thread, stack), p3 (thread-free check), p4 (+ xz, the kTargetsX1 brackets): 0 errors each;
-spalign 0 sp-based :128/:256 NEON accesses (p3: of 3 256 with a hint); `sotc_vita_elf_room` 0x1e000 = 122 880; no
-"segment 1 overlaps" (W1's 4 KB `sotc_w1_elf_pad` unchanged).
+p1 (X1 body), p2 (check thread, stack), p3 (thread-free check), p4 (+ xz, the kTargetsX1 brackets), p5 (+
+SOTC_X1_CHECK_FROM, labelled check lines, the unrecorded reads logged; the package): 0 errors each; spalign 0 sp-based
+:128/:256 NEON accesses (p5: of 3 314 with a hint); `sotc_vita_elf_room` 0x1e000 = 122 880; no "segment 1 overlaps"
+(W1's 4 KB `sotc_w1_elf_pad` unchanged).
+
+`SOTC_X1_CHECK_FROM=<frame>`: the check stays off until that game frame (the check runs at ~4 game fps; with it the run
+reaches the ride at full speed and the check covers riding).
 
 ## 5. Runs (Vita3K 222 MHz, 3 cores, muted, 89 MB, a copy of the memory card)
 
-PENDING
+| run | build | switches | result |
+|---|---|---|---|
+| chkA / chkB | p1 / p2 | X1 + check (thread) | frozen at boot (frames 187 / 455): the check's host-thread handshake; killed, design replaced |
+| onB | p1 | X1 | mounted at 3 215, 44 679 X1 calls; t0300 Wander on Agro by the shrine walls, normal |
+| chkE | p3 | X1 + check | ride7 600 s, ~4 game fps, frame ~2 900 (on foot): body 23 810 calls, 364 392 boundaries, 49.3 M bytes, **0 mismatches, 0 unrecorded**; t0300 Wander at the altar with Mono, t0540 Wander running on the plain past the shrine walls with his shadow |
+| lchkE | p3 | X1 + check | lake6: stayed in the intro (teleport to 0, 0, 0: the known lake6 save-load flake in Vita3K, not X1); 369 calls, 0 mismatches |
+| chkF | p4 | X1 (+ xz) + check | ride7 600 s to frame 3 684: body 28 867 calls 0 mismatches 0 unrecorded; xz 5 594 calls 0 mismatches, 12 bytes a call unrecorded (below) |
+| onF | p4 | X1 (+ xz) | mounted at 4 418; 84 835 body and 14 022 xz calls |
+| **chkrG** | p5 | X1 (+ xz) + check from frame 3 300 | ride7 900 s, mounted at 2 432, checked from 3 300 to 7 486 while riding: **body 38 613 calls, 618 564 boundaries, 69.9 M bytes, 0 mismatches, 0 unrecorded; xz 4 956 calls, 143 413 boundaries, 1.85 M bytes, 0 mismatches**, 12 bytes a call unrecorded; t0540 Wander galloping on Agro across the plain, t0660 Wander on Agro by the shrine wall, normal |
+
+xz's 12 unrecorded bytes a call: the words at 0x010e76f0 (segment 1) and 0x010e7760 / 0x010e7768 (segment 3), inside
+xz's own text (0x10e7610-0x10e8108). The recompiler emits `lui` / `addiu` of relocatable immediates as reads of the live
+instruction word (`READ32(0x10E76F0u)` -> `_dynImm << 16`: the `lui v0, 0x1e` of the 0x1e0ed4 table pointer;
+`READ32(0x10E7760u)` / `READ32(0x10E7768u)`: the `lui a1, 0x1e` / `addiu a1, 0xfd0` of updateCharacterClassParentGeometry's
+0x1e0fd0 argument), so a module relocated at load gets its own constants. X1 uses the constants of the loaded module
+(0x1e0000, 0x1e0fd0); the replayed reference read the instruction words from RAM, which nothing writes while the game
+runs (the module's text): the values are the same. The comparison at the next call confirms it on every call: a1 =
+0x1e0fd0 at 0x10e776c, and v0 = 0x1e0000 reaches the following call's compare unchanged (the 0x1e0ed4 read itself was not
+on the path in these runs: the motion record's handle was 0). The body has no such reads (decomp_charageo reads its
+relocated words through `relocated()`, which X1 keeps).
 
 ## 6. Speed
 
@@ -100,4 +123,15 @@ instruction context traffic is gone, the helpers are untouched: a small part of 
 
 ## 7. Console steps
 
-PENDING
+`build/agent-scratch/x1/` (README.txt): `celosia-x1.vpk` (+ `celosia-x1.elf`) = main 8e39115 + X1 (build p5),
+`env-x1-off.txt` (the W round's env-wx-on.txt: W1-W3 on, SOTC_P2BRACKET=1, K2, M1PMU, prof129, d1native), `env-x1-on.txt`
+(+ SOTC_X1=1), `env-x1-parts.txt` (on, with SOTC_P2BRACKET=2: P3's 57 brackets + x1Nodes / x1Bones + kTargetsX1).
+Same K2 module as P3. Two rides of 4-5 minutes (off, on), the same route, send both err.txt; optionally a third with the
+parts file. Report: `python3 tools/p2_report.py err-x1-on.txt --elf build/agent-scratch/x1/celosia-x1.elf` (and off):
+characters:ExecCharaGeometry inclusive and self, the [m1pmu] frame cycles; the parts run splits root dynamics (xz and
+its helpers) for the next round.
+
+## 8. Next
+
+- From the parts run: the heaviest charrootdyn_* helpers under xz (still recompiled MIPS), then the cloth and IK trees.
+- The strand solver (gamecore_sub_013B8DC8, 0.28 ms a frame, lifted MIPS under getClothDynamics): not done this round.
