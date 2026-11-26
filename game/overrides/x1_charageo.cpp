@@ -479,7 +479,8 @@ namespace x1geo
         std::vector<uint8_t> entry;
         uint8_t *rdram = nullptr;
         uint64_t calls = 0, boundaries = 0, bytes = 0, bad = 0, from = 0, skipped = 0, unrecorded = 0;
-        bool active = false;
+        bool active = false, abiOnly = false;
+        void (*ref)(Check &) = nullptr; // the replayed old code
 
         static std::vector<uint8_t> bytesOf(const R5900Context *ctx)
         {
@@ -612,10 +613,16 @@ namespace x1geo
             if (!what)
             {
                 std::memcpy(static_cast<void *>(xc), g->pre.data(), sizeof(R5900Context));
+                // abiOnly (xz: the recompiled code's scratch registers are not the callees' or the caller's business):
+                // the low 64 bits of a0-a3 / t0-t3 (arguments), s0-s7, sp, fp, ra (v0 / v1 too at the exit); f12-f31
+                auto abiGpr = [&](int i)
+                {
+                    return (i >= 4 && i <= 11) || (i >= 16 && i <= 23) || i >= 29 || (atExit && (i == 2 || i == 3));
+                };
                 for (int i = 0; !what && i < 32; ++i)
-                    if (!sameReg(&xc->r[i], &rc->r[i], 16))
+                    if (abiOnly ? (abiGpr(i) && !sameReg(&xc->r[i], &rc->r[i], 8)) : !sameReg(&xc->r[i], &rc->r[i], 16))
                         what = "a GPR", idx = i;
-                for (int i = 0; !what && i < 32; ++i)
+                for (int i = abiOnly ? 12 : 0; !what && i < 32; ++i)
                     if (!sameReg(&xc->f[i], &rc->f[i], 4))
                         what = "an FPR", idx = i;
                 for (int i = 1; !what && i < 32; ++i)
@@ -703,7 +710,7 @@ namespace x1geo
         replay.own.clear();
         replay.at = 0;
         replay.off = false;
-        refBody(*this);
+        ref(*this);
         refBoundary(0u, 0u, true);
         const uint64_t fr = sotc_decomp::g_gameFrame;
         if (fr >= from + 600u)
@@ -1427,6 +1434,7 @@ namespace x1geo
                 return true;
             }
             g_check.active = true;
+            g_check.ref = &refBody;
             g_check.begin(rdram, ctx);
             body<true>(rdram, ctx, runtime, &g_check);
             g_check.end(ctx);
@@ -1444,3 +1452,7 @@ namespace x1
 }
 
 #include "x1_charageo_ref.inc"
+#include "x1_xz.inc"
+#include "x1_xz_ref.inc"
+
+SOTC_DECOMP_FUNCTION(0x010E7610u, xz, x1geo::xzSw);
