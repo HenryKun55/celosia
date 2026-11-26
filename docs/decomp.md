@@ -24650,3 +24650,29 @@ README.txt), built on 8e39115.
   0 differ; no `hookring` waits with the shipped X3; pictures normal on ride7 / lake6 (t0300 / t0540).
 - **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
   self (prof129's "state" zone).
+
+## Decomp Y3: the object animation library as native C++ (SOTC_Y3=1, off by default) (2026-11-26)
+
+docs/decomp_y3.md. Package: `build/agent-scratch/y3/` (celosia-y3.vpk / .elf, env-y3-off.txt, env-y3-on.txt, env-y3-brk.txt,
+README.txt), built on xm (X1 + X2 + X3).
+
+- **Ranking** (Vita3K clock brackets on 31 library functions, ride7 / lake6; `SOTC_Y3_LOG` counts every channel by type with
+  the sampler's and the kick's table words): the weight is ~60-90 animation channels a frame (the shrine's global light
+  animation: types 23-26, object / alpha / vector / colour samplers -> the four light updates; riding out of the shrine
+  area: types 1 / 5, optionNodeSample -> updateObjectGeo), each a guest-call ladder (ExecObjectAnimation -> the sampler's
+  0xd0 frame and table walk -> one evaluator -> the kick's 0x480 frame, its table and register syncs -> GetLayoutClass,
+  the light type test, one update). ExecObjectAnimation 918 us a frame in Vita3K at the shrine, ~1-3 channels on the plain.
+- **What changed**: ExecObjectAnimation as host code over typed views (AnimPart, WalkAnim / WalkChannel, Target, ResAnim /
+  ResChannel, Blend3Data); the sample by the sampler's word: a plain case's evaluator or optionNodeSample called directly
+  with the sampler's registers, the vec3 blend as direct C++ (D2 / D3 cores, the blend's VU0 statements on host vectors);
+  the kick by its word: the four global light cases (GetLayoutClass and the light type tests as host reads, the
+  out-of-range placing, the update as the one guest call left), caseObject / caseObjectAttach (updateObjectGeo with the
+  kick's registers), the damage case (updateDamageGeo's size test); the rest as before. `sotc_w1_elf_pad` 4 -> 8 KB.
+- **Checks** (`SOTC_Y3_CHECK=1`, same thread: old then new on the same state, compared; the object kicks through a spy in
+  updateObjectGeo's slot): ride7 564 659 samples, 301 159 light kicks, 225 084 object kicks, **0 differ**; lake6 372 595 /
+  226 338 / 8 860, **0 differ**; one place (a vector sample right after a teleport) where the old recompiled evaluator itself
+  is not repeatable (its second run equals Y3's). spalign 0 of 3 320, room 122 880, no overlap; pictures normal.
+- **Speed** (Vita3K, the shape): ExecObjectAnimation 918 -> 803 us a frame at the shrine (-12.5%); what is left is the
+  evaluators (still recompiled MIPS) and the updates: the next step.
+- **Console**: env-y3-off.txt then env-y3-on.txt, one ride each; expected ~0.05-0.15 ms a frame in the shrine area and while
+  riding out of it, about nothing on the open plain.
