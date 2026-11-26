@@ -40,6 +40,7 @@
 #include "chara_types.h"
 #include "p1_chara.h"
 #include "r1_chara.h"
+#include "w2_chara.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/native_renderer.h"
@@ -752,6 +753,8 @@ namespace s3chara
         M4 hm[kMaxBones];
         float32x4_t hq[kMaxBones];
         PoseArgs job;
+        float32x4_t w2loc[kMaxBones]; // round W2 (poseW2): the locals normalised, by visit
+        float32x4_t w2q[kMaxBones];   // round W2: the quaternions before their normalisation, by visit
     };
     Scratch *g_scratch[2] = {nullptr, nullptr};
 
@@ -1171,6 +1174,158 @@ namespace s3chara
                 cur = k;
             }
         }
+        return n;
+    }
+
+    // =================================================================================================================
+    // Round W2 (w2, w2_chara.h, docs/decomp_w2.md): the pose with its normalisations batched, called by GetMotionMatrix's
+    // D3 core. poseRange's operations per bone, regrouped: a bone's local is normalised from its raw bits alone and its
+    // quaternion's normalised copy feeds nothing (the children take the quaternion before the normalisation), so both
+    // normalisations leave the walk: pass 1 normalises every visited bone's local, four at a time (normalize4: the lanes of
+    // pose82::normalizeA9's operations, the same bits); pass 2 is the walk (boneMatrix, qmul along the parent chain, the
+    // matrix and the local written); pass 3 normalises the quaternions four at a time and writes them. The guest gets the
+    // same values at the same places; only the order of the writes to the three arrays changes, so the three must not
+    // overlap and every bone must be visited once (else pose()). Kept bones / jobs / P1's offsets: pose().
+    // =================================================================================================================
+    // pose82::normalizeA9 on four quaternions held as lanes (x, y, z, w: one quaternion a lane).
+    __attribute__((always_inline)) inline void normalize4(float32x4_t &x, float32x4_t &y, float32x4_t &z, float32x4_t &w)
+    {
+        // sum4(q * q) = (xx + zz) + (yy + ww): sum4's vadd of the halves, then its vpadd
+        const float32x4_t d = vaddq_f32(vaddq_f32(vmulq_f32(x, x), vmulq_f32(z, z)), vaddq_f32(vmulq_f32(y, y), vmulq_f32(w, w)));
+        float32x4_t r = vrsqrteq_f32(d);
+        r = vmulq_f32(r, vrsqrtsq_f32(vmulq_f32(d, r), r));
+        r = vmulq_f32(r, vrsqrtsq_f32(vmulq_f32(d, r), r));
+        const uint32x4_t u = vreinterpretq_u32_f32(d);
+        const uint32x4_t ok = vandq_u32(vcgtq_u32(u, vdupq_n_u32(0x0DA24260u)), vcleq_u32(u, vdupq_n_u32(0x7F800000u)));
+        const float32x4_t z0 = vdupq_n_f32(0.0f);
+        x = vbslq_f32(ok, vmulq_f32(x, r), z0);
+        y = vbslq_f32(ok, vmulq_f32(y, r), z0);
+        z = vbslq_f32(ok, vmulq_f32(z, r), z0);
+        w = vbslq_f32(ok, vmulq_f32(w, r), z0);
+    }
+    int poseW2(uint8_t *ram, int lane, uint32_t mats, uint32_t quats, uint32_t skel, uint32_t locals, uint32_t pos, uint32_t scaleAt, float32x4_t rootQ)
+    {
+        if (keepOn() || jobsOn() || sotc_decomp::p1charaOn())
+            return pose(ram, lane, mats, quats, skel, locals, pos, scaleAt, rootQ);
+        const uint32_t bones = rd32(ram, skel + 8u);
+        if (!inRam(bones, 0x40u) || !inRam(scaleAt & ~0xFu, 16u) || !inRam(pos & ~0xFu, 16u))
+            return -1;
+        const Rig *g = rigFor(ram, skel, bones);
+        if (!g)
+            return -1;
+        const uint32_t count = g->count;
+        if (!inRam(mats, count * 0x40u) || !inRam(quats, count * 0x10u) || !inRam(locals, count * 0x10u))
+            return -1;
+        const int32_t n = static_cast<int32_t>(g->n);
+        bool fine = w2::apart(mats, count * 0x40u, quats, count * 0x10u) && w2::apart(mats, count * 0x40u, locals, count * 0x10u) &&
+                    w2::apart(quats, count * 0x10u, locals, count * 0x10u);
+        if (fine)
+        {
+            uint32_t seen[kMaxBones / 32u] = {};
+            for (int32_t k = 0; k < n; ++k)
+            {
+                const uint32_t b = g->bone[k], bit = 1u << (b & 31u);
+                if (seen[b >> 5] & bit)
+                {
+                    fine = false;
+                    break;
+                }
+                seen[b >> 5] |= bit;
+            }
+        }
+        if (__builtin_expect(!fine, 0))
+        {
+            ++w2::c_poseFallback.n;
+            return pose(ram, lane, mats, quats, skel, locals, pos, scaleAt, rootQ);
+        }
+        ++w2::c_pose.n;
+        Scratch *&sc = g_scratch[lane];
+        if (!sc)
+            sc = new Scratch();
+        uint8_t *const mp = at(ram, mats), *const qp = at(ram, quats), *const lp = at(ram, locals);
+        const uint8_t *const bp = at(ram, bones);
+        float32x4_t *const ln = sc->w2loc, *const qr = sc->w2q;
+        auto local = [&](int32_t j) { return vld1q_f32(reinterpret_cast<const float *>(lp + static_cast<uint32_t>(g->bone[j]) * 0x10u)); };
+        // pass 1: the locals
+        int32_t k = 0;
+        for (; k + 4 <= n; k += 4)
+        {
+            float32x4_t a = local(k), b = local(k + 1), c = local(k + 2), d = local(k + 3);
+            w2::transpose(a, b, c, d);
+            normalize4(a, b, c, d);
+            w2::transpose(a, b, c, d);
+            ln[k] = a;
+            ln[k + 1] = b;
+            ln[k + 2] = c;
+            ln[k + 3] = d;
+        }
+        for (; k < n; ++k)
+            ln[k] = pose82::normalizeA9(local(k));
+        // pass 2: the walk
+        const float32x4_t scale = vsetq_lane_f32(0.0f, ldq(ram, scaleAt), 3);
+        M4 root;
+        root.c[0] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 0);
+        root.c[1] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 1);
+        root.c[2] = vsetq_lane_f32(1.0f, vdupq_n_f32(0.0f), 2);
+        root.c[3] = vsetq_lane_f32(1.0f, ldq(ram, pos), 3);
+        M4 *const hm = sc->hm;
+        float32x4_t *const hq = sc->hq;
+        M4 p = root;
+        float32x4_t pq = rootQ;
+        int32_t cur = -1;
+        for (k = 0; k < n; ++k)
+        {
+            const int32_t par = g->parent[k];
+            if (par != cur)
+            {
+                if (par < 0)
+                {
+                    p = root;
+                    pq = rootQ;
+                }
+                else
+                {
+                    p = hm[par];
+                    pq = hq[par];
+                }
+                cur = par;
+            }
+            const uint32_t b = g->bone[k];
+            const float32x4_t off = vmulq_f32(vld1q_f32(reinterpret_cast<const float *>(bp + b * kBone + kOffset)), scale);
+            const float32x4_t loc = ln[k];
+            const M4 m = pose82::boneMatrix(p, loc, off);
+            const float32x4_t q = pose82::qmul(pq, loc);
+            float *dm = reinterpret_cast<float *>(mp + b * 0x40u);
+            vst1q_f32(dm, m.c[0]);
+            vst1q_f32(dm + 4, m.c[1]);
+            vst1q_f32(dm + 8, m.c[2]);
+            vst1q_f32(dm + 12, m.c[3]);
+            vst1q_f32(reinterpret_cast<float *>(lp + b * 0x10u), loc);
+            qr[k] = q;
+            if (g->kids[k])
+            {
+                hm[k] = m;
+                hq[k] = q;
+                p = m;
+                pq = q;
+                cur = k;
+            }
+        }
+        // pass 3: the quaternions
+        auto put = [&](int32_t j, float32x4_t v) { vst1q_f32(reinterpret_cast<float *>(qp + static_cast<uint32_t>(g->bone[j]) * 0x10u), v); };
+        for (k = 0; k + 4 <= n; k += 4)
+        {
+            float32x4_t a = qr[k], b = qr[k + 1], c = qr[k + 2], d = qr[k + 3];
+            w2::transpose(a, b, c, d);
+            normalize4(a, b, c, d);
+            w2::transpose(a, b, c, d);
+            put(k, a);
+            put(k + 1, b);
+            put(k + 2, c);
+            put(k + 3, d);
+        }
+        for (; k < n; ++k)
+            put(k, pose82::normalizeA9(qr[k]));
         return n;
     }
 }

@@ -47,6 +47,7 @@
 // once): the recompiled code.
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
+#include "w2_chara.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -350,6 +351,59 @@ namespace decomp_charageo
             g_objs.clear();
         }
     }
+    // Round W2 (w2, w2_chara.h, docs/decomp_w2.md): phase 4's node quaternions normalised with their dot products four nodes
+    // at a time. Per node the loop's operations: s = v x v (PS2_VMUL), x + y, + z, + w (ps2VuAddK, each the lane x), Q =
+    // VU0's rsqrt of vf0.w / s (ps2VuRsqrt, the status in node order), v x Q (PS2_VMUL) written back. Four nodes' lanes
+    // transposed into x / y / z / w vectors get the same lane operations, so the same bits; the rsqrt and the scale stay
+    // per node, in order. Leaves vf14 / vf15 / Q / the status as the last node leaves them. False (nothing done): fewer
+    // than four nodes, a count out of range, an array that would wrap guest RAM.
+    namespace w2geo
+    {
+        __attribute__((noinline)) bool nodeQuats(uint8_t *rdram, uint32_t q, int32_t count, float fs, float &qv, uint16_t &status, __m128 &l14, __m128 &l15)
+        {
+            const uint32_t at = q & PS2_RAM_MASK & ~0xFu;
+            if (count < 4 || count > 4096 || at + static_cast<uint32_t>(count) * 16u > PS2_RAM_SIZE)
+                return false;
+            uint8_t *const base = rdram + at;
+            int32_t i = 0;
+            float qq = qv;
+            for (; i + 4 <= count; i += 4)
+            {
+                uint8_t *const p = base + static_cast<uint32_t>(i) * 16u;
+                __m128 v[4];
+                for (int k = 0; k < 4; ++k)
+                    std::memcpy(&v[k], p + 16 * k, 16);
+                float32x4_t x = v[0], y = v[1], z = v[2], w = v[3];
+                w2::transpose(x, y, z, w);
+                const __m128 s = ps2VuAddK<1, 1>(ps2VuAddK<1, 1>(ps2VuAddK<1, 1>(PS2_VMUL(x, x), PS2_VMUL(y, y)), PS2_VMUL(z, z)), PS2_VMUL(w, w));
+                float sl[4];
+                vst1q_f32(sl, s);
+                for (int k = 0; k < 4; ++k)
+                {
+                    qq = ps2VuRsqrt(status, fs, sl[k]);
+                    const __m128 r = PS2_VMUL(v[k], _mm_set1_ps(qq));
+                    std::memcpy(p + 16 * k, &r, 16);
+                    l15 = r;
+                }
+                l14 = v[3];
+            }
+            for (; i < count; ++i)
+            {
+                uint8_t *const p = base + static_cast<uint32_t>(i) * 16u;
+                std::memcpy(&l14, p, 16);
+                { __m128 res = PS2_VMUL(l14, l14); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); l15 = PS2_VBLEND(l15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(l15, _mm_shuffle_ps(l15, l15, _MM_SHUFFLE(1,1,1,1))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); l15 = _mm_blendv_ps(l15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(l15, _mm_shuffle_ps(l15, l15, _MM_SHUFFLE(2,2,2,2))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); l15 = _mm_blendv_ps(l15, res, _mm_castsi128_ps(mask)); }
+                { __m128 res = ps2VuAddK<1, 1>(l15, _mm_shuffle_ps(l15, l15, _MM_SHUFFLE(3,3,3,3))); __m128i mask = _mm_set_epi32(0, 0, 0, -1); l15 = _mm_blendv_ps(l15, res, _mm_castsi128_ps(mask)); }
+                { float ft = _mm_cvtss_f32(l15); qq = ps2VuRsqrt(status, fs, ft); }
+                { __m128 res = PS2_VMUL(l14, _mm_set1_ps(qq)); __m128i mask = _mm_set_epi32(-1, -1, -1, -1); l15 = _mm_blendv_ps(l15, res, _mm_castsi128_ps(mask)); }
+                std::memcpy(p, &l15, 16);
+            }
+            qv = qq;
+            w2::c_nodes.n += static_cast<uint64_t>(count);
+            return true;
+        }
+    } // namespace w2geo
     void execCharaGeometryBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     // Round 141 (pf141): the character's object and class lines and the pose buffers its class points to, noted
     // for the next frame's helper (prefetch only; nothing here changes what the geometry reads or writes).
@@ -903,6 +957,10 @@ namespace decomp_charageo
                     const float fs = _mm_cvtss_f32(c0w);
                     float qv = ctx->vu0_q;
                     uint16_t status = ctx->vu0_status;
+                    // Round W2 (w2_chara.h): the same loop with the dot products four nodes at a time.
+                    if (w2::on() && w2geo::nodeQuats(rdram, q, a0 + 1, fs, qv, status, l14, l15))
+                        a0 = -1;
+                    else
                     do
                     {
                         l14 = r.q(q);

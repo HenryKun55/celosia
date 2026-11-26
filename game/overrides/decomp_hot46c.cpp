@@ -62,6 +62,7 @@
 // registers by the generator's statements on the context.
 #include "sotc_decomp.h"
 #include "d1_native.h"
+#include "w2_chara.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -1547,6 +1548,100 @@ namespace decomp_hot46c
             u.q = c->vu0_q;
             u.status = c->vu0_status;
         }
+        // ---- Round W2 (w2, w2_chara.h, docs/decomp_w2.md): the bone loops four bones at a time ----
+        // Bones [0, cnt) (cnt a multiple of 4) of a blend loop: d3rbBlendBone's operations on four bones' lanes (from F[i],
+        // the other O[i] or the constant R, the result to D[i] and, with copyF, to F[i] too), the rsqrt per bone in order
+        // (the status accumulates as there). Nothing of u but the status and Q changes: the loop's last bone runs
+        // d3rbBlendBone itself, which sets every register the loop leaves (vf5-vf9, vf14, vf15, ACC, Q, the frame slots).
+        inline void w2Blend(RbVu &u, const d1::Mem &m, uint32_t F, uint32_t O, __m128 R, bool constO, uint32_t D, bool copyF, int32_t cnt, __m128 t1v,
+                            __m128 t0v)
+        {
+            const __m128 wt = d1::bc<0>(t0v), neg1 = d1::bc<0>(t1v);
+            const __m128 w8 = d1::bc<3>(d3rbSub(d1::vf0(), wt)); // vf8.w
+            for (int32_t i = 0; i < cnt; i += 4)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                float32x4_t ax = d3rbQ(m, F + off), ay = d3rbQ(m, F + off + 0x10u), az = d3rbQ(m, F + off + 0x20u), aw = d3rbQ(m, F + off + 0x30u);
+                float32x4_t ox = R, oy = R, oz = R, ow = R;
+                if (!constO)
+                {
+                    ox = d3rbQ(m, O + off);
+                    oy = d3rbQ(m, O + off + 0x10u);
+                    oz = d3rbQ(m, O + off + 0x20u);
+                    ow = d3rbQ(m, O + off + 0x30u);
+                }
+                w2::transpose(ax, ay, az, aw);
+                w2::transpose(ox, oy, oz, ow);
+                const __m128 dot = d3rbAdd(d3rbAdd(d3rbAdd(d3rbMul(ax, ox), d3rbMul(ay, oy)), d3rbMul(az, oz)), d3rbMul(aw, ow));
+                const uint32x4_t neg = vcltq_s32(vreinterpretq_s32_f32(dot), vdupq_n_s32(0));
+                ox = vbslq_f32(neg, d3rbMul(ox, neg1), ox);
+                oy = vbslq_f32(neg, d3rbMul(oy, neg1), oy);
+                oz = vbslq_f32(neg, d3rbMul(oz, neg1), oz);
+                ow = vbslq_f32(neg, d3rbMul(ow, neg1), ow);
+                float32x4_t rx = d3rbAdd(d3rbMul(ax, wt), d3rbMul(ox, w8)), ry = d3rbAdd(d3rbMul(ay, wt), d3rbMul(oy, w8)),
+                            rz = d3rbAdd(d3rbMul(az, wt), d3rbMul(oz, w8)), rw = d3rbAdd(d3rbMul(aw, wt), d3rbMul(ow, w8));
+                const __m128 s = d3rbAdd(d3rbAdd(d3rbAdd(d3rbMul(rx, rx), d3rbMul(ry, ry)), d3rbMul(rz, rz)), d3rbMul(rw, rw));
+                float sl[4], ql[4];
+                vst1q_f32(sl, s);
+                for (int k = 0; k < 4; ++k)
+                    ql[k] = u.q = ps2VuRsqrt(u.status, 1.0f, sl[k]);
+                const __m128 qv = vld1q_f32(ql);
+                rx = d3rbMul(rx, qv);
+                ry = d3rbMul(ry, qv);
+                rz = d3rbMul(rz, qv);
+                rw = d3rbMul(rw, qv);
+                w2::transpose(rx, ry, rz, rw);
+                d3rbPut(m, D + off, rx);
+                d3rbPut(m, D + off + 0x10u, ry);
+                d3rbPut(m, D + off + 0x20u, rz);
+                d3rbPut(m, D + off + 0x30u, rw);
+                if (copyF)
+                {
+                    d3rbPut(m, F + off, rx);
+                    d3rbPut(m, F + off + 0x10u, ry);
+                    d3rbPut(m, F + off + 0x20u, rz);
+                    d3rbPut(m, F + off + 0x30u, rw);
+                }
+            }
+        }
+        // Bones [0, cnt) (a multiple of 4) of the output loop: out[i] = out[i] x B[i], d3rbQuatMul's operations on four
+        // bones' lanes. The loop's last bone runs d3rbQuatMul itself (vf11-vf16, ACC as it leaves them).
+        inline void w2QuatMul(const d1::Mem &m, uint32_t A, uint32_t B, int32_t cnt)
+        {
+            for (int32_t i = 0; i < cnt; i += 4)
+            {
+                const uint32_t off = static_cast<uint32_t>(i) << 4;
+                float32x4_t ax = d3rbQ(m, A + off), ay = d3rbQ(m, A + off + 0x10u), az = d3rbQ(m, A + off + 0x20u), aw = d3rbQ(m, A + off + 0x30u);
+                float32x4_t bx = d3rbQ(m, B + off), by = d3rbQ(m, B + off + 0x10u), bz = d3rbQ(m, B + off + 0x20u), bw = d3rbQ(m, B + off + 0x30u);
+                w2::transpose(ax, ay, az, aw);
+                w2::transpose(bx, by, bz, bw);
+                float32x4_t w = d3rbSub(d3rbMul(aw, bw), d3rbAdd(d3rbAdd(d3rbMul(ax, bx), d3rbMul(ay, by)), d3rbMul(az, bz)));
+                float32x4_t x = d3rbAdd(d3rbAdd(d3rbMul(bx, aw), d3rbMul(ax, bw)), d3rbSub(d3rbMul(by, az), d3rbMul(ay, bz)));
+                float32x4_t y = d3rbAdd(d3rbAdd(d3rbMul(by, aw), d3rbMul(ay, bw)), d3rbSub(d3rbMul(bz, ax), d3rbMul(az, bx)));
+                float32x4_t z = d3rbAdd(d3rbAdd(d3rbMul(bz, aw), d3rbMul(az, bw)), d3rbSub(d3rbMul(bx, ay), d3rbMul(ax, by)));
+                w2::transpose(x, y, z, w);
+                d3rbPut(m, A + off, x);
+                d3rbPut(m, A + off + 0x10u, y);
+                d3rbPut(m, A + off + 0x20u, z);
+                d3rbPut(m, A + off + 0x30u, w);
+            }
+        }
+        // The batched part of a loop over n bones: a multiple of 4 below n (the last bone stays the old code's), when the
+        // arrays are aligned, inside guest RAM and apart from each other and from the frame's slots.
+        inline int32_t w2Count(int32_t n, uint32_t fp, uint32_t a, uint32_t b, uint32_t c = 0u)
+        {
+            if (n < 5 || !w2::on())
+                return 0;
+            const uint32_t bytes = static_cast<uint32_t>(n) * 16u;
+            for (uint32_t x : {a, b})
+                if ((x & 0xFu) != 0u || x >= PS2_RAM_SIZE || x + bytes > PS2_RAM_SIZE || !w2::apart(x, bytes, fp, 0x200u))
+                    return 0;
+            if (!w2::apart(a, bytes, b, bytes))
+                return 0;
+            if (c != 0u && (c >= PS2_RAM_SIZE - 16u || !w2::apart(a, bytes, c & ~0xFu, 16u) || !w2::apart(b, bytes, c & ~0xFu, 16u)))
+                return 0;
+            return (n - 1) & ~3;
+        }
         inline void d3rbStore(R5900Context *c, const RbVu &u)
         {
             for (int i = 5; i <= 17; ++i)
@@ -1836,7 +1931,12 @@ namespace decomp_hot46c
                 const uint32_t dArr = m.u32(fp + 0x1C8u);
                 __m128 lastPrev = d1::zero4();
                 uint32_t dot = 0u;
-                for (int32_t i = 0; i < s1; ++i)
+                // Round W2: all but the last bone four at a time (w2Blend), the last as below.
+                const int32_t w2n = d3rb::w2Count(s1, fp, s2, dArr);
+                if (w2n > 0)
+                    d3rb::w2Blend(u, m, s2, dArr, d1::zero4(), false, dArr, true, w2n, t1v, t0v);
+                w2::c_blendBones.n += static_cast<uint64_t>(w2n);
+                for (int32_t i = w2n; i < s1; ++i)
                 {
                     const uint32_t off = static_cast<uint32_t>(i) << 4;
                     const uint32_t bone = off + s2, prev = off + dArr;
@@ -1883,7 +1983,12 @@ namespace decomp_hot46c
             const __m128 rv = d3rbQ(m, rest);
             SET_GPR_VEC(ctx, 3, _mm_castps_si128(rv));
             uint32_t dot = 0u;
-            for (int32_t i = 0; i < s1; ++i)
+            // Round W2: all but the last bone four at a time (w2Blend), the last as below.
+            const int32_t w2n = d3rb::w2Count(s1, fp, dArr, s2, rest);
+            if (w2n > 0)
+                d3rb::w2Blend(u, m, dArr, 0u, rv, true, s2, false, w2n, t1v, t0v);
+            w2::c_blendBones.n += static_cast<uint64_t>(w2n);
+            for (int32_t i = w2n; i < s1; ++i)
             {
                 const uint32_t off = static_cast<uint32_t>(i) << 4;
                 const uint32_t prev = off + dArr, bone = off + s2;
@@ -1896,7 +2001,12 @@ namespace decomp_hot46c
         // the output quaternions times the bones.
         {
             const uint32_t outArr = m.u32(fp + 0xF0u);
-            for (int32_t i = 0; i < s1; ++i)
+            // Round W2: all but the last bone four at a time (w2QuatMul), the last as below.
+            const int32_t w2n = d3rb::w2Count(s1, fp, outArr, s2);
+            if (w2n > 0)
+                d3rb::w2QuatMul(m, outArr, s2, w2n);
+            w2::c_mulBones.n += static_cast<uint64_t>(w2n);
+            for (int32_t i = w2n; i < s1; ++i)
             {
                 const uint32_t off = static_cast<uint32_t>(i) << 4;
                 const uint32_t out = off + outArr;
