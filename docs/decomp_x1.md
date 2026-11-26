@@ -109,8 +109,8 @@ instruction word (`READ32(0x10E76F0u)` -> `_dynImm << 16`: the `lui v0, 0x1e` of
 0x1e0fd0 argument), so a module relocated at load gets its own constants. X1 uses the constants of the loaded module
 (0x1e0000, 0x1e0fd0); the replayed reference read the instruction words from RAM, which nothing writes while the game
 runs (the module's text): the values are the same. The comparison at the next call confirms it on every call: a1 =
-0x1e0fd0 at 0x10e776c, and v0 = 0x1e0000 reaches the following call's compare unchanged (the 0x1e0ed4 read itself was not
-on the path in these runs: the motion record's handle was 0). The body has no such reads (decomp_charageo reads its
+0x1e0fd0 at 0x10e776c. The 0x1e0000 of 0x10e76f0 only forms the address of the 0x1e0ed4 table read, which was not on the
+path in these runs (the motion record's handle was 0). The body has no such reads (decomp_charageo reads its
 relocated words through `relocated()`, which X1 keeps).
 
 ## 6. Speed
