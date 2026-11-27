@@ -24697,6 +24697,41 @@ built on main d783114 (build p2).
   calls inside the type-1 path now C++ calls).
 - **Console**: env-z2-off.txt then env-z2-on.txt, one ride each.
 
+## Decomp Z4: the frame change (syncFrame) measured to the part; its renderer bookkeeping off the game thread (SOTC_Z4=1, off by default) (2026-11-27)
+
+docs/decomp_z4.md. Package: `build/agent-scratch/z4/` (celosia-z4.vpk / .elf, env-z4-off.txt, env-z4-on.txt, env-z4-brk.txt,
+README.txt), built on main 6d66c6b (build p5).
+
+- **What the 0.76 ms is**: X3's figure is a whole-run average; on the console's ride (prof129 windows 4-6 of wxoff / wxon)
+  the frame change runs **0.91-0.96 ms a frame**: sotc endFrame's own part ~0.35-0.39 (switches, flags, the last 2D batch,
+  the scene set-up), the GL hand-over's own work 0.21-0.32 (`[wait143]`: counters, swaps, the eviction bookkeeping), the
+  ticks and the next frame's start 0.11-0.17; the hook join, frame log, sound log and idle turn ~0. **The render-thread
+  wait is apart** (prof129 `wait render`): 0.18 / 1.51 ms a frame on the ride, 17-22 ms in the menus; real waiting (the
+  render thread's present waits for a display buffer), not counted in the 0.9 ms and not cuttable on the game thread.
+- **Brackets** (direct, `[p2b]`): `frame:z4Sync`, `z4Join`, `z4EndFrame`, `z4Handover`, `z4Log`, `z4After` with
+  SOTC_P2BRACKET >= 1; `SOTC_Z4_BRACKET=2 / 3` the finer parts down to the GL hand-over (`z4HoLock` = its wait,
+  `HoSwap`, `HoEvict`, `HoNotify`) and the eviction (`z4EvHeap` = newlib `mallinfo()`, `EvPool`, `EvPass`, `EvLog`).
+  Vita3K ride7, Z4 off (brk3E): z4Sync 521 us a frame, of it the render wait 162, the eviction 75 (`mallinfo` 503 us a call
+  every 16 frames, the `[gl:mem]` log 2.1 ms a call every 5 s, the pressure pass 307 us a call every 16 frames), endFrame's
+  switches 35, the fog set-up's five getenvs 28, the ticks 28, the 2D flush 21.
+- **Z4 (exact)**: the `[gl:mem]` line's walks (every mesh and texture, the mesh pools) and its print move to the render
+  thread at its pick-up of the frame handed over, on the same maps (the heap reading, which is state, stays on the game
+  thread at the same place); the heap-texture pressure pass skips its walk when no texture lives in the newlib heap
+  (`textureHeapBytes == 0`); endFrame's five `SOTC_NATIVE_LOG` tests read the env once.
+- **Checks** (SOTC_Z4_CHECK, game thread): the game thread's own walk of each `[gl:mem]` line against the render
+  thread's, and each skipped heap-texture walk done anyway: chkRE (ride7 600 s, mounted at 4 845) 95 lines compared / 504
+  passes, chkLE (lake6 400 s) 58 lines; **0 differ, 0 heap textures found**. spalign 0 of 3 417, room 122 880, no overlap
+  (W1's `sotc_w1_elf_pad` 8 -> 12 KB). Pictures normal (ride7 on Agro and on foot, the shrine stairs, lake6 with the HUD).
+- **Speed**: Vita3K (brk3E / brk3onE, level-3 brackets) the `[gl:mem]` line 2.1 -> 0.3 ms a call (every 5 s),
+  the fog set-up 27.7 -> 1.9 us a frame: ~45 us a frame less on the game thread in the parts changed. Expected on the console
+  ~0.03-0.05 ms a frame and one 2-4 ms stall every 5 s gone: small, because the frame change's ~0.9 ms is a long tail.
+- **Left, with numbers**: the heap reading (`mallinfo` walk, 0.4-0.7 ms a call in Vita3K every 16 frames: its value and
+  timing decide the evictions, so only a policy change can move it: an O(1) upper bound from
+  `__malloc_current_mallinfo.arena` minus the top chunk, or the reading a frame ahead on another thread), the pressure
+  pass's arena trims (the recording regrows ~0.8 MB every 16 frames over the heap mark), endFrame's ~30 A/B switches and
+  per-round flags a frame (go when those rounds' switches retire), and the render wait.
+- **Console**: env-z4-off.txt then env-z4-on.txt, one ride each.
+
 ## Decomp Y3: the object animation library as native C++ (SOTC_Y3=1, off by default) (2026-11-26)
 
 docs/decomp_y3.md. Package: `build/agent-scratch/y3/` (celosia-y3.vpk / .elf, env-y3-off.txt, env-y3-on.txt, env-y3-brk.txt,
