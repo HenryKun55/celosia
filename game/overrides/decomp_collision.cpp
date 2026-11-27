@@ -30,6 +30,7 @@
 // frames hold what the original writes there (the filters and the
 // recompiled fallbacks read them). VU0's vf / ACC / Q registers are not left
 // as the original leaves them.
+#include "z3_rootdyn.h"
 #include "sotc_decomp.h"
 #include "d1_native.h"
 #include "typed_a8_nchk.h" // a8: A8_NCHK
@@ -10025,3 +10026,4 @@ namespace decomp_collision
 // Round Z1 (SOTC_Z1=1; docs/decomp_z1.md): ClipCollisionDirectCallBackOneObj and CalcCollisionMultiDepSurfBoundary on the helpers above.
 #include "z1_coll.h"
 #include "z1_oneobj.inc"
+#include "z3_funcs.inc"
