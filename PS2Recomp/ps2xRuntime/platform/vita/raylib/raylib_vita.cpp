@@ -2,6 +2,7 @@
 // controls from the Vita system libraries. See raylib.h.
 
 #include "raylib.h"
+#include "../../../include/runtime/ps2_diag.h" // round F1: the debug switches compiled out of a release build
 
 #include <SDL2/SDL.h>
 #include <vitaGL.h>
@@ -160,7 +161,7 @@ namespace pace110
         g_setting = envInt("SOTC_PACE110", 1);
         g_setting132 = envInt("SOTC_PACE132", 1);
         g_setting143 = envInt("SOTC_PACE143", 1);
-        g_test143 = envInt("SOTC_PACE143_TEST", 0);
+        g_test143 = ps2_diag::kRelease ? 0 : envInt("SOTC_PACE143_TEST", 0);
         // A pull: after this many pictures in a row that were already queued when the one before
         // them went on screen (ready a whole interval early: the slots run later than needed).
         g_calmNeed = envInt("SOTC_PACE110_CALM", 6);
@@ -936,7 +937,7 @@ void InitWindow(int, int, const char *)
     shaderCacheRoot();
     // Testing (Vita3K): SOTC_VITA_EAT_USER_MB=<n> keeps n MB of user memory taken from here on, so that Vita3K (~181 MB
     // free here) has what a console has (S4: 92 MB) and vitaGL sizes its pools as on the console.
-    if (const char *e = std::getenv("SOTC_VITA_EAT_USER_MB"))
+    if (const char *e = ps2_diag::env("SOTC_VITA_EAT_USER_MB"))
     {
         const int mb = std::atoi(e);
         if (mb > 0)
@@ -1040,7 +1041,7 @@ void InitWindow(int, int, const char *)
             std::fprintf(stderr, "[vita] vitaGL garbage collector: priority %d, cores 0x%x (SOTC_VGL_GC)\n", prio, static_cast<unsigned>(mask));
         }
     }
-    const char *pools = std::getenv("SOTC_VGL_POOLS");
+    const char *pools = ps2_diag::env("SOTC_VGL_POOLS");
     if (pools && std::strcmp(pools, "console") == 0)
     {
         std::fprintf(stderr, "[vita] SOTC_VGL_POOLS=console: vitaGL pools of RAM 16, CDRAM 96, phycont 26 MB (a console's)\n");
@@ -1199,7 +1200,7 @@ void EndDrawing(void)
         // with the "dump base" address, vglCeloMemDump's own).
         static const double dumpEvery = []
         {
-            const char *e = std::getenv("SOTC_VGL_MEMDUMP");
+            const char *e = ps2_diag::env("SOTC_VGL_MEMDUMP");
             return e ? std::atof(e) : 0.0;
         }();
         static double nextDump = 0.0;

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include "../../../../ps2xRuntime/include/runtime/ps2_diag.h" // round F1: the debug switches compiled out of a release build
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
 #endif
@@ -40,9 +41,9 @@ namespace ps2x::iop::audio_stats
     // (the debug menu's "Sound log", round 20).
     inline int levelFromEnv()
     {
-        if (const char *v = std::getenv("SOTC_AUDIO_LOG"))
+        if (const char *v = ps2_diag::env("SOTC_AUDIO_LOG"))
             return std::atoi(v);
-        const char *f = std::getenv("SOTC_FRAME_LOG");
+        const char *f = ps2_diag::env("SOTC_FRAME_LOG");
         return f && std::atoi(f) != 0 ? 1 : 0;
     }
     inline std::atomic<int> g_level{-1}; // -1: not read yet
