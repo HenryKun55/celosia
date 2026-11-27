@@ -730,7 +730,7 @@ if(PS2X_IS_VITA)
             COMMENT "Building the P2 bridge celosia_p2u.suprx"
             VERBATIM)
         list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_P2_OUT}.suprx" "module/celosia_p2u.suprx")
-        # Round A3 (docs/decomp_a3.md): the bridge to K2's library CelosiaK2A3 (the ARM at 500 MHz), loaded by the game only
+        # Round A3 (docs/decomp_a3cpu.md): the bridge to K2's library CelosiaK2A3 (the ARM at 500 MHz), loaded by the game only
         # when the System tab's "CPU at 500 MHz" (or SOTC_CPU500=1 in env.txt) asks for it, packed as module/celosia_a3u.suprx.
         set(PS2X_A3_OUT "${CMAKE_CURRENT_BINARY_DIR}/celosia_a3u")
         add_custom_command(OUTPUT "${PS2X_A3_OUT}.suprx"

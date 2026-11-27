@@ -591,7 +591,7 @@ namespace k2
         g_remapRamRc = g_br.remap(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(block)), bytes, g_dry ? K2_REMAP_DRYRUN : 0u, &g_remapRam);
     }
 }
-// Round A3 (docs/decomp_a3.md; the System tab's "CPU at 500 MHz", or SOTC_CPU500=1 in env.txt; off by default): the ARM
+// Round A3 (docs/decomp_a3cpu.md; the System tab's "CPU at 500 MHz", or SOTC_CPU500=1 in env.txt; off by default): the ARM
 // at 500 MHz instead of 444 through K2's library CelosiaK2A3 (vita/k2/celosia_a3.c) and its bridge celosia_a3u.suprx.
 // Nothing is loaded while the option is off. Turned on (at start from settings.cfg / env.txt, or in the menu): the K2
 // module is loaded now if the boot did not load it (the same two steps as k2::boot, after libc; k2's own state is left

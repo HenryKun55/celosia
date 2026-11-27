@@ -24732,6 +24732,35 @@ README.txt), built on main 6d66c6b (build p5).
   per-round flags a frame (go when those rounds' switches retire), and the render wait.
 - **Console**: env-z4-off.txt then env-z4-on.txt, one ride each.
 
+## Decomp A3 (cpu500): the CPU at 500 MHz as a player option through the K2 module (System tab "CPU at 500 MHz" / SOTC_CPU500=1, off by default) (2026-11-27)
+
+docs/decomp_a3cpu.md. This is not the 2026-11-21 "Decomp A3" (typed loops): this round reused the letter. Item 3 of
+docs/arch_plan.md. Package: `build/agent-scratch/a3/` (celosia-a3.vpk / .elf, pkg/eboot.bin + pkg/module/, env-a3-off.txt,
+env-a3-on.txt, README.txt), built on main 0d923a6 (build p1).
+
+- **What**: K2's resident kernel module gets a syscall library, CelosiaK2A3 (`vita/k2/celosia_a3.c`), and a bridge,
+  `celosia_a3u.suprx`. The route is PSVshell's, written here:
+  1. `kscePowerSetArmClockFrequency(444)`.
+  2. ScePervasiveForDriver 0xE9D95643 (SceLowio) with mul:div 15:16, after a Thumb NOP at its +0x1E (taiInjectAbs).
+  3. ScePower's data words +0x41C8 / +0x41CC set to 500 / 15.
+
+  Each site is checked before any write: ScePower's word must read 444 after the 444 set, and the patch site must be a
+  16-bit conditional branch or already the NOP. A kernel busy loop is timed before and after (`est = 444 x t444 / t`);
+  a 500 that is not at least 6% faster is undone. 444 is restored (NOP out) on request, at exit (atexit), on
+  process exit / kill (onGone), on a new owner's hello and at module stop.
+- **Game side**: nothing loads while the option is off. When it is on, K2 is loaded lazily if the boot did not load it,
+  then the A3 bridge, then `celosiaK2Clock(500)`.
+  - Any failure: 444 and one `[a3] ... CPU500 REFUSED` line with the reason.
+  - The resume watcher re-applies 500 after a resume or when ScePower's frequency no longer reads 500; it gives up
+    after 3 failures.
+  - Menu: System tab, saved as `cpu500` in settings.cfg; SOTC_CPU500 is used for one run and not saved.
+- **Vita3K**: on1 (all-on + SOTC_CPU500=1) and on2 (also SOTC_K2=0, the lazy load), ride7, 600 s, both mounted. Both
+  logged "CPU500 REFUSED" (no module answer) and ran as before; pictures normal. 0 errors, no overlap, room 122 880,
+  spalign 0 of 3 417.
+- **Console**: install eboot + module/celosia_k2.skprx, celosia_k2u.suprx, celosia_a3u.suprx; **reboot once** (an old
+  resident K2 lacks the library). Then env-a3-off.txt and env-a3-on.txt, one ride each. Proof: "[a3] cpu 500 ... after
+  (= ~500 MHz) ... CPU500 ON". Expected -7..-10% on the game thread.
+
 ## Decomp Y3: the object animation library as native C++ (SOTC_Y3=1, off by default) (2026-11-26)
 
 docs/decomp_y3.md. Package: `build/agent-scratch/y3/` (celosia-y3.vpk / .elf, env-y3-off.txt, env-y3-on.txt, env-y3-brk.txt,

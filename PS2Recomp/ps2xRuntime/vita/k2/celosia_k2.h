@@ -165,7 +165,7 @@ typedef struct K2C1Bridge
     int (*core3)(uint32_t flags, uint32_t expect, K2Core3 *out);
 } K2C1Bridge;
 
-/* Round A3 (docs/decomp_a3.md): the ARM at 500 MHz for the owner, a player option (off by default). Another syscall
+/* Round A3 (docs/decomp_a3cpu.md): the ARM at 500 MHz for the owner, a player option (off by default). Another syscall
  * library of the same module, CelosiaK2A3 (its own NID: an older resident K2 instance without it does not bind, the A3
  * bridge celosia_a3u.suprx fails to load and the game stays at 444 MHz). celosiaK2Clock(mhz, out):
  *   K2_A3_500  kscePowerSetArmClockFrequency(444) first (the retail top), then the PSVshell route written here: the

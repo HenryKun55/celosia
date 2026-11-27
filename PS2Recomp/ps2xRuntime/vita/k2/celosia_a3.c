@@ -1,5 +1,5 @@
 /*
- * Round A3 (docs/decomp_a3.md): the ARM at 500 MHz for the owner (celosiaK2Clock, library CelosiaK2A3), included by
+ * Round A3 (docs/decomp_a3cpu.md): the ARM at 500 MHz for the owner (celosiaK2Clock, library CelosiaK2A3), included by
  * celosia_k2.c. The route is the one PSVshell takes (read in its source, written again here; nothing of it is loaded):
  *   1. kscePowerSetArmClockFrequency(444): the retail top, through ScePower (its PLL / divider state, its words).
  *   2. ScePervasiveForDriver 0xE9D95643 (exported by SceLowio, library 0xE692C727), the ARM clock generator's

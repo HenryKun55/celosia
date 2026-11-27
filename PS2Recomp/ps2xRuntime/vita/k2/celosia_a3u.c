@@ -1,5 +1,5 @@
 /*
- * Round A3 (docs/decomp_a3.md): celosia_a3u.suprx, the user-side bridge to celosia_k2.skprx's CelosiaK2A3 library (the
+ * Round A3 (docs/decomp_a3cpu.md): celosia_a3u.suprx, the user-side bridge to celosia_k2.skprx's CelosiaK2A3 library (the
  * ARM at 500 MHz). Loaded by the game with sceKernelLoadStartModule only after K2's module answered and only when the
  * player option (or SOTC_CPU500=1) asks for 500; module_start(sizeof(K2A3Bridge *), &ptr) fills the game's K2A3Bridge
  * with the import stub's address. An older resident K2 without the library: this load fails, the game stays at 444.
