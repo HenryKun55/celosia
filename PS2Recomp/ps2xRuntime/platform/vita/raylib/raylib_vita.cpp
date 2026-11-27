@@ -829,6 +829,7 @@ namespace
 // system's defaults after a resume), and ps2_resume::noteResume (the disc handles, the pacing, the VBlank
 // deadlines, the card image, the log). Its cost: a wake-up every 250 ms (a high priority, so it is not starved).
 extern "C" void ps2x_cpu500_watch(int resumed); // round A3 (ps2_vita_runtime.cpp)
+extern "C" void ps2x_k3_watch(int resumed);     // round K3 (ps2_vita_runtime.cpp): SOTC_K3, the watcher on core 3 + the [k3] line
 namespace resume_watch
 {
     std::atomic<uint32_t> g_powerFlags{0};
@@ -873,10 +874,12 @@ namespace resume_watch
             if (!powerResume && !gapResume)
             {
                 ps2x_cpu500_watch(0); // round A3: 500 again if ScePower is no longer at it (LiveArea and back)
+                ps2x_k3_watch(0);     // round K3 (one branch when off)
                 continue;
             }
             setClocks();
             ps2x_cpu500_watch(1); // round A3: setClocks put 444 back: 500 again when the option is on
+            ps2x_k3_watch(1);     // round K3: the [k3] line again 2 s after a resume (masks kept?)
             char why[160];
             std::snprintf(why, sizeof(why), "%s%s(power flags 0x%08x; process clock moved %.1f s)", powerResume ? "power: resumed " : "",
                           gapResume ? "wall-clock gap " : "", static_cast<unsigned>(flags), procGap);

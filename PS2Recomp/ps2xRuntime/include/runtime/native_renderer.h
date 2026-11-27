@@ -572,6 +572,7 @@ namespace native_renderer
             kLane, // round 61: modelDispState's lane (SOTC_MDS_LANE)
             kOffload, // round 64: the game's subsystems moved off the game thread (SOTC_TEX64 ...)
             kGuest,   // round 91: recompiled guest code beside the game thread (game/overrides/sotc_worker.cpp)
+            kWatch,   // round K3: the resume watcher (raylib_vita.cpp), noted only with SOTC_K3
             kKinds
         };
         void place(Kind kind);
@@ -596,6 +597,12 @@ namespace native_renderer
         void lastFrame(Snapshot &out);
         int lineOf(const Snapshot &s, char *out, size_t room);
         int layout(); // SOTC_THREADS as read (0 / 1)
+#if defined(__vita__)
+        // Round K3 (SOTC_K3): every noted thread's kind, name, cpu mask (sceKernelGetThreadCpuAffinityMask), priority and
+        // CPU ms a frame since the last call, as text for the [k3] line; the number of noted threads.
+        int k3Line(char *out, size_t room, unsigned long long frame);
+        int k3Count();
+#endif
     }
 
     // Host memory the game's hooks hold, for the backend's memory log

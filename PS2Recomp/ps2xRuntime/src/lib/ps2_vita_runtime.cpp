@@ -375,6 +375,17 @@ namespace k1
 //   SOTC_C1CORE3=probe   only find and read the hook site (SceKernelThreadMgr's NID, the site's bytes), no hook
 //   SOTC_C1CORE3_EXPECT=0x<word>  hook only if the site's first word is this one (pins a firmware once a probe told it)
 // The thread maps that use core 3 are SOTC_C1MAP's (native_renderer.cpp threads::place).
+// Round K3 (docs/decomp_k3.md; SOTC_K3=1 in env.txt, off by default): arch_plan's core-3 enabler. SOTC_K3 implies C1's
+// hook and test (as SOTC_C1CORE3=1, never the probe) and so the K2 module; when the test passed, threads::place puts the
+// light misc threads (SOTC_K3_SET, default audio,loader,log,main,watch; never game / render) on core 3 alone
+// (SOTC_K3_WIDE=1: cores 1-3). Without core 3 (Vita3K, no module answer, an older resident K2, a failed test) every
+// thread keeps today's cores. The resume watcher (raylib_vita.cpp) calls ps2x_k3_watch every 250 ms: it places itself,
+// registers the exit release and prints the "[k3]" line (each thread's mask from sceKernelGetThreadCpuAffinityMask).
+namespace k3
+{
+    bool g_want = false;
+    volatile unsigned long long g_frame = 0; // the game's frame (ps2x_m1_pmu_tick, written only while g_want)
+}
 namespace c1
 {
     bool g_want = false, g_probe = false;
@@ -387,11 +398,15 @@ namespace c1
     volatile int g_ran = 0;
     void read()
     {
+        k3::g_want = bootenv::on("SOTC_K3="); // round K3: core 3 for the misc threads needs C1's hook
         char v[16];
         if (!bootenv::get("SOTC_C1CORE3=", v, sizeof(v)) || !v[0] || v[0] == '0')
+        {
+            g_want = k3::g_want;
             return;
+        }
         g_want = true;
-        g_probe = v[0] == 'p';
+        g_probe = v[0] == 'p' && !k3::g_want;
         char e[24];
         if (bootenv::get("SOTC_C1CORE3_EXPECT=", e, sizeof(e)))
         {
@@ -468,6 +483,98 @@ namespace c1
 extern "C" int ps2x_c1_core3()
 {
     return c1::g_core3 ? 1 : 0;
+}
+// Round K3: threads::place asks this: 0 SOTC_K3 off, 1 on but core 3 not ours (the fallback: today's cores), 2 core 3 ours.
+extern "C" int ps2x_k3_state()
+{
+    return !k3::g_want ? 0 : c1::g_core3 ? 2 : 1;
+}
+extern "C" int ps2x_threads_k3_line(char *out, unsigned room, unsigned long long frame); // native_renderer.cpp (round K3)
+extern "C" int ps2x_threads_k3_count();
+extern "C" void ps2x_threads_place_watch();
+namespace k3
+{
+    bool g_started = false, g_resumed = false, g_released = false;
+    int g_lines = 0, g_lastCount = 0, g_offRc = 1;
+    unsigned long long g_lastFrame = 0, g_every = 6000, g_first = 3000;
+    uint64_t g_startUs = 0, g_lastUs = 0, g_resumeUs = 0;
+    const char *why()
+    {
+        if (c1::g_core3)
+            return "CORE 3 ON for this process (C1's hook + test passed)";
+        if (c1::g_bridge == 1)
+            return "core 3 OFF: K2 did not answer (Vita3K / unsafe homebrew off / module not found): fallback, every thread on today's cores";
+        if (c1::g_bridge < 0)
+            return "core 3 OFF: the C1 bridge did not load (an older K2 module still resident: reboot the console): fallback, today's cores";
+        return "core 3 OFF: the hook or the core-3 test thread failed (see [c1]): fallback, today's cores";
+    }
+    // At exit (atexit, registered when core 3 was ours): the hook released, as A3's exitRestore puts 444 back. The module
+    // also releases it when the process exits or is killed (K2's process-event handler) and at module stop.
+    void exitRelease()
+    {
+        if (g_released || !c1::g_core3 || !c1::g_br.core3)
+            return;
+        g_released = true;
+        K2Core3 r;
+        std::memset(&r, 0, sizeof(r));
+        g_offRc = c1::g_br.core3(K2_C3_OFF, 0, &r);
+    }
+    void line(const char *when, unsigned long long frame, uint64_t now)
+    {
+        static char buf[4096];
+        int at = std::snprintf(buf, sizeof(buf), "[k3] %s, frame %llu (%u s): %s; ", when, frame,
+                               static_cast<unsigned>((now - g_startUs) / 1000000u), why());
+        if (at > 0 && at < static_cast<int>(sizeof(buf)))
+            ps2x_threads_k3_line(buf + at, static_cast<unsigned>(sizeof(buf) - at), frame);
+        std::fprintf(stderr, "%s\n", buf);
+    }
+}
+// Round K3: from the resume watcher (raylib_vita.cpp), every 250 ms; resumed 1 right after a resume. One branch when off.
+extern "C" void ps2x_k3_watch(int resumed)
+{
+    if (!k3::g_want)
+        return;
+    using namespace k3;
+    const uint64_t now = sceKernelGetProcessTimeWide();
+    if (!g_started)
+    {
+        g_started = true;
+        g_startUs = g_lastUs = now;
+        if (const char *e = std::getenv("SOTC_K3_EVERY"))
+            g_every = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
+        if (const char *e = std::getenv("SOTC_K3_FIRST"))
+            g_first = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
+        ps2x_threads_place_watch(); // the watcher itself (kind "watch")
+        if (c1::g_core3)
+            std::atexit(exitRelease);
+    }
+    if (resumed)
+    {
+        g_resumed = true;
+        g_resumeUs = now;
+    }
+    const unsigned long long f = g_frame;
+    const int n = ps2x_threads_k3_count();
+    const char *when = nullptr;
+    if (g_lines == 0)
+    {
+        if (f >= g_first || now - g_startUs >= 120000000u)
+            when = "threads";
+    }
+    else if (g_resumed && now - g_resumeUs >= 2000000u)
+        when = "threads after a resume";
+    else if (n != g_lastCount && now - g_lastUs >= 10000000u)
+        when = "threads (new threads)";
+    else if (g_every && f - g_lastFrame >= g_every)
+        when = "threads";
+    if (!when)
+        return;
+    line(when, f, now);
+    ++g_lines;
+    g_resumed = false;
+    g_lastCount = n;
+    g_lastFrame = f;
+    g_lastUs = now;
 }
 namespace k2
 {
@@ -2229,6 +2336,8 @@ extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
 {
     using namespace m1pmu;
     ps2x_p2_tick(frame); // round P2 (two loads and a branch when off)
+    if (k3::g_want)
+        k3::g_frame = frame; // round K3: the [k3] line's frame (one load and a branch when off)
     if (__builtin_expect(g_state < 0, 1))
         return;
     if (g_state == 0)
