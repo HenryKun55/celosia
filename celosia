@@ -98,15 +98,16 @@ build_target() {
         { grep -m 20 -E "error|Error" "$LOGS/build-$1.log" || tail -30 "$LOGS/build-$1.log"; die "build of $1 failed (log: logs/build-$1.log)"; }
 }
 
-# The lifted batches (game/overrides/decomp_lift*_NN.cpp, tools/lift_d1.py) call recompiled
-# functions of every module by name: they build only once the whole game is recompiled.
-LIFTED_REGEX='/overrides/decomp_lift(d[0-9]+|alt)_[0-9]+[.]cpp$'
+# The overrides (the lifted batches, tools/lift_d1.py, the typed rounds' adapters, the decomp
+# bodies) call recompiled functions of every module by name: they build only once the whole
+# game is recompiled. The early stages only run up to the next module's entry.
+OVERRIDES_REGEX='/game/overrides/[^/]*[.](cpp|mm)$'
 
 # Recompiles a stage directory (config.toml + functions.csv) into the runner.
 # $2: "partial" while only some modules are recompiled (setup's early stages).
 recompile() {
     local dir=$1 exclude=""
-    [ "${2:-full}" = partial ] && exclude=$LIFTED_REGEX
+    [ "${2:-full}" = partial ] && exclude=$OVERRIDES_REGEX
     build_target ps2_recomp
     say "recompiling $(basename "$dir")"
     rm -rf "$dir/output"

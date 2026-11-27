@@ -34,6 +34,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "d1_native.h"
+#include "decomp_curve.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -632,17 +633,7 @@ namespace decomp_curve
         }
         PS2_FORCE_INLINE bool d2InRam(uint32_t a, uint32_t bytes) { return a < PS2_RAM_SIZE && a + bytes <= PS2_RAM_SIZE; }
 
-        // What the decoder leaves: f0, fcr31, vf1 (= a2's 128 bits after mfc1 a2 / qmtc2 a2), vf7, Q, the status, v0.
-        struct CurveRegs
-        {
-            float f0;
-            uint32_t fcr31;
-            __m128 vf1, vf7, a2q;
-            float q;
-            uint16_t status;
-            uint64_t v0;
-            bool setF0, vu1, vu7;
-        };
+        // What the decoder leaves (CurveRegs): decomp_curve.h.
 
         // Formats 3..6: round 49's packedFast on typed memory (false: nothing written).
         template <int S0, int S1, int S2, int S3, int L0, int L1, int L2, int L3, int SB>

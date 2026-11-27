@@ -569,6 +569,11 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/decomp_lift(d[0-9]+|alt)_[0-9]+\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
+    # The typed rounds' checks (aN_typed_check.cpp, tools/typed_lift2.py --check-tu) each set A3CK_NS before the
+    # #pragma once typed_a3_check_rt.h: two in one unity batch leave the second without its namespace (Mac).
+    if(PS2X_SOURCE MATCHES "/overrides/a[0-9]+_typed_check\\.cpp$")
+        set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
     # Round A1's recorder (a1_record.cpp, a tool): a translation unit of its own, so the unity batches stay main's.
     if(PS2X_SOURCE MATCHES "/overrides/a1_record\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
