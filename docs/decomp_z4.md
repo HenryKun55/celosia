@@ -5,7 +5,7 @@ frame: modelDisp's hook nearly always) at ~0.76 ms a frame of the game thread *r
 whole-run average of `run-20261126-wxon`). X3 left it alone ("per frame, not draw work"). Z4's job: find what those 0.76 ms
 are, cut what native code can cut with the game state and the picture unchanged, and say so where the time is waiting.
 
-Base: main 6d66c6b (Z1 + Z2). Code: `game/overrides/z4_sync.h` (switch, brackets, log), `game/overrides/sotc_native.cpp`
+Base: main 6d66c6b (Z1 + Z2); the commits rebased onto d30914a (docs/arch_plan.md only: the package build is the same code). Code: `game/overrides/z4_sync.h` (switch, brackets, log), `game/overrides/sotc_native.cpp`
 (syncFrame / endFrame brackets, the switch's init, the `[z4]` line), `PS2Recomp/ps2xRuntime/include/runtime/z4_bracket.h`
 (the hand-over's brackets, the Vita only), `PS2Recomp/ps2xRuntime/src/lib/native/native_renderer_gl.cpp` (logMemory split,
 the render thread's half, the heap-texture pass, the check), `native_renderer.cpp` (one bracket). Scratch, runs, package:
