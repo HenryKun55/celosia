@@ -13402,7 +13402,7 @@ namespace sotc_native
     namespace dt1
     {
         signed char g_on = -1;
-        bool g_check = false, g_control = false, g_verify = false, g_pin = true, g_paletteAtHook = true;
+        bool g_check = false, g_control = false, g_verify = false, g_pin = true, g_paletteAtHook = true, g_wake = false, g_skipEnv = false;
         uint64_t g_checkFrom = 0, g_checkEvery = 40;
         uint32_t g_log = 600;
         void readEnv()
@@ -13414,6 +13414,8 @@ namespace sotc_native
             g_verify = (e = std::getenv("SOTC_DT1_VERIFY")) && e[0] == '1';
             g_pin = !((e = std::getenv("SOTC_DT1_PIN")) && e[0] == '0');
             g_paletteAtHook = !((e = std::getenv("SOTC_DT1_PALETTE")) && e[0] == 'w'); // SOTC_DT1_PALETTE=worker: the copy in the record's make
+            g_wake = (e = std::getenv("SOTC_DT1_WAKE")) && e[0] == '1'; // 1: the hook wakes a sleeping worker (p3's batched wake-ups)
+            g_skipEnv = std::getenv("SOTC_NATIVE_SKIP") != nullptr; // (modelDispHook's debugging skip: the old path)
             if ((e = std::getenv("SOTC_DT1_CHECK_FROM")))
                 g_checkFrom = std::strtoull(e, nullptr, 10);
             if ((e = std::getenv("SOTC_DT1_CHECK_EVERY")))
@@ -13421,9 +13423,9 @@ namespace sotc_native
             if ((e = std::getenv("SOTC_DT1_LOG")))
                 g_log = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
             if (g_on)
-                std::fprintf(stderr, "[dt1] on: check %d (from frame %llu, every %llu hooks, control %d) verify %d pin %d log %u palette at the %s\n", g_check ? 1 : 0,
+                std::fprintf(stderr, "[dt1] on: check %d (from frame %llu, every %llu hooks, control %d) verify %d pin %d log %u palette at the %s, wake-ups %d\n", g_check ? 1 : 0,
                              static_cast<unsigned long long>(g_checkFrom), static_cast<unsigned long long>(g_checkEvery), g_control ? 1 : 0, g_verify ? 1 : 0,
-                             g_pin ? 1 : 0, g_log, g_paletteAtHook ? "hook" : "worker");
+                             g_pin ? 1 : 0, g_log, g_paletteAtHook ? "hook" : "worker", g_wake ? 1 : 0);
         }
         inline bool on()
         {
@@ -13477,7 +13479,7 @@ namespace sotc_native
         inline int bracket(int &id, const char *name)
         {
             if (__builtin_expect(id == -2, 0))
-                id = sotc_p2::named(name, 1);
+                id = sotc_p2::named(name, 2); // (level 2: at level 1 the A/B's halves carry the same brackets)
             return id;
         }
 
@@ -13675,6 +13677,7 @@ namespace sotc_native
 #endif
             ThreadNaming::SetCurrentThreadName("dt1");
             ::sotc_prof::t_offGameThread = true;
+            uint32_t idle = 0; // polls in a row without a record (SOTC_DT1_WAKE=0)
             for (;;)
             {
                 uint64_t pushed = 0;
@@ -13685,6 +13688,16 @@ namespace sotc_native
                         break;
                     if (spin < 256)
                         continue;
+                    if (!g_wake)
+                    {
+                        // Polled (the default): the hook does no kernel call to wake this thread (p3 measured ~27 us a
+                        // hook in Vita3K with the batched wake-ups); 50 us between looks while the walk hands records over,
+                        // 1 ms after ~10 ms without one. The hook worker and the drains make a record nobody has made yet.
+                        std::this_thread::sleep_for(std::chrono::microseconds(idle < 200u ? 50 : 1000));
+                        idle += idle < 0xFFFFu;
+                        spin = 0;
+                        continue;
+                    }
                     std::unique_lock<std::mutex> lock(g_mutex);
                     // (the lane's Dekker pair, round 88: both sides seq_cst; the wait timed)
                     g_sleeping.store(true, std::memory_order_seq_cst);
@@ -13698,6 +13711,7 @@ namespace sotc_native
                     std::this_thread::yield();
                     continue;
                 }
+                idle = 0;
                 uint64_t made = 0;
                 if (runTo(pushed, &made))
                     g_workerMade.fetch_add(made, std::memory_order_relaxed);
@@ -13727,14 +13741,14 @@ namespace sotc_native
         void flushWake()
         {
             g_unwoken = 0;
-            if (g_started && g_sleeping.load(std::memory_order_seq_cst) && __atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) > g_done.load(std::memory_order_seq_cst))
+            if (g_started && g_wake && g_sleeping.load(std::memory_order_seq_cst) && __atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) > g_done.load(std::memory_order_seq_cst))
                 wake();
         }
         void publish()
         {
             // seq_cst (not release): the g_sleeping load below may not pass this store (the worker's side, loop()).
             __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_SEQ_CST);
-            if (g_sleeping.load(std::memory_order_seq_cst))
+            if (g_wake && g_sleeping.load(std::memory_order_seq_cst))
             {
                 if (x3::g_batchWakes && ++g_unwoken < x3::kWakeEvery)
                     return;
@@ -14144,7 +14158,7 @@ namespace sotc_native
         {
             return on() && hookjobs::g_on && mdslane::g_frameOn && lean && !leanCheck && !leanStats && !check && !ps2Lists && !viewChecks && !mdslane::g_verify &&
                    !mdslane::g_check && !mdsTraceOn() && !s14hook::on(s14hook::kPalette) && !sotc_decomp::switchOn(sotc_decomp::kS16Plan) &&
-                   !sotc_decomp::p4moveOn() && !sotc_decomp::p3parOn() && !std::getenv("SOTC_NATIVE_SKIP");
+                   !sotc_decomp::p4moveOn() && !sotc_decomp::p3parOn() && !g_skipEnv;
         }
 
         // The game thread's part of a model hook (after the frame change and the camera context): the record, the CLIP
