@@ -24945,3 +24945,41 @@ env-dt1-on.txt, README.txt).
   worker makes 84-93% of the records. Far below arch_plan's -8.6 ms for the whole item; expected console ~0.3-1 ms.
 - **Gates**: p7 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1 pad 8 KB as main).
 - **Console**: env-dt1-off.txt then env-dt1-on.txt, one ride each; read modelDisp's and DispDispObjGroupModel's brackets.
+
+## Decomp K3: the core-3 enabler: the light misc threads on core 3 through K2 (SOTC_K3=1, off by default) (2026-11-27)
+
+Details: docs/decomp_k3.md. Base main ac722cb.
+
+- **No kernel code**:
+  - round C1 already gave K2's resident module the CelosiaK2C1 library: the `isIllegalAffinity` hook for our pid only,
+    and the release at exit / kill / module stop;
+  - C1 also gave the C1 bridge and the core-3 test thread;
+  - the VPK's celosia_k2.skprx is byte-identical to A3's.
+- **SOTC_K3=1, on the game side**:
+  - it turns on C1's hook and test;
+  - with core 3 ours, `threads::place` puts SOTC_K3_SET's kinds on 0x80000 alone (default
+    audio,loader,log,main,watch; SOTC_K3_WIDE=1: cores 1-3). The game thread and the render thread never move;
+    priorities are unchanged;
+  - a refused core-3 mask goes back to today's mask.
+- **The resume watcher** is noted as the new kind `watch`. It calls `ps2x_k3_watch` every 250 ms, which:
+  - places the watcher;
+  - registers the release at exit;
+  - prints the `[k3]` line: core-3 availability with the reason, then every thread's kind, name, mask (from
+    sceKernelGetThreadCpuAffinityMask), priority and CPU ms a frame. The line comes at frame 3 000, every 6 000 frames,
+    when new threads appear, and 2 s after a resume.
+- **Fallback**: with no K2 answer, every thread keeps today's mask and the `[k3]` line names the reason.
+- **Before** (console wxoff / k2pmu):
+  - cores 1-2 carry 47.7 ms of CPU per 42.2 ms frame;
+  - the moved kinds are audio 3.0-4.3, loader 4.6-4.8, log 1.2 and main 1.2-1.3: 10.0-11.6 ms a frame.
+- **Vita3K** (the fallback only; the module never runs there):
+  - k3RA (ride7) and k3LA (lake6) with K3 rode and swam to the end;
+  - k3dRA (full env + K3 + DT1) also rode to the end;
+  - in all three, the `[threads]` masks are identical to offRA's, the `[k3]` line reads "core 3 OFF: K2 did not answer
+    ...: fallback ...; on core 3: 0 of 17", there is no Unhandled, and the pictures are normal.
+- **Gates**: p1 has 0 errors; spalign 0 of 3 417; room 0x1e000; no overlap.
+- **Estimate** (an estimate, not a measurement):
+  - ~10-12 ms a frame leave cores 1-2, so the heavy scene's free room goes from ~4.3 to ~14 ms. That is enough for DT1's
+    worker;
+  - the game thread itself gains ~0-1 ms (within noise).
+- **Console**: package build/agent-scratch/k3 (env-k3-off, env-k3-on, env-k3-dt1). The proof is `[c1] ... CORE 3 ON`
+  plus `[k3] threads ...: CORE 3 ON ...; on core 3: 8 of N`, with game 0x10000 and render 0x40000.
