@@ -59,8 +59,8 @@
 #include <thread>
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
-#include "a9sweep.h"
 #endif
+#include "a9sweep.h" // (round A1: on every platform, the Mac build uses A9S_HOIST too)
 
 namespace pose82
 {
