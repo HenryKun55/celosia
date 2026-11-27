@@ -1,0 +1,105 @@
+name: tests
+
+# ps2x_tests through tools/ci_tests.sh: the suites that pass today are the gate
+# (any failure fails the run); the known-failing ones are reported in the log
+# without failing it. The game itself is not built (it needs the disc).
+#
+# - Pull requests: Linux (clang), the required check. Runners start in seconds,
+#   and ccache plus the cached CMake dependencies keep a warm run to a few minutes.
+# - main and manual runs: Linux and macOS (Apple Silicon, the port's
+#   platform). macOS runners can wait a long time in the
+#   queue, so they never hold a pull request.
+
+on:
+  pull_request:
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+  CCACHE_COMPILERCHECK: content
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_NOHASHDIR: "true"
+
+jobs:
+  linux:
+    name: ps2x_tests (Linux, clang)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang
+      CXX: clang++
+      CFLAGS: -msse4.1
+      CXXFLAGS: -msse4.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ninja-build pkg-config \
+            libgl-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Compiler cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-clang
+          max-size: 500M
+
+      - name: CMake dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: build/tests/_deps
+          key: deps-linux-${{ hashFiles('PS2Recomp/**/CMakeLists.txt') }}
+          restore-keys: deps-linux-
+
+      - name: Gate
+        run: tools/ci_tests.sh build/tests
+
+      - name: Known failing suites (report only)
+        if: success() || failure()
+        continue-on-error: true
+        run: tools/ci_tests.sh build/tests --report
+
+  macos:
+    name: ps2x_tests (macOS, Apple Silicon)
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install ninja ccache
+
+      - name: Compiler cache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos
+          max-size: 500M
+
+      - name: CMake dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: build/tests/_deps
+          key: deps-macos-${{ hashFiles('PS2Recomp/**/CMakeLists.txt') }}
+          restore-keys: deps-macos-
+
+      - name: Gate
+        run: tools/ci_tests.sh build/tests
+
+      - name: Known failing suites (report only)
+        if: success() || failure()
+        continue-on-error: true
+        run: tools/ci_tests.sh build/tests --report

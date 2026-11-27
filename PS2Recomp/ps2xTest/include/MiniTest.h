@@ -120,14 +120,26 @@ public:
         m_beforeEach = fn;
     }
 
-    static int Run()
+    // The suites' names, one a line (ps2x_tests --list).
+    static void List()
     {
+        for (auto& c : m_cases)
+            std::cout << c.first << std::endl;
+    }
+
+    // only: the one suite to run (ps2x_tests <suite>; 1 when there is none); empty: every suite.
+    static int Run(const std::string& only = "")
+    {
+        int suitesRun = 0;
         int failedCount = 0;
         int totalTests = 0;
 
         for (auto& c : m_cases)
         {
             const std::string& suiteName = c.first;
+            if (!only.empty() && suiteName != only)
+                continue;
+            ++suitesRun;
             const TestCaseCallback& suiteCallback = c.second;
 
             std::cout << "\n[Suite]: " << suiteName << std::endl;
@@ -206,6 +218,11 @@ public:
         std::cout << "Failed: " << failedCount << std::endl;
         std::cout << "========================================" << std::endl;
 
+        if (!only.empty() && suitesRun == 0)
+        {
+            std::cerr << "no suite named " << only << " (ps2x_tests --list)" << std::endl;
+            return 1;
+        }
         return failedCount;
     }
 };
