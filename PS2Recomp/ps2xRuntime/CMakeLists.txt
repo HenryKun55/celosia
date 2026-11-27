@@ -569,6 +569,17 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/decomp_lift(d[0-9]+|alt)_[0-9]+\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
+    # Round A1's recorder (a1_record.cpp, a tool): a translation unit of its own, so the unity batches stay main's.
+    if(PS2X_SOURCE MATCHES "/overrides/a1_record\\.cpp$")
+        set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
+    # PS2X_RUNNER_UNITY_SKIP (empty by default): override file names built as translation units of their own. The Mac
+    # build's batches differ from the Vita's (platform-only sources), and some neighbours there collide (round A1).
+    foreach(PS2X_SKIP_NAME IN LISTS PS2X_RUNNER_UNITY_SKIP)
+        if(PS2X_SOURCE MATCHES "/overrides/${PS2X_SKIP_NAME}$")
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+        endif()
+    endforeach()
     # The second set (lean_part_tN.cpp) defines PS2X_EE_TRUST_FINITE before
     # ps2_runtime_macros.h: not with the precompiled header, which has it 0.
     if(PS2X_SOURCE MATCHES "/overrides/lean_part_t[0-9]+\\.cpp$")

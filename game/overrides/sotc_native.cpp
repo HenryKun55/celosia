@@ -15325,6 +15325,10 @@ namespace decomp_tex64
 {
     void install(PS2Runtime &runtime);
 }
+namespace a1record
+{
+    void install(PS2Runtime &runtime); // round A1 (a1_record.cpp): the display walk's write / read sets (SOTC_A1_RECORD, the Mac)
+}
 namespace s8cloth
 {
     void install(PS2Runtime &runtime);
@@ -15367,6 +15371,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
 {
     decomp_collcensus::install(runtime); // round 63, SOTC_COLL_CENSUS=1
     decomp_readcensus::install(runtime); // round 64, SOTC_READ_CENSUS=<subsystem> (the Mac)
+    a1record::install(runtime);          // round A1, SOTC_A1_RECORD=1 (the Mac)
     decomp_tex64::install(runtime);      // round 64: texReset's loop's join sites
     sotc_worker::install(runtime);       // round 91: the guest worker's join sites (the particle / wind module, the loader, the heap's moves)
     char104::install(runtime);           // round 104: the characters' census (SOTC_CHAR104_LOG)

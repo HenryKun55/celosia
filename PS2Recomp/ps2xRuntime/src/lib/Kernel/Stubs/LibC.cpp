@@ -18,6 +18,16 @@ namespace ps2_fast_paths
     }
 }
 
+#if !defined(__vita__)
+// Round A1's recorder (game/overrides/a1_record.cpp, SOTC_A1_RECORD, the Mac): the memcpy / memmove stubs' source
+// ranges, with the guest caller's ra (the read watch sees only the recompiled code's own loads).
+void (*g_a1RangeReadHook)(uint32_t addr, uint32_t size, uint32_t guestRa) = nullptr;
+#define PS2X_A1_RANGE_READ(src, size) \
+    do { if (__builtin_expect(g_a1RangeReadHook != nullptr, 0)) g_a1RangeReadHook((src), (size), ctx ? getRegU32(ctx, 31) : 0u); } while (0)
+#else
+#define PS2X_A1_RANGE_READ(src, size) do { } while (0)
+#endif
+
 namespace ps2_stubs
 {
     namespace
@@ -171,6 +181,7 @@ namespace ps2_stubs
     void memcpyCore(uint8_t *rdram, R5900Context *ctx, uint32_t destAddr, uint32_t srcAddr, uint32_t size)
     {
         size = sanitizeMemTransferSize(size, "memcpy");
+        PS2X_A1_RANGE_READ(srcAddr, size);
 
         if (size <= kInlineBytes && size != 0u)
         {
@@ -315,6 +326,7 @@ namespace ps2_stubs
         uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
         uint32_t size = getRegU32(ctx, 6);     // $a2
         size = sanitizeMemTransferSize(size, "memmove");
+        PS2X_A1_RANGE_READ(srcAddr, size);
 
         uint32_t copied = 0u;
         std::vector<uint8_t> tmp;
