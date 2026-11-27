@@ -65,6 +65,7 @@ namespace char104 // round 104 (decomp_char104.cpp)
 #include "lines67.h"
 #include "lean_hot.h"
 #include "x3_draw.h"
+#include "z4_sync.h"
 #include "ThreadNaming.h"
 
 #include <algorithm>
@@ -4588,6 +4589,8 @@ namespace sotc_native
     {
         if (g_frame == 0)
             return;
+        sotc_p2::Scope z4State(z4sync::id(z4sync::bEfState)); // round Z4
+        z4sync::Part z4EfA(z4sync::id(z4sync::bEfA));
 #if defined(__vita__)
         ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
 #endif
@@ -4714,6 +4717,8 @@ namespace sotc_native
         // Round A14 (a14typed): stage 14's typed functions (runtime state as VU0-interface slots, break slots; typed_a14.h).
         a14FlagsNow();
         ++g_a14Frames[g_a14Typed ? 1 : 0];
+        z4EfA.close();
+        z4sync::Part z4EfB(z4sync::id(z4sync::bEfB));
         {
             // Round D1 (d1native): SOTC_D1_LOG=<n>: the D1 bodies' run counts every n frames (d1_native.cpp).
             static const uint64_t d1Log = [] {
@@ -5222,9 +5227,19 @@ namespace sotc_native
                          (unsigned long long)native_renderer::g_s9Stats[1], (unsigned long long)native_renderer::g_s9Stats[2],
                          (unsigned long long)native_renderer::g_s9Stats[3], (unsigned long long)native_renderer::g_s9Stats[4]);
         }
+        z4EfB.close();
+        z4sync::Part z4EfC(z4sync::id(z4sync::bEfC));
         prio100Apply();
         native_renderer::gfxLogIfChanged(g_frame); // round 124: [gfx124] at start and at each change
-        flush2D();
+        z4EfC.close();
+        sotc_p2::close(z4State.token);
+        z4State.token = 0u;
+        {
+            const sotc_p2::Scope z4b(z4sync::id(z4sync::bFlush2D));
+            flush2D();
+        }
+        sotc_p2::Scope z4Scene(z4sync::id(z4sync::bEfScene));
+        z4sync::Part z4ScFog(z4sync::id(z4sync::bScFog));
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
         // from getFogFactor0/1 (0x1089b70/bb0), the colour as
         // graphSetFogParam last set FOGCOL (0x118b8dc/e0/e4).
@@ -5285,6 +5300,8 @@ namespace sotc_native
                                  real(pk + 0x128u), real(pk + 0x12Cu));
             }
         }
+        z4ScFog.close();
+        z4sync::Part z4ScPost(z4sync::id(z4sync::bScPost));
         {
             // bossDeathEffect (on while the word 0x1186290 is set; most of the
             // game): layer 8 is drawn apart and laid over the picture sharp
@@ -5338,7 +5355,13 @@ namespace sotc_native
         // Drawn larger than the PS2's 512 x 448 (F10 / SOTC_RENDER_SCALE): the
         // geometry has no resolution; the effects measure in PS2 pixels.
         const float scale = std::clamp(native_renderer::tuning().renderScale, native_renderer::kMinRenderScale, native_renderer::kMaxRenderScale);
-        native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
+        z4ScPost.close();
+        sotc_p2::close(z4Scene.token);
+        z4Scene.token = 0u;
+        {
+            const sotc_p2::Scope z4b(z4sync::id(z4sync::bHandover));
+            native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
+        }
         // SOTC_NATIVE=2: both drawn, the emulated picture shown unless F9
         // asked for the native one (Tuning::bothShowNative).
         static const bool both = std::atoi(std::getenv("SOTC_NATIVE")) == 2;
@@ -8134,6 +8157,10 @@ namespace sotc_native
         if (frame != g_frame)
         {
             const ps2_load::GameZone zone134(0x2020u); // round 134: the frame's change (prof129), whichever hook meets it
+            if (__builtin_expect(!z4sync::g_brInit, 0))
+                z4sync::bracketInit();
+            const sotc_p2::Scope z4Sync(z4sync::id(z4sync::bSync)); // round Z4
+            z4sync::Part z4Head(z4sync::id(z4sync::bHead));
             const bool timed = native_renderer::tuning().frameTiming();
             uint64_t mark = timed ? native_renderer::nowUs() : 0u;
             uint64_t sync[kSyncParts] = {};
@@ -8155,36 +8182,59 @@ namespace sotc_native
                     std::memcpy(g_syncUs, parts, sizeof(g_syncUs));
                 }
             } syncDone{sync, lap};
-            hookJoin(hookjobs::k_frame); // the frame's model jobs (round 23)
+            z4Head.close();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bJoin));
+                hookJoin(hookjobs::k_frame); // the frame's model jobs (round 23)
+            }
             lap(kSyncJoin);
-            hookjobs::frameEnd();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bFrameEnd));
+                hookjobs::frameEnd();
+            }
+            z4sync::Part z4Clear(z4sync::id(z4sync::bClear));
             if (g_staleCheck)
             {
                 staleCompare("next frame");
                 g_stalePrevious.swap(g_staleRegions);
                 g_staleRegions.clear();
             }
-            endFrame();
+            z4Clear.close();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bEndFrame));
+                endFrame();
+            }
             g_skinRecords.clear();
             g_skinDrawList.clear();
             g_kickOwns.clear();
             g_kickMustJoin = false;
             lap(kSyncEnd);
-            frameLog();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bLog));
+                frameLog();
+            }
             lap(kSyncLog);
             // The debug menu's "Sound log" (round 20): audio_stats' level
             // follows it at each frame's end.
+            sotc_p2::Scope z4Audio(z4sync::id(z4sync::bAudio));
             {
                 const int level = static_cast<int>(native_renderer::tuning().audioLog + 0.5f);
                 if (level != ps2x::iop::audio_stats::level())
                     ps2x::iop::audio_stats::setLevel(level);
             }
             audioLog();
+            sotc_p2::close(z4Audio.token);
+            z4Audio.token = 0u;
             lap(kSyncAudio);
             // The idle thread's turn once a frame (round 25, sotc_overrides.cpp).
             if (g_runtimeForLog)
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bIdle));
                 sotc_decomp::idleTurn(rdram, g_runtimeForLog);
+            }
             lap(kSyncIdle);
+            const sotc_p2::Scope z4After(z4sync::id(z4sync::bAfter));
+            sotc_p2::Scope z4Ticks(z4sync::id(z4sync::bTicks));
             // SOTC_FRAME_STALL_MS=<ms> (measuring, round 10): the game thread
             // sleeps that long at each frame's end from frame
             // SOTC_FRAME_STALL_FROM (default 0) on, so the Mac runs frames as
@@ -8234,7 +8284,12 @@ namespace sotc_native
             sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
-            native_renderer::beginFrame();
+            sotc_p2::close(z4Ticks.token);
+            z4Ticks.token = 0u;
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bBegin));
+                native_renderer::beginFrame();
+            }
             // SOTC_DRAW_DUMP_FRAMES=f,f,... (debugging): those frames' draws to
             // SOTC_DRAW_DUMP_DIR (default shots)/draws_<frame>.txt.
             static const std::vector<uint64_t> dumpFrames = []
@@ -8273,7 +8328,12 @@ namespace sotc_native
             g_frame = frame;
             if (__builtin_expect(ps2_resume::testArmed(), 0)) // round V2: SOTC_TEST_SUSPEND
                 ps2_resume::testTick(frame);
-            newDrawOrder();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bDrawOrder));
+                newDrawOrder();
+            }
+            const sotc_p2::Scope z4Start(z4sync::id(z4sync::bStart));
+            z4sync::Part z4StA(z4sync::id(z4sync::bStA));
             {
                 const auto envOn = [](const char *name)
                 {
@@ -8295,7 +8355,12 @@ namespace sotc_native
                 g_surfaceMemo = g_r2 && surfaceMemo;
                 g_prefetch = g_r2 && prefetch;
             }
-            hookjobs::frameStart();
+            z4StA.close();
+            {
+                const z4sync::Part z4StB(z4sync::id(z4sync::bStB));
+                hookjobs::frameStart();
+            }
+            const z4sync::Part z4StC(z4sync::id(z4sync::bStC));
             gcovDump(frame);
             g_frameDraws = 0;
             g_skinnedDraws = 0;

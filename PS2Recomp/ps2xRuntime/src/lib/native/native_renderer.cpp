@@ -1,6 +1,7 @@
 // The native renderer's front: picks a backend (native_backend.h) the first
 // time it is used. macOS: Metal, or OpenGL with SOTC_NATIVE_GL=1 (to check
 // the GL path against Metal); the Vita: OpenGL (vitaGL); elsewhere none.
+#include "runtime/z4_bracket.h"
 #include "native_backend.h"
 #include "runtime/ps2_diag.h"
 #include "runtime/native_tuning.h"
@@ -2953,6 +2954,7 @@ namespace native_renderer
     void endFrame(uint32_t width, uint32_t height)
     {
         RaceScope race("endFrame");
+        z4br::Part z4Pre(z4br::kHoPre); // round Z4
         g_lastFrameDraws.store(g_frameDraws.exchange(0u, std::memory_order_relaxed), std::memory_order_relaxed);
         if (g_asyncBuilds)
             g_asyncBuilds->flush(); // this frame's builds start now
@@ -3037,6 +3039,7 @@ namespace native_renderer
             if (native_recorder::active())
                 native_recorder::front::endFrame(width, height, hold);
         }
+        z4Pre.close();
         if (backend())
         {
             if (tuning().frameTiming() && !g_backend->timesItself())

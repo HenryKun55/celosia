@@ -11,6 +11,7 @@
 // Vita (vitaGL) differences: CG shaders; every framebuffer gets its own depth
 // and stencil (nothing to attach); no depth textures, so the passes that read
 // depth (bloom mask, depth of field) are left out there for now.
+#include "runtime/z4_bracket.h"
 #include "native_backend.h"
 #include "runtime/ps2_diag.h"
 #include "runtime/native_recorder.h"
@@ -9263,8 +9264,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             const bool timed = native_renderer::tuning().frameTiming();
             const uint64_t start = timed ? native_renderer::nowUs() : 0u;
+            z4br::Part z4Lock(z4br::kHoLock); // round Z4
             std::unique_lock<std::mutex> lock(m_mutex);
             waitData(lock);
+            z4Lock.close();
+            z4br::Part z4Swap(z4br::kHoSwap);
             // The render thread waits: what it holds changes hands. What the
             // last frame drawn cost goes into this frame's counters.
             if (timed)
@@ -9340,6 +9344,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             m_rec.uploads.clear();
             m_uploadPeak = std::max(m_uploadPeak, m_frameUploadBytes + m_recUploadBytes);
             m_frameUploadBytes = m_recUploadBytes = 0;
+            z4Swap.close();
+            z4br::Part z4Evict(z4br::kHoEvict);
             evictKept();
             trimRecording();
             if (m_memLog && native_renderer::nowUs() >= m_nextMemLog)
@@ -9347,6 +9353,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_nextMemLog = native_renderer::nowUs() + 5000000u;
                 logMemory();
             }
+            z4Evict.close();
+            const z4br::Part z4Notify(z4br::kHoNotify);
             m_width = width;
             m_height = height;
             m_paceSeq = native_renderer::g_paceSeq.load(std::memory_order_relaxed); // round 110
