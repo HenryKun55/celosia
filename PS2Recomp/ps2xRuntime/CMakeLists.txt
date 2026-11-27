@@ -556,6 +556,13 @@ if(PS2X_ENABLE_RUNNER_UNITY_BUILD)
     )
 endif()
 
+# Round F1: the Mac build's unity batches collide on main (the same anonymous-namespace names in neighbours: CurveRegs,
+# EulerRegs, D3ScaleMatrixOut, the a*_typed_check.cpp files' rd / wr / st): those files are translation units of their own
+# there by default (-DPS2X_RUNNER_UNITY_SKIP=... overrides the list). The Vita's batches are unchanged.
+if(NOT DEFINED PS2X_RUNNER_UNITY_SKIP AND NOT PS2X_IS_VITA)
+    set(PS2X_RUNNER_UNITY_SKIP "decomp_gaze.cpp;decomp_hot44d.cpp;decomp_math.cpp;decomp_hot46h.cpp;a1_typed_check.cpp;a2_typed_check.cpp;a3_typed_check.cpp;a4_typed_check.cpp;a5_typed_check.cpp;a6_typed_check.cpp;a7_typed_check.cpp;a8_typed_check.cpp;a9_typed_check.cpp;a10_typed_check.cpp;a11_typed_check.cpp;a12_typed_check.cpp;a13_typed_check.cpp;a14_typed_check.cpp")
+endif()
+
 # Lean copies of hot recompiled functions (game/overrides/lean_*.cpp): they
 # rename the functions they hold (lean/renames.inc), so each is a
 # translation unit of its own.
