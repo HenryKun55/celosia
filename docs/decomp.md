@@ -24651,6 +24651,36 @@ README.txt), built on 8e39115.
 - **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
   self (prof129's "state" zone).
 
+## Decomp A1 (display census): the display walk's write / read census, phase 0 of "display as an off-thread consumer" (SOTC_A1_RECORD=1, Mac tool) (2026-11-27)
+
+docs/decomp_a1_display.md. A census, not a speed round: nothing changes with the switch off (the Vita gets an empty install).
+
+- **The recorder** (`game/overrides/a1_record.cpp`, the Mac; `tools/a1_census.py` sums its `[a1]` blocks): around a recorded
+  DispDispObjGroupModel (from its graphFsEffectReset after isysObjWaitSema to its isysObjSignalSema: the walk is suspended at
+  thread switches and resumed at labels), a 32 MB diff with byte masks gives W_disp; other guest threads' segments inside the
+  walk are diffed apart and kept out; the read watch (all lines, plus the memcpy / memmove stubs' sources) gives R_disp; the
+  lines holding W_disp bytes are watched until the next walk and every load of a byte still holding the walk's value is
+  logged (reader, same / next frame); a diff at the next walk gives W_logic and R_disp x W_logic. Runs with `SOTC_DECOMP=0`
+  and no `SOTC_NATIVE`, so the whole game is recompiled code and every guest load is seen.
+- **Runs** (Mac, EVERY=3): ride7 10 940 recorded walks, the shrine's altar 5 580, lake6 5 740 from walk 3 500.
+- **Census**: W_disp 22 978 words a walk riding (14 855 at the altar): the display-list packet buffers, the isys links,
+  the objects' delete locks and group-pass rows, the bone blocks, the texture queue. Readers outside the walk: only the
+  frame-end display / isys passes in the same frame, and in the next frame (a) gameplay's isysGroupForNext / First reading
+  the objects' +0xA halfword (delete flag; the walk raised the lock count in it), (b) isysAddGroupWithLinkParam on isys's
+  link free list, (c) InitLayoutObjMatrix on the group pass's billboard / camera-linked transforms, (d) the timer
+  extension. Nobody reads the light pass's, the draw loop's or modelDisp's output.
+- **Verdict**: item 1 is safe. Kept on the game thread, in order: the group pass, iosDlLockObj (links and delete locks),
+  modelDisp's texture-transfer requests (or texTransResolve moved with them), the walk's isys semaphore.
+- **Phase-1 design**: the game thread does the group pass, the locks and texture requests in the loop's order and writes a
+  double-buffered host packet (per drawn object ~160 B: matrix, LOD, flags, light inputs, the per-object words logic
+  rewrites; per skinned character its bone block; camera / light globals; 25-75 KB a frame; the measured logic-written
+  inputs are ~17.6 KB a walk riding, ~17 KB at the altar); core 1 runs the light pass, the draw loop and modelDisp's
+  job setup from the packet only. Expected -8.6..-9.1 ms light (conservative -7.1), -5.0..-5.4 ms heavy (conservative
+  -3.6, needs core 3). Check: old walk vs new on the same state, the hook job stream compared job by job and the kept
+  guest words compared word by word; the census re-run must list no reader of the worker's output.
+- **Mac build**: the Mac target builds again (`PS2X_RUNNER_UNITY_SKIP`, the a9sweep.h include outside the Vita guard in six
+  files); its ThinLTO link through an LTO cache.
+
 ## Decomp Z1: the collision library the characters call as typed native C++ (SOTC_Z1=1, off by default) (2026-11-26)
 
 docs/decomp_z1.md. Package: `build/agent-scratch/z1/` (celosia-z1.vpk / .elf, env-z1-off.txt, env-z1-on.txt, README.txt),
