@@ -1,7 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
+#include "ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <atomic>
 #include <chrono>
 #include <cstdint>

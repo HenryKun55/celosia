@@ -4,7 +4,7 @@
 
 #include <cstdint>
 #include <cstdlib>
-#include "runtime/ps2_diag.h"
+#include "ps2_diag.h"
 
 #if defined(__vita__)
 extern "C" bool ps2x_p2b_wanted();

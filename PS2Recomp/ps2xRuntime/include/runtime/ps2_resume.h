@@ -24,7 +24,7 @@
 //    reset of the counter would), then the resume is announced (q: not announced, only the failed
 //    reads find it; l: at the first frame from <frame> on with disc reads under way, mid-load).
 #include <atomic>
-#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
+#include "ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
