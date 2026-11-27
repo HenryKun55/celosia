@@ -7431,6 +7431,9 @@ namespace decomp_collision
     // difference and radii), clipDBD1 for its one-by-one and skinned surfaces; its plain-float cylinder tests (cyl125,
     // the skinned spheres) as they are (they are the old body's own values); its counters left out.
 
+    // Round Z1 (z1_oneobj.inc): a skinned surface's boundary through Z1's host MultiDep when SOTC_Z1 takes it.
+    inline bool z1MultiDepFromLoop(const G g, uint32_t ra, uint32_t sp, std::initializer_list<uint32_t> args);
+
     template <bool Array>
     void obj125RunD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -7676,8 +7679,10 @@ namespace decomp_collision
                                                 g.put(sp + 0x170u, cs);
                                                 if (!cyl125(cs, rs, length))
                                                     continue;
-                                                call(g, 0x01124368u, 0x0112DF00u, sp,
-                                                     {s1, s3, base + 0x28u, g.u32(base + 0x24u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
+                                                if (!z1MultiDepFromLoop(g, 0x0112DF00u, sp,
+                                                                        {s1, s3, base + 0x28u, g.u32(base + 0x24u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3}))
+                                                    call(g, 0x01124368u, 0x0112DF00u, sp,
+                                                         {s1, s3, base + 0x28u, g.u32(base + 0x24u), g.u32(sp + 0x1F8u), g.u32(sp + 0x1ECu), g.u32(sp + 0x1F0u), t3});
                                                 entryModified(g, s3, s0, 0x0112DF0Cu, sp);
                                             }
                                             g.put(sp + 0x170u, g.q(s1));
@@ -10016,3 +10021,7 @@ namespace decomp_collision
             flushCollisionWork(rdram, ctx, runtime);
     }
 }
+
+// Round Z1 (SOTC_Z1=1; docs/decomp_z1.md): ClipCollisionDirectCallBackOneObj and CalcCollisionMultiDepSurfBoundary on the helpers above.
+#include "z1_coll.h"
+#include "z1_oneobj.inc"
