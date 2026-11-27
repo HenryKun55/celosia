@@ -1,4 +1,4 @@
-// Round Y1 (SOTC_Y1=1, off by default; docs/decomp_y1.md): the small animals' AI library as typed native C++.
+// Round Y1 (on by default since round F1, SOTC_Y1=0 the kill switch; docs/decomp_y1.md): the small animals' AI library as typed native C++.
 //
 // X2's ranking put the small animals' script and Agro's AI at ~1 ms a frame on the console, nearly all of it in the AI
 // functions they call. The heaviest of those were still round 43 / 44 "register-for-register" natives: every float and
@@ -54,7 +54,7 @@ namespace y1ai
         int g_check = 0;
         uint64_t g_quiet = 0u;
         bool g_control = false; // SOTC_Y1_CHECK_CONTROL=1: the recompiled function in both legs (what the check sees without Y1)
-        unsigned g_parts = 7u;
+        constexpr unsigned g_parts = 7u; // round F1: a constant (SOTC_*_PARTS is gone)
         uint64_t g_checkFrom = 0, g_checkUntil = ~0ull, g_checkEvery = 4, g_logEvery = 0, g_lastLog = 0;
         int g_bracket[kFnCount] = {-1, -1, -1};
         bool g_inCheck = false;
@@ -93,22 +93,20 @@ namespace y1ai
     __attribute__((cold, noinline)) void init()
     {
         const char *e = std::getenv("SOTC_Y1");
-        g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-        const char *c = std::getenv("SOTC_Y1_CHECK");
+        g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_Y1=0 the kill switch (every build)
+        const char *c = ps2_diag::env("SOTC_Y1_CHECK");
         g_check = c && std::atoi(c) != 0;
-        g_control = std::getenv("SOTC_Y1_CHECK_CONTROL") != nullptr;
-        if (const char *q = std::getenv("SOTC_Y1_CHECK_QUIET"))
+        g_control = ps2_diag::env("SOTC_Y1_CHECK_CONTROL") != nullptr;
+        if (const char *q = ps2_diag::env("SOTC_Y1_CHECK_QUIET"))
             g_quiet = std::strtoull(q, nullptr, 10);
-        if (const char *f = std::getenv("SOTC_Y1_CHECK_FROM"))
+        if (const char *f = ps2_diag::env("SOTC_Y1_CHECK_FROM"))
             g_checkFrom = std::strtoull(f, nullptr, 10);
-        if (const char *u = std::getenv("SOTC_Y1_CHECK_UNTIL"))
+        if (const char *u = ps2_diag::env("SOTC_Y1_CHECK_UNTIL"))
             g_checkUntil = std::strtoull(u, nullptr, 10);
-        if (const char *v = std::getenv("SOTC_Y1_CHECK_EVERY"))
+        if (const char *v = ps2_diag::env("SOTC_Y1_CHECK_EVERY"))
             g_checkEvery = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
-        if (const char *l = std::getenv("SOTC_Y1_LOG"))
+        if (const char *l = ps2_diag::env("SOTC_Y1_LOG"))
             g_logEvery = std::strtoull(l, nullptr, 10);
-        if (const char *p = std::getenv("SOTC_Y1_PARTS"))
-            g_parts = static_cast<unsigned>(std::strtoul(p, nullptr, 0));
         if (g_on)
         {
             static const char *const kNames[kFnCount] = {"ai:y1Steer", "ai:y1Move", "ai:y1Step"};

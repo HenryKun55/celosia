@@ -1,4 +1,4 @@
-// Round Z1 (SOTC_Z1=1, off by default; docs/decomp_z1.md): the collision library the characters call, as typed native C++.
+// Round Z1 (on by default since round F1, SOTC_Z1=0 the kill switch; docs/decomp_z1.md): the collision library the characters call, as typed native C++.
 //
 // Z1's ranking (Vita3K clock brackets on 32 collision entries, ride7) put ClipCollisionDirectCallBackOneObj (0x112ca30:
 // a segment against one object's collision, the probe of the sheath against Agro's skinned body, the ground probe, the
@@ -55,7 +55,7 @@ namespace z1coll
         int g_check = 0;
         uint64_t g_quiet = 0u;
         bool g_control = false;
-        unsigned g_parts = 7u;
+        constexpr unsigned g_parts = 7u; // round F1: a constant (SOTC_*_PARTS is gone)
         uint64_t g_checkFrom = 0, g_checkUntil = ~0ull, g_logEvery = 0, g_lastLog = 0;
         uint64_t g_checkEvery[kFnCount] = {4, 4, 4};
         int g_bracket[kFnCount] = {-1, -1, -1};
@@ -98,24 +98,22 @@ namespace z1coll
     __attribute__((cold, noinline)) void init()
     {
         const char *e = std::getenv("SOTC_Z1");
-        g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-        const char *c = std::getenv("SOTC_Z1_CHECK");
+        g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_Z1=0 the kill switch (every build)
+        const char *c = ps2_diag::env("SOTC_Z1_CHECK");
         g_check = c && std::atoi(c) != 0;
-        g_control = std::getenv("SOTC_Z1_CHECK_CONTROL") != nullptr;
-        if (const char *q = std::getenv("SOTC_Z1_CHECK_QUIET"))
+        g_control = ps2_diag::env("SOTC_Z1_CHECK_CONTROL") != nullptr;
+        if (const char *q = ps2_diag::env("SOTC_Z1_CHECK_QUIET"))
             g_quiet = std::strtoull(q, nullptr, 10);
-        if (const char *f = std::getenv("SOTC_Z1_CHECK_FROM"))
+        if (const char *f = ps2_diag::env("SOTC_Z1_CHECK_FROM"))
             g_checkFrom = std::strtoull(f, nullptr, 10);
-        if (const char *u = std::getenv("SOTC_Z1_CHECK_UNTIL"))
+        if (const char *u = ps2_diag::env("SOTC_Z1_CHECK_UNTIL"))
             g_checkUntil = std::strtoull(u, nullptr, 10);
-        if (const char *v = std::getenv("SOTC_Z1_CHECK_EVERY"))
+        if (const char *v = ps2_diag::env("SOTC_Z1_CHECK_EVERY"))
             g_checkEvery[kOneObj] = g_checkEvery[kMultiDep] = g_checkEvery[kDirect] = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
-        if (const char *v = std::getenv("SOTC_Z1_CHECK_EVERY_MD"))
+        if (const char *v = ps2_diag::env("SOTC_Z1_CHECK_EVERY_MD"))
             g_checkEvery[kMultiDep] = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
-        if (const char *l = std::getenv("SOTC_Z1_LOG"))
+        if (const char *l = ps2_diag::env("SOTC_Z1_LOG"))
             g_logEvery = std::strtoull(l, nullptr, 10);
-        if (const char *p = std::getenv("SOTC_Z1_PARTS"))
-            g_parts = static_cast<unsigned>(std::strtoul(p, nullptr, 0));
         if (g_on)
         {
             static const char *const kNames[kFnCount] = {"collision:z1OneObj", "collision:z1MultiDep", "collision:z1Direct"};

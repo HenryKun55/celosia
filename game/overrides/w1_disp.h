@@ -1,4 +1,4 @@
-// Round W1 (docs/decomp_w1.md): the display walk Vita-style (SOTC_W1=1, off by default; one switch for the console's A/B).
+// Round W1 (docs/decomp_w1.md): the display walk Vita-style (on by default since round F1; SOTC_W1=0 the kill switch).
 //
 // The display walk (DispDispObjGroupModel's tree) is the game thread's heaviest subsystem on the console (P3's brackets:
 // 3.9 M cycles a frame, 8.8 ms). W1 changes, all exact (the same guest reads' values, the same writes, the same draws):
@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include "runtime/ps2_diag.h"
 
 namespace w1
 {
@@ -28,12 +29,14 @@ namespace w1
     {
         if (__builtin_expect(g_on < 0, 0))
         {
+            // Round F1: on with no env; SOTC_W1=0 is the kill switch (read in every build: an escape hatch, docs/release_config.md).
             const char *e = std::getenv("SOTC_W1");
-            g_on = (e && e[0] == '1') ? 1 : 0;
+            g_on = (e && e[0] == '0') ? 0 : 1;
         }
         return g_on != 0;
     }
-    // SOTC_W1_PARTS (debugging; default all): bit 0 the host scene, 1 the lock, 2 the light getters, 3 the palette.
+    // The parts (round F1: a constant, all four; SOTC_W1_PARTS is gone): bit 0 the host scene, 1 the lock, 2 the light
+    // getters, 3 the palette.
     enum : unsigned
     {
         kScene = 1u,
@@ -41,21 +44,13 @@ namespace w1
         kGetters = 4u,
         kPalette = 8u
     };
-    inline int g_parts = -1;
-    inline bool part(unsigned p)
-    {
-        if (__builtin_expect(g_parts < 0, 0))
-        {
-            const char *e = std::getenv("SOTC_W1_PARTS");
-            g_parts = e ? static_cast<int>(std::strtoul(e, nullptr, 0) & 15u) : 15;
-        }
-        return on() && (static_cast<unsigned>(g_parts) & p) != 0u;
-    }
+    constexpr unsigned kParts = 15u;
+    inline bool part(unsigned p) { return on() && (kParts & p) != 0u; }
     inline bool checkOn()
     {
         if (__builtin_expect(g_check < 0, 0))
         {
-            const char *e = std::getenv("SOTC_W1_CHECK");
+            const char *e = ps2_diag::env("SOTC_W1_CHECK");
             g_check = (e && e[0] == '1') ? 1 : 0;
         }
         return g_check != 0;

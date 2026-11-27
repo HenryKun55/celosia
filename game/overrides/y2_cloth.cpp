@@ -1,4 +1,4 @@
-// Round Y2 (SOTC_Y2=1, off by default; docs/decomp_y2.md, y2_cloth.h): the strand solver gamecore_sub_013B8DC8 as native
+// Round Y2 (on by default since round F1, SOTC_Y2=0 the kill switch; docs/decomp_y2.md, y2_cloth.h): the strand solver gamecore_sub_013B8DC8 as native
 // C++.
 //
 // What it is: Wander's mantle. nico_execPlayerMantle (0x13ba0e0) calls getClothDynamics for each of the mantle's cloths
@@ -24,6 +24,7 @@
 // Not left behind (no reader: the caller is getClothDynamics, which reloads everything): the scratch GPRs / FPRs, the
 // VU0 registers, Q, the status flags, fcr31, the dead frame below sp.
 #include "y2_cloth.h"
+#include "runtime/ps2_diag.h"
 
 #include "sotc_decomp.h"
 #include "sotc_p2.h"
@@ -58,20 +59,17 @@ namespace y2
         uint64_t g_checkFrom = 0;
         __attribute__((noinline, cold)) void readEnv()
         {
+            // Round F1: on with no env; SOTC_Y2=0 the kill switch (read in every build). (Round S8's cloth queue, which
+            // Y2 stayed off with, is deleted.)
             const char *e = std::getenv("SOTC_Y2");
-            const char *c = std::getenv("SOTC_Y2_CHECK");
-            const char *f = std::getenv("SOTC_Y2_CHECK_FROM");
-            const char *l = std::getenv("SOTC_Y2_LOG");
-            // S8 queues cloth calls for the guest worker with table wrappers around the gamecore cloth functions: Y2
-            // stays off with it (it calls the strand solver directly).
-            const char *s8 = std::getenv("SOTC_S8CLOTH");
-            const bool s8on = s8 && std::atoi(s8) != 0;
-            g_on = (e && std::atoi(e) != 0 && !s8on) ? 1 : 0;
+            const char *c = ps2_diag::env("SOTC_Y2_CHECK");
+            const char *f = ps2_diag::env("SOTC_Y2_CHECK_FROM");
+            const char *l = ps2_diag::env("SOTC_Y2_LOG");
+            g_on = (e && e[0] == '0') ? 0 : 1;
             g_check = (g_on && c && std::atoi(c) != 0) ? 1 : 0;
             g_checkFrom = f ? std::strtoull(f, nullptr, 10) : 0u;
             g_log = l ? std::atoi(l) : 0;
-            std::fprintf(stderr, "[y2] SOTC_Y2=%d check %d from frame %llu log %d%s\n", g_on, g_check, (unsigned long long)g_checkFrom, g_log,
-                         s8on ? " (off: SOTC_S8CLOTH)" : "");
+            std::fprintf(stderr, "[y2] SOTC_Y2=%d check %d from frame %llu log %d\n", g_on, g_check, (unsigned long long)g_checkFrom, g_log);
         }
         int g_idStrands = -2, g_idStep = -2, g_idVelocity = -2;
         __attribute__((noinline, cold)) void readBrackets()

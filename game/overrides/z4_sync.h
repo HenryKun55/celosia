@@ -1,5 +1,5 @@
-// Round Z4 (docs/decomp_z4.md): the frame change (sotc_native::syncFrame) measured by part and cut (SOTC_Z4=1, off by
-// default). Direct brackets (SOTC_P2BRACKET >= 1: frame:z4Sync and the large parts; SOTC_Z4_BRACKET=2 / 3 the finer
+// Round Z4 (docs/decomp_z4.md): the frame change (sotc_native::syncFrame) measured by part and cut (on by default since round F1, SOTC_Z4=0 the kill switch;
+// off by default before F1). Direct brackets (SOTC_P2BRACKET >= 1: frame:z4Sync and the large parts; SOTC_Z4_BRACKET=2 / 3 the finer
 // ones), registered at the first frame change in both halves of an A/B.
 #pragma once
 
@@ -79,7 +79,7 @@ namespace z4sync
         static_assert(sizeof(kNames) / sizeof(kNames[0]) == kBracketCount, "names");
         // SOTC_Z4_BRACKET=<level> (default 1): 1 the six large parts, 2 the finer ones, 3 the finest (each with
         // SOTC_P2BRACKET >= 1; the table's own P3 set at SOTC_P2BRACKET=2 fills the 128 slots, so not needed here).
-        const char *e = std::getenv("SOTC_Z4_BRACKET");
+        const char *e = ps2_diag::env("SOTC_Z4_BRACKET");
         const int level = e ? std::atoi(e) : 1;
         int n = 0;
         for (int i = 0; i < kBracketCount; ++i)
@@ -93,18 +93,19 @@ namespace z4sync
     }
     inline int id(Bracket b) { return g_bracket[b]; }
 
-    // The switch (SOTC_Z4=1), its check (SOTC_Z4_CHECK=1) and log (SOTC_Z4_LOG=<frames>): read at the first frame change
+    // The switch (round F1: on with no env, SOTC_Z4=0 the kill switch), its check (SOTC_Z4_CHECK=1) and log
+    // (SOTC_Z4_LOG=<frames>): read at the first frame change
     // (the Vita's env.txt comes after static init), before anything of the frame change uses them.
     inline bool g_on = false, g_check = false;
     inline uint64_t g_log = 0;
     inline bool g_nativeLog = false; // SOTC_NATIVE_LOG, read once (endFrame's five tests of it a frame were getenv calls)
     __attribute__((cold, noinline)) inline void init()
     {
-        const char *e = std::getenv("SOTC_Z4");
-        g_on = e && std::atoi(e) != 0;
-        const char *c = std::getenv("SOTC_Z4_CHECK");
+        const char *e = std::getenv("SOTC_Z4"); // the kill switch: read in every build
+        g_on = !(e && e[0] == '0');
+        const char *c = ps2_diag::env("SOTC_Z4_CHECK");
         g_check = g_on && c && std::atoi(c) != 0;
-        const char *l = std::getenv("SOTC_Z4_LOG");
+        const char *l = ps2_diag::env("SOTC_Z4_LOG");
         g_log = l ? std::strtoull(l, nullptr, 10) : (g_check ? 600u : 0u);
         g_nativeLog = ps2_diag::env("SOTC_NATIVE_LOG") != nullptr;
         if (g_on)

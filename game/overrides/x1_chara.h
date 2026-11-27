@@ -1,5 +1,5 @@
-// Round X1 (docs/decomp_x1.md): ExecCharaGeometry (0x10bf8f0) as native C++ on the character class, behind SOTC_X1=1
-// (off by default; needs SOTC_D1NATIVE=1, as on the console). x1_charageo.cpp.
+// Round X1 (docs/decomp_x1.md): ExecCharaGeometry (0x10bf8f0) as native C++ on the character class (on by default since
+// round F1, SOTC_X1=0 the kill switch; needs D1NATIVE, on by default too). x1_charageo.cpp.
 //
 // The old body (decomp_charageo.cpp, round 41 / 47) is the recompiled code's statements kept context-exact: every VU0
 // op a PS2_V* macro on ctx->vu0_vf[...] (a load, the op, the operand / result clamps, a full blend, a store per op),
@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/ps2_diag.h"
 #include <cstdlib>
 
 class PS2Runtime;
@@ -34,8 +35,8 @@ namespace x1
     {
         if (__builtin_expect(g_on < 0, 0))
         {
-            const char *e = std::getenv("SOTC_X1");
-            g_on = (e && e[0] == '1') ? 1 : 0;
+            const char *e = std::getenv("SOTC_X1"); // round F1: the kill switch, read in every build
+            g_on = (e && e[0] == '0') ? 0 : 1;
         }
         return g_on != 0;
     }
@@ -43,7 +44,7 @@ namespace x1
     {
         if (__builtin_expect(g_check < 0, 0))
         {
-            const char *e = std::getenv("SOTC_X1_CHECK");
+            const char *e = ps2_diag::env("SOTC_X1_CHECK");
             g_check = (e && e[0] == '1') ? 1 : 0;
         }
         return g_check != 0;

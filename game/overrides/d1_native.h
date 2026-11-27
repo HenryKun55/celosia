@@ -1,4 +1,4 @@
-// Round D1 (switch d1native, SOTC_D1NATIVE, kD1Native; off by default; docs/decomp_d1.md): the hand natives' new bodies.
+// Round D1 (switch d1native, SOTC_D1NATIVE, kD1Native; on by default since F1, SOTC_D1NATIVE=0 the kill switch; docs/decomp_d1.md): the hand natives' new bodies.
 //
 // Phase D of docs/decomp_100_plan.md: the hand natives (game/overrides/decomp_*.cpp ...) are host code in control flow
 // but PS2 code in data, math and calls. A D1 body is the same function written as native C++:

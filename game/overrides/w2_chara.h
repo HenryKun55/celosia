@@ -1,4 +1,4 @@
-// Round W2 (switch w2, SOTC_W2, kW2; off by default; docs/decomp_w2.md): the character pipeline's hot math batched for the
+// Round W2 (switch w2, SOTC_W2, kW2; on by default since F1, SOTC_W2=0 the kill switch; docs/decomp_w2.md): the character pipeline's hot math batched for the
 // Vita's Cortex-A9.
 //
 // The A9's NEON unit is in order: a chain of dependent vector ops (a quaternion's dot product, its reciprocal square root,

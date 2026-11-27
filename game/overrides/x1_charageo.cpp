@@ -1454,7 +1454,7 @@ namespace x1
     {
         if (__builtin_expect(g_checkFrom < 0, 0))
         {
-            const char *e = std::getenv("SOTC_X1_CHECK_FROM");
+            const char *e = ps2_diag::env("SOTC_X1_CHECK_FROM");
             g_checkFrom = e ? std::atoll(e) : 0;
         }
         return static_cast<long long>(sotc_decomp::g_gameFrame) >= g_checkFrom;

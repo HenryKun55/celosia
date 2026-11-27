@@ -1,4 +1,4 @@
-// Round W3 (SOTC_W3=1, off by default; docs/decomp_w3.md): the script objects' pass (manager_sub_01102638) as a
+// Round W3 (on by default since round F1, SOTC_W3=0 the kill switch; docs/decomp_w3.md): the script objects' pass (manager_sub_01102638) as a
 // native walk.
 //
 // What the pass's console "self" is (P3's brackets: 1.98 M cycles a frame, 16 passes, ~130 objects): a sub-thread
@@ -85,8 +85,10 @@ namespace w3
         uint64_t g_logEvery = 0;
         void init()
         {
-            const char *e = ps2_diag::env("SOTC_W3");
-            g_on = e && std::atoi(e) != 0;
+            // Round F1: on with no env; SOTC_W3=0 the kill switch. std::getenv, not ps2_diag::env: a release build reads it too
+            // (ps2_diag::env is nullptr there, which turned W3 off in a release build before F1).
+            const char *e = std::getenv("SOTC_W3");
+            g_on = !(e && e[0] == '0');
             const char *c = ps2_diag::env("SOTC_W3_CHECK");
             g_check = c && std::atoi(c) != 0;
             const char *l = ps2_diag::env("SOTC_W3_LOG");

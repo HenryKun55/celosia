@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include "runtime/ps2_diag.h"
 
 #if defined(__vita__)
 extern "C" bool ps2x_p2b_wanted();
@@ -36,7 +37,7 @@ namespace z4br
         {
             static const char *const kNames[kCount] = {"frame:z4HoPre", "frame:z4HoLock", "frame:z4HoSwap", "frame:z4HoEvict", "frame:z4HoNotify",
                                                        "frame:z4EvHeap", "frame:z4EvPool", "frame:z4EvPass", "frame:z4EvLog"};
-            const char *e = std::getenv("SOTC_Z4_BRACKET");
+            const char *e = ps2_diag::env("SOTC_Z4_BRACKET");
             const bool on = ps2x_p2b_wanted() && e && std::atoi(e) >= 3;
             for (int i = 0; i < kCount; ++i)
                 g_id[i] = on ? ps2x_p2b_register(kNames[i]) : -1;

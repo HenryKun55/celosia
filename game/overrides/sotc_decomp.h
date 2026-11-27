@@ -873,7 +873,7 @@ namespace sotc_decomp
         kB6Sync,    // round B6 (off unless SOTC_B6SYNC=1): the message boxes with carriers at both ends as host wait lists (the
                     // receive wakes the senders itself, no callback-thread hop) and the EE semaphore stubs as host calls on a
                     // carrier (b6_sync.cpp; needs the carrier switches; docs/decomp_b6.md; SOTC_B6_CHECK)
-        kA12Typed, // round A12 (SOTC_A12TYPED=0 off): stage 12's typed functions (typed_a12.h, tools/typed_lift2.py stage 12):
+        kA12Typed, // round A12 (off unless SOTC_A12TYPED=1; F1: opt-in in the table too): stage 12's typed functions (typed_a12.h, tools/typed_lift2.py stage 12):
                    // the motion natives typed from their MIPS (docs/a12_natives.txt, taken per native: g_a12HoldMask), the spin
                    // rule's list walk, a likely branch's restore, 64-bit pass-through via extra outputs (docs/decomp_a12.md)
         kB7Irq,     // round B7 (off unless SOTC_B7IRQ=1): the live interrupt handlers (VBlank start 0x1c8180, GS 0x1c37f0) as host
@@ -894,12 +894,12 @@ namespace sotc_decomp
         kB10Switch, // round B10 (off unless SOTC_B10SWITCH=1): the thread switch without the dispatcher's loop top (the pick and
                     // the next thread's dispatch right after the settle while the top would do nothing) (b10_switch.cpp; needs
                     // b9loop, b8sched, b7irq and the carrier switches; docs/decomp_b10.md; SOTC_B10_CHECK)
-        kD1Native, // round D1 (off unless SOTC_D1NATIVE=1): the hand natives' D1 bodies (d1_native.h: plain float / vec4 math,
+        kD1Native, // round D1 (F1: on; SOTC_D1NATIVE=0 the kill switch): the hand natives' D1 bodies (d1_native.h: plain float / vec4 math,
                    // arguments read at the entry, typed guest memory, natives' cores called directly; docs/decomp_d1.md)
         kR1Char,   // round R1 (off unless SOTC_R1CHAR=1; acts inside d1native's D bodies): the characters' per-frame walks for
                    // the A9's caches (software prefetch along the cloth rows / pins and the link entries, host mirrors;
                    // docs/decomp_r1.md; SOTC_R1CHAR_LOG / SOTC_R1CHAR_CENSUS)
-        kW2,       // round W2 (off unless SOTC_W2=1; acts inside d1native's D bodies): the character pipeline's hot math batched
+        kW2,       // round W2 (F1: on, SOTC_W2=0 the kill switch; acts inside d1native's D bodies): the character pipeline's hot math batched
                    // for the A9 (the pose's normalisations, the node quaternions, the root blend's bones; w2_chara.h, docs/decomp_w2.md)
         kSwitchCount
     };
@@ -983,12 +983,12 @@ namespace sotc_decomp
             // Round B8: b8sched off unless SOTC_B8SCHED=1 (docs/decomp_b8.md).
             // Round B9: b9loop off unless SOTC_B9LOOP=1 (docs/decomp_b9.md). Round A14: a14typed off unless SOTC_A14TYPED=1 (docs/decomp_a14.md).
             // Round B10: b10switch off unless SOTC_B10SWITCH=1 (docs/decomp_b10.md).
-            // Round D1: d1native off unless SOTC_D1NATIVE=1 (docs/decomp_d1.md).
             // Round R1: r1char off unless SOTC_R1CHAR=1 (docs/decomp_r1.md).
-            // Round W2: w2 off unless SOTC_W2=1 (docs/decomp_w2.md).
+            // Round F1 (docs/release_config.md): d1native and w2 on with no env (SOTC_D1NATIVE=0 / SOTC_W2=0: the kill switches,
+            // read in every build); a12typed opt-in here too (SOTC_A12TYPED=1), so the table says what a12FlagsNow does.
             v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
                  which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par || which == kP4Move || which == kB1Sound || which == kB2Load || which == kB3Threads || which == kB4Fast || which == kB6Sync || which == kB7Irq || which == kB8Sched || which == kB9Loop || which == kA14Typed || which == kB10Switch || which == kD1Native || which == kR1Char || which == kW2)
+                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par || which == kP4Move || which == kB1Sound || which == kB2Load || which == kB3Threads || which == kB4Fast || which == kB6Sync || which == kB7Irq || which == kB8Sched || which == kB9Loop || which == kA14Typed || which == kB10Switch || which == kR1Char || which == kA12Typed)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;

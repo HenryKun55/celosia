@@ -1,4 +1,4 @@
-// Round Y3 (SOTC_Y3=1, off by default; docs/decomp_y3.md, y3_objanim.h): the object animation library as native C++.
+// Round Y3 (on by default since round F1, SOTC_Y3=0 the kill switch; docs/decomp_y3.md, y3_objanim.h): the object animation library as native C++.
 //
 // ExecObjectAnimation (0x110a130) steps one animated object (the st_playObjAnim objects, kind 0xd; a part at +0x20):
 // the time / damage / letter bookkeeping (guest calls), then the channel walk: for each channel with a target, the
@@ -40,6 +40,7 @@
 // SOTC_Y3_LOG=<n>: [y3] counts every n frames (and the channels still on the old statements, by type).
 // SOTC_Y3_BRACKET=1: brackets scripts:y3ObjAnim (the whole call, both halves of an A/B) and scripts:y3Walk (Y3's
 // channel walk) at SOTC_P2BRACKET >= 1.
+#include "runtime/ps2_diag.h"
 #include "y3_objanim.h"
 
 #include "sotc_decomp.h"
@@ -218,14 +219,14 @@ namespace y3
         __attribute__((cold, noinline)) void init()
         {
             const char *e = std::getenv("SOTC_Y3");
-            g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-            const char *c = std::getenv("SOTC_Y3_CHECK");
+            g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_Y3=0 the kill switch (every build)
+            const char *c = ps2_diag::env("SOTC_Y3_CHECK");
             g_check = c && std::atoi(c) != 0;
-            const char *f = std::getenv("SOTC_Y3_CHECK_FROM");
+            const char *f = ps2_diag::env("SOTC_Y3_CHECK_FROM");
             g_checkFrom = f ? std::atoll(f) : 0;
-            const char *l = std::getenv("SOTC_Y3_LOG");
+            const char *l = ps2_diag::env("SOTC_Y3_LOG");
             g_logEvery = l ? std::strtoull(l, nullptr, 10) : 0u;
-            const char *b = std::getenv("SOTC_Y3_BRACKET");
+            const char *b = ps2_diag::env("SOTC_Y3_BRACKET");
             if (b && std::atoi(b) != 0)
             {
                 g_idExec = sotc_p2::named("scripts:y3ObjAnim", 1);

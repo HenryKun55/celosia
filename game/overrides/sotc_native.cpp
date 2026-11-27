@@ -13372,7 +13372,7 @@ namespace sotc_native
         mdslane::x3Flush();
     }
 
-    // ---- Round DT1 (docs/decomp_dt1.md; SOTC_DT1=1, off by default): modelDisp's per-draw host part off the game thread ----
+    // ---- Round DT1 (docs/decomp_dt1.md; on by default since round F1, SOTC_DT1=0 the kill switch): modelDisp's per-draw host part off the game thread ----
     //
     // arch_plan item 1, phase 1, the model path's first cut. With the lane on (round 61), the game thread's part of each
     // model hook after the frame change was still ~15 k cycles on the console (P3 / wx brackets: modelDisp's self 1.06 M a
@@ -13397,30 +13397,31 @@ namespace sotc_native
     // state, the job compared field by field, the CLIP register, and every guest word either leg wrote (one 32 MB copy; only
     // the words the first leg changed are put back). SOTC_DT1_CHECK_CONTROL=1: the old code in both legs. SOTC_DT1_VERIFY=1:
     // the guest inputs the worker reads after the hook (the chain's tags, lights and palette packet, the header's lists, the
-    // globals) hashed at the hook and again when the record is made. SOTC_DT1_LOG=<frames> (default 600): [dt1] lines.
+    // globals) hashed at the hook and again when the record is made. SOTC_DT1_LOG=<frames> (round F1: default 0, none): [dt1]
+    // lines. Round F1: DT1 on with no env (SOTC_DT1=0 the kill switch, read in every build); its knobs are constants: the
+    // worker pinned to core 1 at priority 140, the palette copied at the hook, no wake-ups from the hook.
     uint64_t modelDispInputsOf(uint32_t own, uint32_t header);
     namespace dt1
     {
         signed char g_on = -1;
-        bool g_check = false, g_control = false, g_verify = false, g_pin = true, g_paletteAtHook = true, g_wake = false, g_skipEnv = false;
+        bool g_check = false, g_control = false, g_verify = false, g_skipEnv = false;
+        constexpr bool g_pin = true, g_paletteAtHook = true, g_wake = false; // round F1: constants (the PIN / PALETTE / WAKE knobs are gone)
+        constexpr int kWorkerPrio = 140;                                     // round F1: a constant (SOTC_DT1_PRIO is gone)
         uint64_t g_checkFrom = 0, g_checkEvery = 40;
-        uint32_t g_log = 600;
+        uint32_t g_log = 0;
         void readEnv()
         {
-            const char *e = std::getenv("SOTC_DT1");
-            g_on = (e && e[0] == '1') ? 1 : 0;
-            g_check = (e = std::getenv("SOTC_DT1_CHECK")) && e[0] == '1';
-            g_control = (e = std::getenv("SOTC_DT1_CHECK_CONTROL")) && e[0] == '1';
-            g_verify = (e = std::getenv("SOTC_DT1_VERIFY")) && e[0] == '1';
-            g_pin = !((e = std::getenv("SOTC_DT1_PIN")) && e[0] == '0');
-            g_paletteAtHook = !((e = std::getenv("SOTC_DT1_PALETTE")) && e[0] == 'w'); // SOTC_DT1_PALETTE=worker: the copy in the record's make
-            g_wake = (e = std::getenv("SOTC_DT1_WAKE")) && e[0] == '1'; // 1: the hook wakes a sleeping worker (p3's batched wake-ups)
-            g_skipEnv = std::getenv("SOTC_NATIVE_SKIP") != nullptr; // (modelDispHook's debugging skip: the old path)
-            if ((e = std::getenv("SOTC_DT1_CHECK_FROM")))
+            const char *e = std::getenv("SOTC_DT1"); // the kill switch
+            g_on = (e && e[0] == '0') ? 0 : 1;
+            g_check = (e = ps2_diag::env("SOTC_DT1_CHECK")) && e[0] == '1';
+            g_control = (e = ps2_diag::env("SOTC_DT1_CHECK_CONTROL")) && e[0] == '1';
+            g_verify = (e = ps2_diag::env("SOTC_DT1_VERIFY")) && e[0] == '1';
+            g_skipEnv = ps2_diag::env("SOTC_NATIVE_SKIP") != nullptr; // (modelDispHook's debugging skip: the old path)
+            if ((e = ps2_diag::env("SOTC_DT1_CHECK_FROM")))
                 g_checkFrom = std::strtoull(e, nullptr, 10);
-            if ((e = std::getenv("SOTC_DT1_CHECK_EVERY")))
+            if ((e = ps2_diag::env("SOTC_DT1_CHECK_EVERY")))
                 g_checkEvery = std::max<uint64_t>(1u, std::strtoull(e, nullptr, 10));
-            if ((e = std::getenv("SOTC_DT1_LOG")))
+            if ((e = ps2_diag::env("SOTC_DT1_LOG")))
                 g_log = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
             if (g_on)
                 std::fprintf(stderr, "[dt1] on: check %d (from frame %llu, every %llu hooks, control %d) verify %d pin %d log %u palette at the %s, wake-ups %d\n", g_check ? 1 : 0,
@@ -13657,17 +13658,16 @@ namespace sotc_native
         {
             native_renderer::threads::place(native_renderer::threads::kLane);
 #if defined(__vita__)
-            // Core 1 (arch_plan item 1: never core 2, the render thread's). SOTC_DT1_PIN=0: the lane's cores 1-2.
+            // Core 1 (arch_plan item 1: never core 2, the render thread's).
             if (g_pin)
             {
                 const int rc = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
                 std::fprintf(stderr, "[dt1] worker on core 1 (rc %d)\n", rc);
             }
             // The hook worker waits for the records (and the kick drains them): above the hook worker's priority (150), as
-            // round 91's guest worker (140). SOTC_DT1_PRIO=<64..191>; 0: the lane's (the default).
+            // round 91's guest worker (140).
             {
-                const char *e = std::getenv("SOTC_DT1_PRIO");
-                const int prio = e ? std::atoi(e) : 140;
+                constexpr int prio = kWorkerPrio;
                 if (prio >= 64 && prio <= 191)
                 {
                     const int rc = sceKernelChangeThreadPriority(sceKernelGetThreadId(), prio);

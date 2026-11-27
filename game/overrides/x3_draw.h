@@ -1,9 +1,9 @@
-// Round X3 (docs/decomp_x3.md): the display walk's draw side native (SOTC_X3=1, off by default; one switch for the
-// console's A/B; assumes SOTC_D1NATIVE=1 and SOTC_W1=1).
+// Round X3 (docs/decomp_x3.md): the display walk's draw side native (on by default since round F1; SOTC_X3=0 the kill
+// switch; assumes D1NATIVE and W1, both on by default).
 //
 // SOTC_X3_BRACKET=1 (with SOTC_P2BRACKET >= 1): finer brackets inside the draw loop, DispLayoutObjModel, solidDisp and the
 // model hook (the "x3:*" lines; the same counters and report as P2's). SOTC_X3_CHECK=1: the X3 paths compared in place
-// against the old ones; [x3] counts every 600 walks (SOTC_X3_LOG=0: none).
+// against the old ones; [x3] counts every 600 walks with SOTC_X3_LOG=1 (F1: off by default).
 #pragma once
 
 #include <cstdint>
@@ -11,23 +11,28 @@
 #include <cstdlib>
 
 #include "sotc_p2.h"
+#include "runtime/ps2_diag.h"
 
 namespace x3
 {
     inline signed char g_on = -1, g_check = -1, g_log = -1;
     inline bool envOn(const char *name, bool def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name); // debug switches only (compiled out of a release build)
         return e ? e[0] == '1' : def;
     }
     // Read at first use (the Vita's env.txt is read after static init).
     inline bool on()
     {
         if (__builtin_expect(g_on < 0, 0))
-            g_on = envOn("SOTC_X3", false) ? 1 : 0;
+        {
+            // Round F1: on with no env; SOTC_X3=0 is the kill switch (read in every build, docs/release_config.md).
+            const char *e = std::getenv("SOTC_X3");
+            g_on = (e && e[0] == '0') ? 0 : 1;
+        }
         return g_on != 0;
     }
-    // SOTC_X3_PARTS (default 2): bit 1 the hand-overs' wake-ups batched in the draw loop; bit 2 the solid parts' blocks
+    // The parts (round F1: the constant kDefaultParts = 2; SOTC_X3_PARTS is gone): bit 1 the hand-overs' wake-ups batched in the draw loop; bit 2 the solid parts' blocks
     // (opt-in: no model it applies to was drawn on ride7 or lake6, so its check never ran there). (Bit 0 is unused: the hook
     // job ring's length is SOTC_X3_RING=<n>, testing only.)
     enum : unsigned
@@ -42,16 +47,7 @@ namespace x3
     // what is left: sotc_native::x3WakeFlush).
     inline bool g_batchWakes = false;
     constexpr uint32_t kWakeEvery = 4u;
-    inline int g_parts = -1;
-    inline bool part(unsigned p)
-    {
-        if (__builtin_expect(g_parts < 0, 0))
-        {
-            const char *e = std::getenv("SOTC_X3_PARTS");
-            g_parts = e ? static_cast<int>(std::strtoul(e, nullptr, 0) & kAllParts) : static_cast<int>(kDefaultParts);
-        }
-        return on() && (static_cast<unsigned>(g_parts) & p) != 0u;
-    }
+    inline bool part(unsigned p) { return on() && (static_cast<unsigned>(kDefaultParts) & p) != 0u; }
     inline bool checkOn()
     {
         if (__builtin_expect(g_check < 0, 0))
@@ -61,7 +57,7 @@ namespace x3
     inline bool logOn()
     {
         if (__builtin_expect(g_log < 0, 0))
-            g_log = envOn("SOTC_X3_LOG", true) ? 1 : 0;
+            g_log = envOn("SOTC_X3_LOG", false) ? 1 : 0;
         return g_log != 0;
     }
 

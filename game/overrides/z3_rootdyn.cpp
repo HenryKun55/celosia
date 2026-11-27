@@ -1,4 +1,4 @@
-// Round Z3 (SOTC_Z3=1, off by default; docs/decomp_z3.md): the characters' root-dynamics helpers under xz as typed
+// Round Z3 (on by default since round F1, SOTC_Z3=0 the kill switch; docs/decomp_z3.md): the characters' root-dynamics helpers under xz as typed
 // native C++: the switch, the check and the counts (the functions: z3_funcs.inc, included at the end of
 // decomp_collision.cpp).
 //
@@ -40,7 +40,7 @@ namespace z3rd
         int g_check = 0;
         uint64_t g_quiet = 0u;
         bool g_control = false;
-        unsigned g_parts = 0x7Fu;
+        constexpr unsigned g_parts = 0x7Fu; // round F1: a constant (SOTC_*_PARTS is gone)
         uint64_t g_checkFrom = 0, g_checkUntil = ~0ull, g_logEvery = 0, g_lastLog = 0;
         uint64_t g_checkEvery[kFnCount] = {4, 4, 4, 4, 40, 40, 40};
         int g_bracket[kFnCount] = {-1, -1, -1, -1, -1, -1, -1};
@@ -85,27 +85,25 @@ namespace z3rd
     __attribute__((cold, noinline)) void init()
     {
         const char *e = std::getenv("SOTC_Z3");
-        g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-        const char *c = std::getenv("SOTC_Z3_CHECK");
+        g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_Z3=0 the kill switch (every build)
+        const char *c = ps2_diag::env("SOTC_Z3_CHECK");
         g_check = c && std::atoi(c) != 0;
-        g_control = std::getenv("SOTC_Z3_CHECK_CONTROL") != nullptr;
-        if (const char *q = std::getenv("SOTC_Z3_CHECK_QUIET"))
+        g_control = ps2_diag::env("SOTC_Z3_CHECK_CONTROL") != nullptr;
+        if (const char *q = ps2_diag::env("SOTC_Z3_CHECK_QUIET"))
             g_quiet = std::strtoull(q, nullptr, 10);
-        if (const char *f = std::getenv("SOTC_Z3_CHECK_FROM"))
+        if (const char *f = ps2_diag::env("SOTC_Z3_CHECK_FROM"))
             g_checkFrom = std::strtoull(f, nullptr, 10);
-        if (const char *u = std::getenv("SOTC_Z3_CHECK_UNTIL"))
+        if (const char *u = ps2_diag::env("SOTC_Z3_CHECK_UNTIL"))
             g_checkUntil = std::strtoull(u, nullptr, 10);
-        if (const char *v = std::getenv("SOTC_Z3_CHECK_EVERY"))
+        if (const char *v = ps2_diag::env("SOTC_Z3_CHECK_EVERY"))
             for (int i = 0; i < kFnCount; ++i)
                 g_checkEvery[i] = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
-        if (const char *v = std::getenv("SOTC_Z3_CHECK_EVERY_LEAF"))
+        if (const char *v = ps2_diag::env("SOTC_Z3_CHECK_EVERY_LEAF"))
             g_checkEvery[kGeoObj] = g_checkEvery[kSurfAttr] = g_checkEvery[kDBAttr] = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
         else
             g_checkEvery[kGeoObj] = g_checkEvery[kSurfAttr] = g_checkEvery[kDBAttr] = 10u * g_checkEvery[kSlide];
-        if (const char *l = std::getenv("SOTC_Z3_LOG"))
+        if (const char *l = ps2_diag::env("SOTC_Z3_LOG"))
             g_logEvery = std::strtoull(l, nullptr, 10);
-        if (const char *p = std::getenv("SOTC_Z3_PARTS"))
-            g_parts = static_cast<unsigned>(std::strtoul(p, nullptr, 0));
         if (g_on)
         {
             static const char *const kNames[kFnCount] = {"characters:z3Slide", "characters:z3SlideCB", "characters:z3ParentGeo", "characters:z3LayoutGeo",

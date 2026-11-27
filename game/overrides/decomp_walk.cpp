@@ -5914,12 +5914,12 @@ namespace decomp_walk
 extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[8192] = {1};
 #endif
 
-// Round W1 (w1_disp.h): the [w1] counts every 600 walks (SOTC_W1_LOG=0: none).
+// Round W1 (w1_disp.h): the [w1] counts every 600 walks with SOTC_W1_LOG=1 (round F1: off by default, a debug log).
 namespace w1
 {
     void report()
     {
-        static const bool log = !(std::getenv("SOTC_W1_LOG") && std::getenv("SOTC_W1_LOG")[0] == '0');
+        static const bool log = ps2_diag::env("SOTC_W1_LOG") && ps2_diag::env("SOTC_W1_LOG")[0] == '1';
         if (!log || g_st.walks % 600u != 0u)
             return;
         const double k = 1.0 / 600.0;

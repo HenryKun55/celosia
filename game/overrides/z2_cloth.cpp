@@ -1,4 +1,4 @@
-// Round Z2 (SOTC_Z2=1, off by default; docs/decomp_z2.md, z2_cloth.h): the switches, the counters and the log, the
+// Round Z2 (on by default since round F1, SOTC_Z2=0 the kill switch; docs/decomp_z2.md, z2_cloth.h): the switches, the counters and the log, the
 // same-thread check, and gamecore_sub_013BA790 (a string point's length keep: Wander's fringe) as typed C++. The driver's
 // parts (the dispatch, gamecore_sub_01397110, the type-1 velocities) are in z2_dynamics.inc (dc2_chara.cpp, for D1's
 // cloth cores).
@@ -13,6 +13,7 @@
 //      handler: the interrupt's work, not the function's). Checks only while nothing is posted to the EE scheduler and
 //      its gate is not reached (clock-skipped otherwise). The game goes on from the old leg.
 // SOTC_Z2_CHECK_FROM=<frame>, SOTC_Z2_CHECK_EVERY=<n> (one segment in n per kind, default 32).
+#include "runtime/ps2_diag.h"
 #include "z2_cloth.h"
 #include "y2_cloth.h"
 
@@ -36,7 +37,7 @@ namespace z2
     namespace
     {
         int g_on = -1, g_check = 0, g_recomp = 0;
-        unsigned g_parts = 0x1Fu;
+        constexpr unsigned g_parts = 0x1Fu; // round F1: a constant (SOTC_*_PARTS is gone)
         uint64_t g_checkFrom = 0, g_checkEvery = 32, g_log = 0, g_lastLog = 0;
         uint64_t g_seen[kKinds] = {};
         int g_bracket[kKinds] = {-2, -2, -2, -2, -2};
@@ -45,19 +46,17 @@ namespace z2
         __attribute__((noinline, cold)) void readEnv()
         {
             const char *e = std::getenv("SOTC_Z2");
-            g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-            const char *c = std::getenv("SOTC_Z2_CHECK");
+            g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_Z2=0 the kill switch (every build)
+            const char *c = ps2_diag::env("SOTC_Z2_CHECK");
             g_check = (g_on && c && std::atoi(c) != 0) ? 1 : 0;
-            const char *rr = std::getenv("SOTC_Z2_CHECK_RECOMP");
+            const char *rr = ps2_diag::env("SOTC_Z2_CHECK_RECOMP");
             g_recomp = (rr && std::atoi(rr) != 0) ? 1 : 0;
-            if (const char *f = std::getenv("SOTC_Z2_CHECK_FROM"))
+            if (const char *f = ps2_diag::env("SOTC_Z2_CHECK_FROM"))
                 g_checkFrom = std::strtoull(f, nullptr, 10);
-            if (const char *v = std::getenv("SOTC_Z2_CHECK_EVERY"))
+            if (const char *v = ps2_diag::env("SOTC_Z2_CHECK_EVERY"))
                 g_checkEvery = std::max<uint64_t>(1u, std::strtoull(v, nullptr, 10));
-            if (const char *l = std::getenv("SOTC_Z2_LOG"))
+            if (const char *l = ps2_diag::env("SOTC_Z2_LOG"))
                 g_log = std::strtoull(l, nullptr, 10);
-            if (const char *p = std::getenv("SOTC_Z2_PARTS"))
-                g_parts = static_cast<unsigned>(std::strtoul(p, nullptr, 0));
             std::fprintf(stderr, "[z2] SOTC_Z2=%d (with SOTC_Y2 %d) parts 0x%x check %d (old leg %s) from %llu every %llu log %llu\n", g_on,
                          y2::on() ? 1 : 0, g_parts, g_check, g_recomp ? "the recompiled function" : "the table's entry", (unsigned long long)g_checkFrom, (unsigned long long)g_checkEvery, (unsigned long long)g_log);
         }

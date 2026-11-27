@@ -1,4 +1,4 @@
-// Round X2 (SOTC_X2=1, off by default; docs/decomp_x2.md): the script bodies by weight, the heaviest as native C++.
+// Round X2 (on by default since round F1, SOTC_X2=0 the kill switch; docs/decomp_x2.md): the script bodies by weight, the heaviest as native C++.
 //
 // Ranking (round X2's zone split of execScript's self, decomp_w3.cpp's SOTC_X2_ZONE / SOTC_X2_RANK): the script bodies are
 // thin sequencers; their cost is the libraries they call. By the console's own samples per function (Vita3K's zone split at
@@ -57,10 +57,10 @@ namespace x2
         __attribute__((cold, noinline)) void init()
         {
             const char *e = std::getenv("SOTC_X2");
-            g_on = (e && std::atoi(e) != 0) ? 1 : 0;
-            const char *c = std::getenv("SOTC_X2_CHECK");
+            g_on = (e && e[0] == '0') ? 0 : 1; // round F1: on with no env; SOTC_X2=0 the kill switch (every build)
+            const char *c = ps2_diag::env("SOTC_X2_CHECK");
             g_check = c && std::atoi(c) != 0;
-            const char *l = std::getenv("SOTC_X2_LOG");
+            const char *l = ps2_diag::env("SOTC_X2_LOG");
             g_logEvery = l ? std::strtoull(l, nullptr, 10) : 0u;
             if (g_on)
                 std::fprintf(stderr, "[x2] on: the animal script and AI_OptFloatFrameSample as native C++ (check %d, log every %llu)\n", g_check,
