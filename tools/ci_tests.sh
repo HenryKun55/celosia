@@ -13,9 +13,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-BUILD=${1:-build/tests}
+BUILD=build/tests
 REPORT=0
-[ "${2:-}" = "--report" ] && REPORT=1
+for arg in "$@"; do # [build_dir] and --report, in any order
+    case "$arg" in
+    --report) REPORT=1 ;;
+    -*) echo "unknown option $arg" >&2; exit 2 ;;
+    *) BUILD=$arg ;;
+    esac
+done
 
 GATE="ElfAnalyzerHeuristics PadInput PS2IopSubsystem PS2RuntimeIO PS2VU0Math R5900Decoder TexturePack Widescreen"
 KNOWN_FAILING="CodeGenerator PS2GS PS2Memory PS2Recompiler PS2RuntimeExpansion PS2RuntimeInterrupt PS2RuntimeKernel PS2SifDma PS2SifRpc PS2VU1"
@@ -29,7 +35,10 @@ if [ ! -f "$BUILD/build.ninja" ]; then
 fi
 cmake --build "$BUILD" --target ps2x_tests || exit 1
 TESTS=$(cd "$BUILD/ps2xTest" && pwd)/ps2x_tests
-SUITES=" $("$TESTS" --list | tr '\n' ' ') "
+# The suites this build has: no list (a broken binary) must fail the run, not skip every suite.
+LIST=$("$TESTS" --list) || { echo "ps2x_tests --list failed" >&2; exit 1; }
+[ -n "$LIST" ] || { echo "ps2x_tests --list named no suite" >&2; exit 1; }
+SUITES=" $(echo "$LIST" | tr '\n' ' ') "
 
 run() { # suite -> "passed failed" (or "crash")
     local out
@@ -48,6 +57,7 @@ run() { # suite -> "passed failed" (or "crash")
 
 status=0
 if [ "$REPORT" = 0 ]; then
+    ran=0
     echo "== gate"
     for s in $GATE; do
         case "$SUITES" in *" $s "*) ;; *) echo "  $s: not on this branch, skipped"; continue ;; esac
@@ -58,7 +68,12 @@ if [ "$REPORT" = 0 ]; then
         else
             echo "  $s: ${r% *} passed"
         fi
+        ran=$((ran + 1))
     done
+    if [ "$ran" = 0 ]; then
+        echo "  no gate suite ran" >&2
+        status=1
+    fi
 else
     echo "== known failing (report only)"
     for s in $KNOWN_FAILING; do
