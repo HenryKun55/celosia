@@ -21,13 +21,14 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/ps2_diag.h"
 #include <cstdlib>
 
 namespace p1chara
 {
     inline int envI(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
     inline int checkOn()

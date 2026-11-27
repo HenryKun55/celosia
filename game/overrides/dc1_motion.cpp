@@ -42,6 +42,7 @@
 // scratch, after a restore) bit for bit: [dc1mot] ... checks N differ D. The old native's results are the ones kept
 // in check mode. SOTC_DC1MOT_LOG=<n>: every n game frames a [dc1mot] line (calls by function, checks, differences).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "chara_types.h"
 #include "d1_native.h"
 
@@ -179,8 +180,8 @@ namespace dc1mot
     int g_check = -1, g_log = -1;
     __attribute__((noinline)) void readEnv()
     {
-        const char *c = std::getenv("SOTC_DC1MOT_CHECK");
-        const char *l = std::getenv("SOTC_DC1MOT_LOG");
+        const char *c = ps2_diag::env("SOTC_DC1MOT_CHECK");
+        const char *l = ps2_diag::env("SOTC_DC1MOT_LOG");
         g_check = c ? std::atoi(c) : 0;
         g_log = l ? std::atoi(l) : 0;
     }

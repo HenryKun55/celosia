@@ -19,6 +19,7 @@
 #pragma once
 
 #include "ps2_runtime.h"
+#include "runtime/ps2_diag.h"
 #include "ps2_runtime_macros.h"
 
 #if __has_include("ps2_recompiled_table.h")
@@ -1146,7 +1147,7 @@ namespace sotc_decomp
     {
         if (__builtin_expect(v < 0, 0))
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             v = (e && e[0] == '1') ? 1 : 0;
         }
         return v != 0;

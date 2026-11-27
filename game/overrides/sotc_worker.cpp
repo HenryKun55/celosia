@@ -1012,7 +1012,7 @@ namespace sotc_worker
             // worker would run their wrappers beside the game thread.
             static const int v = [] {
                 const char *e = std::getenv("SOTC_WORKER91");
-                if (ps2_diag::env("SOTC_SUBSYS_PROF") || ps2_diag::env("SOTC_DIFFTEST") || ps2_diag::env("SOTC_CALLGUEST_STATS") || std::getenv("SOTC_TRACE_CALLS"))
+                if (ps2_diag::env("SOTC_SUBSYS_PROF") || ps2_diag::env("SOTC_DIFFTEST") || ps2_diag::env("SOTC_CALLGUEST_STATS") || ps2_diag::env("SOTC_TRACE_CALLS"))
                     return 0;
                 return e ? std::atoi(e) : 1;
             }();

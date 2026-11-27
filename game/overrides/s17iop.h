@@ -14,6 +14,7 @@
 // handlers queued, invocations, dormant) as order hashes; SOTC_S17IOP_LOG=<frames> prints "[s17]" counts (and records
 // the episodes, also with the switch off: the profile of what unwinds).
 #include <cstdint>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
@@ -33,9 +34,9 @@ namespace s17iop
         // SOTC_S17IOP=1, compared off with off).
         const char *e = std::getenv("SOTC_S17IOP");
         sotc_decomp::g_switch[sotc_decomp::kS17Iop] = (e && e[0] == '0') ? 0 : 1;
-        const char *v = std::getenv("SOTC_S17IOP_LOG");
+        const char *v = ps2_diag::env("SOTC_S17IOP_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : 0u;
-        v = std::getenv("SOTC_S17IOP_CHECK");
+        v = ps2_diag::env("SOTC_S17IOP_CHECK");
         g_check = v && std::atoi(v) != 0;
         g_ps2xS17Log = (g_log != 0u || g_check) ? 1u : 0u;
         g_ps2xS17Check = g_check ? 1u : 0u;

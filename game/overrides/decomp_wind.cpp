@@ -15,6 +15,7 @@
 // stay guest calls from the original's frame. A slot or zone outside main
 // RAM goes to the recompiled code before anything is done (checked up front).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -49,7 +50,7 @@ namespace decomp_wind
         int g_on = -1, g_check = 0, g_log = 0;
         inline bool envOn(const char *name, bool def)
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             return e ? std::atoi(e) != 0 : def;
         }
         inline bool on()

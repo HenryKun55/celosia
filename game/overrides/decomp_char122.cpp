@@ -28,6 +28,7 @@
 // calls compared). SOTC_CHAR122_LOG=<n>: every n game frames a [char122]
 // line (calls, host us a frame by part).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_pf141.h"
 #include "typed_a9_core.h" // round A9: the shared cores
 #include "p1_chara.h"
@@ -110,7 +111,7 @@ namespace char122
     }
     int envInt(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
     A9S_HOIST(int, a9s_decomp_char122_n_107, envInt("SOTC_CHAR122_LOG", 0)); // round A9 sweep (a9sweep.h)

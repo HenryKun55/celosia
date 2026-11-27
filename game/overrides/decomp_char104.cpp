@@ -17,6 +17,7 @@
 //    reader that is not that character's own sub-thread: the first such read's
 //    delay after the geometry ended, and the readers by count.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 
 #include "ps2_runtime.h"
@@ -78,7 +79,7 @@ namespace char104
 
         int envInt(const char *name, int def)
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             return e ? std::atoi(e) : def;
         }
         // SOTC_CHAR104's default. Round 111: 0 (on main with round 110 the jobs lost 0.7 ms a frame on route 6 and 3.5

@@ -46,7 +46,7 @@ namespace probe84
         bool log = false;
         Params()
         {
-            if (const char *e = std::getenv("SOTC_PROBE84_WATER_EPS"))
+            if (const char *e = ps2_diag::env("SOTC_PROBE84_WATER_EPS"))
                 eps = static_cast<float>(std::atof(e));
             if (const char *e = std::getenv("SOTC_PROBE84_WATER_AGE"))
                 age = static_cast<uint32_t>(std::atoi(e));

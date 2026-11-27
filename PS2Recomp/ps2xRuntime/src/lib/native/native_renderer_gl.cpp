@@ -115,7 +115,7 @@ namespace
             {
                 if (const char *e = ps2_diag::env("SOTC_GPU86_LOG"))
                     return std::atoi(e) != 0;
-                const char *a = std::getenv("SOTC_FRAME_LOG_ALL");
+                const char *a = ps2_diag::env("SOTC_FRAME_LOG_ALL");
                 return a && std::atoi(a) != 0;
             }();
             return v;
@@ -333,7 +333,7 @@ namespace
             // (shorter lines: more of them lie wholly inside one A/B window).
             static const uint32_t every = []
             {
-                const char *e = std::getenv("SOTC_GPU86_EVERY");
+                const char *e = ps2_diag::env("SOTC_GPU86_EVERY");
                 return static_cast<uint32_t>(std::clamp(e ? std::atoi(e) : 30, 2, 600));
             }();
             if (g_n >= every)
@@ -2602,7 +2602,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void hitch112Frame(uint64_t uploadUs, uint64_t drawUs)
         {
             static const bool on = ps2_diag::env("SOTC_HITCH112_LOG") && std::atoi(ps2_diag::env("SOTC_HITCH112_LOG")) != 0;
-            static const uint64_t limitUs = std::getenv("SOTC_HITCH112_MS") ? std::strtoull(std::getenv("SOTC_HITCH112_MS"), nullptr, 10) * 1000u : 4000u;
+            static const uint64_t limitUs = ps2_diag::env("SOTC_HITCH112_MS") ? std::strtoull(ps2_diag::env("SOTC_HITCH112_MS"), nullptr, 10) * 1000u : 4000u;
             Hitch112 &h = h112;
             frameCopyBytes = 0;
             if (!h.log)
@@ -2695,7 +2695,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // 8 the reduction / the temporal step / the history in turn (5, 15, 25).
         int bloomShowMode() const
         {
-            static const int mode = std::getenv("SOTC_BLOOM_SHOW") ? std::atoi(std::getenv("SOTC_BLOOM_SHOW")) : 0;
+            static const int mode = ps2_diag::env("SOTC_BLOOM_SHOW") ? std::atoi(ps2_diag::env("SOTC_BLOOM_SHOW")) : 0;
             if (mode == 8) // the 64 x 64 stages in turn: this frame's reduction, the temporal step, the history (blurred)
                 return 5 + static_cast<int>((bloomGameFrame / 90u) % 3u) * 10;
             return mode == 3 ? static_cast<int>((bloomGameFrame / 90u) % 3u) : mode;
@@ -2872,7 +2872,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
 
         bool init()
         {
-            if (const char *e = std::getenv("SOTC_GL_PX98")) // round 98 (the pixel estimate's frames)
+            if (const char *e = ps2_diag::env("SOTC_GL_PX98")) // round 98 (the pixel estimate's frames)
                 px98.every = std::max(std::atoi(e), 0);
             const GLuint mainVertex = compile(GL_VERTEX_SHADER, kMainVertex);
             mainProgram = program(mainVertex, kMainFragment, {"aPos", "aNormal", "aColor", "aUV"});
@@ -2947,7 +2947,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // vertex program compiled without libshacccg's fast math /
                 // precision / int (a source of its own, so neither the cache
                 // nor the VPK's seed hands back the fast binary).
-                static const bool skinPrecise = std::getenv("SOTC_GL_SKIN_PRECISE") && std::atoi(std::getenv("SOTC_GL_SKIN_PRECISE")) != 0;
+                static const bool skinPrecise = ps2_diag::env("SOTC_GL_SKIN_PRECISE") && std::atoi(ps2_diag::env("SOTC_GL_SKIN_PRECISE")) != 0;
                 static const bool fastShaders = !std::getenv("SOTC_SHADER_FAST") || std::atoi(std::getenv("SOTC_SHADER_FAST")) != 0;
                 if (skinPrecise && !skin.empty())
                 {
@@ -3260,7 +3260,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // Vita3K"). SOTC_EMULATOR=0/1 says it instead.
         void probeEmulator()
         {
-            if (const char *e = std::getenv("SOTC_EMULATOR"))
+            if (const char *e = ps2_diag::env("SOTC_EMULATOR"))
             {
                 native_renderer::detail::setInEmulator(std::atoi(e) != 0);
                 return;
@@ -3631,7 +3631,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             }
             // Round 35: which framebuffer is which ([vgl:dump] fb lines name them by address).
-            if (std::getenv("SOTC_VGL_MEMDUMP"))
+            if (ps2_diag::env("SOTC_VGL_MEMDUMP"))
             {
                 const std::pair<const char *, const Target *> named[] = {
                     {"color", &color}, {"colorPlain", &colorPlain}, {"background", &background}, {"snapshot", &snapshot}, {"shadowMask", &shadowMask},
@@ -3888,7 +3888,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // SOTC_GL_SELFCHECK_OFF=<names> (round 45): the reference frame drawn
             // with these off instead of the merges and lean programs: fewcopies,
             // atmerge, volprog, depthkeep, merge, lean (comma separated).
-            static const char *offList = std::getenv("SOTC_GL_SELFCHECK_OFF");
+            static const char *offList = ps2_diag::env("SOTC_GL_SELFCHECK_OFF");
             if (offList)
             {
                 const std::string l = std::string(",") + offList + ",";
@@ -4339,7 +4339,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // in the shrine) and drops the pool's run copies, which the next
             // frames copy again: the console's render thread had a 12-30 ms
             // upload part every 30 frames. The same pools are emptied, later.
-            static const uint64_t every = std::getenv("SOTC_GL_POOL_COMPACT_EVERY") ? std::max(1, std::atoi(std::getenv("SOTC_GL_POOL_COMPACT_EVERY"))) : 300;
+            static const uint64_t every = ps2_diag::env("SOTC_GL_POOL_COMPACT_EVERY") ? std::max(1, std::atoi(ps2_diag::env("SOTC_GL_POOL_COMPACT_EVERY"))) : 300;
             if (arenaFrame % every != 0u)
                 return;
             // Each pool's live vertices (capacity less its free and let-go ranges).
@@ -4635,7 +4635,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                       atPass == 1 ? " at1" : atPass == 2 ? " at2" : "", d.state.screen ? " scr" : "", d.state.overlay ? " ovl" : "",
                       d.state.background ? " bg" : "", kept ? "" : " cut", !planned.tex ? " untex" : planned.tex->mipped ? " mip" : "");
         // SOTC_GL_PX98_DETAIL=<mask of layers, hex>: those layers' draws one by one.
-        static const uint32_t detail = std::getenv("SOTC_GL_PX98_DETAIL") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_GL_PX98_DETAIL"), nullptr, 16)) : 0u;
+        static const uint32_t detail = ps2_diag::env("SOTC_GL_PX98_DETAIL") ? static_cast<uint32_t>(std::strtoul(ps2_diag::env("SOTC_GL_PX98_DETAIL"), nullptr, 16)) : 0u;
         if (((detail >> (d.state.order & 31u)) & 1u) && px >= 64.0)
         {
             const Texture *t = planned.tex;
@@ -5547,8 +5547,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // this reads the pools' GPU memory. Counted, and in Vita3K (which
         // reads it at host speed) SOTC_GPUREAD118_US_PER_MB /
         // SOTC_GPUREAD118_US_PER_CALL wait as the console would.
-        static const uint64_t usPerMB = std::getenv("SOTC_GPUREAD118_US_PER_MB") ? std::strtoull(std::getenv("SOTC_GPUREAD118_US_PER_MB"), nullptr, 10) : 0u;
-        static const uint64_t usPerCall = std::getenv("SOTC_GPUREAD118_US_PER_CALL") ? std::strtoull(std::getenv("SOTC_GPUREAD118_US_PER_CALL"), nullptr, 10) : 0u;
+        static const uint64_t usPerMB = ps2_diag::env("SOTC_GPUREAD118_US_PER_MB") ? std::strtoull(ps2_diag::env("SOTC_GPUREAD118_US_PER_MB"), nullptr, 10) : 0u;
+        static const uint64_t usPerCall = ps2_diag::env("SOTC_GPUREAD118_US_PER_CALL") ? std::strtoull(ps2_diag::env("SOTC_GPUREAD118_US_PER_CALL"), nullptr, 10) : 0u;
         const uint64_t start = native_renderer::nowUs();
         h118.gpuReadBytes += bytes;
         poolCopyRaw(dst, src, bytes);
@@ -5841,8 +5841,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // SOTC_PRESENT86_SIM_VSYNC=1: and it ends on the next 60 Hz vblank
         // after that, as the console's swap returns when a flip frees the
         // display queue.
-        static const int simMs = std::getenv("SOTC_PRESENT86_SIM_MS") ? std::atoi(std::getenv("SOTC_PRESENT86_SIM_MS")) : 0;
-        static const bool simVsync = std::getenv("SOTC_PRESENT86_SIM_VSYNC") && std::atoi(std::getenv("SOTC_PRESENT86_SIM_VSYNC")) != 0;
+        static const int simMs = ps2_diag::env("SOTC_PRESENT86_SIM_MS") ? std::atoi(ps2_diag::env("SOTC_PRESENT86_SIM_MS")) : 0;
+        static const bool simVsync = ps2_diag::env("SOTC_PRESENT86_SIM_VSYNC") && std::atoi(ps2_diag::env("SOTC_PRESENT86_SIM_VSYNC")) != 0;
         if (simMs > 0)
         {
             uint64_t until = start + static_cast<uint64_t>(simMs) * 1000u;
@@ -5925,7 +5925,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             static const std::vector<int> classes = []
             {
                 std::vector<int> v;
-                const char *e = std::getenv("SOTC_GL_DIAG98_CLASSES");
+                const char *e = ps2_diag::env("SOTC_GL_DIAG98_CLASSES");
                 std::string s = e ? e : "1,2,3,4,5,6";
                 for (size_t at = 0; at < s.size();)
                 {
@@ -6280,7 +6280,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 static const std::array<int, 4> r = []
                 {
                     std::array<int, 4> v = {95, 30, 125, 100};
-                    if (const char *e = std::getenv("SOTC_BLOOM_RECT"))
+                    if (const char *e = ps2_diag::env("SOTC_BLOOM_RECT"))
                         std::sscanf(e, "%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3]);
                     return v;
                 }();
@@ -6315,7 +6315,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     continue;
                 const Draw &d = drawAt(k);
                 const uint64_t dMesh = meshAt(k); // round 116: its member's mesh (the logs)
-                static const bool rectDraws = std::getenv("SOTC_BLOOM_RECT_DRAWS") != nullptr;
+                static const bool rectDraws = ps2_diag::env("SOTC_BLOOM_RECT_DRAWS") != nullptr;
                 if (rectLog && rectDraws && backgroundOnly && d.state.background && d.state.order >= fromOrder && d.state.order < toOrder)
                 {
                     char what[160];
@@ -6370,8 +6370,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     resolveShadows();
                 if (!planned.mesh)
                     continue;
-                static const int skipKind = std::getenv("SOTC_GL_DRAW_SKIP") ? std::atoi(std::getenv("SOTC_GL_DRAW_SKIP")) : 0; // debugging (round 65e)
-                static const uint32_t skipMask = std::getenv("SOTC_GL_DRAW_SKIP_MASK") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_GL_DRAW_SKIP_MASK"), nullptr, 16)) : 0u;
+                static const int skipKind = ps2_diag::env("SOTC_GL_DRAW_SKIP") ? std::atoi(ps2_diag::env("SOTC_GL_DRAW_SKIP")) : 0; // debugging (round 65e)
+                static const uint32_t skipMask = ps2_diag::env("SOTC_GL_DRAW_SKIP_MASK") ? static_cast<uint32_t>(std::strtoul(ps2_diag::env("SOTC_GL_DRAW_SKIP_MASK"), nullptr, 16)) : 0u;
                 if (skipMask && planned.mesh->dynamic && !planned.mesh->indexed && ((skipMask >> (d.state.order & 31u)) & 1u))
                     continue;
                 if ((skipKind == 1 && d.state.overlay) || (skipKind == 2 && planned.mesh->skinned) || (skipKind == 3 && d.state.blend == native_renderer::Blend::Additive) ||
@@ -6529,8 +6529,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 // SOTC_GL_DYN_TINT=1 (debugging, round 65e): each non-indexed per-frame
                 // draw's colour replaced by one of 12 (in draw order within the frame;
                 // [gl:dyn] lines every 120 frames name them), its alpha kept.
-                static const bool dynTint = std::getenv("SOTC_GL_DYN_TINT") && std::atoi(std::getenv("SOTC_GL_DYN_TINT")) != 0;
-                static const int dynTintMode = std::getenv("SOTC_GL_DYN_TINT") ? std::atoi(std::getenv("SOTC_GL_DYN_TINT")) : 0;
+                static const bool dynTint = ps2_diag::env("SOTC_GL_DYN_TINT") && std::atoi(ps2_diag::env("SOTC_GL_DYN_TINT")) != 0;
+                static const int dynTintMode = ps2_diag::env("SOTC_GL_DYN_TINT") ? std::atoi(ps2_diag::env("SOTC_GL_DYN_TINT")) : 0;
                 const bool tintThis = dynTint && !d.state.shadowVolume && textured <= 1 &&
                                       (dynTintMode == 2 ? true : dynTintMode == 3 ? (mesh.dynamic || mesh.skinned) : dynTintMode == 4 ? (!mesh.dynamic && !mesh.skinned && d.state.order >= 5u) : (mesh.dynamic && !mesh.indexed));
                 // Round 75: the draw blends by the source alpha (a pixel of alpha 0
@@ -6940,7 +6940,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
                 }
                 {
-                    static const long seqFrame = std::getenv("SOTC_GL_DRAWSEQ") ? std::atol(std::getenv("SOTC_GL_DRAWSEQ")) : -1;
+                    static const long seqFrame = ps2_diag::env("SOTC_GL_DRAWSEQ") ? std::atol(ps2_diag::env("SOTC_GL_DRAWSEQ")) : -1;
                     static FILE *seq = nullptr;
                     if (seqFrame >= 0 && arenaFrame == static_cast<uint64_t>(seqFrame))
                     {
@@ -7255,7 +7255,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // SOTC_BLOOM_VITA=1: the Vita's bloom (its mask in the picture's
         // alpha, the chain from there) instead of the Mac's, to measure it
         // against the GS on the same frames.
-        static const bool vitaBloomOnMac = std::getenv("SOTC_BLOOM_VITA") && std::atoi(std::getenv("SOTC_BLOOM_VITA")) != 0;
+        static const bool vitaBloomOnMac = ps2_diag::env("SOTC_BLOOM_VITA") && std::atoi(ps2_diag::env("SOTC_BLOOM_VITA")) != 0;
         const bool bloomOn = bloom.enabled && !vitaBloomOnMac;
         const bool vitaBloom = vitaBloomOnMac && bloom.enabled && bloom.color[3] > 0.0f;
         const bool dofOn = dof.enabled && dof.slices > 0;
@@ -8095,7 +8095,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (bloomLog())
                 std::fprintf(stderr, "[bloom:gl] f=%llu mask in the picture's alpha: %.2f%% of the pixels (alpha mean %.2f)\n",
                              (unsigned long long)bloomGameFrame, alphaCover(color), targetMean(color, 3));
-            if (bloomShowMode() == 1 || (std::getenv("SOTC_BLOOM_SHOW") && std::atoi(std::getenv("SOTC_BLOOM_SHOW")) == 3))
+            if (bloomShowMode() == 1 || (ps2_diag::env("SOTC_BLOOM_SHOW") && std::atoi(ps2_diag::env("SOTC_BLOOM_SHOW")) == 3))
             {
                 if (!bloomShow.texture)
                     makeTarget(bloomShow, std::max(width / 4u, 1u), std::max(height / 4u, 1u), false);
@@ -8524,7 +8524,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const int hazeFrom = static_cast<int>(t.hazeSource + 0.5f), waterFrom = static_cast<int>(t.waterSource + 0.5f);
             int k = 0, last = -1;
             uint32_t lastOrder = ~0u;
-            static const bool share = !std::getenv("SOTC_GL_REDRAW_NOSHARE");
+            static const bool share = !ps2_diag::env("SOTC_GL_REDRAW_NOSHARE");
 #if defined(PS2X_NATIVE_VITA)
             // The glow layer (round 19): the picture below layer 8 drawn
             // apart, the layer on its depth, so that the picture is not
@@ -8735,13 +8735,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // SOTC_GL_SHOT_DIR (the Vita: ux0:data/celosia/shots), for pictures of
         // the Vita build (the console: Vita3K never writes its render targets
         // back to the guest's memory, so there they come out black).
-        static const uint64_t shotEvery = std::getenv("SOTC_GL_SHOTS") ? std::strtoull(std::getenv("SOTC_GL_SHOTS"), nullptr, 10) : 0u;
+        static const uint64_t shotEvery = ps2_diag::env("SOTC_GL_SHOTS") ? std::strtoull(ps2_diag::env("SOTC_GL_SHOTS"), nullptr, 10) : 0u;
         if (shotEvery && arenaFrame % shotEvery == 0u)
         {
 #if defined(PS2X_NATIVE_VITA)
-            static const std::string dir = std::getenv("SOTC_GL_SHOT_DIR") ? std::getenv("SOTC_GL_SHOT_DIR") : "ux0:data/celosia/shots";
+            static const std::string dir = ps2_diag::env("SOTC_GL_SHOT_DIR") ? ps2_diag::env("SOTC_GL_SHOT_DIR") : "ux0:data/celosia/shots";
 #else
-            static const std::string dir = std::getenv("SOTC_GL_SHOT_DIR") ? std::getenv("SOTC_GL_SHOT_DIR") : "shots";
+            static const std::string dir = ps2_diag::env("SOTC_GL_SHOT_DIR") ? ps2_diag::env("SOTC_GL_SHOT_DIR") : "shots";
 #endif
             std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4u);
             glFinish(); // (vitaGL reads the target's memory: the GPU done with it first)
@@ -8851,7 +8851,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         {
             const auto mb = [](const char *name, double fallback)
             {
-                const char *v = std::getenv(name);
+                const char *v = ps2_diag::env(name);
                 return static_cast<uint64_t>((v ? std::atof(v) : fallback) * 1048576.0);
             };
 #if defined(PS2X_NATIVE_VITA)
@@ -8922,7 +8922,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // written out as triangle lists in the frame's arena.
         static bool unindexFrameMeshes()
         {
-            static const bool on = std::getenv("SOTC_GL_UNINDEX") && std::atoi(std::getenv("SOTC_GL_UNINDEX")) != 0;
+            static const bool on = ps2_diag::env("SOTC_GL_UNINDEX") && std::atoi(ps2_diag::env("SOTC_GL_UNINDEX")) != 0;
             return on;
         }
         std::vector<native_renderer::Vertex> m_unindexScratch;
@@ -9099,7 +9099,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             static const std::pair<uint64_t, uint64_t> freezeAt = []
             {
                 unsigned long long n = 0, d = 1;
-                if (const char *e = std::getenv("SOTC_GL_FREEZE"))
+                if (const char *e = ps2_diag::env("SOTC_GL_FREEZE"))
                     std::sscanf(e, "%llu,%llu", &n, &d);
                 return std::pair<uint64_t, uint64_t>(n, d);
             }();
@@ -9200,7 +9200,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         };
         static bool noArena()
         {
-            static const bool on = std::getenv("SOTC_GL_NOARENA") != nullptr; // debugging: one buffer per mesh
+            static const bool on = ps2_diag::env("SOTC_GL_NOARENA") != nullptr; // debugging: one buffer per mesh
             return on;
         }
 
@@ -9531,7 +9531,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         }
         static uint64_t mb(const char *name, double fallback)
         {
-            const char *v = std::getenv(name);
+            const char *v = ps2_diag::env(name);
             return static_cast<uint64_t>((v ? std::atof(v) : fallback) * 1048576.0);
         }
         uint64_t m_poolFree = 0, m_poolLowPasses = 0; // round 34: vitaGL's pools' room, the passes it started ([gl:mem])
@@ -9915,7 +9915,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                         // every N frames the frame is drawn first with the
                         // draw merges and lean programs off, then as set, and
                         // the two pictures compared.
-                        static const int check = std::getenv("SOTC_GL_SELFCHECK") ? std::atoi(std::getenv("SOTC_GL_SELFCHECK")) : 0;
+                        static const int check = ps2_diag::env("SOTC_GL_SELFCHECK") ? std::atoi(ps2_diag::env("SOTC_GL_SELFCHECK")) : 0;
                         if (check > 0 && r->arenaFrame % static_cast<uint64_t>(check) == 0u)
                         {
                             r->deferPresent = false;
@@ -9928,7 +9928,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     r->stats.drawUs += (drawn - uploaded) - (r->stats.presentUs - present);
                     if (r->spike.on)
                     {
-                        static const uint64_t limitUs = std::getenv("SOTC_GL_SPIKE_MS") ? std::strtoull(std::getenv("SOTC_GL_SPIKE_MS"), nullptr, 10) * 1000u : 100000u;
+                        static const uint64_t limitUs = ps2_diag::env("SOTC_GL_SPIKE_MS") ? std::strtoull(ps2_diag::env("SOTC_GL_SPIKE_MS"), nullptr, 10) * 1000u : 100000u;
                         const uint64_t drawPart = (drawn - uploaded) - (r->stats.presentUs - present);
                         if (drawPart > limitUs)
                             std::fprintf(stderr,

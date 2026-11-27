@@ -96,7 +96,7 @@ namespace
         g_tracedOriginal[Slot](rdram, ctx, runtime);
         if (runtime->transferPending())
             return;
-        static const uint64_t every = std::getenv("SOTC_TRACE_EVERY") ? std::strtoull(std::getenv("SOTC_TRACE_EVERY"), nullptr, 0) : 1000;
+        static const uint64_t every = ps2_diag::env("SOTC_TRACE_EVERY") ? std::strtoull(ps2_diag::env("SOTC_TRACE_EVERY"), nullptr, 0) : 1000;
         if (n <= 3 || n % every == 0)
         {
             std::cerr << "[sotc:call] 0x" << std::hex << g_tracedAddr[Slot] << std::dec << " count=" << n
@@ -112,7 +112,7 @@ namespace
 
     void installCallTracing(PS2Runtime &runtime)
     {
-        const char *env = std::getenv("SOTC_TRACE_CALLS");
+        const char *env = ps2_diag::env("SOTC_TRACE_CALLS");
         if (!env)
             return;
         static const auto tracers = makeTracers(std::make_integer_sequence<int, kMaxTraced>{});
@@ -766,7 +766,7 @@ namespace
                 ++g_w.lateHeld;
                 return; // off the grid (late in a burst): the next VBlank, once
             }
-            static const int queueMax = [] { const char *e = std::getenv("SOTC_CAP20_QUEUE"); return e ? std::atoi(e) : 2; }();
+            static const int queueMax = [] { const char *e = ps2_diag::env("SOTC_CAP20_QUEUE"); return e ? std::atoi(e) : 2; }();
             if (queueMax > 0 && pending() >= queueMax && !g_queueHeld)
             {
                 g_queueHeld = true;
@@ -862,7 +862,7 @@ namespace
             return; // a thread switch below (round 52): nothing more here
         if (Kind == 0 && ra == 0x001B5558u && a1 == 0x0020AEA8u)
             g_gamecoreImageAllocated = true;
-        static const bool log = std::getenv("SOTC_LOG_MALLOC") != nullptr;
+        static const bool log = ps2_diag::env("SOTC_LOG_MALLOC") != nullptr;
         if (log && !g_gamecoreEntered)
             std::fprintf(stderr, "[heap] %s heap=%x size=%x align=%x ra=%x -> %x\n", Kind == 0 ? "malloc" : Kind == 1 ? "mallocNC" : "free",
                          a0, a1, a2, ra, GPR_U32(ctx, 2));
@@ -1007,7 +1007,7 @@ namespace
             // before it past that). The source is read before any write: a
             // chunk's source is never one an earlier chunk's write reached
             // then. SOTC_SPR_COPY_CHUNKED=1: the chunks (checking).
-            static const bool chunked = std::getenv("SOTC_SPR_COPY_CHUNKED") != nullptr;
+            static const bool chunked = ps2_diag::env("SOTC_SPR_COPY_CHUNKED") != nullptr;
             const uint32_t total = qwc * 16u, srcOff = src & PS2_RAM_MASK, dstOff = dst & PS2_RAM_MASK;
             if (!chunked && qwc > 0u && qwc < (PS2_RAM_SIZE >> 4) && srcOff + total <= PS2_RAM_SIZE && dstOff + total <= PS2_RAM_SIZE &&
                 (dstOff <= srcOff || dstOff >= srcOff + total))
@@ -1191,7 +1191,7 @@ namespace
                 {0x001C2A78u, checkDrawFinish, nullptr},
                 {0x001C19C0u, copyFrameBuffer, &g_copyFrameBuffer},
             };
-            const char *skip = std::getenv("SOTC_SYSTEM_SKIP"); // debugging: "0x1c2570,0x1c2a78" left to the game
+            const char *skip = ps2_diag::env("SOTC_SYSTEM_SKIP"); // debugging: "0x1c2570,0x1c2a78" left to the game
             for (const Hook &h : hooks)
             {
                 if (!runtime.hasFunction(h.address))
@@ -1224,7 +1224,7 @@ namespace
         // Round N2 (n2snd): the sound engine's remote layer on the host (sound_n2.cpp); before the logging hook,
         // which then wraps it, and before sotc_decomp::install (D7's lifted Sg2RemoteTickProc leaves the slot).
         sound_n2::install(runtime);
-        if (std::getenv("SOTC_LOG_SG2") && runtime.hasFunction(0x001D21E8u))
+        if (ps2_diag::env("SOTC_LOG_SG2") && runtime.hasFunction(0x001D21E8u))
         {
             g_sg2RemoteTick = runtime.lookupFunction(0x001D21E8u);
             runtime.registerFunction(0x001D21E8u, sg2RemoteTickHook);
@@ -1241,7 +1241,7 @@ namespace
             g_iosRecvMsg = runtime.lookupFunction(kIosRecvMsg);
             runtime.registerFunction(kIosRecvMsg, iosRecvMsgHook);
         }
-        if (std::getenv("SOTC_DUMP_SPRITE_PACKETS") && runtime.hasFunction(kSpriteDrawSprite))
+        if (ps2_diag::env("SOTC_DUMP_SPRITE_PACKETS") && runtime.hasFunction(kSpriteDrawSprite))
         {
             g_spriteDrawSprite = runtime.lookupFunction(kSpriteDrawSprite);
             runtime.registerFunction(kSpriteDrawSprite, spriteDrawSpriteHook);

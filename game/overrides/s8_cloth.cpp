@@ -54,6 +54,7 @@
 // against the original's; pages changed outside the original's are counted apart (noise: another thread, or the job
 // writing where the original did not) ([s8chk]). SOTC_S8CLOTH_LOG=<frames>: [s8cloth] counts.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
 #include "s5_particles.h"
 
@@ -86,7 +87,7 @@ namespace s8cloth
         inline uint64_t usNow() { return native_renderer::nowUs(); }
         int envI(const char *name, int def)
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             return e ? std::atoi(e) : def;
         }
         void installHook();

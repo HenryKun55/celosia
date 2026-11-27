@@ -1110,7 +1110,7 @@ bool PS2Runtime::initialize(const char *title)
             else
                 std::cerr << "[gs:hw] could not create the GS GL context" << std::endl;
         }
-        if (std::getenv("SOTC_NATIVE_GL"))
+        if (ps2_diag::env("SOTC_NATIVE_GL"))
         {
             // The native renderer on OpenGL (to check it against Metal): its own
             // hidden context, current on the game thread that drives it.
@@ -3398,7 +3398,7 @@ void PS2Runtime::run()
             // capped, every frame takes 2). SOTC_CAP30_ALWAYS=1: as set.
             static bool slowGame = false;
             {
-                static const bool always = std::getenv("SOTC_CAP30_ALWAYS") && std::atoi(std::getenv("SOTC_CAP30_ALWAYS")) != 0;
+                static const bool always = ps2_diag::env("SOTC_CAP30_ALWAYS") && std::atoi(ps2_diag::env("SOTC_CAP30_ALWAYS")) != 0;
                 const uint32_t draws = native_renderer::g_lastFrameDraws.load(std::memory_order_relaxed);
                 const bool was = slowGame;
                 slowGame = always || (draws >= 150u ? true : (draws < 40u ? false : slowGame));

@@ -26,6 +26,7 @@
 //   then sends the queue.
 // - SOTC_N2SND_LOG=<ticks>: an [n2snd] line every that many ticks (commands, ticks, transfers, check counts).
 #include <array>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -630,7 +631,7 @@ namespace sound_n2
         {
             const char *e = std::getenv("SOTC_N2SLOT");
             g_slotOn = !(e && e[0] == '0');
-            const char *c = std::getenv("SOTC_N2SLOT_CHECK");
+            const char *c = ps2_diag::env("SOTC_N2SLOT_CHECK");
             g_slotCheck = c && c[0] == '1';
         }
         // (the host routine's commands go to the host queue: only while the remote layer is on the host)
@@ -690,9 +691,9 @@ namespace sound_n2
     {
         if (!runtime.hasFunction(kSend) || !runtime.hasFunction(kTick))
             return;
-        if (const char *e = std::getenv("SOTC_N2SND_CHECK"))
+        if (const char *e = ps2_diag::env("SOTC_N2SND_CHECK"))
             g_check = std::atoi(e) != 0;
-        if (const char *e = std::getenv("SOTC_N2SND_LOG"))
+        if (const char *e = ps2_diag::env("SOTC_N2SND_LOG"))
             g_logEvery = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
         g_queue.reserve(4096);
         g_out.reserve(4096);

@@ -20,6 +20,7 @@
 // The VU0 arithmetic of the pose itself is the recompiled code's own, on
 // locals, written back to the context. Recursion is native.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "d1_native.h"
 
 #include "ps2_runtime_macros.h"
@@ -784,7 +785,7 @@ namespace decomp_skeleton
     {
         // SOTC_SKELETON_FAST=0: bone() always; SOTC_SKELETON_FAST_AB=<n>: the two in turns of n game frames.
         static const bool fastOn = !std::getenv("SOTC_SKELETON_FAST") || std::atoi(std::getenv("SOTC_SKELETON_FAST")) != 0;
-        static const uint64_t ab = std::getenv("SOTC_SKELETON_FAST_AB") ? std::strtoull(std::getenv("SOTC_SKELETON_FAST_AB"), nullptr, 10) : 0u;
+        static const uint64_t ab = ps2_diag::env("SOTC_SKELETON_FAST_AB") ? std::strtoull(ps2_diag::env("SOTC_SKELETON_FAST_AB"), nullptr, 10) : 0u;
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31);
         if (fastOn && (!ab || (sotc_decomp::g_gameFrame / ab) % 2u == 0u) && fastSites(rdram))
         {

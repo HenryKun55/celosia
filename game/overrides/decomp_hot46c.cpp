@@ -61,6 +61,7 @@
 // code leaves them; the FPU registers, the condition bit and the VU0
 // registers by the generator's statements on the context.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "d1_native.h"
 #include "w2_chara.h"
 
@@ -1655,7 +1656,7 @@ namespace decomp_hot46c
         };
         inline bool w2CheckOn()
         {
-            static const bool c = std::getenv("SOTC_W2_CHECK") && std::atoi(std::getenv("SOTC_W2_CHECK")) != 0;
+            static const bool c = ps2_diag::env("SOTC_W2_CHECK") && std::atoi(ps2_diag::env("SOTC_W2_CHECK")) != 0;
             return c;
         }
         inline bool w2SameVu(const RbVu &a, const RbVu &b)

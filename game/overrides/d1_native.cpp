@@ -1,5 +1,6 @@
 // Round D1 (d1_native.h): the run counts of the D1 bodies.
 #include "d1_native.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include <cstdio>
 
@@ -69,10 +70,10 @@ namespace d1
     void fixedStepFrameEnd(uint8_t *rdram, unsigned long long frame)
     {
         static const int want = [] {
-            const char *e = std::getenv("SOTC_FIXED_STEP");
+            const char *e = ps2_diag::env("SOTC_FIXED_STEP");
             if (e)
                 return std::atoi(e);
-            return std::getenv("SOTC_DIFFTEST") ? 1 : 0;
+            return ps2_diag::env("SOTC_DIFFTEST") ? 1 : 0;
         }();
         if (!want || !rdram)
             return;

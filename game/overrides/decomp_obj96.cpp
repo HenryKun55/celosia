@@ -68,7 +68,7 @@ namespace obj96
     {
         float envF(const char *name, float def)
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             return e ? static_cast<float>(std::atof(e)) : def;
         }
         struct Params

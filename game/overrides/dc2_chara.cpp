@@ -46,6 +46,7 @@
 // native with the old step / constraint / velocity (not the DC2 entries). SOTC_DC2_LOG=<n>: every n game frames a
 // [dc2chara] line: calls per function, checks, differences, fallbacks (to the old native).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "chara_types.h"
 #include "sotc_pf141.h"
 #include "d1_native.h"
@@ -296,8 +297,8 @@ namespace dc2
     bool g_ref[2] = {false, false}; // the check's reference run: the entries call the old natives
     __attribute__((noinline)) void readEnv()
     {
-        const char *c = std::getenv("SOTC_DC2_CHECK");
-        const char *l = std::getenv("SOTC_DC2_LOG");
+        const char *c = ps2_diag::env("SOTC_DC2_CHECK");
+        const char *l = ps2_diag::env("SOTC_DC2_LOG");
         g_check = c ? std::atoi(c) : 0;
         g_log = l ? std::atoi(l) : 0;
     }
@@ -1123,7 +1124,7 @@ namespace dc2
         // back to before, the copy holds the C++ path's), the context put back, the old native run, the two RAMs
         // compared word for word outside the dead stack below the entry's sp.
         static uint64_t ramN = 0;
-        static const int ramEvery = [] { const char *e = std::getenv("SOTC_DC2_RAMCHECK"); return e ? std::atoi(e) : 32; }();
+        static const int ramEvery = [] { const char *e = ps2_diag::env("SOTC_DC2_RAMCHECK"); return e ? std::atoi(e) : 32; }();
         static uint8_t *ramCopy = nullptr;
         if (__builtin_expect(chk, 0) && ramEvery > 0 && (++ramN % static_cast<uint64_t>(ramEvery)) == 0u)
         {

@@ -6,6 +6,7 @@
 // adds functions. With the switch off nothing is wrapped (one getenv at install). Round P3: SOTC_P2BRACKET=2 adds kTargetsP3
 // (one level down); SOTC_P2BRACKET_CLOCK=1 runs them without K2 (Vita3K: call counts and the tree, microseconds).
 #include "sotc_p2.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include "ps2_runtime.h"
 #include "runtime/ps2_thread_load.h"
@@ -227,7 +228,7 @@ namespace sotc_p2
     {
         if (!ps2x_p2b_wanted())
             return;
-        if (const char *z = std::getenv("SOTC_X2_ZONE"))
+        if (const char *z = ps2_diag::env("SOTC_X2_ZONE"))
             g_zoneMark = std::atoi(z) != 0;
         static const auto wrappers = makeWrappers(std::make_integer_sequence<int, kMax>{});
         int slot = 0;
@@ -261,7 +262,7 @@ namespace sotc_p2
             for (const Target &t : kTargetsW3)
                 wrap(t.address, t.name);
         static std::vector<std::string> extraNames;
-        if (const char *extra = std::getenv("SOTC_P2BRACKET_EXTRA"))
+        if (const char *extra = ps2_diag::env("SOTC_P2BRACKET_EXTRA"))
         {
             const std::string list(extra);
             size_t at = 0;

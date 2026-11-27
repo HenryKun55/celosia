@@ -8,6 +8,7 @@
 // A block's data is a run of records: u32 type, u32 size, payload.
 // Record types and payloads: see the enum below and tools/rec.py.
 #include "runtime/native_recorder.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "runtime/native_renderer.h"
 #include "runtime/native_tuning.h"
 #include "runtime/ps2_stats.h"
@@ -321,7 +322,7 @@ namespace native_recorder::detail
 
     std::string baseDir()
     {
-        if (const char *d = std::getenv("SOTC_REC_DIR"); d && *d)
+        if (const char *d = ps2_diag::env("SOTC_REC_DIR"); d && *d)
             return d;
 #if defined(__vita__)
         return "ux0:data/celosia/rec";
@@ -331,7 +332,7 @@ namespace native_recorder::detail
     }
     uint64_t envNumber(const char *name, uint64_t fallback)
     {
-        const char *v = std::getenv(name);
+        const char *v = ps2_diag::env(name);
         return v && *v ? std::strtoull(v, nullptr, 10) : fallback;
     }
 
@@ -685,7 +686,7 @@ namespace native_recorder::detail
                 info += line;
             }
             for (const char *env : {"SOTC_GLOW_VITA", "SOTC_GL_REDRAW", "SOTC_HOOK_ASYNC", "SOTC_RENDER_SCALE", "SOTC_NATIVE", "SOTC_FRAME_INTERVAL"})
-                if (const char *v = std::getenv(env))
+                if (const char *v = ps2_diag::env(env))
                     info += std::string("env ") + env + "=" + v + "\n";
             Job head;
             head.path = dir + "/info.txt";
@@ -1249,7 +1250,7 @@ namespace native_recorder
 
     // ---- Replay (SOTC_REC_REPLAY, the Mac) --------------------------------
 
-    bool replayRequested() { return std::getenv("SOTC_REC_REPLAY") != nullptr; }
+    bool replayRequested() { return ps2_diag::env("SOTC_REC_REPLAY") != nullptr; }
 
     namespace replay
     {
@@ -1385,12 +1386,12 @@ namespace native_recorder
         uint64_t fixTexture = 0;
         float fixU = 0.5f, fixV = 0.5f;
         std::unordered_map<uint64_t, float> fixRadius;
-        if (const char *e = std::getenv("SOTC_REC_FIX_BOSSMASK"))
+        if (const char *e = ps2_diag::env("SOTC_REC_FIX_BOSSMASK"))
         {
             fixTexture = std::strtoull(e, nullptr, 16);
             if (const char *c = std::strchr(e, ','))
                 std::sscanf(c + 1, "%f,%f", &fixU, &fixV);
-            if (const char *r = std::getenv("SOTC_REC_FIX_RADIUS"))
+            if (const char *r = ps2_diag::env("SOTC_REC_FIX_RADIUS"))
                 for (const char *p = r; *p;)
                 {
                     char *next = nullptr;
@@ -1403,11 +1404,11 @@ namespace native_recorder
                         ++p;
                 }
         }
-        const bool fixMeshDisp = std::getenv("SOTC_REC_FIX_MESHDISP") && std::atoi(std::getenv("SOTC_REC_FIX_MESHDISP")) != 0;
-        const std::string dir = std::getenv("SOTC_REC_REPLAY");
-        const std::string out = std::getenv("SOTC_REC_OUT") ? std::getenv("SOTC_REC_OUT") : dir + "/png";
-        const std::string modes = std::getenv("SOTC_REC_MODES") ? std::getenv("SOTC_REC_MODES") : "full,noglow,layers";
-        const int warm = std::max(1, std::atoi(std::getenv("SOTC_REC_WARM") ? std::getenv("SOTC_REC_WARM") : "2"));
+        const bool fixMeshDisp = ps2_diag::env("SOTC_REC_FIX_MESHDISP") && std::atoi(ps2_diag::env("SOTC_REC_FIX_MESHDISP")) != 0;
+        const std::string dir = ps2_diag::env("SOTC_REC_REPLAY");
+        const std::string out = ps2_diag::env("SOTC_REC_OUT") ? ps2_diag::env("SOTC_REC_OUT") : dir + "/png";
+        const std::string modes = ps2_diag::env("SOTC_REC_MODES") ? ps2_diag::env("SOTC_REC_MODES") : "full,noglow,layers";
+        const int warm = std::max(1, std::atoi(ps2_diag::env("SOTC_REC_WARM") ? ps2_diag::env("SOTC_REC_WARM") : "2"));
         makeDir(out);
         if (!native_renderer::available())
         {
@@ -1440,7 +1441,7 @@ namespace native_recorder
         }
         // The full captures asked for (SOTC_REC_FRAMES=f,f,... or all).
         std::vector<uint64_t> frames;
-        const char *want = std::getenv("SOTC_REC_FRAMES");
+        const char *want = ps2_diag::env("SOTC_REC_FRAMES");
         if (want && std::strcmp(want, "all") != 0)
             for (const char *p = want; *p;)
             {

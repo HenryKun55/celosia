@@ -1052,7 +1052,7 @@ namespace sotc_decomp
 
             bool bad = false;
             // Round 126: SOTC_DIFFTEST_NOV0=1: v0 not compared (void natives that leave another v0 than the original's last scratch value).
-            static const bool noV0 = std::getenv("SOTC_DIFFTEST_NOV0") != nullptr;
+            static const bool noV0 = ps2_diag::env("SOTC_DIFFTEST_NOV0") != nullptr;
             for (int r : kCompared)
                 if ((r != 2 || (!c.function->returnsFloat && !noV0)) && GPR_U64(ctx, r) != GPR_U64(native, r))
                 {
@@ -1104,7 +1104,7 @@ namespace sotc_decomp
             }
             // SOTC_DIFFTEST_VU0=1 (checking, round 14): the VU0 registers too
             // (vf0-vf31, ACC), which a caller may go on using.
-            static const bool vu0Regs = std::getenv("SOTC_DIFFTEST_VU0") != nullptr;
+            static const bool vu0Regs = ps2_diag::env("SOTC_DIFFTEST_VU0") != nullptr;
             if (!bad && vu0Regs)
             {
                 for (int i = 0; i < 32 && !bad; ++i)
@@ -1562,7 +1562,7 @@ namespace sotc_decomp
         std::unordered_map<uint32_t, uint64_t> *g_fbCounts = nullptr;
         const bool g_fbCountOn = []
         {
-            const char *path = std::getenv("SOTC_FALLBACK_COUNT");
+            const char *path = ps2_diag::env("SOTC_FALLBACK_COUNT");
             if (!path || !path[0])
                 return false;
             g_fbCounts = new std::unordered_map<uint32_t, uint64_t>();
@@ -1776,7 +1776,7 @@ namespace sotc_decomp
             return original;
         g_recompiled.emplace(address, original);
         g_behindHook.push_back(address);
-        if (listed(std::getenv("SOTC_DECOMP_SKIP"), f->name))
+        if (listed(ps2_diag::env("SOTC_DECOMP_SKIP"), f->name))
             return original;
         const char *test = ps2_diag::env("SOTC_DIFFTEST");
         if (listed(test, f->name) && g_checkedUsed < kMaxChecked)
@@ -1868,7 +1868,7 @@ namespace sotc_decomp
             std::string names = ps2_diag::env("SOTC_DIFFTEST") ? ps2_diag::env("SOTC_DIFFTEST") : "";
             bool any = false;
             for (const auto &c : kChecks106)
-                if (const char *e = std::getenv(c.env); e && e[0] == '2')
+                if (const char *e = ps2_diag::env(c.env); e && e[0] == '2')
                 {
                     names += (names.empty() ? "" : ",") + std::string(c.names);
                     any = true;
@@ -1880,7 +1880,7 @@ namespace sotc_decomp
             }
         }
         const auto &checkers = sotc_decomp::checkers();
-        const char *skip = std::getenv("SOTC_DECOMP_SKIP");
+        const char *skip = ps2_diag::env("SOTC_DECOMP_SKIP");
         const char *test = ps2_diag::env("SOTC_DIFFTEST");
         if (const char *max = ps2_diag::env("SOTC_DIFFTEST_MAX"))
             g_maxChecks = std::strtoull(max, nullptr, 0);

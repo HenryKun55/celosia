@@ -1,5 +1,6 @@
 // Native renderer on Metal (see runtime/native_renderer.h).
 #include "native_backend.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "runtime/native_tuning.h"
 
 #import <Foundation/Foundation.h>
@@ -1580,7 +1581,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         }
                         reduce(glowSmall[1], glowSmall[0], 0.0f);
                     }
-                    static const int show = std::getenv("SOTC_GLOW_SHOW") ? std::atoi(std::getenv("SOTC_GLOW_SHOW")) : 0; // debugging: 1 the layer, 2 the blurred
+                    static const int show = ps2_diag::env("SOTC_GLOW_SHOW") ? std::atoi(ps2_diag::env("SOTC_GLOW_SHOW")) : 0; // debugging: 1 the layer, 2 the blurred
                     if (show)
                     {
                         quad(color, copySmall, false, [&](id<MTLRenderCommandEncoder> e) { [e setFragmentTexture:show == 1 ? glowLayer : glowSmall[0] atIndex:0]; });

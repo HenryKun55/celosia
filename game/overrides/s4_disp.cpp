@@ -459,7 +459,7 @@ namespace s4disp
             return;
         if (const char *m = std::getenv("SOTC_S4DISP_PASSES"))
             g_mask = static_cast<uint32_t>(std::strtoul(m, nullptr, 0));
-        if (const char *c = std::getenv("SOTC_S4DISP_CHECK"))
+        if (const char *c = ps2_diag::env("SOTC_S4DISP_CHECK"))
             g_checkEvery = std::max(0, std::atoi(c));
         g_log = ps2_diag::env("SOTC_S4DISP_LOG") != nullptr;
         installAll(runtime, std::make_integer_sequence<int, kPassCount>{});

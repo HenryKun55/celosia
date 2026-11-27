@@ -1,5 +1,6 @@
 // Round 67: the walks' cache-line proxy (lines67.h; SOTC_LINES67=1, Mac only).
 #include "lines67.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #if !defined(__vita__)
 #include <cstdio>
@@ -12,7 +13,7 @@
 namespace lines67
 {
     bool g_on = [] {
-        const char *v = std::getenv("SOTC_LINES67");
+        const char *v = ps2_diag::env("SOTC_LINES67");
         return v && std::atoi(v) != 0;
     }();
     thread_local int t_walk = kNone;
@@ -54,7 +55,7 @@ namespace lines67
         uint64_t base() { return reinterpret_cast<uint64_t>(_dyld_get_image_header(0)); }
         uint64_t every()
         {
-            static const uint64_t n = std::getenv("SOTC_LINES67_EVERY") ? std::strtoull(std::getenv("SOTC_LINES67_EVERY"), nullptr, 10) : 300u;
+            static const uint64_t n = ps2_diag::env("SOTC_LINES67_EVERY") ? std::strtoull(ps2_diag::env("SOTC_LINES67_EVERY"), nullptr, 10) : 300u;
             return n ? n : 300u;
         }
     }
@@ -78,10 +79,10 @@ namespace lines67
         if (!(s.prefFrame[line] == s.stamp && (s.prefEpoch[line] < s.epoch || s.clock - s.prefClock[line] >= kLead)))
         {
             ++s.exposed[w];
-            static const bool relOn = std::getenv("SOTC_LINES67_REL") != nullptr;
+            static const bool relOn = ps2_diag::env("SOTC_LINES67_REL") != nullptr;
             if (relOn && t_base && addr - t_base < 0x400u)
                 ++s.rel[w][(addr - t_base) & ~31u];
-            static const bool sitesOn = std::getenv("SOTC_LINES67_SITES") != nullptr;
+            static const bool sitesOn = ps2_diag::env("SOTC_LINES67_SITES") != nullptr;
             if (sitesOn)
             {
                 const uint64_t a1 = reinterpret_cast<uint64_t>(__builtin_return_address(1)), a2 = reinterpret_cast<uint64_t>(__builtin_return_address(2));

@@ -12,6 +12,7 @@
 // SOTC_S4DISP_CHECK=<n>: those chains are read at the kick anyway (and used, as before) and compared with the worker's
 // copy ([s4pal] lines every 600 frames with SOTC_S4DISP_LOG=1).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include <atomic>
 #include <cstdint>
@@ -64,8 +65,8 @@ namespace s4disp
         {
             const char *e = std::getenv("SOTC_S4DISP_PALETTE");
             g_palOn = (!(e && e[0] == '0') && std::getenv("SOTC_NATIVE")) ? 1 : 0;
-            g_palCheck = std::getenv("SOTC_S4DISP_CHECK") && std::atoi(std::getenv("SOTC_S4DISP_CHECK")) > 0;
-            g_palLog = std::getenv("SOTC_S4DISP_LOG") != nullptr;
+            g_palCheck = ps2_diag::env("SOTC_S4DISP_CHECK") && std::atoi(ps2_diag::env("SOTC_S4DISP_CHECK")) > 0;
+            g_palLog = ps2_diag::env("SOTC_S4DISP_LOG") != nullptr;
         }
         return g_palOn && sotc_decomp::switchOn(sotc_decomp::kS4Disp);
     }

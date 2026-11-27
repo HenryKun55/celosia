@@ -429,7 +429,7 @@ namespace sotc_replay
             static const std::vector<uint32_t> words = []
             {
                 std::vector<uint32_t> out;
-                if (const char *env = std::getenv("SOTC_REPLAY_WATCH"))
+                if (const char *env = ps2_diag::env("SOTC_REPLAY_WATCH"))
                     for (const char *p = env; *p;)
                     {
                         char *end = nullptr;
@@ -522,7 +522,7 @@ namespace sotc_replay
                 std::fprintf(stderr, "[replay] end of the recording at tick %llu (VBlank count reads past the recording's: %llu, garbage passes the recording did not run: %llu, frame releases that did not wait for the disc reads: %llu)\n",
                              (unsigned long long)g_tick, (unsigned long long)g_vintrMisses, (unsigned long long)g_garbageMisses, (unsigned long long)g_gateTimeouts);
                 std::fflush(stderr);
-                static const bool exitAtEnd = std::getenv("SOTC_REPLAY_EXIT") && std::atoi(std::getenv("SOTC_REPLAY_EXIT")) != 0;
+                static const bool exitAtEnd = ps2_diag::env("SOTC_REPLAY_EXIT") && std::atoi(ps2_diag::env("SOTC_REPLAY_EXIT")) != 0;
                 if (exitAtEnd)
                 {
                     std::fflush(nullptr);
@@ -1185,8 +1185,8 @@ namespace sotc_replay
                     // handle (0x1465908, as the player's 0x1465900 and Agro's 0x1465904): its +0x170 is the colossus' root.
                     // Decomp D21: SOTC_TELEPORT_BOSS_GROUP=<hex>: another isys group word than the boss handle (Celosia's
                     // colossus never joins 0x1465908); SOTC_TELEPORT_GROUPS=1: the group words near it with a member, every 300 frames.
-                    static const uint32_t bossGroup = std::getenv("SOTC_TELEPORT_BOSS_GROUP") ? (uint32_t)std::strtoul(std::getenv("SOTC_TELEPORT_BOSS_GROUP"), nullptr, 16) : 0x01465908u;
-                    static const bool groupsDump = std::getenv("SOTC_TELEPORT_GROUPS") != nullptr;
+                    static const uint32_t bossGroup = ps2_diag::env("SOTC_TELEPORT_BOSS_GROUP") ? (uint32_t)std::strtoul(ps2_diag::env("SOTC_TELEPORT_BOSS_GROUP"), nullptr, 16) : 0x01465908u;
+                    static const bool groupsDump = ps2_diag::env("SOTC_TELEPORT_GROUPS") != nullptr;
                     const uint32_t bi = rd(bossGroup) & 0xFFFFu;
                     const uint32_t bo = bi ? rd(0x0021B900u + bi * 24u) : 0u;
                     if (groupsDump && frame >= g_probeNext)
@@ -1207,7 +1207,7 @@ namespace sotc_replay
                                      g_probeObj ? rf(g_probeObj + 0xA4u) : 0.0f, g_probeObj ? rf(g_probeObj + 0xA8u) : 0.0f);
                         // Decomp D16: SOTC_TELEPORT_BOSS_DUMP=1: the boss object's place-like words and its pointers' targets at
                         // the probe offset (a colossus whose +0x170 stays 0, Avion: which words move).
-                        static const bool bossDump = std::getenv("SOTC_TELEPORT_BOSS_DUMP") != nullptr;
+                        static const bool bossDump = ps2_diag::env("SOTC_TELEPORT_BOSS_DUMP") != nullptr;
                         if (bossDump && g_probeObj)
                             for (uint32_t k = 0; k < 0x800u; k += 4u)
                             {
@@ -1722,7 +1722,7 @@ namespace sotc_replay
             }
             // The pictures: offsets around each mark, and absolute ticks.
             std::vector<long long> offsets;
-            const char *shots = std::getenv("SOTC_REPLAY_SHOTS");
+            const char *shots = ps2_diag::env("SOTC_REPLAY_SHOTS");
             for (const char *p = shots ? shots : "-6,-3,0,3,6"; *p;)
             {
                 char *end = nullptr;
@@ -1736,7 +1736,7 @@ namespace sotc_replay
                 for (long long o : offsets)
                     if (static_cast<long long>(m) + o >= 0)
                         g_shots.insert(static_cast<uint64_t>(static_cast<long long>(m) + o));
-            if (const char *ticks = std::getenv("SOTC_REPLAY_SHOT_TICKS"))
+            if (const char *ticks = ps2_diag::env("SOTC_REPLAY_SHOT_TICKS"))
                 for (const char *p = ticks; *p;)
                 {
                     char *end = nullptr;
@@ -1746,9 +1746,9 @@ namespace sotc_replay
                     g_shots.insert(t);
                     p = *end ? end + 1 : end;
                 }
-            if (const char *ms = std::getenv("SOTC_REPLAY_HOLD_MS"))
+            if (const char *ms = ps2_diag::env("SOTC_REPLAY_HOLD_MS"))
                 g_holdMs = std::max(200, std::atoi(ms));
-            g_frameBufferShots = std::getenv("SOTC_REPLAY_FB") && std::atoi(std::getenv("SOTC_REPLAY_FB")) != 0;
+            g_frameBufferShots = ps2_diag::env("SOTC_REPLAY_FB") && std::atoi(ps2_diag::env("SOTC_REPLAY_FB")) != 0;
             std::fprintf(stderr, "[replay] %s: %u ticks, %u pad flushes, %u marks, %u pictures\n", path, static_cast<unsigned>(g_counts.size()),
                          static_cast<unsigned>(g_flushes.size()), static_cast<unsigned>(g_markTicks.size()), static_cast<unsigned>(g_shots.size()));
             return !g_counts.empty();
@@ -1759,9 +1759,9 @@ namespace sotc_replay
 
     void install(PS2Runtime &runtime)
     {
-        const char *record = std::getenv("SOTC_INPUT_RECORD");
-        const char *replay = std::getenv("SOTC_INPUT_REPLAY");
-        if (const char *every = std::getenv("SOTC_INPUT_STATE_EVERY"))
+        const char *record = ps2_diag::env("SOTC_INPUT_RECORD");
+        const char *replay = ps2_diag::env("SOTC_INPUT_REPLAY");
+        if (const char *every = ps2_diag::env("SOTC_INPUT_STATE_EVERY"))
             g_stateEvery = std::strtoull(every, nullptr, 10);
         if (replay && *replay)
             g_mode = loadRecording(replay) ? kReplay : kOff;
@@ -1772,12 +1772,12 @@ namespace sotc_replay
         }
         // Round B4: SOTC_REC_ROUTE=1: the test route's aids (teleports, the ride flag and steering, the ride probe) with an
         // input recording or replay too (else only without one).
-        const bool routeInRec = std::getenv("SOTC_REC_ROUTE") && std::atoi(std::getenv("SOTC_REC_ROUTE")) > 0;
+        const bool routeInRec = ps2_diag::env("SOTC_REC_ROUTE") && std::atoi(ps2_diag::env("SOTC_REC_ROUTE")) > 0;
         if (g_mode == kOff || routeInRec)
         {
             // Round 135: SOTC_POS_LOG alone: only Agro's step wrapped (its object noted, nothing else changes).
             const char *pos = ps2_diag::env("SOTC_POS_LOG");
-            if (const char *tp = std::getenv("SOTC_TELEPORT"))
+            if (const char *tp = ps2_diag::env("SOTC_TELEPORT"))
             {
                 std::string all = tp;
                 size_t start = 0;
@@ -1869,7 +1869,7 @@ namespace sotc_replay
             // Decomp D9: SOTC_TELEPORT_SCAN=<frame>,<every>,<x0>,<z0>,<dx>,<dz>,<nx>,<nz>,<y>: a grid of teleports (in the
             // teleport's own coordinates, world = (-x, y, -z)) one every <every> frames from <frame>; each teleport's log line
             // ("at x y z") is where the previous point landed: a height map of an area (ledges, pillars, water).
-            if (const char *sc = std::getenv("SOTC_TELEPORT_SCAN"))
+            if (const char *sc = ps2_diag::env("SOTC_TELEPORT_SCAN"))
             {
                 unsigned long long f0 = 0, every = 0;
                 float x0 = 0, z0 = 0, dx = 0, dz = 0, y = 0;
@@ -1887,27 +1887,27 @@ namespace sotc_replay
                         }
             }
             // SOTC_TELEPORT_LIST=<frame>: the boss table from that frame on; SOTC_TELEPORT_POS=<n>: both positions every n frames.
-            if (const char *l = std::getenv("SOTC_TELEPORT_LIST"))
+            if (const char *l = ps2_diag::env("SOTC_TELEPORT_LIST"))
             {
                 g_teleportList = true;
                 g_teleportListAt = std::strtoull(l, nullptr, 10);
             }
             g_teleportNoAgro = ps2_diag::env("SOTC_TELEPORT_NOAGRO") && std::atoi(ps2_diag::env("SOTC_TELEPORT_NOAGRO")) > 0;
-            if (const char *e = std::getenv("SOTC_TELEPORT_HOLD"))
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_HOLD"))
                 g_teleportHold = std::strtoull(e, nullptr, 10);
-            if (const char *e = std::getenv("SOTC_TELEPORT_POS"))
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_POS"))
                 g_teleportPosEvery = std::strtoull(e, nullptr, 10);
-            if (const char *e = std::getenv("SOTC_TELEPORT_OBJS"))
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_OBJS"))
                 g_teleportObjsEvery = std::strtoull(e, nullptr, 10);
-            g_probeBoss = std::getenv("SOTC_TELEPORT_PROBE_BOSS") && std::atoi(std::getenv("SOTC_TELEPORT_PROBE_BOSS")) > 0;
-            if (const char *e = std::getenv("SOTC_TELEPORT_PROBE"))
+            g_probeBoss = ps2_diag::env("SOTC_TELEPORT_PROBE_BOSS") && std::atoi(ps2_diag::env("SOTC_TELEPORT_PROBE_BOSS")) > 0;
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_PROBE"))
             {
                 g_probeAddr = static_cast<uint32_t>(std::strtoul(e, nullptr, 16));
-                g_probeDumpAll = std::getenv("SOTC_TELEPORT_PROBE_DUMPALL") != nullptr;
-                g_probeRet = std::getenv("SOTC_TELEPORT_PROBE_RET") != nullptr;
-                if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_DEREF"))
+                g_probeDumpAll = ps2_diag::env("SOTC_TELEPORT_PROBE_DUMPALL") != nullptr;
+                g_probeRet = ps2_diag::env("SOTC_TELEPORT_PROBE_RET") != nullptr;
+                if (const char *f = ps2_diag::env("SOTC_TELEPORT_PROBE_DEREF"))
                     g_probeDeref = (static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & 0xFFCu) + 1u;
-                if (const char *f = std::getenv("SOTC_TELEPORT_PROBE_OFF"))
+                if (const char *f = ps2_diag::env("SOTC_TELEPORT_PROBE_OFF"))
                     g_probeOff = static_cast<uint32_t>(std::strtoul(f, nullptr, 16)) & ~3u;
                 if (g_probeAddr && runtime.hasFunction(g_probeAddr))
                 {
@@ -1915,7 +1915,7 @@ namespace sotc_replay
                     runtime.registerFunction(g_probeAddr, probeHook);
                 }
             }
-            if (const char *e = std::getenv("SOTC_TELEPORT_FORCE"))
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_FORCE"))
             {
                 // Decomp D18: <hex>[@<from>[-<until>]],... (see ForceHook).
                 int k = 0;
@@ -1948,7 +1948,7 @@ namespace sotc_replay
                         ++p;
                 }
             }
-            if (const char *e = std::getenv("SOTC_TELEPORT_WEAKHIT"))
+            if (const char *e = ps2_diag::env("SOTC_TELEPORT_WEAKHIT"))
             {
                 g_weakHitFrom = std::strtoull(e, nullptr, 10);
                 if (runtime.hasFunction(0x01132AF0u) && runtime.hasFunction(0x010C1F68u))
@@ -1961,10 +1961,10 @@ namespace sotc_replay
                 else
                     g_weakHitFrom = ~0ull;
             }
-            if (const char *st = std::getenv("SOTC_RIDE_STEER"))
+            if (const char *st = ps2_diag::env("SOTC_RIDE_STEER"))
                 g_steerFrom = std::strtoull(st, nullptr, 10);
-            g_rideFlag = g_steerFrom || !g_teleports.empty() || (std::getenv("SOTC_RIDE_FLAG") && std::atoi(std::getenv("SOTC_RIDE_FLAG")) > 0);
-            if (const char *rp = std::getenv("SOTC_RIDE_PROBE"); rp && std::atoi(rp) > 0)
+            g_rideFlag = g_steerFrom || !g_teleports.empty() || (ps2_diag::env("SOTC_RIDE_FLAG") && std::atoi(ps2_diag::env("SOTC_RIDE_FLAG")) > 0);
+            if (const char *rp = ps2_diag::env("SOTC_RIDE_PROBE"); rp && std::atoi(rp) > 0)
             {
                 static const PS2Runtime::RecompiledFunction hooks[6] = {rideProbeHook<0>, rideProbeHook<1>, rideProbeHook<2>, rideProbeHook<3>, rideProbeHook<4>, rideProbeHook<5>};
                 for (int k = 0; k < 6; ++k)

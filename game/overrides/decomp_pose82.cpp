@@ -30,6 +30,7 @@
 // [pose82c] lines with the largest differences. SOTC_POSE82_LOG=<n>: every
 // n game frames a [pose82] line (calls, bones, host us a frame).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "sotc_pf141.h"
 #include "pose82_math.h"
 #include "a9cmp.h"
@@ -77,7 +78,7 @@ namespace pose82
     }
     int envInt(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
 

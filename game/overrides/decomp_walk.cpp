@@ -331,7 +331,7 @@ namespace decomp_walk
         {
             if (__builtin_expect(g_check < 0, 0))
             {
-                const char *e = std::getenv("SOTC_R1SORT_CHECK");
+                const char *e = ps2_diag::env("SOTC_R1SORT_CHECK");
                 g_check = (e && e[0] == '1') ? 1 : 0;
             }
             return g_check != 0;
@@ -2010,7 +2010,7 @@ namespace decomp_walk
     }
 
     // ---- 010F3A08 (a0 the camera object, a1 the layout class, a2 its character class)
-    A9S_HOIST(bool, a9s_decomp_walk_poison_2066, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0); // round A9 sweep (a9sweep.h)
+    A9S_HOIST(bool, a9s_decomp_walk_poison_2066, ps2_diag::env("SOTC_SOLID103_POISON") && std::atoi(ps2_diag::env("SOTC_SOLID103_POISON")) != 0); // round A9 sweep (a9sweep.h)
     void solidDisp(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const lines67::Scope l67(lines67::kDisp, false, GPR_U32(ctx, 29));
@@ -2060,7 +2060,7 @@ namespace decomp_walk
             ctx->f[0] = 1.0f;
             // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
             // NaNs, so any reader left would show (a model gone or broken).
-            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0);
+            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, ps2_diag::env("SOTC_SOLID103_POISON") && std::atoi(ps2_diag::env("SOTC_SOLID103_POISON")) != 0);
             if (poison)
             {
                 const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
@@ -3699,7 +3699,7 @@ namespace decomp_walk
             // The point's screen copy coordinates (256 x 256 over the draw screen); true when off it.
             auto screen = [&](uint32_t out, uint32_t point, float &x, float &y) -> bool
             {
-                static const bool debug = std::getenv("SOTC_STRIPS_DEBUG") != nullptr;
+                static const bool debug = ps2_diag::env("SOTC_STRIPS_DEBUG") != nullptr;
                 if (debug)
                 {
                     g.a(4, out);
@@ -5611,7 +5611,7 @@ namespace decomp_walk
             ++x3::g_st.solid103;
             // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
             // NaNs, so any reader left would show (a model gone or broken).
-            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0);
+            const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, ps2_diag::env("SOTC_SOLID103_POISON") && std::atoi(ps2_diag::env("SOTC_SOLID103_POISON")) != 0);
             if (poison)
             {
                 const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
@@ -5666,7 +5666,7 @@ namespace decomp_walk
                 if (!same && x3::g_st.differ++ < 8u)
                     std::fprintf(stderr, "[x3chk] solid %08x: the last part's registers differ from the loop's (%d parts)\n", s1, s2);
             }
-            else if (A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0))
+            else if (A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, ps2_diag::env("SOTC_SOLID103_POISON") && std::atoi(ps2_diag::env("SOTC_SOLID103_POISON")) != 0))
             {
                 // SOTC_SOLID103_POISON=1 (checking, as round 103): the blocks left out filled with NaNs.
                 const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());

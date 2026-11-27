@@ -27,6 +27,7 @@
 #if defined(PLATFORM_VITA)
 
 #include <algorithm>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -275,10 +276,10 @@ namespace p2b
 extern "C" void ps2x_p2_prepare()
 {
     using namespace p2;
-    const char *v = std::getenv("SOTC_P2PMUSAMPLE");
-    const char *b = std::getenv("SOTC_P2BRACKET");
+    const char *v = ps2_diag::env("SOTC_P2PMUSAMPLE");
+    const char *b = ps2_diag::env("SOTC_P2BRACKET");
     p2b::g_want = b && std::atoi(b) != 0;
-    const char *bc = std::getenv("SOTC_P2BRACKET_CLOCK");
+    const char *bc = ps2_diag::env("SOTC_P2BRACKET_CLOCK");
     p2b::g_clock = p2b::g_want && bc && std::atoi(bc) != 0;
     if (!v || !*v || !std::strcmp(v, "0"))
     {
@@ -304,9 +305,9 @@ extern "C" void ps2x_p2_prepare()
         g_state = -1;
         return;
     }
-    if (const char *w = std::getenv("SOTC_P2PMUSAMPLE_WINDOW"))
+    if (const char *w = ps2_diag::env("SOTC_P2PMUSAMPLE_WINDOW"))
         g_window = std::max(60, std::atoi(w));
-    if (const char *p = std::getenv("SOTC_P2PMUSAMPLE_PRIO"))
+    if (const char *p = ps2_diag::env("SOTC_P2PMUSAMPLE_PRIO"))
         g_prio = static_cast<uint32_t>(std::strtoul(p, nullptr, 0)) & 0xF0u;
     if (!g_probeOnly) // (the probe alone leaves K2's six events as they are)
         k1::g_events = (k1::g_events & ~(0xFFu << (8u * g_counter))) | (g_event << (8u * g_counter));
@@ -581,13 +582,13 @@ extern "C" int ps2x_p2b_register(const char *name)
 }
 extern "C" bool ps2x_p2b_wanted()
 {
-    const char *b = std::getenv("SOTC_P2BRACKET");
+    const char *b = ps2_diag::env("SOTC_P2BRACKET");
     return b && std::atoi(b) != 0;
 }
 // Round P3: the bracket set (1: P2's 22 top-level functions, 2: + P3's children).
 extern "C" int ps2x_p2b_level()
 {
-    const char *b = std::getenv("SOTC_P2BRACKET");
+    const char *b = ps2_diag::env("SOTC_P2BRACKET");
     return b ? std::atoi(b) : 0;
 }
 // A bracket opened: returns a token (0: not timed).

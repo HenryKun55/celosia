@@ -20,6 +20,7 @@
 // the callee's own frame on the stack below sp is dead after the return and
 // is not written; v0, f0 and the VU0 registers as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "d1_native.h"
 #include "c2scene.h"
 
@@ -761,9 +762,9 @@ namespace decomp_light
     {
         if (g_s21Check >= 0)
             return;
-        const char *v = std::getenv("SOTC_S21LIGHT_CHECK");
+        const char *v = ps2_diag::env("SOTC_S21LIGHT_CHECK");
         g_s21Check = v && std::atoi(v) != 0 ? 1 : 0;
-        v = std::getenv("SOTC_S21LIGHT_LOG");
+        v = ps2_diag::env("SOTC_S21LIGHT_LOG");
         g_s21Log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_s21Check ? 600u : 0u);
     }
     static void s21Report()

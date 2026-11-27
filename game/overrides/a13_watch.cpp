@@ -1,5 +1,6 @@
 // a13_watch.cpp: round A13's freeze hunt (a13_watch.h; docs/decomp_a13.md section 1).
 #include "a13_watch.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "sotc_worker.h"
 #include "typed_a12_rt.h"
 
@@ -34,12 +35,12 @@ namespace a13diag
             if (g_envRead)
                 return;
             g_envRead = true;
-            const char *e = std::getenv("SOTC_A13_WSHELL");
+            const char *e = ps2_diag::env("SOTC_A13_WSHELL");
             g_envShellOff = e && e[0] == '0';
             g_shellOff = g_envShellOff;
-            e = std::getenv("SOTC_A13_WATCH");
+            e = ps2_diag::env("SOTC_A13_WATCH");
             g_watch = e ? std::atoi(e) : 0;
-            e = std::getenv("SOTC_A13_WATCH_ACT");
+            e = ps2_diag::env("SOTC_A13_WATCH_ACT");
             g_act = e ? std::atoi(e) : 1;
         }
 
@@ -250,7 +251,7 @@ namespace a13diag
     {
         readEnv();
         // Round A15: SOTC_A15_STAGE=<n>: the stage manager's view of Agro's place every n frames and whenever its answer changes.
-        static const int stageEvery = std::getenv("SOTC_A15_STAGE") ? std::atoi(std::getenv("SOTC_A15_STAGE")) : 0;
+        static const int stageEvery = ps2_diag::env("SOTC_A15_STAGE") ? std::atoi(ps2_diag::env("SOTC_A15_STAGE")) : 0;
         if (stageEvery > 0 && horse && horse < 0x2000000u - 0x4210u)
         {
             static uint64_t next = 0;

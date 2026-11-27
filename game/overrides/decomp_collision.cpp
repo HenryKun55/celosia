@@ -460,7 +460,7 @@ namespace decomp_collision
         inline bool checkOn()
         {
             if (__builtin_expect(g_checkState < 0, 0))
-                g_checkState = std::getenv("SOTC_COLLISION_FASTCHECK") != nullptr ? 1 : 0;
+                g_checkState = ps2_diag::env("SOTC_COLLISION_FASTCHECK") != nullptr ? 1 : 0;
             return g_checkState != 0;
         }
         struct Check
@@ -651,7 +651,7 @@ namespace decomp_collision
     inline bool envCheck(int &state, const char *name)
     {
         if (__builtin_expect(state < 0, 0))
-            state = std::getenv(name) != nullptr ? 1 : 0;
+            state = ps2_diag::env(name) != nullptr ? 1 : 0;
         return state != 0;
     }
     constexpr uint32_t kVerticesIndep = 0x01114C70u; // a surface's three vertices in world space (cached)
@@ -3958,7 +3958,7 @@ namespace decomp_collision
             bool log = false;
             Params()
             {
-                if (const char *e = std::getenv("SOTC_SEG80_EPS"))
+                if (const char *e = ps2_diag::env("SOTC_SEG80_EPS"))
                     eps = static_cast<float>(std::atof(e));
                 if (const char *e = std::getenv("SOTC_SEG80_AGE"))
                     age = static_cast<uint32_t>(std::atoi(e));
@@ -4014,7 +4014,7 @@ namespace decomp_collision
             {
                 if (const char *e = ps2_diag::env("SOTC_PROBE84_CHECK"))
                     check = std::atoi(e);
-                if (const char *e = std::getenv("SOTC_PROBE84_EPS"))
+                if (const char *e = ps2_diag::env("SOTC_PROBE84_EPS"))
                     eps = static_cast<float>(std::atof(e));
                 if (const char *e = std::getenv("SOTC_PROBE84_AGE"))
                     age = static_cast<uint32_t>(std::atoi(e));

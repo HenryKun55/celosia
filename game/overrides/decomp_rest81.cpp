@@ -12,6 +12,7 @@
 // dropped: build/agent-scratch/r81/rest81-dropped.cpp.txt, docs/decomp.md
 // round 81.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -56,7 +57,7 @@ namespace rest81
 
     int envInt(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
 

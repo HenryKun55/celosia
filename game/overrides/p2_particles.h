@@ -24,6 +24,7 @@
 #pragma once
 
 #include <cstdint>
+#include "runtime/ps2_diag.h"
 #include <cstdlib>
 #include <vector>
 
@@ -34,7 +35,7 @@ namespace p2ptcl
 {
     inline int envI(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
     bool on();

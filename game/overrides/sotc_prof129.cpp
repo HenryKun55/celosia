@@ -36,6 +36,7 @@
 //                                     14 no running EE thread, +16 off a core; zone 0x1000|syscall id
 //   [prof129] end <n>
 #include "sotc_prof.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -164,7 +165,7 @@ namespace prof129
             // at boot before any [prof129] line; this call (an import vitasdk
             // links even if the firmware does not resolve its NID) was the
             // first thing the sampler did. Opt-in only now.
-            const char *e = std::getenv("SOTC_PROF129_RUNSTATUS");
+            const char *e = ps2_diag::env("SOTC_PROF129_RUNSTATUS");
             if (!e || std::atoi(e) == 0)
                 return;
             const SceUID self = sceKernelGetThreadId();
@@ -373,16 +374,16 @@ namespace prof129
 
     void install(PS2Runtime &runtime)
     {
-        const char *e = std::getenv("SOTC_PROF129");
+        const char *e = ps2_diag::env("SOTC_PROF129");
         if (!e || std::atoi(e) == 0)
             return;
         g_runtime = &runtime;
         ps2_load::g_zoneReader = true; // round A9 sweep: the zones are read (ps2_thread_load.h)
-        if (const char *v = std::getenv("SOTC_PROF129_US"))
+        if (const char *v = ps2_diag::env("SOTC_PROF129_US"))
             g_us = std::clamp(static_cast<unsigned>(std::strtoul(v, nullptr, 0)), 200u, 100000u);
-        if (const char *v = std::getenv("SOTC_PROF129_SECS"))
+        if (const char *v = ps2_diag::env("SOTC_PROF129_SECS"))
             g_secs = std::clamp(static_cast<unsigned>(std::strtoul(v, nullptr, 0)), 1u, 3600u);
-        if (const char *v = std::getenv("SOTC_PROF129_RA"))
+        if (const char *v = ps2_diag::env("SOTC_PROF129_RA"))
             g_ra = std::atoi(v) != 0;
         // A plain pthread like the runtime's other threads (32 KB stack, the
         // default priority); run() moves it to cores 1-2.

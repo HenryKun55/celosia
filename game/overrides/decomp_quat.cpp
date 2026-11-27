@@ -22,6 +22,7 @@
 // below sp are dead after the return and are not written. v0, f0, fcr31
 // and the VU0 registers each function writes as the original leaves them.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "typed_a7_nchk.h" // a7: A7_NCHK
 #include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "typed_a9_core.h" // round D1: round 122's host cores, called directly
@@ -727,7 +728,7 @@ namespace decomp_quat
             const Ram ram{rdram};
             float r[4];
             e136::run(ram, qa, r);
-            static const bool chk = [] { const char *e = std::getenv("SOTC_EULER136_CHECK"); return e && std::atoi(e) != 0; }();
+            static const bool chk = [] { const char *e = ps2_diag::env("SOTC_EULER136_CHECK"); return e && std::atoi(e) != 0; }();
             if (!chk)
             {
                 std::memcpy(rdram + out, r, 16);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -36,7 +37,7 @@ namespace ps2_stats
         static const std::vector<std::pair<uint64_t, uint64_t>> ranges = []
         {
             std::vector<std::pair<uint64_t, uint64_t>> out;
-            const char *e = std::getenv("SOTC_BLOOM_LOG");
+            const char *e = ps2_diag::env("SOTC_BLOOM_LOG");
             while (e && *e)
             {
                 char *end = nullptr;
@@ -140,7 +141,7 @@ namespace stat139
     {
         if (__builtin_expect(g_on < 0, 0))
         {
-            const char *e = std::getenv("SOTC_STAT139");
+            const char *e = ps2_diag::env("SOTC_STAT139");
             g_on = e && std::atoi(e) != 0;
         }
         return g_on != 0;

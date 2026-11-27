@@ -36,6 +36,7 @@
 // guest's results after S3 are compared with them bit for bit ([s3chk] lines; 0 mismatches is the rule).
 // SOTC_S3CHARA_LOG=<n>: every n game frames an [s3chara] line (calls, bones, rigs made, jobs, steals, us by state).
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h"
 #include "pose82_math.h"
 #include "chara_types.h"
 #include "p1_chara.h"
@@ -98,7 +99,7 @@ namespace s3chara
     }
     int envInt(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
     bool on() { return sotc_decomp::switchOn(sotc_decomp::kS3Chara); }

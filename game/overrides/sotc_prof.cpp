@@ -541,7 +541,7 @@ namespace sotc_prof
 
             void start()
             {
-                const char *spec = std::getenv("SOTC_SCRSAMP102");
+                const char *spec = ps2_diag::env("SOTC_SCRSAMP102");
                 if (!spec || !*spec)
                     return;
                 const uint64_t from = std::strtoull(spec, nullptr, 0);
@@ -842,7 +842,7 @@ namespace sotc_prof
 
         void install(PS2Runtime &runtime)
         {
-            const char *env = std::getenv("SOTC_CALL_COUNT");
+            const char *env = ps2_diag::env("SOTC_CALL_COUNT");
             if (!(env && std::atoi(env) != 0))
                 return;
             g_entries = new Entry[kSize];

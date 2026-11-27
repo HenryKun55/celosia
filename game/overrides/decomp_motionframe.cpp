@@ -28,6 +28,7 @@
 // Both under SOTC_MOTION=0 (the recompiled code); a count outside 0..4096
 // (a frame that would not fit) also goes to the recompiled code.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -301,7 +302,7 @@ namespace decomp_motionframe
             // Round C1 (SOTC_C1KEYS): through the motion's host rows when on (intKeysC1 falls back to intKeys itself).
             if (char122::keys::intKeysC1(rdram, runtime, header, formats, r.u32(header + 0x10u), static_cast<int32_t>(s2), static_cast<uint32_t>(frame), tmp136, v0))
             {
-                static const bool chk = [] { const char *e = std::getenv("SOTC_KEY136_CHECK"); return e && std::atoi(e) != 0; }();
+                static const bool chk = [] { const char *e = ps2_diag::env("SOTC_KEY136_CHECK"); return e && std::atoi(e) != 0; }();
                 static uint64_t n136 = 0;
                 if (!chk || (++n136 % 16u) != 0u)
                 {

@@ -772,7 +772,7 @@ struct GSHwBackend::Impl
         // was sampled as it (proved with the bands made green: the mist came
         // out green, build/agent-scratch/r55/pg4). SOTC_GS_MEASURE_ROWS=1:
         // measured anyway.
-        static const bool measureAnyway = std::getenv("SOTC_GS_MEASURE_ROWS") && std::atoi(std::getenv("SOTC_GS_MEASURE_ROWS")) != 0;
+        static const bool measureAnyway = ps2_diag::env("SOTC_GS_MEASURE_ROWS") && std::atoi(ps2_diag::env("SOTC_GS_MEASURE_ROWS")) != 0;
         if (native_renderer::inEmulator() && !measureAnyway)
             std::fprintf(stderr, "[gs:hw] vitaGL rows: not measured in an emulator (the defaults; SOTC_GS_MEASURE_ROWS=1 measures)\n");
         else

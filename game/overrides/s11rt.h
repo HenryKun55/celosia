@@ -21,6 +21,7 @@
 // SOTC_S11RT_PARTS=<mask> (default all) limits the switch to some parts; SOTC_S11RT_LOG=<frames> prints "[s11]" counts
 // (the scheduler's slow checkpoints by outcome and by what set the gate, the IOP runs, the lock's fast / slow calls).
 #include <cstdint>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <cstdlib>
 #include <cstring>
 #include "sotc_decomp.h"
@@ -47,9 +48,9 @@ namespace s11rt
     {
         const char *v = std::getenv("SOTC_S11RT_PARTS");
         g_parts = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 0)) & kAll : static_cast<uint32_t>(kAll);
-        v = std::getenv("SOTC_S11RT_LOG");
+        v = ps2_diag::env("SOTC_S11RT_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : 0u;
-        v = std::getenv("SOTC_S11RT_CHECK");
+        v = ps2_diag::env("SOTC_S11RT_CHECK");
         g_check = v && std::atoi(v) != 0;
         v = std::getenv("SOTC_S11RT_PACKED");
         g_packed = v && std::atoi(v) != 0;

@@ -814,12 +814,12 @@ void GSCpuBackend::Submit(const GSPrimitiveBatch &batch)
         static const std::array<int, 4> rect = []
         {
             std::array<int, 4> v = {95, 30, 125, 100};
-            if (const char *e = std::getenv("SOTC_BLOOM_RECT"))
+            if (const char *e = ps2_diag::env("SOTC_BLOOM_RECT"))
                 std::sscanf(e, "%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3]);
             return v;
         }();
         const auto &cc = batch.state.context;
-        static const bool anyFbp = std::getenv("SOTC_BLOOM_RECT_ANYFBP") != nullptr;
+        static const bool anyFbp = ps2_diag::env("SOTC_BLOOM_RECT_ANYFBP") != nullptr;
         if (anyFbp && cc.frame.fbp != 224u && batch.state.prim.type != GS_PRIM_SPRITE)
             std::fprintf(stderr, "[bloom:gs] f=%llu draw into fbp %u fbw %u prim %u tbp/32 %u zbp %u ztst %u\n", (unsigned long long)ps2_stats::vif1Chains.load(std::memory_order_relaxed),
                          cc.frame.fbp, cc.frame.fbw, (unsigned)batch.state.prim.type, cc.tex0.tbp0 / 32u, cc.zbuf.zbp, (unsigned)((cc.test >> 17) & 3u));

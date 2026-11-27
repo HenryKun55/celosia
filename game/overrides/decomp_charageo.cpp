@@ -216,10 +216,10 @@ namespace decomp_charageo
             static Stats s;
             return s;
         }
-        A9S_HOIST(float, a9s_decomp_charageo_d_206, std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f); // round A9 sweep (a9sweep.h)
+        A9S_HOIST(float, a9s_decomp_charageo_d_206, ps2_diag::env("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(ps2_diag::env("SOTC_SAC_FARCHARA_DIST"))) : 40.0f); // round A9 sweep (a9sweep.h)
         float limit()
         {
-            return A9S_VAL(::a9sweep::on(), a9s_decomp_charageo_d_206, float, std::getenv("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(std::getenv("SOTC_SAC_FARCHARA_DIST"))) : 40.0f);
+            return A9S_VAL(::a9sweep::on(), a9s_decomp_charageo_d_206, float, ps2_diag::env("SOTC_SAC_FARCHARA_DIST") ? static_cast<float>(std::atof(ps2_diag::env("SOTC_SAC_FARCHARA_DIST"))) : 40.0f);
         }
         Seen &seen(uint32_t cls)
         {
@@ -415,7 +415,7 @@ namespace decomp_charageo
         __attribute__((noinline)) bool nodeQuatsChecked(uint8_t *rdram, uint32_t q, int32_t count, float fs, float &qv, uint16_t &status, __m128 &l14,
                                                         __m128 &l15)
         {
-            static const bool check = std::getenv("SOTC_W2_CHECK") && std::atoi(std::getenv("SOTC_W2_CHECK")) != 0;
+            static const bool check = ps2_diag::env("SOTC_W2_CHECK") && std::atoi(ps2_diag::env("SOTC_W2_CHECK")) != 0;
             if (!check)
                 return nodeQuats(rdram, q, count, fs, qv, status, l14, l15);
             const uint32_t at = q & PS2_RAM_MASK & ~0xFu;

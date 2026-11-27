@@ -120,7 +120,7 @@ namespace ps2_lean
         std::fprintf(stderr, "[lean] SOTC_LEAN: no lean copies in this build (tools/gen_lean.py, then rebuild)\n");
 #else
         constexpr size_t kCount = sizeof(kLean) / sizeof(kLean[0]);
-        if (const char *ab = std::getenv("SOTC_EE_TRUST_AB"))
+        if (const char *ab = ps2_diag::env("SOTC_EE_TRUST_AB"))
             g_trustAb = std::strtoull(ab, nullptr, 10);
         // SOTC_LEAN_CHECK with SOTC_EE_TRUST=1: the second set is what is
         // checked against the originals.

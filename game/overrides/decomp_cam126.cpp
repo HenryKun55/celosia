@@ -35,6 +35,7 @@
 // host C++) was measured this round and is not in the build: the lifted code
 // was slower than the recompiled code in the sampler (docs/decomp.md, round 126).
 #include "cam126.h"
+#include "runtime/ps2_diag.h"
 #include "typed_a9_core.h" // round A9: the shared core (frameCore)
 #include "typed_a9_nchk.h" // a9: A9_NCHK
 #include "typed_a10_nchk.h" // a10: A10_NCHK (the slot holders round A10 takes as their typed functions)
@@ -82,7 +83,7 @@ namespace cam126
 
     int envInt(const char *name, int def)
     {
-        const char *e = std::getenv(name);
+        const char *e = ps2_diag::env(name);
         return e ? std::atoi(e) : def;
     }
     A9S_HOIST(int, a9s_decomp_cam126_n_84, envInt("SOTC_CAM126_LOG", 0)); // round A9 sweep (a9sweep.h)

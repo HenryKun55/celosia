@@ -1,6 +1,7 @@
 #if defined(PLATFORM_VITA)
 
 #include <cstdarg>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -408,7 +409,7 @@ namespace c1
         g_want = true;
         g_probe = v[0] == 'p' && !k3::g_want;
         char e[24];
-        if (bootenv::get("SOTC_C1CORE3_EXPECT=", e, sizeof(e)))
+        if (!ps2_diag::kRelease && bootenv::get("SOTC_C1CORE3_EXPECT=", e, sizeof(e)))
         {
             bool ok;
             bootenv::num(e, g_expect, ok);
@@ -540,9 +541,9 @@ extern "C" void ps2x_k3_watch(int resumed)
     {
         g_started = true;
         g_startUs = g_lastUs = now;
-        if (const char *e = std::getenv("SOTC_K3_EVERY"))
+        if (const char *e = ps2_diag::env("SOTC_K3_EVERY"))
             g_every = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
-        if (const char *e = std::getenv("SOTC_K3_FIRST"))
+        if (const char *e = ps2_diag::env("SOTC_K3_FIRST"))
             g_first = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
         ps2x_threads_place_watch(); // the watcher itself (kind "watch")
         if (c1::g_core3)
@@ -594,7 +595,7 @@ namespace k2
     uint32_t g_textVa = 0, g_textSize = 0;
     void paths()
     {
-        if (!bootenv::get("SOTC_K2_PATH=", g_path, sizeof(g_path)) || !g_path[0])
+        if (ps2_diag::kRelease || !bootenv::get("SOTC_K2_PATH=", g_path, sizeof(g_path)) || !g_path[0])
         {
             // k1::path() gives ux0:app/<title id>/module/celosia_k1.skprx: the same with k2
             k1::path();
@@ -626,7 +627,7 @@ namespace k2
     // At boot (before libc), from __wrap__init_vita_heap.
     void boot()
     {
-        g_on = bootenv::on("SOTC_K2=");
+        g_on = !ps2_diag::kRelease && bootenv::on("SOTC_K2="); // round F1: a profiler (D): not in a release build
         char v[32];
         if (bootenv::get("SOTC_K2REMAP=", v, sizeof(v)))
             for (int i = 0; v[i]; ++i)
@@ -636,7 +637,7 @@ namespace k2
                 if (v[i] == 't' && v[i + 1] == 'e' && v[i + 2] == 'x' && v[i + 3] == 't')
                     g_remapOps |= 2u;
             }
-        g_dry = bootenv::on("SOTC_K2REMAP_DRY=");
+        g_dry = !ps2_diag::kRelease && bootenv::on("SOTC_K2REMAP_DRY=");
         c1::read();
         g_on = g_on || g_remapOps || c1::g_want;
         if (!g_on)
@@ -1107,7 +1108,7 @@ namespace
     {
         if (__builtin_expect(v < 0, 0))
         {
-            const char *e = std::getenv(name);
+            const char *e = ps2_diag::env(name);
             v = (e && e[0] == '1') ? 1 : 0;
         }
         return v != 0;
@@ -1324,7 +1325,7 @@ namespace heapprof
 
     void start()
     {
-        const char *e = std::getenv("SOTC_HEAP_PROF");
+        const char *e = ps2_diag::env("SOTC_HEAP_PROF");
         const int depth = e ? std::atoi(e) : 0;
         if (depth <= 0)
             return;
@@ -1394,7 +1395,7 @@ extern "C" void ps2x_vita_heap_report(double now)
         return;
     static const double every = []
     {
-        const char *e = std::getenv("SOTC_HEAP_PROF_EVERY");
+        const char *e = ps2_diag::env("SOTC_HEAP_PROF_EVERY");
         return e ? std::atof(e) : 30.0;
     }();
     static double next = 0.0;
@@ -2259,7 +2260,7 @@ namespace m1pmu
     int g_mode = 0; // 1: ScePerf (M1), 2: the counters themselves (K1: PMUSERENR.EN set by the kernel module)
     bool start(unsigned long long frame)
     {
-        const char *e = std::getenv("SOTC_M1PMU");
+        const char *e = ps2_diag::env("SOTC_M1PMU");
         g_every = e ? static_cast<unsigned>(std::atoi(e)) : 0u;
         ps2x_p2_prepare(); // round P2: the sampled event into K2's counter 3 (SOTC_P2PMUSAMPLE; nothing when off)
         const bool k2counting = ps2x_k2_first_frame(frame); // round K2: walk, PMU on this thread, probes
@@ -2299,7 +2300,7 @@ namespace m1pmu
         // PMUSERENR only with SOTC_M1PMU_USERENR=1: Vita3K aborts on the CP15 read ("Unhandled CP15 MRC"), the console
         // allows it at PL0 (ARMv7).
         uint32_t userenr = 0xFFFFFFFFu;
-        const char *ue = std::getenv("SOTC_M1PMU_USERENR");
+        const char *ue = ps2_diag::env("SOTC_M1PMU_USERENR");
         if (ue && std::atoi(ue) != 0)
             asm volatile("mrc p15, 0, %0, c9, c14, 0" : "=r"(userenr));
         const int load = sceSysmoduleLoadModule(SCE_SYSMODULE_PERF);

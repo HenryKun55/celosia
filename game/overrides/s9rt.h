@@ -26,6 +26,7 @@
 // the checkable parts both ways (kEvict: the full pass's candidate list against S9's; kShadow: the two palettes; kCopy:
 // the bytes) and prints "[s9rt]" counts every SOTC_S9RT_LOG frames (default 600 with the check).
 #include <cstdint>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <cstdlib>
 #include <cstring>
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
@@ -54,9 +55,9 @@ namespace s9rt
     {
         const char *v = std::getenv("SOTC_S9RT_PARTS");
         g_parts = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 0)) & kAll : static_cast<uint32_t>(kAll);
-        v = std::getenv("SOTC_S9RT_CHECK");
+        v = ps2_diag::env("SOTC_S9RT_CHECK");
         g_check = v && std::atoi(v) != 0;
-        v = std::getenv("SOTC_S9RT_LOG");
+        v = ps2_diag::env("SOTC_S9RT_LOG");
         g_log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_check ? 600u : 0u);
         v = std::getenv("SOTC_S9RT_HOOKTIME");
         g_hookTimeAll = v && std::atoi(v) != 0;

@@ -24,6 +24,7 @@
 //    reset of the counter would), then the resume is announced (q: not announced, only the failed
 //    reads find it; l: at the first frame from <frame> on with disc reads under way, mid-load).
 #include <atomic>
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -156,7 +157,7 @@ namespace ps2_resume
         static std::vector<TestPoint> points = []
         {
             std::vector<TestPoint> v;
-            const char *e = std::getenv("SOTC_TEST_SUSPEND");
+            const char *e = ps2_diag::env("SOTC_TEST_SUSPEND");
             for (const char *p = e; p && *p;)
             {
                 char *end = nullptr;

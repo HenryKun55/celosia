@@ -102,13 +102,13 @@ namespace native_renderer
     // a preset: at start after SOTC_PRESET, and after a saved preset is read).
     static void presetEnv(Tuning &d)
     {
-        auto on = [](const char *name) { return std::getenv(name) != nullptr; };
-        auto number = [](const char *name, float fallback) { return std::getenv(name) ? static_cast<float>(std::atof(std::getenv(name))) : fallback; };
-        auto flag = [](const char *name) { return std::atoi(std::getenv(name)) != 0; };
+        auto on = [](const char *name) { return ps2_diag::env(name) != nullptr; };
+        auto number = [](const char *name, float fallback) { return ps2_diag::env(name) ? static_cast<float>(std::atof(ps2_diag::env(name))) : fallback; };
+        auto flag = [](const char *name) { return std::atoi(ps2_diag::env(name)) != 0; };
         d.renderScale = std::clamp(number("SOTC_RENDER_SCALE", d.renderScale), kMinRenderScale, kMaxRenderScale);
         if (on("SOTC_MSAA")) // samples: 1/2/4/8
         {
-            const int samples = std::atoi(std::getenv("SOTC_MSAA"));
+            const int samples = std::atoi(ps2_diag::env("SOTC_MSAA"));
             d.msaa = samples >= 8 ? 3.0f : samples >= 4 ? 2.0f : samples >= 2 ? 1.0f : 0.0f;
         }
         d.textureFilter = std::clamp(std::round(number("SOTC_TEXTURE_FILTER", d.textureFilter)), 0.0f, 6.0f);
@@ -141,7 +141,7 @@ namespace native_renderer
         if (on("SOTC_ALPHA_TEST"))
             d.alphaTest = flag("SOTC_ALPHA_TEST");
         if (on("SOTC_GLOW_VITA"))
-            d.glowVita = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GLOW_VITA")), 0, 2));
+            d.glowVita = static_cast<float>(std::clamp(std::atoi(ps2_diag::env("SOTC_GLOW_VITA")), 0, 2));
         if (on("SOTC_SACRIFICES") && !flag("SOTC_SACRIFICES"))
         {
             d.sacParticles = false;
@@ -168,13 +168,13 @@ namespace native_renderer
         static Tuning t = []
         {
             Tuning d = defaultTuning();
-            auto on = [](const char *name) { return std::getenv(name) != nullptr; };
-            auto number = [](const char *name, float fallback) { return std::getenv(name) ? static_cast<float>(std::atof(std::getenv(name))) : fallback; };
+            auto on = [](const char *name) { return ps2_diag::env(name) != nullptr; };
+            auto number = [](const char *name, float fallback) { return ps2_diag::env(name) ? static_cast<float>(std::atof(ps2_diag::env(name))) : fallback; };
             // The preset first; a variable for one of its items overrides it.
             if (on("SOTC_PRESET"))
-                applyPreset(d, std::clamp(std::atoi(std::getenv("SOTC_PRESET")), 0, static_cast<int>(kPresetMax)));
+                applyPreset(d, std::clamp(std::atoi(ps2_diag::env("SOTC_PRESET")), 0, static_cast<int>(kPresetMax)));
             presetEnv(d);
-            d.shadowAllSides = on("SOTC_SHADOW_ALLSIDES") && std::atoi(std::getenv("SOTC_SHADOW_ALLSIDES")) != 0;
+            d.shadowAllSides = on("SOTC_SHADOW_ALLSIDES") && std::atoi(ps2_diag::env("SOTC_SHADOW_ALLSIDES")) != 0;
             if (on("SOTC_BG_DEPTH"))
                 d.backgroundDepth = std::atoi(std::getenv("SOTC_BG_DEPTH")) != 0;
             d.mipmaps = !on("SOTC_NATIVE_NOMIPS");
@@ -184,7 +184,7 @@ namespace native_renderer
             d.waterSource = number("SOTC_WATER_SOURCE", d.waterSource);
             d.frameLog = on("SOTC_FRAME_LOG");
             d.frameLogAll = on("SOTC_FRAME_LOG_ALL");
-            d.perfOverlay = on("SOTC_PERF_OVERLAY") && std::atoi(std::getenv("SOTC_PERF_OVERLAY")) != 0;
+            d.perfOverlay = on("SOTC_PERF_OVERLAY") && std::atoi(ps2_diag::env("SOTC_PERF_OVERLAY")) != 0;
             d.audioLog = static_cast<float>(std::clamp(ps2x::iop::audio_stats::levelFromEnv(), 0, 2));
             if (on("SOTC_BLOOM_SAMEFRAME"))
                 d.bloomSameFrame = std::atoi(std::getenv("SOTC_BLOOM_SAMEFRAME")) != 0;
@@ -197,9 +197,9 @@ namespace native_renderer
             if (on("SOTC_GPU_SKIN"))
                 d.gpuSkinning = std::atoi(std::getenv("SOTC_GPU_SKIN")) != 0;
             if (on("SOTC_CAP30"))
-                d.frameCap30 = std::atoi(std::getenv("SOTC_CAP30")) != 0;
+                d.frameCap30 = std::atoi(ps2_diag::env("SOTC_CAP30")) != 0;
             if (on("SOTC_CAP20")) // round 107: Frame rate, Steady 20 (1) or Auto (0)
-                d.frameRate = std::atoi(std::getenv("SOTC_CAP20")) != 0 ? 1.0f : 0.0f;
+                d.frameRate = std::atoi(ps2_diag::env("SOTC_CAP20")) != 0 ? 1.0f : 0.0f;
             if (on("SOTC_RENDER_THREAD"))
                 d.renderThread = std::atoi(std::getenv("SOTC_RENDER_THREAD")) != 0;
             if (on("SOTC_GL_WARM"))
@@ -226,10 +226,10 @@ namespace native_renderer
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
                                          {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}, {"SOTC_GL_FAT116", &Tuning::glFat116}})
                 if (on(name))
-                    d.*flag = std::atoi(std::getenv(name)) != 0;
+                    d.*flag = std::atoi(ps2_diag::env(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
-                d.midFrameRedraw = static_cast<float>(std::clamp(std::atoi(std::getenv("SOTC_GL_REDRAW")), 0, 2));
-            if (const char *h = std::getenv("SOTC_HIDE_LAYERS")) // n,n,n
+                d.midFrameRedraw = static_cast<float>(std::clamp(std::atoi(ps2_diag::env("SOTC_GL_REDRAW")), 0, 2));
+            if (const char *h = ps2_diag::env("SOTC_HIDE_LAYERS")) // n,n,n
                 for (const char *c = h; *c;)
                 {
                     d.hiddenLayers |= 1u << (std::atoi(c) & 31);
@@ -1018,11 +1018,11 @@ namespace native_renderer
 
     bool tuningFromEnv(const TuningItem &item)
     {
-        if (item.env && std::getenv(item.env))
+        if (item.env && ps2_diag::env(item.env)) // (round F1: a release build ignores the player options' variables)
             return true;
-        if (item.inPreset && std::getenv("SOTC_PRESET"))
+        if (item.inPreset && ps2_diag::env("SOTC_PRESET"))
             return true;
-        return !std::strncmp(item.key, "sac_", 4) && std::getenv("SOTC_SACRIFICES"); // (round 36: all of them set at start)
+        return !std::strncmp(item.key, "sac_", 4) && ps2_diag::env("SOTC_SACRIFICES"); // (round 36: all of them set at start)
     }
 
     int tuningChoices(const TuningItem &item) { return choicesOf(item).count; }
@@ -1252,7 +1252,7 @@ namespace
 #if defined(__vita__)
         return true;
 #else
-        const char *gl = std::getenv("SOTC_NATIVE_GL");
+        const char *gl = ps2_diag::env("SOTC_NATIVE_GL");
         return gl && (std::atoi(gl) != 0 || std::string(gl) == "check");
 #endif
     }
@@ -1271,7 +1271,7 @@ namespace
                 g_backend = native_renderer::detail::createGlBackend(g_glMakeCurrent);
                 ps2_stats::bootMark("native renderer: built");
                 std::cerr << "[native] OpenGL renderer " << (g_backend ? "up" : "failed") << std::endl;
-                const char *mode = std::getenv("SOTC_NATIVE_GL");
+                const char *mode = ps2_diag::env("SOTC_NATIVE_GL");
                 if (g_backend && mode && std::string(mode) == "check")
                 {
                     if (auto *metal = native_renderer::detail::createMetalBackend())
@@ -1468,7 +1468,7 @@ namespace native_renderer
             // the console without the hook the kernel refuses those masks and the thread keeps its cores: logged).
             static const bool force3 = []
             {
-                const char *e = std::getenv("SOTC_C1MAP_FORCE3");
+                const char *e = ps2_diag::env("SOTC_C1MAP_FORCE3");
                 return e && e[0] && e[0] != '0';
             }();
             const bool c3 = c1map > 0 && (force3 || ps2x_c1_core3() != 0);
@@ -2259,7 +2259,7 @@ namespace native_renderer
             std::freopen("ux0:data/celosia/log.txt", "a", stdout);
             std::setvbuf(stdout, nullptr, _IOLBF, 0);
         };
-        const char *e = std::getenv("SOTC_LOG_STDERR");
+        const char *e = ps2_diag::env("SOTC_LOG_STDERR");
         if (!logAsync() || (e && std::atoi(e) == 0))
             return;
         std::fflush(stderr);
@@ -3082,7 +3082,7 @@ namespace native_renderer
         // SOTC_QUALITY_CYCLE=N (comparing the quality settings on one scene,
         // e.g. the game paused): every N frames the next of these; the log
         // says which ([quality] lines).
-        static const int cycle = std::getenv("SOTC_QUALITY_CYCLE") ? std::atoi(std::getenv("SOTC_QUALITY_CYCLE")) : 0;
+        static const int cycle = ps2_diag::env("SOTC_QUALITY_CYCLE") ? std::atoi(ps2_diag::env("SOTC_QUALITY_CYCLE")) : 0;
         if (cycle > 0)
         {
             static uint64_t frames = 0;
@@ -3110,7 +3110,7 @@ namespace native_renderer
         // SOTC_SCALE_CYCLE=N (testing a live resolution change, round 25):
         // every N frames the next render scale of 0.5, 1, 1.5, 2 (up to
         // kMaxRenderScale), as the menu's Resolution item sets it.
-        static const int scaleCycle = std::getenv("SOTC_SCALE_CYCLE") ? std::atoi(std::getenv("SOTC_SCALE_CYCLE")) : 0;
+        static const int scaleCycle = ps2_diag::env("SOTC_SCALE_CYCLE") ? std::atoi(ps2_diag::env("SOTC_SCALE_CYCLE")) : 0;
         if (scaleCycle > 0)
         {
             static uint64_t frames = 0;

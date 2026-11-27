@@ -27,6 +27,7 @@
 #pragma once
 
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 
 #include <cstdint>
 #include <cstdio>
@@ -71,8 +72,8 @@ namespace r1chara
 
     __attribute__((noinline, cold)) inline void readEnv()
     {
-        const char *c = std::getenv("SOTC_R1CHAR_CENSUS");
-        const char *l = std::getenv("SOTC_R1CHAR_LOG");
+        const char *c = ps2_diag::env("SOTC_R1CHAR_CENSUS");
+        const char *l = ps2_diag::env("SOTC_R1CHAR_LOG");
         g_census = c ? std::atoi(c) : 0;
         g_log = l ? std::atoi(l) : 0;
         if (g_census > 0 && g_log <= 0)

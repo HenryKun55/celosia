@@ -42,6 +42,7 @@
 // SOTC_S19AMB_CHECK=1: each call run the old way first, then the host way from the same state, compared (the colour,
 // v0, f0 / f1, fcr31, vf5..vf7, the cell call's outputs); SOTC_S19AMB_LOG=<frames>: "[s19amb]" counts.
 #include "sotc_decomp.h"
+#include "runtime/ps2_diag.h" // round F1: debug / player switches through ps2_diag::env
 #include "d1_native.h"
 #include "s11rt.h"
 
@@ -81,9 +82,9 @@ namespace decomp_ambient
     {
         if (g_s19Check >= 0)
             return;
-        const char *v = std::getenv("SOTC_S19AMB_CHECK");
+        const char *v = ps2_diag::env("SOTC_S19AMB_CHECK");
         g_s19Check = v && std::atoi(v) != 0 ? 1 : 0;
-        v = std::getenv("SOTC_S19AMB_LOG");
+        v = ps2_diag::env("SOTC_S19AMB_LOG");
         g_s19Log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_s19Check ? 600u : 0u);
     }
     inline void s19Report()
