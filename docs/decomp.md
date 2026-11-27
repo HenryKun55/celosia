@@ -24651,6 +24651,27 @@ README.txt), built on 8e39115.
 - **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
   self (prof129's "state" zone).
 
+## Decomp Z1: the collision library the characters call as typed native C++ (SOTC_Z1=1, off by default) (2026-11-26)
+
+docs/decomp_z1.md. Package: `build/agent-scratch/z1/` (celosia-z1.vpk / .elf, env-z1-off.txt, env-z1-on.txt, README.txt),
+built on f6e2a5d (Z2).
+
+- **Where it goes** (Vita3K clock brackets on 32 + 32 collision entries, ride7 / lake6, Z1 off): ClipCollisionDirectCallBackOneObj
+  ~0.6-0.7 ms a frame on the ride (the sheath's probe against Agro's skinned body, ~480 us a call), 36 guest calls a frame
+  into CalcCollisionMultiDepSurfBoundary inside it (187 us); ClipCollisionDirect 484 us a frame at the lake; both were
+  register-for-register lifts (D5 / D7). ClipCollisionDirectCallBack's large self is already host code; the old tree walkers
+  never run.
+- **What changed**: OneObj and ClipCollisionDirect are host functions on decomp_collision's helpers (z1_oneobj.inc): the
+  cylinders / capsule in host locals with D1's operations in the original order and forms, the frame written only where a
+  callee reads it, f0 / VU0 / ACC kept in a host shadow and stored before each call and at the exit; MultiDep is host code
+  on round D3's corner core, called directly (and from obj125's D1 loop through an adapter).
+- **Vita3K** (ride7, clkOffE / clkOnE): the sheath's probe ~690 -> ~300 us a frame (-56%); OneObj 472 -> 305 us a call.
+- **Checks**: `SOTC_Z1_CHECK` (Y1's same-thread check, plus repeat probes both ways for words another host thread writes
+  during a ~1 s leg: a static block of time-like floats at 0x29126c.., shown by a control run with the old function in both
+  legs). chkRG ride7 (mounted at 3156): OneObj 508 checks, MultiDep 26, 0 bad; chkLWG lake6: OneObj 255, MultiDep 145,
+  Direct 58, 0 bad. spalign 0 of 3 417, room 122 880, no overlap; pictures normal on ride7 / lake6.
+- **Console**: env-z1-off.txt then env-z1-on.txt, one ride each; expected ~0.1-0.15 ms a frame while riding Agro.
+
 ## Decomp Z2: the cloth callbacks and the type-1 velocities as native C++ (SOTC_Z2=1, off by default) (2026-11-26)
 
 docs/decomp_z2.md. Package: `build/agent-scratch/z2/` (celosia-z2.vpk / .elf, env-z2-off.txt, env-z2-on.txt, README.txt),
