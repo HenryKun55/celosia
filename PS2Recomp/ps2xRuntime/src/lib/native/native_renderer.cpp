@@ -784,7 +784,7 @@ namespace native_renderer
             {"render_scale", 2, "Cost: GPU (pixels: 0.5x draws a quarter of 1x's, 2x four times) and GPU memory.",
              "Custo: GPU (pixels: 0,5x desenha um quarto dos de 1x, 2x quatro vezes) e memória da GPU."},
             {"texture_filter", 2, "Cost: GPU, small (texture reads).", "Custo: GPU, pequeno (leitura de texturas)."},
-            {"texture_pack", 2, "Cost: GPU memory (bigger pictures) and reading the PNGs when an area loads.",
+            {"texture_pack", 9, "Cost: GPU memory (bigger pictures) and reading the PNGs when an area loads.",
              "Custo: memória da GPU (imagens maiores) e a leitura dos PNGs quando uma área carrega."},
             {"msaa", 2, nullptr, nullptr},
             {"effect_detail", 2, nullptr, nullptr},
@@ -851,6 +851,13 @@ namespace native_renderer
                 key == "dbg_gl_nodiscard")
                 item.backends = 2;
         }
+#if defined(__vita__)
+        // Mac only (texture packs, runtime/texture_pack.h: no PNG reader in the
+        // Vita's SDL2 shim): not offered on the Vita.
+        v.erase(std::remove_if(v.begin(), v.end(), [](const TuningItem &item)
+                               { return !std::strcmp(item.key, "texture_pack") || !std::strcmp(item.key, "dbg_texture_dump"); }),
+                v.end());
+#endif
         return v;
         }();
         return items;

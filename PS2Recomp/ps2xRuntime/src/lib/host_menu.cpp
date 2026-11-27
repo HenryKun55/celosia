@@ -209,10 +209,10 @@ namespace
     const char *groupName(int group)
     {
         static const char *en[] = {"", "", "Resolution & filtering", "Lighting & post", "Shadows", "Fog", "Effects & particles", "Distance & detail",
-                                   "Performance cuts (not in any preset)"};
+                                   "Performance cuts (not in any preset)", "Mac extras (not in any preset)"};
         static const char *pt[] = {"", "", "Resolução e filtro", "Luz e pós-processamento", "Sombras", "Névoa", "Efeitos e partículas", "Distância e detalhe",
-                                   "Cortes de desempenho (fora das predefinições)"};
-        group = std::clamp(group, 0, 8);
+                                   "Cortes de desempenho (fora das predefinições)", "Extras do Mac (fora das predefinições)"};
+        group = std::clamp(group, 0, 9);
         return portuguese() ? pt[group] : en[group];
     }
     const char *groupHelp(int group)
@@ -220,6 +220,9 @@ namespace
         if (group == 8)
             return portuguese() ? "Cortes que mudam o ritmo da câmera ou das poses distantes: nenhuma predefinição liga estes; cada um só à mão."
                                 : "Cuts that change the camera's or distant poses' timing: no preset turns these on; each only by hand.";
+        if (group == 9)
+            return portuguese() ? "Recursos só do Mac que nenhuma predefinição liga. Os marcados (reiniciar) só valem depois de reiniciar o jogo."
+                                : "Mac-only features no preset turns on. Those marked (restart) apply after the game restarts.";
         return portuguese() ? "Itens que a predefinição gráfica ajusta. Todos valem na hora (nenhum precisa reiniciar)."
                             : "Items the graphics preset sets. All apply at once (none needs a restart).";
     }
@@ -235,7 +238,7 @@ namespace
                 if (!items[i].quality)
                     (items[i].debug ? dbg : normal).push_back(i);
             // The Graphics tab by group, a heading before each (the preset alone first).
-            for (int group = 1; group <= 8; ++group)
+            for (int group = 1; group <= 9; ++group)
             {
                 bool any = false;
                 for (int i = 0; i < static_cast<int>(items.size()); ++i)
@@ -248,7 +251,7 @@ namespace
                     }
             }
             for (int i = 0; i < static_cast<int>(items.size()); ++i)
-                if (items[i].quality && (items[i].group < 1 || items[i].group > 8))
+                if (items[i].quality && (items[i].group < 1 || items[i].group > 9))
                     quality.push_back(i);
         }
         return tab == kDebugTab ? dbg : (tab == kQualityTab ? quality : normal);

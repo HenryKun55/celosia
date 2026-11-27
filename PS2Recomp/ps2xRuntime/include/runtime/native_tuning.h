@@ -747,10 +747,11 @@ namespace native_renderer
         // Round 124: the Graphics page's group (0 none; 1 the preset, 2
         // resolution & filtering, 3 lighting & post, 4 shadows, 5 fog,
         // 6 effects & particles, 7 distance & detail, 8 performance cuts that
-        // no preset touches); inPreset: the presets set it.
+        // no preset touches, 9 Mac-only extras no preset touches, marked
+        // "(restart)" when they need one); inPreset: the presets set it.
         uint8_t group = 0;
         bool inPreset = false;
-        bool restart = false;           // takes effect only after a restart (none of the Graphics items so far)
+        bool restart = false;           // takes effect only after a restart (the texture pack)
         uint8_t backends = 3;           // bit 0: Metal, bit 1: OpenGL (the Vita) - where it changes anything
         // An action instead of a value (the Debug group's "Mark"): run on
         // Cross / left / right, never saved; its value text from `actionText`.
