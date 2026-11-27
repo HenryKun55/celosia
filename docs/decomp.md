@@ -24651,6 +24651,31 @@ README.txt), built on 8e39115.
 - **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
   self (prof129's "state" zone).
 
+## Decomp Z2: the cloth callbacks and the type-1 velocities as native C++ (SOTC_Z2=1, off by default) (2026-11-26)
+
+docs/decomp_z2.md. Package: `build/agent-scratch/z2/` (celosia-z2.vpk / .elf, env-z2-off.txt, env-z2-on.txt, README.txt),
+built on main d783114 (build p2).
+
+- **What**: the parts of Y2's getClothDynamics driver that were still guest calls, as C++ calls from the driver
+  (`z2_dynamics.inc`, `z2_cloth.cpp`): the reins' / bridle callbacks 013978E8 / 013976B8 (round D2's walks called
+  directly, the head's frame made on the host), Agro's cloth pass 01397110 and Wander's fringe string keep 013BA790 (new
+  typed C++), and a type-1 cloth's velocities (manager_sub_01137640: D1's rows, then a host loop over the string's layout
+  objects with GetLayoutClass, the quaternion, UpdateLayoutClassSimpleGeometry and isysGroupForNext as cores;
+  isysGroupForFirst / Exit the only guest calls left). Needs SOTC_Y2=1; the fringe callback 013B9EE8 never runs and stays
+  a guest call.
+- **Ranking** (Vita3K clock, ride7, Z2 off): velocity 843, clothPass 243, stringKeep 48, bridleHead 42, bridleThree 38 us
+  a frame inclusive.
+- **Checks** (SOTC_Z2_CHECK, same thread, Z2's leg then the old guest call on one state, every word either leg changed
+  compared, Y1's put-back of only Z2's words): the first run found a real bug: the type-1 path read the rest length from
+  the cloth's +0x28 instead of the grid's (the old body goes through `lw fp, 0(a0)`), the first object's +0x98 scale
+  saturated to 0x7f7fffff; fixed (p2). On p2, chkRC + chkLC + chkRD (ride7 mounted at 5 001): three 80 / head 80 / pass 80
+  / keep 556 / type-1 635 checks, registers 81 928, **0 differ**, 0 void. spalign 0 of 3 373, room 122 880, no overlap.
+  Pictures normal (cape, reins, fringe, mane, tail, ground; ride7 mounted and on foot, lake6).
+- **Speed**: Vita3K getClothDynamics 1 229 -> 1 081 us a frame (-12 %), GetClothDynamics 1 504 -> 1 335, the reins'
+  owner execHorseBriddle 379 -> 283. Expected on the console ~0.1-0.2 ms a frame (~45 hand-overs a frame and ~85 guest
+  calls inside the type-1 path now C++ calls).
+- **Console**: env-z2-off.txt then env-z2-on.txt, one ride each.
+
 ## Decomp Y3: the object animation library as native C++ (SOTC_Y3=1, off by default) (2026-11-26)
 
 docs/decomp_y3.md. Package: `build/agent-scratch/y3/` (celosia-y3.vpk / .elf, env-y3-off.txt, env-y3-on.txt, env-y3-brk.txt,
