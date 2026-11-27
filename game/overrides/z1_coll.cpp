@@ -153,7 +153,7 @@ namespace z1coll
 
         uint8_t *g_snap = nullptr;
         bool g_snapFailed = false;
-        std::vector<uint32_t> g_dirtyAt, g_dirtyZ1, g_old1At, g_old1Val;
+        std::vector<uint32_t> g_dirtyAt, g_dirtyZ1, g_old1At;
         struct Cand
         {
             uint32_t w, old, z1;
@@ -383,37 +383,40 @@ namespace z1coll
             }
             if (!g_cands.empty())
             {
-                // The repeat probe (Y3's, docs/decomp_y3.md section 3): the old function run a second time from the same
-                // state (its first leg's words put back), and each differing word read again. A word whose value the old
-                // function does not repeat was written by another host thread while the check ran (the legs are ~1 s of
-                // Vita3K time each: ride7 / lake6 showed the same 175-280 time-like floats at 0x29126c .. 0x2c084c in both
-                // legs, with Z1 off in both legs too, SOTC_Z1_CHECK_CONTROL=1): counted apart, not a mismatch. A word the
-                // old function repeats and Z1 does not match is a mismatch.
-                g_old1At.clear();
-                g_old1Val.clear();
-                forDiff(rdram, [&](uint32_t w)
-                        {
-                            uint32_t x;
-                            std::memcpy(&x, rdram + w, 4);
-                            g_old1At.push_back(w);
-                            g_old1Val.push_back(x);
-                        });
-                for (uint32_t w : g_old1At)
-                    std::memcpy(rdram + w, g_snap + w, 4);
-                std::memcpy(scratch, g_scrBefore, PS2_SCRATCHPAD_SIZE);
-                *ctx = input;
+                // The repeat probes (Y3's, docs/decomp_y3.md section 3, both ways): the state put back to the check's start
+                // (every word that differs from the copy), the old function run again, and each differing word read; then,
+                // for the words the old function repeats, the first leg's function (Z1's, or the old one under
+                // SOTC_Z1_CHECK_CONTROL) run again the same way. A word either function does not repeat was written by
+                // another host thread while a leg ran (the legs are ~1 s of Vita3K time each: ride7 / lake6 showed 175-330
+                // time-like floats at 0x29126c .. 0x2c084c that change only in the first leg, also with the old function in
+                // both legs): counted apart, not a mismatch. A word both functions repeat and that differs is a mismatch.
+                auto restart = [&]()
+                {
+                    g_old1At.clear();
+                    forDiff(rdram, [&](uint32_t w) { g_old1At.push_back(w); });
+                    for (uint32_t w : g_old1At)
+                        std::memcpy(rdram + w, g_snap + w, 4);
+                    std::memcpy(scratch, g_scrBefore, PS2_SCRATCHPAD_SIZE);
+                    *ctx = input;
+                };
+                auto voidRepeat = [&]()
+                {
+                    if (vblanks(rdram) == vb0)
+                        return false;
+                    --s.checks;
+                    if (s.voided++ < 20u)
+                        std::fprintf(stderr, "[z1chk] %s: check void (frame %llu): the VBlank handler ran in a repeat probe\n", s.name,
+                                     static_cast<unsigned long long>(sotc_decomp::g_gameFrame));
+                    return true;
+                };
+                restart();
                 g_refLeg = true;
                 runOldToReturn(rdram, ctx, runtime, kAddr[f]);
                 g_refLeg = false;
-                if (vblanks(rdram) != vb0)
-                {
-                    --s.checks;
-                    if (s.voided++ < 20u)
-                        std::fprintf(stderr, "[z1chk] %s: check void (frame %llu): the VBlank handler ran in the repeat probe\n", s.name,
-                                     static_cast<unsigned long long>(sotc_decomp::g_gameFrame));
+                if (voidRepeat())
                     return true;
-                }
                 uint32_t real = 0, unrep = 0;
+                size_t keep = 0;
                 for (const Cand &c : g_cands)
                 {
                     uint32_t old2;
@@ -426,9 +429,38 @@ namespace z1coll
                         ++unrep;
                         continue;
                     }
-                    if (real < 8u)
-                        report(f, "RAM", c.old, c.z1, c.w, c.zWrote ? " (both wrote)" : " (old only)");
-                    ++real;
+                    g_cands[keep++] = c;
+                }
+                g_cands.resize(keep);
+                if (!g_cands.empty())
+                {
+                    restart();
+                    if (g_control)
+                    {
+                        g_refLeg = true;
+                        runOldToReturn(rdram, ctx, runtime, kAddr[f]);
+                        g_refLeg = false;
+                    }
+                    else
+                        body(rdram, ctx, runtime);
+                    if (voidRepeat())
+                        return true;
+                    for (const Cand &c : g_cands)
+                    {
+                        uint32_t z1b;
+                        std::memcpy(&z1b, rdram + c.w, 4);
+                        if (z1b != c.z1)
+                        {
+                            if (unrep < 4u && s.unrepWords < 64u)
+                                std::fprintf(stderr, "[z1chk] %s check %llu: %08x not repeatable in the first leg (%08x then %08x; old %08x)\n", s.name,
+                                             static_cast<unsigned long long>(s.checks), c.w, c.z1, z1b, c.old);
+                            ++unrep;
+                            continue;
+                        }
+                        if (real < 8u)
+                            report(f, "RAM", c.old, c.z1, c.w, c.zWrote ? " (both wrote)" : " (old only)");
+                        ++real;
+                    }
                 }
                 if (unrep)
                 {
@@ -441,6 +473,9 @@ namespace z1coll
                                  static_cast<unsigned long long>(s.checks), real, static_cast<unsigned>(g_dirtyAt.size()), unrep);
                     bad = true;
                 }
+                else if (s.unrep <= 20u)
+                    std::fprintf(stderr, "[z1chk] %s check %llu: %u words differed, none repeatable (another thread's writes), 0 mismatches\n", s.name,
+                                 static_cast<unsigned long long>(s.checks), unrep);
             }
             if (bad)
                 ++s.bad;
