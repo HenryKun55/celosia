@@ -3534,6 +3534,10 @@ void PS2Runtime::run()
             // drawn every frame, so the flip is instant; with SOTC_NATIVE=1 the
             // GS starts drawing again when its picture is asked for.
             static const bool bothDrawn = std::getenv("SOTC_NATIVE") && std::atoi(std::getenv("SOTC_NATIVE")) == 2;
+            // A controller connected after the start: logged (its GUID when unmapped).
+            static uint32_t padPoll = 0;
+            if (++padPoll % 60u == 0u)
+                PSPadBackend::pollControllers();
             if (IsKeyPressed(KEY_F9))
             {
                 native_renderer::Tuning &t = native_renderer::tuning();

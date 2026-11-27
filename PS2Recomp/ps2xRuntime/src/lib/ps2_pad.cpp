@@ -76,6 +76,46 @@ void PSPadBackend::setSteerStick(bool on, float x, float y)
     g_steerStick.store(on ? (0x10000u | byte(y) << 8 | byte(x)) : 0u, std::memory_order_relaxed);
 }
 
+namespace
+{
+    // A [pad] line for each controller GLFW sees that was not there at the last
+    // scan: its name when it has a gamepad mapping (its buttons reach the
+    // game), its name and GUID when it has none. At start and, for one
+    // plugged in or paired later, from the host loop (pollControllers). GLFW's
+    // joystick calls belong on the main thread.
+    void scanControllers()
+    {
+#if defined(__APPLE__)
+        static uint32_t known = 0;
+        uint32_t present = 0;
+        for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid)
+        {
+            if (!glfwJoystickPresent(jid))
+                continue;
+            present |= 1u << jid;
+            if (known & (1u << jid))
+                continue;
+            const char *name = glfwGetJoystickName(jid);
+            const char *guid = glfwGetJoystickGUID(jid);
+            if (glfwJoystickIsGamepad(jid))
+                std::fprintf(stderr, "[pad] gamepad %d: %s\n", jid, name ? name : "?");
+            else
+                std::fprintf(stderr, "[pad] controller %d (%s, %s) has no gamepad mapping: add its SDL_GameControllerDB line "
+                                     "to gamecontrollerdb.txt (or PS2X_GAMEPAD_DB)\n",
+                             jid, name ? name : "?", guid ? guid : "?");
+        }
+        known = present; // (one unplugged and plugged back is reported again)
+#endif
+    }
+}
+
+void PSPadBackend::pollControllers()
+{
+#if !defined(PLATFORM_VITA)
+    scanControllers();
+#endif
+}
+
 void PSPadBackend::installGamepadMappings()
 {
 #if !defined(PLATFORM_VITA)
@@ -103,21 +143,7 @@ void PSPadBackend::installGamepadMappings()
     else if (dbEnv && *dbEnv)
         std::fprintf(stderr, "[pad] PS2X_GAMEPAD_DB: %s not found\n", dbPath);
 
-#if defined(__APPLE__)
-    for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid)
-    {
-        if (!glfwJoystickPresent(jid))
-            continue;
-        const char *name = glfwGetJoystickName(jid);
-        const char *guid = glfwGetJoystickGUID(jid);
-        if (glfwJoystickIsGamepad(jid))
-            std::fprintf(stderr, "[pad] gamepad %d: %s\n", jid, name ? name : "?");
-        else
-            std::fprintf(stderr, "[pad] controller %d (%s, %s) has no gamepad mapping: add its SDL_GameControllerDB line "
-                                 "to gamecontrollerdb.txt (or PS2X_GAMEPAD_DB)\n",
-                         jid, name ? name : "?", guid ? guid : "?");
-    }
-#endif
+    scanControllers();
 #endif
 }
 

@@ -22,6 +22,9 @@ public:
     // gamecontrollerdb.txt in the working directory or at PS2X_GAMEPAD_DB), and a log line
     // for a controller GLFW sees with no mapping (its buttons would never reach the game).
     static void installGamepadMappings();
+    // On the main thread, now and then (the host loop): a [pad] line for a
+    // controller connected since the last look (its mapping applies already).
+    static void pollControllers();
 };
 
 #endif
