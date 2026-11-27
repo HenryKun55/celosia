@@ -131,7 +131,7 @@ namespace dc2
             {
                 if (g_ramEvery < 0)
                 {
-                    const char *e = std::getenv("SOTC_Y2_RAMCHECK");
+                    const char *e = ps2_diag::env("SOTC_Y2_RAMCHECK");
                     g_ramEvery = e ? std::atoi(e) : 0;
                 }
                 on = g_ramEvery > 0 && (g_ramCount++ % static_cast<uint64_t>(g_ramEvery)) == 0u;

@@ -1170,9 +1170,9 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         [encoder setFragmentTexture:backgroundSmall atIndex:0];
                         [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
                     }
-                    static const bool additiveZ = std::getenv("SOTC_NATIVE_ADDZ") != nullptr; // debugging
-                    static const bool showFog = std::getenv("SOTC_NATIVE_SHOWFOG") != nullptr; // debugging
-                    static const bool noOverlayFog = std::getenv("SOTC_FOG_NO_OVERLAY") != nullptr; // debugging
+                    static const bool additiveZ = ps2_diag::env("SOTC_NATIVE_ADDZ") != nullptr; // debugging
+                    static const bool showFog = ps2_diag::env("SOTC_NATIVE_SHOWFOG") != nullptr; // debugging
+                    static const bool noOverlayFog = ps2_diag::env("SOTC_FOG_NO_OVERLAY") != nullptr; // debugging
                     static const bool bgFge = !std::getenv("SOTC_BG_FGE") || std::atoi(std::getenv("SOTC_BG_FGE")) != 0; // round 65e: layer 1 by its FGE
                     // Round 65e: layer 1's near plane (Fog::skyNear; SOTC_BG_NEAR overrides, 0: off).
                     static const float bgNearForced = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : -1.0f;

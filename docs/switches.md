@@ -4,6 +4,12 @@ Round F0, 2026-11-27, on main 3edd3a1. Inventory only: no build, no Vita3K run, 
 `docs/switches.json` (`{name: {class, default_now, proposed_default, files, round, evidence, parent, role, console, ...}}`).
 A follow-up round makes the code match this file. The goal: a release package that works with **no env.txt**.
 
+**Round F1 (2026-11-27) made the code match it.** The 15 switches are on with no env (one kill switch each), the class-E
+paths are deleted (34 names moved to F instead: see the E section), every class-D and class-B read goes through
+`ps2_diag::env`, and the switch table agrees with the real defaults. Every entry of `docs/switches.json` has an `f1` field
+(what F1 did) and its `default_now` is the state after F1. The no-env behaviour, the menu and the kill switches are in
+`docs/release_config.md`.
+
 ## Method
 
 - Names: `git grep -ohE '"SOTC_[A-Z0-9_]+"'` over `*.cpp *.h *.c` gives 1 156 names. 16 more are read at boot from env.txt by
@@ -31,12 +37,24 @@ A follow-up round makes the code match this file. The goal: a release package th
 | F | unknown: evidence missing | 67 | 35 | 32 |
 | | **total** | **1172** | **629** | **543** |
 
+After round F1 (`switches.json`, 1 176 names: F1 found 4 debug names F0's grep missed, `FOG_NO_OVERLAY`, `NATIVE_ADDZ`,
+`NATIVE_SHOWFOG` in the Metal renderer and `Y2_RAMCHECK` in `y2_dynamics.inc`):
+
+| class | names after F1 | of them deleted from the code |
+|---|---|---|
+| A | 383 | 10 knobs (now constants: W1 / X3 / Y1 / Z1 / Z2 / Z3 parts, DT1 palette / pin / prio / wake) |
+| B | 38 | 0 (ignored in a release build) |
+| C | 23 | 0 |
+| D | 576 | 27 (the checks / logs of deleted E switches) |
+| E | 55 | 55 (all of them; 34 E names moved to F) |
+| F | 101 | 0 |
+
 Of the 293 top-level A switches, **15 change default** (off today, on in release) and 278 are on already (the switch only
 brings back an older path, or sets a constant that already has its built-in value).
 
-## Proposed release config (no env file)
+## Release config (no env file; done in round F1, see `docs/release_config.md`)
 
-**On by code default, after the follow-up round** (the 15 switches that change):
+**On by code default since round F1** (the 15 switches that changed; `SOTC_<NAME>=0` is each one's kill switch):
 
 `D1NATIVE`, `DT1`, `W1`, `W2`, `W3`, `X1`, `X2`, `X3`, `Y1`, `Y2`, `Y3`, `Z1`, `Z2`, `Z3`, `Z4`
 
@@ -48,7 +66,8 @@ built-in values. `SOTC_NATIVE` is set to 1 by `ps2_vita_runtime.cpp` at start.
 effects on, body shadows on (Tuning default true: `SOTC_BODY_SHADOWS=1` in the console env files is redundant), alpha test on,
 frame rate Auto, 30 fps cap off, the four performance cuts off, CPU at 500 MHz off. MSAA and effect detail act on Metal only.
 
-**Off**: every C, D, E and F switch. D should be compiled out (see risk 6). The release env.txt is empty or absent.
+**Off**: every C, D and F switch; the E paths are deleted. D is compiled out of a release build (round F1 routed every D
+read through `ps2_diag::env`). The release env.txt is empty or absent.
 
 Compared with `all/env-all-on.txt`: the release keeps W1-W3, X1-X3, Y1-Y3, Z1, Z2 and D1NATIVE, adds Z3, Z4 and DT1, and drops
 K2, M1PMU, P2BRACKET, PROF129, FRAME_LOG / FRAME_SLOW_MS, AUDIO_LOG, LOG_STDERR, Z1_LOG (all D) and BODY_SHADOWS (already the
@@ -63,12 +82,14 @@ default). K3 (in `k3/env-k3-on.txt`) stays off: it is F until a console run prov
    K3's Vita3K boots (k3dRA). DT1 adds a worker pinned to core 1 at priority 140.
 3. **Dependencies.** W2 and X1 need D1NATIVE. With D1NATIVE on, round 140's clip helper never runs (decomp_w1.md), so CLIP140 is
    dead code. D3's difftest of ride7 with the full D list stops in the save's load (unresolved, no body implicated).
-4. **The switch table is not the truth.** `sotc_decomp.h` lists A12TYPED and SEG80 as default-on, but A12TYPED is opt-in in
+4. **The switch table was not the truth (fixed in F1: A12TYPED is opt-in in the table too; S13MOT is deleted; SEG80's
+   table "on" was right, see its F entry).** `sotc_decomp.h` lists A12TYPED and SEG80 as default-on, but A12TYPED is opt-in in
    `sotc_native.cpp` (A13 / A14 ride on it) and SEG80's reuse acts only with `=1` since round 115; S13MOT is default-off through
    `s13mot.h`. The follow-up round should use this file, not the table, as the list of defaults.
 5. **K2 is a profiler, not a feature.** `SOTC_K2=1` walks the page tables on the first frame (60.8 ms on the console, wxon) and arms
    the PMU. CPU500 loads K2 lazily and K3 / C1CORE3 load it themselves, so the release needs no `SOTC_K2`.
-6. **The release build compiles out fewer than half of the debug switches.** `PS2X_VITA_RELEASE=ON` turns `ps2_diag::env()` into
+6. **(Fixed in F1: every D read goes through `ps2_diag::env`; W1_LOG / X3_LOG / DT1_LOG off by default.)** **The release
+   build compiled out fewer than half of the debug switches.** `PS2X_VITA_RELEASE=ON` turns `ps2_diag::env()` into
    `nullptr`, but only 242 of the 568 D names are read only through it; the rest use `std::getenv` and stay live. Two debug
    logs are on by default: `SOTC_W1_LOG` (a `[w1]` line every 600 walks) and `SOTC_X3_LOG` (an `[x3]` line every 600 walks). Both
    become release output once W1 / X3 are default. `compiled_out_by_release_build` in the JSON marks each D name.
@@ -170,6 +191,25 @@ in debug builds and ignore it in release.
 | OBJ96 | r96 | Small creatures the camera cannot see run their frame less often ("skip unseen animals"). 2026-11-07 console: left Avion frozen at the screen edges; ~1 ms (sotc_decomp.h comment). Behavioural. | knobs: MAXR, NEAR, PERIOD; debug: LOG |
 
 ## E: dead or superseded (delete the code)
+
+Round F1: **deleted** (code path and switch): BLOOM_OLD, C2SCENE (its scene stays, part of W1; C2SCENE_PF a constant),
+CLIP140, EARLY95, FIND84, FLUSH119, GAZE122, GL_ARENA_CLIB, GL_FLUSH_WAIT, GL_INFLIGHT100, GL_INFLIGHT87, GL_NO_STENCIL,
+GL_PRESSURE_POOLFREE, GL_RUN_EVICT_OLD, GL_SHADOWMASK_VITA, GL_SHMASK87, GL_SORT87, IDLE_SPIN, MOVE_WALK, NATIVE_BGFOG,
+OAN106, PART119, POSE136, PS2_LISTS, PTCL91, PTCL_DEPTH, S12DRAW (s12_draw.h), S16PLAN (s16plan.h), S19AMB, S22PTCL,
+S23LIGHT, SEG123 (coll123.h), SHADOW_HARD, SYSTEM_EMULATED, TEXR128, VIEW119, WALK119, ZFOG_JOIN and their knobs.
+**Switch deleted, code compiled out** (its `on()` a constant false; the bodies are left for a cleanup round because they
+are woven through live functions): S13MOT, S14HOOK, CTL126 (its two wrappers deleted), S8CLOTH and their knobs.
+**Moved to F** (live, not dead):
+
+- **K1 family** (K1, K1PROBE, K1_EVENTS, K1_FORCE, K1_PATH, K1RAM, K1RAM_PICK, K1RAM_TYPES): the `k1` namespace is K2's
+  shared boot code (K2's module path from `k1::path()` / SOTC_K1_PATH, the PMU events from SOTC_K1_EVENTS for K2 and M1PMU,
+  `k1pmu` / `k1probe` in K2's first frame). Deleting K1's own load means rewriting the profilers' boot path, which no
+  Vita3K run can execute (no kernel modules). Off with no env.
+- **SEG80, SEG80_AGE**: live by default. `segMemo` still serves round 84's AI path tests (probe84's path callers) under
+  coll115; only the reuse for every other caller needs SOTC_SEG80=1. The switch table's "on" is right.
+- **CHAR104 and its 23 knobs**: on by default on the Mac runner (`kChar104Default` is 1 off the Vita, 0 on the Vita).
+
+The table below is F0's record.
 
 | switch | default now | round | why | sub-knobs |
 |---|---|---|---|---|
@@ -392,7 +432,7 @@ Every sub-knob is in the JSON with `role: sub-knob` and its `parent`. The parent
 | Z2 | A | Z2_PARTS |
 | Z3 | A | Z3_PARTS |
 
-## What the follow-up round should do
+## What the follow-up round should do (round F1 did 1-4 and 6; see the top of this file)
 
 1. Flip the 15 A switches above to on by default (or remove their switch), each with its sub-knobs as constants.
 2. Delete the E code paths and their switches.
@@ -400,4 +440,8 @@ Every sub-knob is in the JSON with `role: sub-knob` and its `parent`. The parent
 4. Keep B as menu items; in release ignore their env variables.
 5. Leave C and F off. Move each F to A, C or E when its missing evidence (console run, user decision) arrives.
 6. Fix the switch table so its defaults match the real ones (A12TYPED, SEG80, S13MOT).
+
+Left after F1: the compiled-out bodies of S13MOT / S14HOOK / CTL126 / S8CLOTH; decisions for the 34 E names now in F; the
+278 already-default A switches still read their `SOTC_<NAME>=0` (escape hatches); the 15 kill switches can go once the
+console has run the F1 package.
 
