@@ -24888,3 +24888,32 @@ build p3 still to make: the A1-A3 rounds took the heavy slots).
   (surface attribute ~60, parent geometry ~15, slide body ~2); GetGeometryPointerObject's own table entry was slower than
   its 10-instruction body and was removed (p2). Expected on the console: ~0.03-0.06 ms a frame.
 - **Gates**: p1 / p2 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap.
+
+## Decomp A2-lod: charlod78 made safe to turn back on (SOTC_CHARLOD78=1, still off by default) (2026-11-27)
+
+docs/decomp_a2lod.md. Package: `build/agent-scratch/a2/` (celosia-a2lod.vpk / .elf, env-a2lod-off.txt, env-a2lod-on.txt,
+README.txt), build p14 = main c6fbbf5 + A2-lod. (The name "A2" belongs to an older round.)
+
+- **Round 78's faults** (each seen in `[charlod]` lines; `SOTC_CHARLOD78_LEGACY=1` = the old rule): the active colossus was
+  never excluded (0x1465AD4 is a boss table record; the handle is 0x1465908): Avion, collision radius 0.05, was put off
+  ~5 frames in 6 at its lake and drawn stale; the 2r+1 view margin with a 1-frame hold drew birds and lizards with old poses
+  (legacy shrine: 4 433 stale draws, 4 426 with a steady camera); the player's +0x170 stops following Wander while he rides
+  or swims (460-1 353 units off), so Agro and what rides along became "far"; and **Agro put off stops coming back to
+  Wander** (off: he walks out to ~50 units and back every ~2 000 frames; on: he stays at 50 for the whole run), a gameplay
+  change the time check does not see.
+- **The rule now**: only characters with collision radius < 0.3 (birds, lizards, small animals), more than 12 from Wander
+  (his place from his own tail) and 15 from the camera, not the active colossus, not seen in the last 8 frames by a view
+  test widened to 1.35 x the screen with a view radius of at least 6 (also at 1 x, both camera contexts), no camera cut or demo
+  end in the last 30 frames. `[charlod]` audit lines: stale (put off and in the drawn picture), entries (lead before a
+  character enters the picture), watch (demo words, boss handle).
+- **Checks**: stale **0** outside the first frame after Load Game's black screen (1-3 small characters there, every run:
+  the camera changes after the character tails in that frame) on the shrine (wkOnK p14, wkOnH, wkOnI, wkOnJ, wkOnE, enOnH),
+  ride7 (rdOnI p13) and the lake; characters entering the picture were updated 1-27 frames before; time given minus the
+  player's -0.35 .. +0.25 s per 300 frames (one pending interval); Agro and the small animals move as with the switch off.
+- **Avion's intro could not be replayed in Vita3K** (`boss4` + swim, `bdemo`, `bootflag4`, a teleport to its home place:
+  none plays it), so the reveal and the ptcl79 half of the old bisect are not proven here; 0x1465AC8 / 0x1465AC0 never
+  changed in any scene reached (not a working "demo running" flag for them).
+- **Speed** (Vita3K): small far characters' ExecCharaGeometry -0.6 ms a frame at the altar, -2.0 riding (per-character
+  lines); the A/B on a loaded machine is below its noise. Far below arch_plan's -4.2 ms, which counted Agro and stale draws.
+- **Gates**: p14 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1's elf pad 12 -> 8 KB on c6fbbf5).
+- **Console**: env-a2lod-off.txt then env-a2lod-on.txt, a ride from the shrine; and Avion's intro with the on env.
