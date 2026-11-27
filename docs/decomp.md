@@ -24917,3 +24917,31 @@ README.txt), build p14 = main c6fbbf5 + A2-lod. (The name "A2" belongs to an old
   lines); the A/B on a loaded machine is below its noise. Far below arch_plan's -4.2 ms, which counted Agro and stale draws.
 - **Gates**: p14 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1's elf pad 12 -> 8 KB on c6fbbf5).
 - **Console**: env-a2lod-off.txt then env-a2lod-on.txt, a ride from the shrine; and Avion's intro with the on env.
+
+
+## Decomp DT1: modelDisp's per-draw host part on a worker of its own from a record, arch_plan item 1's first cut (SOTC_DT1=1, off by default) (2026-11-27)
+
+docs/decomp_dt1.md. Package: `build/agent-scratch/dt1/` (celosia-dt1.vpk / .elf = build p7 on 2eee515, env-dt1-off.txt,
+env-dt1-on.txt, README.txt).
+
+- **What moved, and what could not**: of the display walk's game-thread work only modelDisp's per-draw host part is host
+  code already (console ~0.66 M cycles a frame after the frame change: the plan lookup, the lane hand-over, the part
+  decision, the job's fields, the scroll rows). DT1 moves it to a worker on core 1 (priority 140, polled) that makes each
+  hook's job from a record the hook writes (the packet: instance, matrix, the camera's two matrices, LOD word, fade,
+  globals, the CLIP chain). The light pass (guest light callbacks, the scratchpad work area) and the draw loop's guest
+  callbacks (DispLayoutObjModel / solidDisp, dispSkinned, strips, cloth, particles, sword blur: 1.16 M) did not move:
+  each needs its own native rewrite first (decomp_dt1.md section 6).
+- **Kept on the game thread**: mdsOpacity's guest words, the draw / no-draw decision, the palette and lights copy (the
+  verify found the chain's palette rewritten between the hook and the record's make in 1.2% of hooks), the kick's palette
+  list and S4's note, the hook ring's slot (the draw order), the CLIP register's lazy chain. Joins: every mdslane::join /
+  take and **the kick** drain the records (the kick is the one wait before the next frame's hand-over).
+- **Checks** (SOTC_DT1_CHECK, same thread, records drained, 32 MB copy, only the first leg's words put back, job compared
+  field by field, CLIP, every guest word; VBlank-void; repeat probe): chkRC ride7 (mounted at 2 719) 303 checks, chkLQ lake6
+  208, chkSQ the altar 230; **0 bad, 0 void, 0 unrepeatable**; ctlRQ (old code in both legs) 170, 0 bad. SOTC_DT1_VERIFY: tags / lights / header
+  never changed between hook and make; HOOK_ASYNC_VERIFY 620 270 DT1 jobs, 0 differ. No "[signal_handler] Unhandled".
+- **Speed** (Vita3K, clock brackets, us a frame, a loaded machine): the altar pair (the clean one, untouched group pass
+  equal to the microsecond): modelDisp 1 644 -> 1 305 (-0.34 ms), the walk -0.15 ms; ride7 / lake6 pairs -2.8 / -2.1 ms on
+  modelDisp under heavy host load (whole-frame deltas there are mostly load). Game-thread drains 0.01-0.2 ms a frame; the
+  worker makes 84-93% of the records. Far below arch_plan's -8.6 ms for the whole item; expected console ~0.3-1 ms.
+- **Gates**: p7 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1 pad 8 KB as main).
+- **Console**: env-dt1-off.txt then env-dt1-on.txt, one ride each; read modelDisp's and DispDispObjGroupModel's brackets.
