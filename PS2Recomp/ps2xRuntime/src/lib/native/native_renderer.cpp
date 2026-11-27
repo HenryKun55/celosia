@@ -194,8 +194,6 @@ namespace native_renderer
             d.fastHooks = !on("SOTC_NATIVE_SLOWHOOKS");
             if (on("SOTC_PACKET_QUICK"))
                 d.packetQuickCheck = std::atoi(std::getenv("SOTC_PACKET_QUICK")) != 0;
-            if (on("SOTC_PS2_LISTS"))
-                d.ps2Lists = std::atoi(std::getenv("SOTC_PS2_LISTS")) != 0;
             if (on("SOTC_GPU_SKIN"))
                 d.gpuSkinning = std::atoi(std::getenv("SOTC_GPU_SKIN")) != 0;
             if (on("SOTC_CAP30"))
@@ -224,9 +222,9 @@ namespace native_renderer
                                          {"SOTC_GL_KEEP_LAYOUT", &Tuning::glKeepLayout}, {"SOTC_RENDER_PRIO", &Tuning::renderPrio},
                                          {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
-                                         {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
+                                         {"SOTC_GL_VOL87", &Tuning::glVol87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_GL_INFLIGHT100", &Tuning::glInflight100}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}, {"SOTC_GL_FAT116", &Tuning::glFat116}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}, {"SOTC_GL_FAT116", &Tuning::glFat116}})
                 if (on(name))
                     d.*flag = std::atoi(std::getenv(name)) != 0;
             if (on("SOTC_GL_REDRAW"))
@@ -313,9 +311,9 @@ namespace native_renderer
                                          {"SOTC_GL_KEEP_LAYOUT", &Tuning::glKeepLayout}, {"SOTC_RENDER_PRIO", &Tuning::renderPrio},
                                          {"SOTC_GL_SOFT_CUT", &Tuning::glSoftCut}, {"SOTC_GL_FAR_GUARD", &Tuning::glFarGuard},
                                          {"SOTC_GL_PRESENT86", &Tuning::glPresent86},
-                                         {"SOTC_GL_SORT87", &Tuning::glSort87}, {"SOTC_GL_VOL87", &Tuning::glVol87}, {"SOTC_GL_SHMASK87", &Tuning::glShmask87}, {"SOTC_GL_INFLIGHT87", &Tuning::glInflight87},
+                                         {"SOTC_GL_VOL87", &Tuning::glVol87},
                                          {"SOTC_GL_BGSMALL87", &Tuning::glBgSmall87}, {"SOTC_GL_OPAQUE88", &Tuning::glOpaque88}, {"SOTC_GL_MIRROR88", &Tuning::glMirror88},
-                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_GL_INFLIGHT100", &Tuning::glInflight100}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}, {"SOTC_GL_FAT116", &Tuning::glFat116}})
+                                         {"SOTC_GL_DIAG92_PX", &Tuning::glDiag92Px}, {"SOTC_GL_DIAG92_TEX", &Tuning::glDiag92Tex}, {"SOTC_GL_DIAG92_HALF", &Tuning::glDiag92Half}, {"SOTC_GL_NOSCREEN92", &Tuning::glNoScreen92}, {"SOTC_GL_MIRROR93", &Tuning::glMirror93}, {"SOTC_GL_ATOP93", &Tuning::glAtOpaque93}, {"SOTC_GL_POST93", &Tuning::glPost93}, {"SOTC_GL_BLUR93", &Tuning::glBlur93}, {"SOTC_GL_GLOW93", &Tuning::glGlow93}, {"SOTC_GL_BGCOPY94", &Tuning::glBgCopy94}, {"SOTC_GL_GLOW94", &Tuning::glGlow94}, {"SOTC_GL_FX94", &Tuning::glFx94}, {"SOTC_GL_BLOOM94", &Tuning::glBloom94}, {"SOTC_GL_DIAG98", &Tuning::glDiag98}, {"SOTC_GL_AT98", &Tuning::glAt98}, {"SOTC_GL_UNTEX98", &Tuning::glUntex98}, {"SOTC_GL_GLOW98", &Tuning::glGlow98}, {"SOTC_GL_NOFOG98", &Tuning::glNoFog98}, {"SOTC_GL_LOD0_98", &Tuning::glLod0_98}, {"SOTC_GL_PSOFT98", &Tuning::glPlainSoft98}, {"SOTC_CD_AHEAD100", &Tuning::cdAhead100}, {"SOTC_PRIO100", &Tuning::prio100}, {"SOTC_GL_FAT116", &Tuning::glFat116}})
             if (t.*flag != d.*flag)
                 add(std::string(name) + "=" + (t.*flag ? "1" : "0"));
         if (t.holdIncomplete != d.holdIncomplete)
@@ -346,8 +344,6 @@ namespace native_renderer
             add("SOTC_NATIVE_SLOWHOOKS=1");
         if (t.packetQuickCheck != d.packetQuickCheck)
             add(std::string("SOTC_PACKET_QUICK=") + (t.packetQuickCheck ? "1" : "0"));
-        if (t.ps2Lists)
-            add("SOTC_PS2_LISTS=1");
         if (t.gpuSkinning != d.gpuSkinning)
             add(std::string("SOTC_GPU_SKIN=") + (t.gpuSkinning ? "1" : "0"));
         if (t.hiddenLayers)
@@ -683,10 +679,6 @@ namespace native_renderer
                     "With fast hooks: a model packet the game never rewrote is taken as it was while drawn frame after frame (a few of its words checked after a gap, fully one frame in 16); off: the full sample every frame.",
                     "Com ganchos rápidos: um pacote de modelo que o jogo nunca reescreveu é tomado como estava enquanto desenhado quadro após quadro (algumas palavras checadas depois de uma pausa, por inteiro um quadro em 16); desligado: a amostra inteira a cada quadro.",
                     &Tuning::packetQuickCheck, "SOTC_PACKET_QUICK");
-        debugToggle("dbg_ps2_lists", "PS2 display lists", "Listas de exibição do PS2",
-                    "On: the game also builds its PS2 display lists (VIF packets of every model for the VU1, texture uploads, the screen effects' sprites), which nothing draws, as before. Off: only what the game reads back is kept (faster).",
-                    "Ligado: o jogo também monta suas listas de exibição do PS2 (pacotes VIF de cada modelo para a VU1, envios de textura, os sprites dos efeitos de tela), que nada desenha, como antes. Desligado: só o que o jogo lê de volta é mantido (mais rápido).",
-                    &Tuning::ps2Lists, "SOTC_PS2_LISTS");
         debugToggle("dbg_gpu_skin", "GPU skinning", "Skinning na GPU",
                     "OpenGL / Vita: characters posed by the GPU from their bind pose (off: posed on the CPU every frame). Metal always poses on the CPU.",
                     "OpenGL / Vita: personagens posados pela GPU a partir da pose base (desligado: posados na CPU a cada quadro). O Metal sempre posa na CPU.",

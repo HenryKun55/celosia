@@ -3929,11 +3929,7 @@ namespace sotc_native
             {"soft75", &native_renderer::Tuning::glSoftCut},         // round 75
             {"guard75", &native_renderer::Tuning::glFarGuard},       // round 75
             {"present86", &native_renderer::Tuning::glPresent86},    // round 86
-            {"sort87", &native_renderer::Tuning::glSort87},          // round 87
             {"vol87", &native_renderer::Tuning::glVol87},            // round 87 (GPU candidate: its windows flip it)
-            {"shmask87", &native_renderer::Tuning::glShmask87},      // round 87 (GPU candidate: its windows flip it)
-            {"inflight87", &native_renderer::Tuning::glInflight87},  // round 87 (GPU candidate: its windows flip it)
-            {"inflight100", &native_renderer::Tuning::glInflight100}, // round 100 (r100all too)
             {"cdahead100", &native_renderer::Tuning::cdAhead100},     // round 100 (r100all too)
             {"prio100", &native_renderer::Tuning::prio100},           // round 100 (r100all too)
             {"fat116", &native_renderer::Tuning::glFat116},           // round 116
@@ -4426,8 +4422,8 @@ namespace sotc_native
         // windows turn them off. opaque88 / mirror88 (round 88's GPU
         // candidates) start off and their windows turn them on, likewise.
         for (size_t i = 0; i < kTuningCount; ++i)
-            if (tuningAt[i] >= 0 && (!std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
-                                     !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87") ||
+            if (tuningAt[i] >= 0 && (!std::strcmp(kTuningFlags[i].name, "vol87") ||
+                                     !std::strcmp(kTuningFlags[i].name, "bgsmall87") ||
                                      !std::strcmp(kTuningFlags[i].name, "opaque88") || !std::strcmp(kTuningFlags[i].name, "mirror88") ||
                                      !std::strncmp(kTuningFlags[i].name, "diag92", 6) || !std::strcmp(kTuningFlags[i].name, "blur93") ||
                                      !std::strcmp(kTuningFlags[i].name, "glow93") || !std::strcmp(kTuningFlags[i].name, "bgcopy94") ||
@@ -4481,21 +4477,20 @@ namespace sotc_native
         {
             const bool off = isOffAt(r100AllAt);
             for (size_t i = 0; i < kTuningCount; ++i)
-                if ((!std::strcmp(kTuningFlags[i].name, "inflight100") || !std::strcmp(kTuningFlags[i].name, "cdahead100") || !std::strcmp(kTuningFlags[i].name, "prio100")) &&
+                if ((!std::strcmp(kTuningFlags[i].name, "cdahead100") || !std::strcmp(kTuningFlags[i].name, "prio100")) &&
                     (off || tuningAt[i] < 0))
                     t.*(kTuningFlags[i].field) = off ? false : start.*(kTuningFlags[i].field);
         }
         if (r87AllAt >= 0 || newDirAt >= 0)
         {
-            const bool r87Off = r87AllAt >= 0 && isOffAt(r87AllAt), dirOff = newDirAt >= 0 && isOffAt(newDirAt);
+            // (Round F1: sort87, shmask87 and inflight87 deleted; newdir took only sort87 here.)
+            const bool r87Off = r87AllAt >= 0 && isOffAt(r87AllAt);
             for (size_t i = 0; i < kTuningCount; ++i)
             {
-                const bool sort = !std::strcmp(kTuningFlags[i].name, "sort87");
-                const bool gpu = !std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "shmask87") ||
-                                 !std::strcmp(kTuningFlags[i].name, "inflight87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87");
-                if (!sort && !gpu)
+                const bool gpu = !std::strcmp(kTuningFlags[i].name, "vol87") || !std::strcmp(kTuningFlags[i].name, "bgsmall87");
+                if (!gpu)
                     continue;
-                const bool off = r87Off || (sort && dirOff);
+                const bool off = r87Off;
                 if (off)
                     t.*(kTuningFlags[i].field) = false;
                 else if (tuningAt[i] < 0)
@@ -10759,7 +10754,7 @@ namespace sotc_native
     bool ptclDirect103(uint32_t data, uint32_t count, uint32_t blend, uint32_t vec, uint32_t type, const float mat[16], uint32_t lightAt, uint32_t shadeAt,
                        float fade)
     {
-        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || !GS::skipRaster())
             return false;
         syncFrame(const_cast<uint8_t *>(g_ram));
         // SOTC_PTCL103_CHECK=1: the job this path would make kept, the
@@ -10802,7 +10797,7 @@ namespace sotc_native
     bool ptclDirect117(uint32_t data, uint32_t count, uint32_t blend, uint32_t vec, uint32_t type, uint32_t mat, uint32_t lightAt, uint32_t shadeAt, float fade,
                        bool vertices)
     {
-        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || !GS::skipRaster())
             return false;
         syncFrame(const_cast<uint8_t *>(g_ram));
         static const bool check = ps2_diag::env("SOTC_PTCL103_CHECK") && std::atoi(ps2_diag::env("SOTC_PTCL103_CHECK")) != 0;
@@ -10858,7 +10853,7 @@ namespace sotc_native
 
     bool ptclS1Begin(uint32_t most, bool check, float **room)
     {
-        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+        if (!g_ptclVtx || !g_ptclEnv || !g_ptclMat || !g_ram || !GS::skipRaster())
             return false;
         syncFrame(const_cast<uint8_t *>(g_ram));
         if (check)
@@ -11005,7 +11000,7 @@ namespace sotc_native
     // lists built for it, the GS rasterizes nothing).
     bool nativeDraws()
     {
-        return g_modelDisp != nullptr && !native_renderer::tuning().ps2Lists && GS::skipRaster();
+        return g_modelDisp != nullptr && GS::skipRaster();
     }
 
     void ptclVtxDraw(const PtclVtxJob &job, const ParticleEnv &e)
@@ -12300,7 +12295,7 @@ namespace sotc_native
 
     void spriteTexFastHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (native_renderer::tuning().ps2Lists || !GS::skipRaster())
+        if (!GS::skipRaster())
         {
             g_spriteTexFast(rdram, ctx, runtime);
             return;
@@ -14425,7 +14420,7 @@ namespace sotc_native
             for (int i = 0; i < 16; ++i)
                 model[i] = real(matrix + i * 4u);
         // The lists are built while the GS draws (the emulated picture shown).
-        const bool ps2Lists = native_renderer::tuning().ps2Lists || !GS::skipRaster();
+        const bool ps2Lists = !GS::skipRaster();
         const bool check = A9S_VAL(a9s, g_a9sMdh.check, bool, ps2_diag::env("SOTC_MODELDISP_CHECK") != nullptr);
         if (ps2Lists && !check)
             { SOTC_PROF_SCOPE(kHookPs2List); g_modelDisp(rdram, ctx, runtime); runtime->checkTransfer(); } // the emulated drawing goes on as before
@@ -16015,7 +16010,7 @@ namespace sotc_native
         {
             if (__builtin_expect(!g_cfg.read, 0))
                 readConfig();
-            return (g_cfg.parts & 1u) && sotc_decomp::s10DrawOn() && !native_renderer::tuning().ps2Lists && GS::skipRaster();
+            return (g_cfg.parts & 1u) && sotc_decomp::s10DrawOn() && GS::skipRaster();
         }
         // The lane's jobs leave the cache alone (not while the check runs the old way, which reads it).
         bool laneSkipsCache() { return surfaceOn() && !g_cfg.check; }
@@ -16123,7 +16118,7 @@ namespace sotc_native
         if (__builtin_expect(!s10draw::g_cfg.read, 0))
             s10draw::readConfig();
         s10draw::logLine();
-        if (!(s10draw::g_cfg.parts & 2u) || s10draw::g_cfg.check || !sotc_decomp::s10DrawOn() || native_renderer::tuning().ps2Lists || !GS::skipRaster())
+        if (!(s10draw::g_cfg.parts & 2u) || s10draw::g_cfg.check || !sotc_decomp::s10DrawOn() || !GS::skipRaster())
             return false;
         ++s10draw::g_stats.texLean;
         return true;
@@ -16258,7 +16253,7 @@ namespace mdsjoin
 namespace sotc_native
 {
     // The native renderer draws (no PS2 lists, the GS rasterises nothing): the screen passes' packets have no reader.
-    bool s4NativeDrawing() { return !native_renderer::tuning().ps2Lists && GS::skipRaster(); }
+    bool s4NativeDrawing() { return GS::skipRaster(); }
     uint64_t s4Emits() { return g_s4Emits; }
     // The host state a screen pass's hooks may change (the layer mirror, the requested texture, the camera note, the bloom
     // flag, the fog), hashed.

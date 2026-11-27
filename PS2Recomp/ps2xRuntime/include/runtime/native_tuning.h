@@ -162,12 +162,6 @@ namespace native_renderer
         // sample (33 words) taken one frame in 16; a packet seen rewritten
         // keeps the full sample every frame (SOTC_PACKET_QUICK=0/1).
         bool packetQuickCheck = true;
-        // The game's own PS2 display lists for what the native renderer
-        // draws: modelDisp's VIF packets and texture requests, the screen
-        // effects' sprites (spriteTexFast). Off: only what the rest of the
-        // game reads back is kept (SOTC_PS2_LISTS=1: built as before). They
-        // are built anyway while the GS draws (the emulated picture shown).
-        bool ps2Lists = false;
         // OpenGL / Vita: skinned meshes posed by the GPU (the bind pose kept,
         // the bone palette sent per draw) instead of on the CPU (SOTC_GPU_SKIN=0/1).
         bool gpuSkinning = true;
@@ -348,19 +342,6 @@ namespace native_renderer
         // present reads (the picture's texture, the host's menu) is part of
         // the hand-over. SOTC_GL_PRESENT86=0/1; A/B name `present86`.
         bool glPresent86 = true;
-        // Round 87: within a layer, the draws whose order cannot change a
-        // pixel (opaque, depth tested and written, no alpha test that can
-        // fail, no overlay / volume / screen / mirror / water state) are put
-        // in texture order between the draws that keep their place, so that
-        // more neighbours share texture, state and matrix and merge into one
-        // GL call. Equal depths keep the later draw: two such draws meeting
-        // at exactly the same depth may swap which one shows. Layer 1 (far
-        // scenery at the far plane: ties everywhere) keeps its order.
-        // Measured: the render thread 0.55-0.90 ms SLOWER a frame (Vita3K 222
-        // MHz, altar and route 6, matched): the world's neighbours differ by
-        // matrix as well as texture, so sorting by texture buys few merges and
-        // costs the sort. Off by default (SOTC_GL_SORT87=1 to try; A/B name `sort87`).
-        bool glSort87 = false;
         // Round 87 (GPU, console A/B candidate): the shadow volumes' stencil
         // count drawn with the fragment program disabled (GXM's depth /
         // stencil-only primitives: the ISP alone, no USSE program, no blend)
@@ -373,18 +354,6 @@ namespace native_renderer
 #else
         bool glVol87 = false;
 #endif
-        // Round 87 (GPU, console A/B candidate): the soft shadows' mask (the
-        // 512 x 448 picture put down, its 4 x 4 reduction and blur, taken up
-        // again) without the picture's own break; see native_renderer_gl.cpp.
-        // Round 88: the console measured 0 ms: stays off.
-        // SOTC_GL_SHMASK87=0/1 (default 0); A/B name `shmask87` (its windows flip it).
-        bool glShmask87 = false;
-        // Round 87 (GPU, console A/B candidate): a frame begins its scenes only
-        // once the GPU has finished the frame before (at most one frame on the
-        // GPU). Round 88: the console measured it +3.7 ms a frame (the GPU
-        // sits idle between frames): stays off. SOTC_GL_INFLIGHT87=0/1
-        // (default 0); A/B name `inflight87` (its windows flip it).
-        bool glInflight87 = false;
         // Round 87 (GPU, console A/B candidate): with fog on, the background
         // layer drawn straight into a 256 x 256 target (all that is read of it
         // is its 256 x 256 reduction) instead of 512 x 448 and reduced.
@@ -630,14 +599,7 @@ namespace native_renderer
         bool glPlainSoft98 = false;
 #endif
         // Round 100 (stutter), each in `r100all` too:
-        // glInflight100: at most two frames on the GPU. The render thread
-        // begins a frame's scenes once the GPU has finished the frame before
-        // the last one presented (round 87's inflight87 waited for the last
-        // one: the GPU idle between frames, +3.7 ms). The console's GPU ran
-        // ~3 frames behind ([gpu86] backlog 75-90 scenes at Avion; round 99):
-        // a third frame queued only adds latency and keeps GXM's parameter
-        // buffer and vitaGL's pools (uniforms, the circular vertex pool) full.
-        // Same commands, same picture. SOTC_GL_INFLIGHT100=0/1; A/B `inflight100`.
+        // (glInflight100, at most two frames on the GPU, deleted in round F1: the console measured it 1.0 ms slower.)
         // cdAhead100: the disc's reads into EE memory read ahead as the sound
         // streams' are (round 12): after two reads in a row on one file the
         // next 256 KB are read by a thread of their own (64 KB pieces, each
@@ -651,10 +613,8 @@ namespace native_renderer
         // 1-2 with: they mostly wait on the card, and the game thread waits
         // on them. SOTC_PRIO100=0/1; A/B `prio100`.
 #if defined(__vita__)
-        bool glInflight100 = false; // console 2026-11-07: off was 1.0 ms faster (mean), p90 -1.4
         bool prio100 = true;
 #else
-        bool glInflight100 = false;
         bool prio100 = false;
 #endif
         bool cdAhead100 = true;

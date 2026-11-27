@@ -1084,10 +1084,9 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     }
                 // Shadows as shadowDraw makes them: the volumes' count is kept
                 // until the layer after theirs, then blurred and darkened by.
-                static const bool hardShadows = std::getenv("SOTC_SHADOW_HARD") != nullptr; // debugging
                 uint32_t softOrder = 0;
                 float softAmount = 0.0f;
-                if (!hardShadows && shadowMaskPipeline && shadowReducePipeline && shadowSoftPipeline && blurPipeline)
+                if (shadowMaskPipeline && shadowReducePipeline && shadowSoftPipeline && blurPipeline)
                     for (const Draw &d : draws)
                         if (d.state.shadowVolume)
                         {
@@ -1173,7 +1172,6 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                     static const bool additiveZ = std::getenv("SOTC_NATIVE_ADDZ") != nullptr; // debugging
                     static const bool showFog = std::getenv("SOTC_NATIVE_SHOWFOG") != nullptr; // debugging
                     static const bool noOverlayFog = std::getenv("SOTC_FOG_NO_OVERLAY") != nullptr; // debugging
-                    static const bool bgFog = std::getenv("SOTC_NATIVE_BGFOG") != nullptr; // every batch has FGE, the sky too
                     static const bool bgFge = !std::getenv("SOTC_BG_FGE") || std::atoi(std::getenv("SOTC_BG_FGE")) != 0; // round 65e: layer 1 by its FGE
                     // Round 65e: layer 1's near plane (Fog::skyNear; SOTC_BG_NEAR overrides, 0: off).
                     static const float bgNearForced = std::getenv("SOTC_BG_NEAR") ? static_cast<float>(std::atof(std::getenv("SOTC_BG_NEAR"))) : -1.0f;
@@ -1329,7 +1327,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                             float nearCull;
                         } fp = {fog.start, fog.width, (showFog && !d.state.screen) ? -1.0f : static_cast<float>(fog.steps), (!backgroundOnly && fogOn && d.state.fogged) ? 1 : 0,
                                 {static_cast<float>(w), static_cast<float>(h)},
-                                (fog.vertexFog && !d.state.screen && (!d.state.background || bgFog || (d.state.backgroundFge && bgFge)) && !(d.state.overlay && noOverlayFog)) ? 1 : 0, fog.base, fog.scale,
+                                (fog.vertexFog && !d.state.screen && (!d.state.background || (d.state.backgroundFge && bgFge)) && !(d.state.overlay && noOverlayFog)) ? 1 : 0, fog.base, fog.scale,
                                 d.state.lodK, d.state.lodScale, d.state.maxLod,
                                 {fog.colour[0], fog.colour[1], fog.colour[2], 0},
                                 {static_cast<float>(d.state.debugColour & 0xFFu) / 255.0f, static_cast<float>((d.state.debugColour >> 8) & 0xFFu) / 255.0f,
@@ -1416,8 +1414,7 @@ fragment float4 bloomComposite(Quad in [[stage_in]], texture2d<float> src [[text
                         [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
                         [e endEncoding];
                     };
-                    static const bool oldBloom = std::getenv("SOTC_BLOOM_OLD") != nullptr; // the earlier approximation, to compare
-                    if (!oldBloom && maskGsPipeline && blur12Pipeline && compositeGsPipeline && temporalGsPipeline && copySmall)
+                    if (maskGsPipeline && blur12Pipeline && compositeGsPipeline && temporalGsPipeline && copySmall)
                     {
                         // As the GS chain does it, frame after frame: mask -> 256 -> 128 ->
                         // 64; lerp with the history (the last frame's blurred result) by

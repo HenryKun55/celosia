@@ -220,39 +220,13 @@ namespace
             }
         }
         uint32_t backlog() { return on() ? sent() - done() : 0u; }
-        // Round 87 (Tuning glInflight87): the scene count at the last present,
-        // and the render thread's time waiting for the GPU to reach it.
+        // Round 87: the scene count at the last present, and the render thread's time waiting for the GPU to reach it (the
+        // waits themselves, glInflight87 / glInflight100, deleted in round F1: the counters stay 0).
         uint32_t g_lastPresentScene = 0;
         uint32_t g_prevPresentScene = 0; // round 100: the present before the last one's
         std::atomic<uint64_t> g_inflightWaitUs{0};
         std::atomic<uint64_t> g_inflight100Waits{0}; // round 100: the waits that slept
         uint64_t g_inflight0 = 0;
-        // Round 100 (Tuning glInflight100): the frame before the last one
-        // presented finished on the GPU (at most two frames on it once this
-        // one is sent); waitPreviousFrame (round 87) waits for the last one.
-        void waitFrameBefore()
-        {
-            if (!query_fence.address || !g_prevPresentScene)
-                return;
-            const uint32_t target = g_prevPresentScene;
-            if (static_cast<int32_t>(done() - target) >= 0)
-                return;
-            const uint64_t start = native_renderer::nowUs();
-            while (static_cast<int32_t>(done() - target) < 0 && native_renderer::nowUs() - start < 100000u)
-                std::this_thread::sleep_for(std::chrono::microseconds(200));
-            g_inflightWaitUs.fetch_add(native_renderer::nowUs() - start, std::memory_order_relaxed);
-            g_inflight100Waits.fetch_add(1, std::memory_order_relaxed);
-        }
-        void waitPreviousFrame()
-        {
-            if (!query_fence.address)
-                return;
-            const uint32_t target = g_lastPresentScene;
-            const uint64_t start = native_renderer::nowUs();
-            while (static_cast<int32_t>(done() - target) < 0 && native_renderer::nowUs() - start < 100000u)
-                std::this_thread::sleep_for(std::chrono::microseconds(200));
-            g_inflightWaitUs.fetch_add(native_renderer::nowUs() - start, std::memory_order_relaxed);
-        }
         // The scene that finished as `w`: begun after the last bind noted with
         // value w - 2 (its draw ended the scene before). A frame's first scene
         // follows the swap, which leaves no scene open: its frame's first bind.
@@ -383,8 +357,6 @@ namespace
         bool on() { return false; }
         void bind(uint32_t, uint32_t, uint32_t) {}
         void label(const char *, int = 0, int = 0) {}
-        void waitPreviousFrame() {}
-        void waitFrameBefore() {}
         uint32_t backlog() { return 0u; }
         void presented(uint64_t, uint32_t) {}
 #endif
@@ -1958,7 +1930,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // (a sprite in FOGCOL before the sky): where no sky or far scenery
         // covers it the openings showed black (SOTC_BG_CLEAR_FOG=0: black).
         // Layer 1's vertex fog by each draw's FGE (round 65e; SOTC_BG_FGE=0:
-        // none on layer 1, as before; SOTC_NATIVE_BGFOG=1: on every one).
+        // none on layer 1, as before).
         static bool bgFgeOn()
         {
             static const bool on = !std::getenv("SOTC_BG_FGE") || std::atoi(std::getenv("SOTC_BG_FGE")) != 0;
@@ -2201,7 +2173,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         } fat116Stats;
         void fat116Check();
         void mergeStats();
-        void sortFree(); // round 87 (Tuning glSort87)
         struct SortKey87
         {
             uint64_t tex, state, where;
@@ -3417,13 +3388,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // anyway, so they showed there). The targets the world is drawn on
         // (the picture, the glow layer's and the effects' redrawn prefixes)
         // ask for one: vitaGL makes it (D32F + S8) at their first scene.
-        // SOTC_GL_NO_STENCIL=1: as before. Elsewhere: nothing (the depth
-        // texture is DEPTH32F_STENCIL8 already).
+        // Elsewhere: nothing (the depth texture is DEPTH32F_STENCIL8 already).
         static void wantStencil(Target &t)
         {
 #if defined(PS2X_NATIVE_VITA)
-            static const bool off = std::getenv("SOTC_GL_NO_STENCIL") != nullptr;
-            if (off || t.stencil || !t.fbo)
+            if (t.stencil || !t.fbo)
                 return;
             glGenRenderbuffers(1, &t.stencil);
             glBindRenderbuffer(GL_RENDERBUFFER, t.stencil);
@@ -3438,13 +3407,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         static bool scratchDepthOn()
         {
             static const bool on = !std::getenv("SOTC_GL_SCRATCH_DEPTH") || std::atoi(std::getenv("SOTC_GL_SCRATCH_DEPTH")) != 0;
-            return on;
-        }
-        // Round 35: the shadow mask target is not drawn on the Vita (doShadow
-        // returns before its first draw there): not made (SOTC_GL_SHADOWMASK_VITA=1: made and cleared, as before).
-        static bool shadowMaskOn()
-        {
-            static const bool on = std::getenv("SOTC_GL_SHADOWMASK_VITA") && std::atoi(std::getenv("SOTC_GL_SHADOWMASK_VITA")) != 0;
             return on;
         }
 #endif
@@ -3538,10 +3500,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             wantStencil(color);
             makeTarget(background, w, h, true);
             makeTarget(snapshot, w, h, false);
-#if defined(PS2X_NATIVE_VITA)
-            if (shadowMaskOn())
+#if !defined(PS2X_NATIVE_VITA)
+            // Round 35: the shadow mask target is not drawn on the Vita (doShadow returns before its first draw there): not made.
+            makeTarget(shadowMask, w, h, false);
 #endif
-                makeTarget(shadowMask, w, h, false);
             makeTarget(previous, w, h, false);
 #if defined(PS2X_NATIVE_VITA)
             // Round 73: the second picture; the host's copies made at their
@@ -3999,20 +3961,16 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // indexed from the start of this buffer); every frame junk with every
         // skinned part posed on the CPU (SOTC_GPU_SKIN=0). The storage is made
         // empty and written here with the CPU's own memcpy, which the traps
-        // see (the same bytes). SOTC_GL_ARENA_CLIB=1: glBufferData's copy.
+        // see (the same bytes).
         static void uploadStream(GLenum target, const void *data, size_t bytes, GLenum usage = GL_STREAM_DRAW)
         {
 #if defined(PS2X_NATIVE_VITA)
-            static const bool clib = std::getenv("SOTC_GL_ARENA_CLIB") && std::atoi(std::getenv("SOTC_GL_ARENA_CLIB")) != 0;
-            if (!clib)
+            glBufferData(target, static_cast<GLsizeiptr>(bytes), nullptr, usage);
+            if (void *to = glMapBuffer(target, GL_WRITE_ONLY))
             {
-                glBufferData(target, static_cast<GLsizeiptr>(bytes), nullptr, usage);
-                if (void *to = glMapBuffer(target, GL_WRITE_ONLY))
-                {
-                    std::memcpy(to, data, bytes);
-                    glUnmapBuffer(target);
-                    return;
-                }
+                std::memcpy(to, data, bytes);
+                glUnmapBuffer(target);
+                return;
             }
 #endif
             glBufferData(target, static_cast<GLsizeiptr>(bytes), data, usage);
@@ -5242,8 +5200,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
             }
         }
-        if (native_renderer::tuning().glSort87 && native_renderer::tuning().glMergeDraws)
-            sortFree();
         // Round 87 (SOTC_PASS87_LOG=<n>): every n frames, the frame's draws by
         // layer: count, vertices, blends (opaque / normal / additive /
         // subtract), screen-space draws, the full program's kinds (2 mirror,
@@ -5445,154 +5401,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             k = end;
         }
         mergeStats();
-    }
-
-    // Round 87 (Tuning glSort87): within each layer, the draws that may go in
-    // any order are put in texture order between the ones that keep their
-    // place. A draw is free when nothing it draws depends on what was drawn
-    // before it except through the depth test: opaque (Blend::Opaque, or
-    // Normal with a least alpha of 1: Cs x 1 + Cd x 0), depth tested and
-    // written, no alpha test that can fail (its second pass blends), not an
-    // overlay / screen / volume / mirror / water / copy draw. Free draws
-    // never move past a draw that keeps its place, so every blended draw sees
-    // the same draws before it. Two free draws meeting at exactly the same
-    // depth keep the later one (LEQUAL), so there the other may show: the
-    // only change. Key: the texture, then the state and matrix (sameDraw's
-    // fields, hashed), then where the mesh lies (pool, first vertex): the
-    // merges need neighbours with the same texture, state and matrix, and a
-    // contiguous range or a run copy (made once a run repeats: the order is
-    // the same each frame for the same draws).
-    void Renderer::sortFree()
-    {
-        const size_t n = drawOrder.size();
-        if (n < 3)
-            return;
-        sortKeys.clear();
-        sortStats.frames++;
-        auto freeDraw = [&](size_t k) -> bool
-        {
-            const Planned &p = plan[k];
-            const Mesh *m = p.mesh;
-            if (!m || !m->count)
-                return false;
-            const native_renderer::DrawState &st = drawAt(k).state;
-            // Layer 1's far scenery and sky meet at the far plane (their
-            // depths round to 1.0 there): ties everywhere, so they keep their
-            // order (a frozen frame showed a 2 x 2 pixel speck of far landscape
-            // swapped with them sorted).
-            if (st.background || st.overlay || st.screen || st.screenDepthTest || st.noDepthWrite || st.shadowVolume || st.reflectionSource || st.reflectionSample ||
-                st.refractionSample || st.screenCopy || st.previousFrame || st.fresnel || st.debugColour)
-                return false;
-            if (st.texture && !p.tex)
-                return false;
-            float least = -1.0f; // alpha = texel a x 2 x vertex a / 128 x opacity, at least
-            if (p.minAlpha)
-            {
-                least = static_cast<float>(p.minAlpha) / 128.0f * st.opacity;
-                if (p.tex)
-                    least *= static_cast<float>(p.tex->minAlpha) / 255.0f * 2.0f;
-            }
-            if (st.blend == native_renderer::Blend::Normal)
-            {
-                if (!(least >= 1.0f))
-                    return false;
-            }
-            else if (st.blend != native_renderer::Blend::Opaque)
-                return false;
-            const uint32_t at = st.alphaTest;
-            if (at & 1u)
-            {
-                const float aref = static_cast<float>((at >> 4) & 0xFFu) / 128.0f;
-                if (!(least >= aref))
-                    return false;
-            }
-            return true;
-        };
-        auto hashState = [&](const Draw &d) -> uint64_t
-        {
-            const native_renderer::DrawState &x = d.state;
-            uint64_t h = 0xcbf29ce484222325ull;
-            auto mix = [&h](uint64_t v) { h = (h ^ v) * 0x100000001b3ull; h ^= h >> 31; };
-            uint32_t words[16];
-            std::memcpy(words, d.clip, sizeof words);
-            for (uint32_t w : words)
-                mix(w);
-            uint32_t f[6];
-            std::memcpy(f, &x.opacity, sizeof f);
-            for (uint32_t w : f)
-                mix(w);
-            mix(static_cast<uint64_t>(x.clamp) | static_cast<uint64_t>(x.blend) << 8 | static_cast<uint64_t>(x.background) << 16 | static_cast<uint64_t>(x.backgroundFge) << 17 |
-                static_cast<uint64_t>(x.fogged) << 18 | static_cast<uint64_t>(x.writeDepth) << 19 | static_cast<uint64_t>(x.lit) << 20 |
-                static_cast<uint64_t>(x.skinPalette) << 32);
-            if (x.lit)
-            {
-                uint32_t l[32];
-                std::memcpy(l, x.light, sizeof l);
-                for (uint32_t w : l)
-                    mix(w);
-            }
-            return h;
-        };
-        size_t k = 0;
-        while (k < n)
-        {
-            const uint64_t layer = drawOrder[k] >> 32;
-            if (!freeDraw(k))
-            {
-                ++k;
-                continue;
-            }
-            size_t end = k + 1;
-            while (end < n && (drawOrder[end] >> 32) == layer && freeDraw(end))
-                ++end;
-            if (end - k >= 3)
-            {
-                sortKeys.clear();
-                for (size_t j = k; j < end; ++j)
-                {
-                    const Draw &d = drawAt(j);
-                    const Mesh *m = plan[j].mesh;
-                    const uint64_t where = (m->skinned ? 1ull << 63 : 0ull) | (m->indexed ? 1ull << 62 : 0ull) | (m->dynamic ? 1ull << 61 : 0ull) |
-                                           (static_cast<uint64_t>(static_cast<uint32_t>(m->pool + 1) & 0xFFFFu) << 32) | m->first;
-                    sortKeys.push_back({d.state.texture, hashState(d), where, static_cast<uint32_t>(j)});
-                }
-                std::sort(sortKeys.begin(), sortKeys.end(), [](const auto &a, const auto &b)
-                {
-                    if (a.tex != b.tex)
-                        return a.tex < b.tex;
-                    if (a.state != b.state)
-                        return a.state < b.state;
-                    if (a.where != b.where)
-                        return a.where < b.where;
-                    return a.k < b.k;
-                });
-                sortOrder.clear();
-                sortPlan.clear();
-                for (const auto &key : sortKeys)
-                {
-                    sortOrder.push_back(drawOrder[key.k]);
-                    sortPlan.push_back(plan[key.k]);
-                }
-                for (size_t j = k; j < end; ++j)
-                {
-                    sortStats.moved += sortOrder[j - k] != drawOrder[j];
-                    drawOrder[j] = sortOrder[j - k];
-                    plan[j] = sortPlan[j - k];
-                }
-                sortStats.free += end - k;
-                ++sortStats.segments;
-            }
-            k = end;
-        }
-        sortStats.draws += n;
-        static const bool log = ps2_diag::env("SOTC_GL_DRAW_LOG") != nullptr || ps2_diag::env("SOTC_SORT87_LOG") != nullptr;
-        if (log && sortStats.frames % 300u == 0u)
-        {
-            const double f = 300.0;
-            std::fprintf(stderr, "[sort87] per frame: draws %.0f, free %.0f in %.0f segments, moved %.0f\n", sortStats.draws / f, sortStats.free / f,
-                         sortStats.segments / f, sortStats.moved / f);
-            sortStats = {};
-        }
     }
 
     // Round 74 (SOTC_GL_MERGE_STATS=1, analysis): why two draws next to each
@@ -5900,13 +5708,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // console's 110-170 ms render frames with few uploads are a
             // suspect). Now a scan frees down to 7/8 of the budget, and a
             // frame whose scan found nothing old enough does not scan again.
-            // SOTC_GL_RUN_EVICT_OLD=1: as before.
-            static const bool oldWay = std::getenv("SOTC_GL_RUN_EVICT_OLD") && std::atoi(std::getenv("SOTC_GL_RUN_EVICT_OLD")) != 0;
-            if (!oldWay && runScanFrame == arenaFrame)
+            if (runScanFrame == arenaFrame)
                 return false;
             runScanFrame = arenaFrame;
             ++stats.runScans;
-            const uint64_t goal = oldWay ? kRunBudget : std::min<uint64_t>(kRunBudget - kRunBudget / 8u, kRunBudget - std::min<uint64_t>(total, kRunBudget));
+            const uint64_t goal = std::min<uint64_t>(kRunBudget - kRunBudget / 8u, kRunBudget - std::min<uint64_t>(total, kRunBudget));
             // Room made from the copies drawn longest ago (not this frame's
             // or the last one's: the GPU may still read them).
             std::vector<std::pair<uint64_t, uint64_t>> old; // (used, key)
@@ -5918,7 +5724,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::sort(old.begin(), old.end());
             for (const auto &[used, key] : old)
             {
-                if (runVertices + (oldWay ? total : 0u) <= goal)
+                if (runVertices <= goal)
                     break;
                 RunCopy *r = runs.find(key);
                 poolFree(r->pool, r->first, r->count);
@@ -6109,21 +5915,8 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 std::fprintf(stderr, "[g1] render %llu: inlined uniform sends %s\n", (unsigned long long)g1Frames, g1Now ? "on" : "off");
             g1Fast = g1Now;
         }
-        // Round 87 (Tuning glInflight87, a console A/B candidate): the frame
-        // begins its scenes only once the GPU has finished the frame before
-        // (at most this frame on the GPU, instead of the 2-3 the display
-        // queue allows). Same commands, same picture. If the console's GPU
-        // time a frame drops with it, the frames in flight were costing the
-        // GPU itself (GXM's parameter buffer, 16 MB, shared by every scene in
-        // flight: ~120 000 vertices a frame with three float4 varyings fill
-        // ~8.5 MB, so two or three frames in flight overflow it and GXM
-        // renders scenes in parts, the picture stored and loaded again each time).
-#if defined(PS2X_NATIVE_VITA)
-        if (native_renderer::tuning().glInflight87)
-            gpu86::waitPreviousFrame();
-        else if (native_renderer::tuning().glInflight100)
-            gpu86::waitFrameBefore(); // round 100
-#endif
+        // (Round F1: rounds 87 / 100's frames-in-flight limits, glInflight87 / glInflight100, deleted: the console measured
+        // them slower, +3.7 and +1.0 ms a frame.)
         fitTargets(w, h);
         ensureTargets(w, h);
         {
@@ -6337,7 +6130,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // blurred as the Mac's (doShadow). SOTC_SHADOW_SOFT_VITA=0: hard, as before.
         static const bool hardShadows = std::getenv("SOTC_SHADOW_SOFT_VITA") && std::atoi(std::getenv("SOTC_SHADOW_SOFT_VITA")) == 0;
 #else
-        static const bool hardShadows = std::getenv("SOTC_SHADOW_HARD") != nullptr;
+        constexpr bool hardShadows = false; // (round F1: SOTC_SHADOW_HARD, the Mac's hard shadows, deleted)
 #endif
         // What the water (textured 3) and the heat haze (4) read when the
         // mid-frame redraw made them their own copies (0: the usual sources).
@@ -6352,7 +6145,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     softAmount = d.state.shadow;
                 }
         const bool softShadows = softOrder != 0;
-        static const bool bgFog = std::getenv("SOTC_NATIVE_BGFOG") != nullptr;
 
         // Round 87 (Tuning glShmask87): the soft shadows' darkening (and the
         // glow composite after it) left for the picture's next scene, which
@@ -6662,7 +6454,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 }
                 Texture *tex = planned.tex;
                 const int textured = (skipKind == 4 && mesh.skinned) ? 0 : d.state.previousFrame ? 5 : d.state.reflectionSample ? 2 : (d.state.refractionSample ? 3 : (d.state.screenCopy ? 4 : (tex ? 1 : 0)));
-                const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || bgFog || (d.state.backgroundFge && bgFgeOn()));
+                const bool vertexFog = fog.vertexFog && !d.state.screen && (!d.state.background || (d.state.backgroundFge && bgFgeOn()));
 #if defined(PS2X_NATIVE_VITA)
                 // No depth texture for the zFog pass: the world before its layer
                 // blends to the background by its own depth here, slice for slice.
@@ -7474,8 +7266,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const float maskColour[4] = {bloom.maskColor[0], bloom.maskColor[1], bloom.maskColor[2], 1};
             bindTexture(2, color.depth);
 #if !defined(PS2X_NATIVE_VITA)
-            static const bool oldBloom = std::getenv("SOTC_BLOOM_OLD") != nullptr;
-            if (!oldBloom)
             {
                 // The GS chain, as the Metal renderer does it (see there).
                 quad(gsBloom[0], 15, QuadBlend::None, a, maskColour);
@@ -7635,7 +7425,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (fewScenes && lastEvent)
                 keepDepth(color, 1);
         };
-        // Round 87 (Tuning glShmask87, a console A/B candidate). The soft
+        // Round 87 (the Tuning glShmask87 switch deleted in F1; fx94 below uses the fuse). The soft
         // shadows' mask needs the picture put down (its alpha reduced 4 x 4
         // and blurred elsewhere), and the darkening takes it up again. Where
         // the next thing the frame does is the water's copy of the picture
@@ -8127,16 +7917,11 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 ++shadowStats.darkens;
                 return;
             }
-            if (shadowMaskOn())
-            {
-#endif
+            glClearColor(0, 0, 0, 0); // (the state the clear left; the mask itself is not made on the Vita)
+#else
             bindTarget(shadowMask);
             glClearColor(0, 0, 0, 0);
             glClear(GL_COLOR_BUFFER_BIT);
-#if defined(PS2X_NATIVE_VITA)
-            }
-            else
-                glClearColor(0, 0, 0, 0); // (the state the clear left; the mask itself is not drawn here)
 #endif
             glEnable(GL_STENCIL_TEST);
             glStencilMask(0xFF);
@@ -8807,10 +8592,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                    (hazeWithBlur && ev.blur == -4 && screenCopyOrder && ev.order == screenCopyOrder && !(haveRefraction && ev.order == 9u)); // made by the blur at its layer (doBlurApart)
         };
 #if defined(PS2X_NATIVE_VITA)
-        // Round 87 (glShmask87): the shadows' event followed (after the glow
+        // Round 87 (glShmask87, deleted in F1; round 94's fx94 keeps the fuse): the shadows' event followed (after the glow
         // layer at its own layer, hoisted) by the water's copy at 9, made from
         // the picture itself, and nothing drawn into the picture between.
-        if (softShadows && fewScenes && (native_renderer::tuning().glShmask87 || (fx94On && shadowBlurRounds == 1)))
+        if (softShadows && fewScenes && (fx94On && shadowBlurRounds == 1))
         {
             const native_renderer::Tuning &tu = native_renderer::tuning();
             const int haze = static_cast<int>(tu.hazeSource + 0.5f), water = static_cast<int>(tu.waterSource + 0.5f);
@@ -9493,7 +9278,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // (before the next frame's draws), and the copies go. The game thread
         // goes on (it used to wait for the frame being drawn, then for the
         // uploads); it waits only while 4 x m_flushBytes are still on that
-        // list. SOTC_GL_FLUSH_WAIT=1: the earlier way.
+        // list.
         void flushIfLarge()
         {
             if (m_recUploadBytes >= m_flushBytes)
@@ -9502,21 +9287,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         void flushUploads()
         {
             std::unique_lock<std::mutex> lock(m_mutex);
-            static const bool waitOld = std::getenv("SOTC_GL_FLUSH_WAIT") != nullptr;
-            if (waitOld)
-            {
-                waitIdle(lock);
-                // The render thread is idle: the frame handed over is drawn, its
-                // upload list empty.
-                r->uploads.swap(m_rec.uploads);
-                m_rec.uploads.clear();
-                m_uploadsOnly = true;
-                m_queued = true;
-                m_work.notify_one();
-                wake105();
-                waitIdle(lock);
-            }
-            else
             {
                 while (m_sideBytes > 4u * m_flushBytes)
                     m_idle.wait_for(lock, kRecheck);
@@ -9861,10 +9631,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             // holes (held terrain, built again at the terrain budget a frame:
             // the console's "walls you can see through", 2026-10-30). A short
             // pool is the budget's job (poolShort above).
-            // SOTC_GL_PRESSURE_POOLFREE=1: round 33's condition.
-            static const bool poolFreeRule = std::getenv("SOTC_GL_PRESSURE_POOLFREE") && std::atoi(std::getenv("SOTC_GL_PRESSURE_POOLFREE")) != 0;
-            heapOnly = pressure && !critical && spareInPools &&
-                       (!poolFreeRule || (vglMemFree(VGL_MEM_VRAM) >= (8u << 20) && vglMemFree(VGL_MEM_RAM) >= (2u << 20)));
+            heapOnly = pressure && !critical && spareInPools;
 #else
             (void)spareInPools;
 #endif
@@ -10126,15 +9893,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_pickUs = native_renderer::nowUs(); // round 143
                 const uint32_t width = m_width, height = m_height;
                 r->paceSeq = m_paceSeq; // round 110 (read here: a deferred present runs after the next hand-over may begin)
-                const bool uploadsOnly = m_uploadsOnly; // flushUploads (SOTC_GL_FLUSH_WAIT)
-                m_uploadsOnly = false;
                 lock.unlock();
-                if (uploadsOnly)
-                {
-                    Lock gl;
-                    r->applyUploads();
-                }
-                else
                 {
                     const uint64_t lockStart = native_renderer::nowUs();
                     Lock gl;
@@ -10362,7 +10121,6 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         bool m_busy = false;   // the render thread drawing
         uint64_t m_handOvers = 0; // round 73 (SOTC_GL_FREEZE)
         bool m_frozen = false;
-        bool m_uploadsOnly = false; // what is handed over is uploads alone (flushUploads, SOTC_GL_FLUSH_WAIT)
         std::vector<Renderer::Upload> m_side, m_sideApplying; // flushed uploads (flushUploads); the render thread's copy while it applies them
         uint64_t m_sideBytes = 0;
         uint32_t m_width = 0, m_height = 0;
