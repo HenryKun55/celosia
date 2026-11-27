@@ -14161,6 +14161,29 @@ namespace sotc_native
                    !sotc_decomp::p4moveOn() && !sotc_decomp::p3parOn() && !g_skipEnv;
         }
 
+        // SOTC_P2BRACKET >= 3: the hook's game-thread part in four phases (the record and the CLIP chain, the draw decision,
+        // the ring slot with the palette and lights copy, the hand-overs).
+        int g_brPart[4] = {-2, -2, -2, -2};
+        struct Parts
+        {
+            uint32_t token = 0u;
+            void next(int i)
+            {
+                static const char *const kNames[4] = {"display:dt1HRecord", "display:dt1HDecide", "display:dt1HPalette", "display:dt1HPush"};
+                if (token)
+                    sotc_p2::close(token);
+                token = 0u;
+                if (g_brPart[i] == -2)
+                    g_brPart[i] = sotc_p2::named(kNames[i], 3);
+                if (g_brPart[i] >= 0)
+                    token = sotc_p2::open(g_brPart[i]);
+            }
+            ~Parts()
+            {
+                if (token)
+                    sotc_p2::close(token);
+            }
+        };
         // The game thread's part of a model hook (after the frame change and the camera context): the record, the CLIP
         // chain, mdsOpacity, the draw decision, the kick's palette list, the job's slot in the draw order.
         void hook(R5900Context *ctx, uint32_t instance, uint32_t matrix, const float model[16])
@@ -14170,6 +14193,8 @@ namespace sotc_native
             if (!g_started)
                 start();
             ++g_st.hooks;
+            Parts ph;
+            ph.next(0);
             sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
             if (c.pending && c.ctx != ctx)
                 mdslane::join(mdslane::kJHook); // (another context's register pending: everything made first, as mdslane::take)
@@ -14206,6 +14231,7 @@ namespace sotc_native
             c.pending = true;
             c.known = c.shifts = 0;
             // The hook's draw decision after the state (it hands a job over or not).
+            ph.next(1);
             float opacity = 1.0f - real(instance + 0x244u);
             if (word(h + 0xCu) != 0u)
                 opacity *= 1.0f - real(instance + 0x248u);
@@ -14232,6 +14258,7 @@ namespace sotc_native
                     r.verify = true;
                     r.inputs = modelDispInputsOf(r.own, h);
                 }
+                ph.next(2);
                 HookJob &hj = hookjobs::next();
                 hj.kind = kJobModel;
                 hj.model.dt1 = !checking;
@@ -14270,6 +14297,7 @@ namespace sotc_native
                 if (hasPalette && hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != r.own))
                     g_kickOwns.push_back(r.own);
             }
+            ph.next(3);
             if (checking)
             {
                 // Made here, both ways, on one state (no record handed over: the records are drained, the order kept).
