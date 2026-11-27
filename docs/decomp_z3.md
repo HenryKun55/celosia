@@ -119,4 +119,81 @@ clock-skipped, dead-stack bytes, unrepeatable). The functions called inside anot
 (slidecollisionCB in slidecollision, UpdateLayoutClassParentGeometry in its charrootdyn caller, GetGeometryPointerObject in
 UpdateLayoutClassParentGeometry, GetCollisionDBAttribute in the surface attribute) are checked as part of those calls.
 
-@@RESULTS@@
+**Results** (Vita3K, 222 MHz, 89 MB, d1native + W1-W3 + X1-X3 + Y1-Y3 + Z1 + Z2 on; build p1 = p2 + the
+GetGeometryPointerObject table entry, so GetGeometryPointerObject is also checked as a call of its own there):
+
+| run | checked | slide | slideCB (own calls) | parentGeo | layoutGeo (own calls) | geoObj (own calls) | surfAttr (+ dbAttr inline) |
+|---|---|---|---|---|---|---|---|
+| chkRC: ride7 900 s, from 2300, one in 30 (leaves one in 300) | to frame 3 705 (the checks' slowdown: no mount) | 84, 0 bad | 2, 0 bad | 225, 0 bad | 86, 0 bad | 249, 0 bad | 73, 0 bad |
+| **chkLD**: lake6 720 s, from 2400, one in 30 / 300 | to frame 3 678 | **80, 0 bad** | 1, 0 bad | **120, 0 bad** | **103, 0 bad** | **236, 0 bad** | **65, 0 bad** |
+| **chkRE**: ride7 900 s, from 2300, one in 300 / 6000 | **mounted at 3 218**, to frame 14 358 | **42, 0 bad** | **25, 0 bad** | **148, 0 bad** | **76, 0 bad** | **112, 0 bad** | **38, 0 bad** |
+| ctlLF: lake6 420 s, control (the old function in both legs) | to frame ~3 000 | 39, 0 bad | 1 | 60 | 46 | 117; 5 checks with 2 068 unrepeatable words | 34; 10 checks with 1 855 unrepeatable words |
+
+0 void, 0 clock-skipped in every run. The unrepeatable words (geoObj / surfAttr checks in chkRC / chkLD / chkRE, 140-640
+words a check at 0x29126c, 0x2916bc, 0x2938fc ...) are Z1's static block another host thread writes during a ~1 s leg: the
+control run ctlLF, with Z3's functions not run at all, shows the same. Every other word, every register, f0 / fcr31, the
+VU0 file, ACC, Q and status matched in every compared check, among them slidecollisionCB's vf6 made through v0's two
+doublewords and the parent geometry's vf4 / vf8 / vf10-vf17 / ACC.
+
+Pictures, looked at: chkRC t0300 the camera behind Agro on the grass plain, the walls and the far cliffs, t0540 Wander
+mounting Agro by the shrine wall with both shadows; chkLD t0300 / t0540 Wander aiming the bow at the lake (boss4's arena:
+the ruined columns, the iron fence, the water, the HUD); chkRE t0300 Wander galloping on Agro along a cliff wall, t0540
+riding towards the stone arch on the plain, the reins, the shadows. Ground, Agro, Wander look normal.
+
+## 4. Build
+
+`build/agent-scratch/z3/` (M1's Vita build dir copied and re-pointed by `setup.sh`, nice 20, -j4; the configure step at
+each build picks up the new files):
+
+| build | what | used by |
+|---|---|---|
+| p1 | Z3 with a GetGeometryPointerObject table entry | chkRC, chkLD, chkRE, ctlLF, clkOffD / clkOnD |
+| p2 | p1 without that entry (section 5), on main 6d66c6b | - (staged as the interim package) |
+| p3 | p2 rebased onto main 0d923a6 (Z4) | **not built yet**: the A1-A3 rounds took the heavy slots |
+
+p1 / p2: `vita exit 0`, 0 errors; spalign `0 sp-based :128/:256 NEON accesses (of 3417 with an alignment hint)`;
+`sotc_vita_elf_room` 0x1e000 (122 880); no "segment 1 overlaps". No alignas(16) by-value structs (the VU0 copy is a local
+passed by reference), no %zu, no GPU pool reads; every guest pointer through decomp_collision's `G` (main RAM directly,
+anything else through the runtime).
+
+## 5. Speed
+
+Vita3K, ride7 600 s, clock brackets (`extra2.txt`: the same table entries in both runs; the old functions' callees
+bracketed too), build p1, Z3 off (`runs/clkOffD`, mounted at 2211) against on (`runs/clkOnD`, mounted at 2225). The
+machine was not quiet: load average ~22 in the off run and ~41 in the on run (other rounds' builds), so the on run's
+unchanged guest functions are ~1.4x slower a call (GetGeometryPointerQuatPos 7.2 -> 10.2 us). Per call, and divided by
+that 1.42 for the on run:
+
+| piece | off: calls/f, us a call | on: us a call (/ 1.42) |
+|---|---|---|
+| GetGeometryPointerSurfaceAttribute + GetCollisionDBAttribute (incl.) | 10.0, 8.3 | 2.7 (1.9) |
+| the parent geometry's own bodies (updateCharacterClassParentGeometry + UpdateLayoutClassParentGeometry selfs, GetGeometryPointerObject inside) | 3.1, ~17 | ~17 (~12) |
+| slidecollision + slidecollisionCB bodies (selfs, on foot, frames 600-2200) | 0.31, ~26 | ~29 (~20) |
+| GetGeometryPointerObject as a table entry of its own | 42, 1.6 | 3.2 (2.3): **worse**, removed in p2 |
+
+So in Vita3K: the surface attribute ~60 us a frame less (much of it the inner bracket and the two GetLayoutClass guest
+calls), the parent geometry ~15 us, the slide body ~2 us (its weight is the finders it calls, already native): **~75 us a
+frame** while riding. GetGeometryPointerObject's 10-instruction body is cheaper than a table entry's switch / count /
+bracket test, so p2 leaves the generated code in its slot and runs it as host code only inside UpdateLayoutClassParentGeometry.
+A cleaner pair (p3, a quiet machine) is still to run.
+
+**Expected on the console**: small. The ranking showed most of root dynamics is already-native collision code
+(GetCollisionDBCallBack ~0.9 ms a frame in Vita3K, the finders, the water probe, GetGeometryPointerPosition); Z3 removes the
+context and frame traffic of the lifted / generated bodies around them: **~0.03-0.06 ms a frame** of the game thread.
+
+## 6. Console steps
+
+`build/agent-scratch/z3/` (README.txt): `celosia-z3.vpk` / `.elf`, `env-z3-off.txt` (= `all/env-all-on.txt`) and
+`env-z3-on.txt` (+ `SOTC_Z3=1 SOTC_Z3_LOG=600`). Two rides of the usual route, off then on; `python3 tools/p2_report.py
+err-z3-on.txt --elf build/agent-scratch/z3/celosia-z3.elf`: characters:z3Slide / z3ParentGeo / z3LayoutGeo (on), the `[z3]`
+counts, the `[m1pmu]` frame cycles.
+
+## 7. Next
+
+- Root dynamics' real weight is GetCollisionDBCallBack (round 47's native: ~0.9 ms a frame in Vita3K riding, ~0.5 at the
+  lake) and the finders (ClipCollisionFinder / WithKeep / the callbacks, the water probe under CheckUnderVariableXZSurface
+  ~0.8 ms at the lake): native already, but guest-exact transcriptions with their frames and VU0 registers in the context.
+  A typed pass over GetCollisionDBCallBack's per-object loop and the finder (Z1's next item too) is where the time is.
+- GetGeometryPointerPosition (~40 calls / ~160 us a frame) and GetGeometryPointerQuatPos (an 11-type switch, a guest call
+  inside UpdateLayoutClassParentGeometry) as typed host code.
+

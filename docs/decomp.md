@@ -24862,3 +24862,29 @@ built on 04986d4.
   from putting all 32 MB back, which undid the other host threads' writes during the mount's loads. spalign 0 of 3 324,
   room 122 880, no overlap; pictures normal on ride7 / lake6.
 - **Console**: env-y1-off.txt then env-y1-on.txt, one ride each; expected ~0.1-0.2 ms a frame while small animals are near.
+
+## Decomp Z3: the root-dynamics helpers under xz as typed native C++ (SOTC_Z3=1, off by default) (2026-11-27)
+
+docs/decomp_z3.md. Package: `build/agent-scratch/z3/` (README.txt, env-z3-off.txt, env-z3-on.txt; the VPK of the rebased
+build p3 still to make: the A1-A3 rounds took the heavy slots).
+
+- **Where it goes** (Vita3K clock brackets on X1's 17 targets, xz's other callees and theirs, ride7 / lake6): most of root
+  dynamics is collision code that is already native (GetCollisionDBCallBack ~0.9 ms a frame riding, the finders, the water
+  probe under CheckUnderVariableXZSurface ~0.8 ms at the lake, GetGeometryPointerPosition); the charrootdyn wrappers are
+  thin (getCollisionDB 9 of 409 us). Still lifted / generated with bodies of their own: slidecollisionCB, the parent
+  geometry (UpdateLayoutClassParentGeometry and its charrootdyn caller, both generated code in the table), the surface
+  attribute leaves.
+- **What changed**: charrootdyn_slidecollision / slidecollisionCB, charrootdyn_updateCharacterClassParentGeometry /
+  UpdateLayoutClassParentGeometry (new table entries; the generated code when off), GetGeometryPointerSurfaceAttribute /
+  GetCollisionDBAttribute as host functions (z3_funcs.inc), GetGeometryPointerObject as host code inside
+  UpdateLayoutClassParentGeometry; the VU0 operations are the recompiler's own statements on host registers (copied by a
+  script), the FPU divides on the context's fcr31; guest calls left: the finders, getBossDBInfo,
+  GetPointDistanceFromPlane, GetGeometryPointerQuatPos.
+- **Check** (SOTC_Z3_CHECK, Z1's design with the repeat probes): chkRE ride7 mounted at 3218, to frame 14 358: slide 42 /
+  slideCB 25 / parentGeo 148 / layoutGeo 76 / geoObj 112 / surfAttr 38, 0 bad; chkLD lake6: 80 / 1 / 120 / 103 / 236 / 65, 0
+  bad; chkRC 719 more, 0 bad; 0 void; the unrepeatable words are the known static block (the control run ctlLF shows them
+  with Z3 not run).
+- **Speed** (Vita3K, a loaded machine, normalised by an unchanged guest function): ~75 us a frame less while riding
+  (surface attribute ~60, parent geometry ~15, slide body ~2); GetGeometryPointerObject's own table entry was slower than
+  its 10-instruction body and was removed (p2). Expected on the console: ~0.03-0.06 ms a frame.
+- **Gates**: p1 / p2 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap.
