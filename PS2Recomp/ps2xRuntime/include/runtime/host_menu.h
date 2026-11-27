@@ -23,6 +23,7 @@ namespace hostmenu
         std::atomic<int> screenMode{kScreenFit};
         std::atomic<int> volume{10};   // 0..10
         std::atomic<int> language{0};  // 0 auto, 1 Portuguese, 2 English
+        std::atomic<bool> cpu500{false}; // round A3: the Vita's CPU at 500 MHz (K2 module), off by default
     };
 
     Settings &settings();
