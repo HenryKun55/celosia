@@ -237,6 +237,7 @@ namespace dc2
         const uint32_t sp = static_cast<uint32_t>(entrySp) - 0x40u, cloth = GPR_U32(ctx, 4);
         const float dt = ctx->f[12], invDt = ctx->f[13];
         y2::tick();
+        z2::tick();
         if (on() || !sotc_decomp::hotList47On() || !sotc_decomp::fastNativeOn() || sp >= PS2_RAM_SIZE - 0x40u || cloth >= PS2_RAM_SIZE - 0x100u ||
             s8cloth::g_open || ps2_worker::isShell(runtime))
         {
@@ -262,12 +263,15 @@ namespace dc2
         const uint32_t owner = static_cast<uint32_t>(user), params = static_cast<uint32_t>(word);
         const bool full = GPR_U64(ctx, 6) != 0u;
         const bool chk = y2::checking() && !y2::g_ref;
+        const bool z2on = z2::on();                  // round Z2 (z2_dynamics.inc)
+        const bool z2chk = z2on && z2::checking();
+        const bool regChk = chk || z2chk;
         // The velocities' core walks counts the D1 adapter accepts; else the guest call (the D1 entry decides).
         const bool velocityHost = !type1 && rows >= 0 && rows <= 4096 && cols >= 0 && cols <= 4096;
         // The entry's callee-saved registers (the check's last compare).
         uint64_t saved[11] = {};
         uint32_t savedF[12] = {};
-        if (__builtin_expect(chk, 0))
+        if (__builtin_expect(regChk, 0))
         {
             for (int i = 0; i < 8; ++i)
                 saved[i] = GPR_U64(ctx, 16 + i);
@@ -342,13 +346,17 @@ namespace dc2
         }
 
         // ---- the whole-set callback -----------------------------------------------------------------------------
-        auto guestCallback = [&]()
+        auto openStep = [&]()
         {
             if (!g.open)
             {
                 open();
                 y2d::stepRegisters(ctx, s);
             }
+        };
+        auto guestCallback = [&]()
+        {
+            openStep();
             SET_GPR_U64(ctx, 6, word);
             SET_GPR_U64(ctx, 4, cloth64);
             SET_GPR_U64(ctx, 5, user);
@@ -423,9 +431,75 @@ namespace dc2
                 guestCallback();
             }
         }
+        else if (z2::Kind kind = z2::kThree; z2on && z2d::kindOf(callback, kind))
+        {
+            // Round Z2: the callback as a C++ call; a guest call inside it (a fallback) from the D1 driver's context.
+            ++z2::g_st.calls[kind];
+            auto guest = [&](uint32_t target, uint32_t a0, uint32_t a1, uint32_t ra, uint32_t csp, uint32_t a2 = 0u) -> uint32_t
+            {
+                openStep();
+                ++z2::g_st.guestCalls[kind];
+                SET_GPR_U64(ctx, 4, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a0))));
+                SET_GPR_U64(ctx, 5, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a1))));
+                SET_GPR_U64(ctx, 6, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a2))));
+                sotc_decomp::callGuest(rdram, ctx, runtime, target, ra, csp);
+                return GPR_U32(ctx, 2);
+            };
+            auto mine = [&]() { return z2d::callback(rdram, runtime, kind, cloth, owner, params, sp, guest); };
+            auto oldLeg = [&]()
+            {
+                if (!z2::recompRef())
+                    return guestCallback();
+                openStep();
+                SET_GPR_U64(ctx, 6, word);
+                SET_GPR_U64(ctx, 4, cloth64);
+                SET_GPR_U64(ctx, 5, user);
+                SET_GPR_U32(ctx, 31, 0x01139AD4u);
+                SET_GPR_U32(ctx, 29, sp);
+                z2::runRecompiled(rdram, ctx, runtime, static_cast<uint32_t>(callback));
+            };
+            if (__builtin_expect(z2chk, 0) && z2::checkNow(kind, runtime))
+            {
+                openStep(); // both legs from the old leg's context
+                const EeScheduler::ThrowScope noReturn(runtime->eeScheduler());
+                struct Close
+                {
+                    ~Close() { z2::abandon(); }
+                } close;
+                if (z2::begin(kind, rdram, ctx, runtime))
+                {
+                    const bool ran = mine();
+                    z2::afterMine(rdram, ctx, runtime);
+                    oldLeg();
+                    if (ran)
+                    {
+                        ++z2::g_st.host[kind];
+                        z2::finish(kind, rdram, runtime, sp, cloth);
+                    }
+                    else
+                        ++z2::g_st.fallback[kind];
+                }
+                else if (mine())
+                    ++z2::g_st.host[kind];
+                else
+                {
+                    ++z2::g_st.fallback[kind];
+                    guestCallback();
+                }
+            }
+            else if (mine())
+                ++z2::g_st.host[kind];
+            else
+            {
+                ++z2::g_st.fallback[kind];
+                guestCallback();
+            }
+        }
         else
         {
             ++y2::g_st.guestCallback;
+            if (z2on)
+                ++z2::g_st.otherCallback;
             guestCallback();
         }
 
@@ -445,7 +519,77 @@ namespace dc2
             __m128 vf5, vf6;
             d1b::velocityD1Core(m, cloth, rows, cols, vdupq_n_f32(invDt), vf5, vf6);
         };
-        if (!velocityHost)
+        if (!velocityHost && type1 && z2on && z2::partOn(z2::kType1))
+        {
+            // Round Z2: a type-1 cloth's velocities as a C++ call (isysGroupForFirst / Exit and any fallback: guest calls
+            // from the old body's frame, the D1 driver's context).
+            ++z2::g_st.calls[z2::kType1];
+            auto guest = [&](uint32_t target, uint32_t a0, uint32_t a1, uint32_t ra, uint32_t csp, uint32_t a2 = 0u) -> uint32_t
+            {
+                open();
+                ++z2::g_st.guestCalls[z2::kType1];
+                SET_GPR_U64(ctx, 4, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a0))));
+                SET_GPR_U64(ctx, 5, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a1))));
+                SET_GPR_U64(ctx, 6, static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(a2))));
+                sotc_decomp::callGuest(rdram, ctx, runtime, target, ra, csp);
+                return GPR_U32(ctx, 2);
+            };
+            auto mine = [&]()
+            {
+                const sotc_p2::Scope bracket(z2::bracket(z2::kType1));
+                return z2d::type1(rdram, ctx, runtime, cloth, rows, cols, invDt, sp, guest);
+            };
+            auto oldLeg = [&]()
+            {
+                if (!z2::recompRef())
+                    return guestVelocity();
+                open();
+                SET_GPR_U64(ctx, 4, cloth64);
+                SET_GPR_U64(ctx, 5, user);
+                ctx->f[12] = dt;
+                ctx->f[13] = invDt;
+                SET_GPR_U32(ctx, 31, 0x01139B04u);
+                SET_GPR_U32(ctx, 29, sp);
+                z2::runRecompiled(rdram, ctx, runtime, 0x01137640u);
+            };
+            if (__builtin_expect(z2chk, 0) && z2::checkNow(z2::kType1, runtime))
+            {
+                open();
+                const EeScheduler::ThrowScope noReturn(runtime->eeScheduler());
+                struct Close
+                {
+                    ~Close() { z2::abandon(); }
+                } close;
+                if (z2::begin(z2::kType1, rdram, ctx, runtime))
+                {
+                    const bool ran = mine();
+                    z2::afterMine(rdram, ctx, runtime);
+                    oldLeg();
+                    if (ran)
+                    {
+                        ++z2::g_st.host[z2::kType1];
+                        z2::finish(z2::kType1, rdram, runtime, sp, cloth);
+                    }
+                    else
+                        ++z2::g_st.fallback[z2::kType1];
+                }
+                else if (mine())
+                    ++z2::g_st.host[z2::kType1];
+                else
+                {
+                    ++z2::g_st.fallback[z2::kType1];
+                    guestVelocity();
+                }
+            }
+            else if (mine())
+                ++z2::g_st.host[z2::kType1];
+            else
+            {
+                ++z2::g_st.fallback[z2::kType1];
+                guestVelocity();
+            }
+        }
+        else if (!velocityHost)
         {
             ++y2::g_st.type1Velocity;
             guestVelocity();
@@ -471,13 +615,16 @@ namespace dc2
             SET_GPR_U64(ctx, 29, entrySp);
         }
         SET_GPR_U64(ctx, 2, 1u);
-        if (__builtin_expect(chk, 0))
+        if (__builtin_expect(regChk, 0))
         {
             bool same = GPR_U64(ctx, 29) == saved[8] && GPR_U64(ctx, 30) == saved[9] && GPR_U64(ctx, 31) == saved[10];
             for (int i = 0; i < 8; ++i)
                 same = same && GPR_U64(ctx, 16 + i) == saved[i];
             same = same && std::memcmp(&ctx->f[20], savedF, sizeof(savedF)) == 0;
-            y2d::noteY2(3, same, "callee-saved registers", cloth);
+            if (chk)
+                y2d::noteY2(3, same, "callee-saved registers", cloth);
+            if (z2chk)
+                z2::noteRegisters(same);
         }
         ctx->pc = static_cast<uint32_t>(GPR_U64(ctx, 31));
     }

@@ -44,6 +44,10 @@ namespace y2
     // The table entry's Y2 path (decomp_gc13b8dc8::strandsSw): true when Y2 ran the call (ctx: pc = ra).
     bool strandsEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
 
+    // Round Z2 (z2_dynamics.inc: the bridle head's frame): iosTransMatrixF(the matrix at `in`, x, y, z) turned by
+    // iosMulRotMatrixXInt16(angle), the host math strands() makes its frames with; the four rows to out.
+    void transRotX(const uint8_t *rdram, uint32_t in, float x, float y, float z, int32_t angle, float out[16]);
+
     // Counters and the log line (SOTC_Y2_LOG=<frames>).
     struct Stats
     {

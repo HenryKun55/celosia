@@ -2246,5 +2246,7 @@ namespace dc2
     }
 } // namespace dc2
 
+// Round Z2 (SOTC_Z2=1): the driver's callbacks and type-1 velocities as C++ calls (used by y2_dynamics.inc).
+#include "z2_dynamics.inc"
 // Round Y2 (SOTC_Y2=1): getClothDynamics as a host driver (here for the D1 cores and the check's Snap).
 #include "y2_dynamics.inc"

@@ -384,6 +384,14 @@ namespace y2
         return true;
     }
 
+    void transRotX(const uint8_t *rdram, uint32_t in, float x, float y, float z, int32_t angle, float out[16])
+    {
+        const Mem m{const_cast<uint8_t *>(rdram)};
+        const Mat r = rotX(m, transF(m, in, x, y, z), angle);
+        for (int i = 0; i < 4; ++i)
+            vst1q_f32(out + 4 * i, r.r[i]);
+    }
+
     // ---- the solver ----------------------------------------------------------------------------------------------
     namespace
     {

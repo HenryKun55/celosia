@@ -742,6 +742,33 @@ namespace decomp_bridle
         else
             head(rdram, ctx, runtime);
     }
+
+    // ---- Round Z2 (z2_dynamics.inc): the two walks as C++ calls from getClothDynamics' host driver (no context) -------
+    // false outside the D1 adapters' domain (nothing written: the driver makes the guest call).
+    bool z2Three(uint8_t *rdram, uint32_t cloth, uint32_t shapes)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kCloth122) || char122::checkEvery() > 0)
+            return false;
+        const Grid g(Ram{rdram}, cloth);
+        if (!g.ok || !inRam(shapes, 0x190u))
+            return false;
+        d1b::threeD1Core(d1::Mem{rdram}, d1b::GridD1{g.rowsAt, g.rows, g.cols, g.params}, shapes);
+        return true;
+    }
+    bool z2HeadOk(uint8_t *rdram, uint32_t cloth, uint32_t object)
+    {
+        if (!sotc_decomp::switchOn(sotc_decomp::kCloth122) || char122::checkEvery() > 0)
+            return false;
+        const Grid g(Ram{rdram}, cloth);
+        return g.ok && inRam(object, 0x160u);
+    }
+    // 013976B8's walk with its frame matrix (iosTransMatrixF then iosMulRotMatrixXInt16, made by the caller) at `frame`.
+    void z2Head(uint8_t *rdram, uint32_t cloth, uint32_t frame)
+    {
+        const Grid g(Ram{rdram}, cloth);
+        d1b::HeadVu o;
+        d1b::headD1Core(d1::Mem{rdram}, d1b::GridD1{g.rowsAt, g.rows, g.cols, g.params}, frame, _mm_setzero_ps(), o);
+    }
 } // namespace decomp_bridle
 
 SOTC_DECOMP_AB_FUNCTION(0x013978E8u, bridleCollide, decomp_bridle::threeSw);
