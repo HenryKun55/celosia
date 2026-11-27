@@ -38,20 +38,11 @@ namespace s14hook
         kPalette = 1u,
         kAll = 1u
     };
-    inline uint32_t g_parts = kAll;
-    inline bool g_check = false;
-    inline uint32_t g_log = 0;
-    inline void init()
-    {
-        const char *v = std::getenv("SOTC_S14HOOK_PARTS");
-        g_parts = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 0)) & kAll : static_cast<uint32_t>(kAll);
-        v = std::getenv("SOTC_S14HOOK_CHECK");
-        g_check = v && std::atoi(v) != 0;
-        v = std::getenv("SOTC_S14HOOK_LOG");
-        g_log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_check ? 600u : 0u);
-        std::fprintf(stderr, "[s14hook] parts %u check %d log %u\n", g_parts, g_check ? 1 : 0, g_log);
-    }
-    inline bool on(uint32_t part) { return (g_parts & part) != 0u && sotc_decomp::switchOn(sotc_decomp::kS14Hook); }
+    // Round F1: the switch (s14hook / SOTC_S14HOOK) and its knobs (PARTS / CHECK / LOG) deleted, class E: exact but even.
+    // on() is a constant false, so every use below compiles out (the bodies are left for a cleanup round).
+    constexpr bool g_check = false;
+    constexpr uint32_t g_log = 0;
+    constexpr bool on(uint32_t) { return false; }
 
     struct Stats
     {

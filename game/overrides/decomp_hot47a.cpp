@@ -1139,7 +1139,7 @@ namespace decomp_hot47a
     // D2 dispatchers) whose recompiled functions are the lifted copies running their typed leaves.
     inline bool d2PassesOn(PS2Runtime *runtime)
     {
-        if (!kD2TypedLeaves || !sotc_decomp::hotList47On() || sotc_decomp::switchOn(sotc_decomp::kCtl126) || !g_a3Typed || !g_a4Typed)
+        if (!kD2TypedLeaves || !sotc_decomp::hotList47On() || !g_a3Typed || !g_a4Typed)
             return false;
         const auto p = sotc_decomp::guestFunction(runtime, kParentId), l = sotc_decomp::guestFunction(runtime, kLocalQuatPos);
         if ((p != &cam126::parentIdEntry && p != &cam126::parentIdSw) || (l != &cam126::localQPEntry && l != &cam126::localQPSw))

@@ -113,7 +113,6 @@ extern "C" void ps2x_m1_pmu_tick(unsigned long long frame); // ps2_vita_runtime.
 #include "s13mot.h"
 #include "s14hook.h"
 #include "s17iop.h"
-#include "s16plan.h"
 namespace b1sound
 {
     void frame(uint64_t frame, uint8_t *rdram); // round B1 (b1_sound.cpp): the carrier's switch for the next frame, the log
@@ -3291,11 +3290,6 @@ namespace sotc_native
         uint64_t listHash = 0, checked = ~0ull, used = 0, meshEpoch = 0, skinEpoch = 0;
         std::vector<PlanPacket> pk;
         std::vector<uint32_t> surfaceRecords; // round 34: the packets' surface records, each once (hookScrolls)
-        // Round S16 (s16plan.h): what last vouched for the plan: the garbage-move serial, the guest-worker epoch, the
-        // frame, and whether its header was seen initialised then.
-        uint32_t vSerial = ~0u, vEpoch = ~0u;
-        uint64_t vFrame = 0;
-        bool vInited = false;
         // Round P4 (p4_move.h): the guest spans this plan's draws read, made by the game thread at a garbage move only (the
         // worker never touches them): of the plan itself (list, packets, surfaces, header; made again after buildPlan) and
         // of the frame (textures, rows, objects, owner, VU records; made again in each frame a move needs them).
@@ -3358,35 +3352,6 @@ namespace sotc_native
     inline bool planStatsOn() { return g_planStatsOn; }
     inline uint64_t planMix(uint64_t h, uint32_t v) { return (h ^ v) * 0x100000001b3ull; }
     // The list's size / LOD / surface / part / data words, every packet.
-    // Round S16: stamps the plan as vouched for now (just built, or round 8's checks held in full).
-    void s16Vouch(ModelPlan &p, uint32_t header)
-    {
-        p.vSerial = s16plan::serialAt(g_frame);
-        p.vEpoch = s16plan::g_epoch.load(std::memory_order_relaxed);
-        p.vFrame = g_frame;
-        p.vInited = s16plan::inited(header);
-    }
-    void s16Mark(uint32_t header);
-    // Round S16: the guest worker lane's queued inits, marked on the game thread.
-    void s16Drain()
-    {
-        std::lock_guard<std::mutex> lock(s16plan::g_laneLock);
-        const uint32_t w = s16plan::g_laneWritten.load(std::memory_order_relaxed);
-        for (; s16plan::g_laneRead != w; ++s16plan::g_laneRead)
-        {
-            ++s16plan::g_st.initsLane;
-            s16Mark(s16plan::g_laneQueue[s16plan::g_laneRead % s16plan::kLaneQueue]);
-        }
-    }
-    // Round S16: the plan can be taken without looking at the guest list (s16plan.h).
-    inline bool s16Taken(const ModelPlan &p)
-    {
-        if (s16plan::g_laneWritten.load(std::memory_order_acquire) != s16plan::g_laneRead) [[unlikely]]
-            s16Drain();
-        const uint32_t serial = s16plan::serialAt(g_frame);
-        return p.vSerial == serial && p.vInited && p.vEpoch == s16plan::g_epoch.load(std::memory_order_relaxed) &&
-               (!s16plan::g_moves || p.vFrame >= s16plan::g_lastMoveFrame + 2u);
-    }
     uint64_t packetListHash(uint32_t packets, uint32_t &count)
     {
         uint64_t h = 0xcbf29ce484222325ull;
@@ -3441,7 +3406,6 @@ namespace sotc_native
             p.first[i] = word(p.packets + i * 4u);
         p.meshEpoch = native_renderer::meshEvictions();
         p.skinEpoch = g_skinnedEpoch;
-        s16Vouch(p, header);
         p.p4Made = false; // round P4: its span lists made again when a move needs them
         p.p4Frame = ~0ull;
         p.p4Logged = false;
@@ -3503,61 +3467,18 @@ namespace sotc_native
         if (p.checked == g_frame)
             return &p;
         p.checked = g_frame;
-        // Round S16 (s16plan.h): no garbage move, no init on the header since the plan was vouched for: taken as it
-        // is (SOTC_S16PLAN_CHECK: checked in full anyway, a difference counted); otherwise round 8's checks, in full.
-        const bool s16 = s16plan::on();
-        bool taken = false;
-        if (s16)
+        // Round 8's checks (round F1 deleted round S16's vouched plans, s16plan / SOTC_S16PLAN: exact but even).
+        bool ok = p.packets == word(header + 0x60u) && p.surfaces == word(header + 0x50u);
+        for (uint32_t i = 0; ok && i < 5u; ++i)
+            ok = p.first[i] == word(p.packets + i * 4u);
+        const bool full = ((g_frame + (header >> 5)) & 15u) == 0u;
+        if (ok && full)
         {
-            ++s16plan::g_st.uses;
-            taken = s16Taken(p);
-            if (taken)
-                ++s16plan::g_st.taken;
-        }
-        bool ok = true;
-        if (!taken || s16plan::g_check)
-        {
-            ok = p.packets == word(header + 0x60u) && p.surfaces == word(header + 0x50u);
-            for (uint32_t i = 0; ok && i < 5u; ++i)
-                ok = p.first[i] == word(p.packets + i * 4u);
-            // Round S16: a plan not taken is checked in full (and stamped) only when it can be vouched for (its header
-            // seen set up; with SOTC_S16PLAN_MOVES=1 also two frames past the last move); otherwise round 8's cadence.
-            const bool vouchable = s16 && !taken && s16plan::inited(header) && (!s16plan::g_moves || g_frame >= s16plan::g_lastMoveFrame + 2u);
-            const bool full = taken || vouchable || ((g_frame + (header >> 5)) & 15u) == 0u;
-            if (!s16)
-            {
-                ++s16plan::g_st.offChecks;
-                s16plan::g_st.offHashes += ok && full;
-            }
-            if (ok && full)
-            {
-                uint32_t count = 0;
-                ok = packetListHash(p.packets, count) == p.listHash && count == p.count;
-            }
-            if (taken)
-            {
-                ++s16plan::g_st.checks;
-                if (!ok && s16plan::g_st.differ++ < 8u)
-                    std::fprintf(stderr, "[s16plan] differ: frame %llu header 0x%x lod %u: taken unchecked, the list changed (packets 0x%x -> 0x%x, surfaces 0x%x -> 0x%x, count %u); vouched at frame %llu, last move frame %llu\n",
-                                 (unsigned long long)g_frame, header, p.lod, p.packets, word(header + 0x60u), p.surfaces, word(header + 0x50u), p.count,
-                                 (unsigned long long)p.vFrame, (unsigned long long)s16plan::g_lastMoveFrame);
-            }
-            else if (s16)
-            {
-                if (!ok)
-                    ++s16plan::g_st.failed;
-                else if (vouchable)
-                {
-                    s16Vouch(p, header);
-                    ++s16plan::g_st.vouched;
-                }
-                else
-                    ++s16plan::g_st.uninited;
-            }
+            uint32_t count = 0;
+            ok = packetListHash(p.packets, count) == p.listHash && count == p.count;
         }
         if (!ok)
         {
-            p.vSerial = ~0u; // round S16: not vouched for until rebuilt
             if (g_planBudget <= 0)
             {
                 p.checked = ~0ull; // looked at again next time
@@ -3578,52 +3499,6 @@ namespace sotc_native
                 e.resolved = false;
         }
         return &p;
-    }
-    // Round S16 (s16plan.h): the game's model setup calls, each with the model's header: modelInitialize (0x1099680,
-    // a1: loadCdNmoFile's setup of a model file just read), modelReInitialize (0x1096f60, a1: garbageNmoCallBack's,
-    // after the heap's garbage pass moved the model file and relocated it) and modelInitDispModelClass (0x1096b88, a3:
-    // an instance's display class). After the call the header is noted as set up and its plans (every LOD) are no
-    // longer vouched for, so their next use checks them in full (from the guest worker lane: queued, s16Drain).
-    enum S16Init : int
-    {
-        kS16Initialize,
-        kS16ReInitialize,
-        kS16InitDisp,
-        kS16Inits
-    };
-    constexpr uint32_t kS16InitAddr[kS16Inits] = {0x01099680u, 0x01096F60u, 0x01096B88u};
-    constexpr int kS16InitReg[kS16Inits] = {5, 5, 7};
-    PS2Runtime::RecompiledFunction g_s16InitOrig[kS16Inits] = {};
-    template <int which>
-    void s16InitHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        const uint32_t header = GPR_U32(ctx, kS16InitReg[which]);
-        g_s16InitOrig[which](rdram, ctx, runtime);
-        s16plan::g_inited[s16plan::initSlot(header)].store(header, std::memory_order_relaxed);
-        ++s16plan::g_st.initsBy[which];
-        if (sotc_decomp::onWorkerLane(runtime))
-            s16plan::laneInit(header);
-        else
-        {
-            ++s16plan::g_st.inits;
-            s16Mark(header);
-        }
-    }
-    // The header's plans (every LOD) no longer vouched for.
-    void s16Mark(uint32_t header)
-    {
-        bool any = false;
-        for (uint32_t lod = 0; lod < 8u; ++lod)
-        {
-            const auto it = g_plans.find((static_cast<uint64_t>(header) << 3) | lod);
-            if (it != g_plans.end())
-            {
-                it->second.vSerial = ~0u;
-                ++s16plan::g_st.plansMarked;
-                any = true;
-            }
-        }
-        s16plan::g_st.initsUnused += !any;
     }
     // Plans no draw used for 10 s go (every 256 frames).
     void sweepPlans()
@@ -3965,7 +3840,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "ground85", "ptcl89", "join95", "draw95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "ptcl123", "blend123", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "pf134", "clip134", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s13mot", "s14hook", "s17iop", "s16plan", "s21light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch", "d1native", "r1char", "w2"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "ground85", "ptcl89", "join95", "draw95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "ptcl123", "blend123", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "imm128", "pf134", "clip134", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s17iop", "s21light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch", "d1native", "r1char", "w2"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4156,7 +4031,7 @@ namespace sotc_native
                     sotc_decomp::setSwitch(i, isOffAt(r127AllAt) ? false : switchStart[i]);
         // Round 126: `r126all` the round's switches (geo126, ctl126) off in its windows.
         if (r126AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kGeo126), static_cast<int>(sotc_decomp::kCtl126)})
+            for (int i : {static_cast<int>(sotc_decomp::kGeo126)})
                 if (isOffAt(r126AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r126AllAt) ? false : switchStart[i]);
         // Round 128: `r128all` the round's switches (imm128, texr128) off in its windows.
@@ -5136,19 +5011,6 @@ namespace sotc_native
         }
         if (s17iop::g_log && g_frame % s17iop::g_log == 0u)
             s17iop::logLine(g_frame);
-        if (s16plan::g_log && g_frame % s16plan::g_log == 0u)
-        {
-            const s16plan::Stats &st = s16plan::g_st;
-            std::fprintf(stderr,
-                         "[s16plan] frame %llu: plans %llu; on: uses %llu taken %llu vouched %llu failed %llu (round 8's way: header not seen set up%s %llu); "
-                         "inits %llu (initialize %llu reinitialize %llu disp class %llu) lane %llu (no plan %llu; epoch %llu) plans marked %llu; move serial %llu last move frame %llu; check %llu differ %llu; off: checks %llu full hashes %llu\n",
-                         (unsigned long long)g_frame, (unsigned long long)g_plans.size(), (unsigned long long)st.uses, (unsigned long long)st.taken, (unsigned long long)st.vouched,
-                         (unsigned long long)st.failed, s16plan::g_moves ? " or after a move" : "", (unsigned long long)st.uninited, (unsigned long long)st.inits, (unsigned long long)st.initsBy[0], (unsigned long long)st.initsBy[1],
-                         (unsigned long long)st.initsBy[2], (unsigned long long)st.initsLane,
-                         (unsigned long long)st.initsUnused, (unsigned long long)s16plan::g_epoch.load(std::memory_order_relaxed),
-                         (unsigned long long)st.plansMarked, (unsigned long long)sotc_decomp::g_guestMoveSerial, (unsigned long long)s16plan::g_lastMoveFrame, (unsigned long long)st.checks,
-                         (unsigned long long)st.differ, (unsigned long long)st.offChecks, (unsigned long long)st.offHashes);
-        }
         if (s13mot::g_log && g_frame % s13mot::g_log == 0u)
         {
             static EeS11Stats last{};
@@ -14060,7 +13922,7 @@ namespace sotc_native
         inline bool wanted(bool lean, bool leanCheck, bool leanStats, bool check, bool ps2Lists, bool viewChecks)
         {
             return on() && hookjobs::g_on && mdslane::g_frameOn && lean && !leanCheck && !leanStats && !check && !ps2Lists && !viewChecks && !mdslane::g_verify &&
-                   !mdslane::g_check && !mdsTraceOn() && !s14hook::on(s14hook::kPalette) && !sotc_decomp::switchOn(sotc_decomp::kS16Plan) &&
+                   !mdslane::g_check && !mdsTraceOn() &&
                    !sotc_decomp::p4moveOn() && !sotc_decomp::p3parOn() && !g_skipEnv;
         }
 
@@ -16267,8 +16129,6 @@ void installSotcNativeLate(PS2Runtime &runtime)
     s8cloth::install(runtime);           // round S8: the cloth jobs' joins (SOTC_S8CLOTH)
     s9rt::init();                        // round S9: the runtime costs' parts, check and log (SOTC_S9RT_*)
     s11rt::init(runtime);                // round S11: the PS2 machinery's parts and log (SOTC_S11RT_*)
-    s13mot::init();                      // round S13: the motion getters' / time slice's parts and log (SOTC_S13MOT_*)
-    s14hook::init();                     // round S14: the model hook's palette record's parts, check and log (SOTC_S14HOOK_*)
     s17iop::init();                      // round S17: the dispatch nested at the checkpoint (SOTC_S17IOP_*)
     s17iop::apply(0);
     {
@@ -16305,7 +16165,6 @@ void installSotcNativeLate(PS2Runtime &runtime)
         e = std::getenv("SOTC_A1_LOG");
         g_a1Log = e ? static_cast<uint32_t>(std::atoi(e)) : 0u;
     }
-    s16plan::init();                     // round S16: the draw plans' check and log (SOTC_S16PLAN_*)
     b6sync::install(runtime);            // round B6: the host message boxes / semaphore calls (SOTC_B6SYNC; before b1sound..b3threads:
                                          // their count wrappers wrap it)
     b1sound::install(runtime);           // round B1: the VBlank / sound thread's carrier and host tick functions (SOTC_B1SOUND)
@@ -16479,17 +16338,6 @@ void installSotcNative(PS2Runtime &runtime)
     {
         g_zFog = runtime.lookupFunction(kZFog);
         runtime.registerFunction(kZFog, zFogHook);
-    }
-    // Round S16: the model display class init noted for the draw plans (s16plan.h; installed in both states: the A/B
-    // turns only change whether a plan is taken unchecked).
-    {
-        const PS2Runtime::RecompiledFunction hooks[kS16Inits] = {s16InitHook<kS16Initialize>, s16InitHook<kS16ReInitialize>, s16InitHook<kS16InitDisp>};
-        for (int i = 0; i < kS16Inits; ++i)
-            if (runtime.hasFunction(kS16InitAddr[i]))
-            {
-                g_s16InitOrig[i] = runtime.lookupFunction(kS16InitAddr[i]);
-                runtime.registerFunction(kS16InitAddr[i], hooks[i]);
-            }
     }
     std::cerr << "[sotc:native] models drawn by the native renderer" << std::endl;
 }

@@ -37,27 +37,13 @@ namespace s13mot
         kZeroDiv = 8u,
         kAll = 15u
     };
-    inline uint32_t g_parts = kAll;
-    inline uint32_t g_log = 0;
-    inline bool g_check = false;
-    inline uint32_t g_stretch = 8u;
-    inline void init()
-    {
-        // Off unless SOTC_S13MOT=1 (A/B riding even: +0.12 / -0.10 ms, docs/motion_s13.md); the A/B's turns still flip it.
-        // (set here, not in sotc_decomp.h's default list: that header is in every translation unit)
-        const char *e = std::getenv("SOTC_S13MOT");
-        sotc_decomp::g_switch[sotc_decomp::kS13Mot] = (e && e[0] >= '1' && e[0] <= '3') ? 1 : 0;
-        const char *v = std::getenv("SOTC_S13MOT_PARTS");
-        g_parts = v ? static_cast<uint32_t>(std::strtoul(v, nullptr, 0)) & kAll : static_cast<uint32_t>(kAll);
-        v = std::getenv("SOTC_S13MOT_LOG");
-        g_log = v ? static_cast<uint32_t>(std::atoi(v)) : 0u;
-        v = std::getenv("SOTC_S13MOT_CHECK");
-        g_check = v && std::atoi(v) != 0;
-        v = std::getenv("SOTC_S13MOT_STRETCH");
-        if (v && std::atoi(v) >= 1)
-            g_stretch = static_cast<uint32_t>(std::atoi(v));
-    }
-    inline bool on(uint32_t part) { return (g_parts & part) != 0u && sotc_decomp::switchOn(sotc_decomp::kS13Mot); }
+    // Round F1: the switch (s13mot / SOTC_S13MOT, off by default: A/B riding even) and its knobs (PARTS / LOG / CHECK /
+    // STRETCH) deleted, class E. on() is a constant false and the knobs constants, so every use compiles out (the bodies
+    // are left for a cleanup round).
+    constexpr uint32_t g_log = 0;
+    constexpr bool g_check = false;
+    constexpr uint32_t g_stretch = 8u;
+    constexpr bool on(uint32_t) { return false; }
 
     struct Stats
     {

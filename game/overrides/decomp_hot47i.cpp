@@ -1201,7 +1201,7 @@ namespace decomp_hot47i
     // GetMotionOptionNodeParentId's slot runs A3's typed leaf (v0 only): the state the direct read stands for.
     inline bool d2ParentIdTyped(PS2Runtime *runtime)
     {
-        if (!kD2TypedLeaves || sotc_decomp::switchOn(sotc_decomp::kCtl126) || !g_a3Typed)
+        if (!kD2TypedLeaves || !g_a3Typed)
             return false;
         const auto p = sotc_decomp::guestFunction(runtime, kParentId);
         return (p == &cam126::parentIdEntry || p == &cam126::parentIdSw) && sotc_decomp::recompiled(kParentId) == &lift_d1::GetMotionOptionNodeParentId;

@@ -576,92 +576,9 @@ namespace cam126
 
 namespace cam126
 {
-    // ---- ctl126: the characters' control helpers -----------------------------
-    inline bool ctlOn() { return sotc_decomp::switchOn(sotc_decomp::kCtl126); }
-
-    // MVHIST_Update (0x13a74e8; nico_player1's movement history): a0 the history, a1 the object. The slot +0xcb8
-    // gets the frame's weight (*0x14657d0) and the class's velocity (+0x30) times it (w 1), the class's position
-    // (*(+0x134)) to +0x5a0; then the 90 slots' sum over the weights' sum (w 1) to +0xb40, the slot advanced (mod 90).
-    constexpr uint32_t kMvhist = 0x013A74E8u, kGetLayoutClass = 0x010F1A20u, kFrameWeight = 0x014657D0u;
-    void mvhist(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        logTick();
-        const uint32_t h = GPR_U32(ctx, 4);
-        if (!ctlOn() || !okAddr(h) || !okAddr(h + 0xCC0u))
-            return sotc_decomp::recompiled(kMvhist)(rdram, ctx, runtime);
-        const uint32_t ra = GPR_U32(ctx, 31), sp = GPR_U32(ctx, 29);
-        const Saved saved(ctx);
-        SET_GPR_U64(ctx, 4, GPR_U64(ctx, 5));
-        sotc_decomp::callGuest(rdram, ctx, runtime, kGetLayoutClass, 0x013A7500u, sp - 0x10u);
-        saved.restore(ctx);
-        (void)ra;
-        const uint32_t cls = GPR_U32(ctx, 2);
-        const uint32_t idx = rd32(rdram, h + 0xCB8u);
-        if (!okAddr(cls) || idx >= 90u)
-        {
-            // (not seen: the recompiled body from its start would call GetLayoutClass again, which only reads)
-            SET_GPR_U32(ctx, 4, h);
-            SET_GPR_U32(ctx, 5, GPR_U32(ctx, 5));
-            return sotc_decomp::recompiled(kMvhist)(rdram, ctx, runtime);
-        }
-        const float w = rdf(rdram, kFrameWeight);
-        wrf(rdram, h + 0xB50u + idx * 4u, w);
-        stq(rdram, h + idx * 16u, vsetq_lane_f32(1.0f, vmulq_n_f32(ldq(rdram, cls + 0x30u), w), 3));
-        cpq(rdram, h + 0x5A0u + idx * 16u, rd32(rdram, cls + 0x134u));
-        float32x4_t sum = vdupq_n_f32(0.0f);
-        float ws = 0.0f;
-        for (uint32_t k = 0; k < 90u; ++k)
-        {
-            sum = vaddq_f32(sum, ldq(rdram, h + k * 16u));
-            ws += rdf(rdram, h + 0xB50u + k * 4u);
-        }
-        const float inv = ws != 0.0f ? 1.0f / ws : 3.4028235e38f;
-        stq(rdram, h + 0xB40u, vsetq_lane_f32(1.0f, vmulq_n_f32(sum, inv), 3));
-        const uint32_t next = idx + 1u;
-        wr32(rdram, h + 0xCB8u, next < 90u ? next : 0u);
-        SET_GPR_U32(ctx, 2, next);
-        SET_GPR_U64(ctx, 3, next < 90u ? 1u : 0u);
-        ctx->f[0] = inv;
-        ctx->f[1] = ws;
-        ++g_ctl.mvhist;
-        returnTo(ctx);
-    }
-
-    // AI_GetYRotQuaternion (0x13d3c68): a0 out, a1 a quaternion. Its z axis turned by the quaternion, flattened
-    // to the xz plane and normalised; out = the turn about y (x <= 0) or the other axis (+0x1e1000) whose cosine
-    // is that vector's z (SetQuaternionByCosineAxisRotateVWithNoRegularize: axis sqrt((1 - c) / 2), w sqrt((1 + c) / 2)).
-    constexpr uint32_t kYRot = 0x013D3C68u;
-    void yRot(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-    {
-        const uint32_t out = GPR_U32(ctx, 4), q = GPR_U32(ctx, 5);
-        if (!ctlOn() || !okAddr(out) || !okAddr(q))
-            return sotc_decomp::recompiled(kYRot)(rdram, ctx, runtime);
-        const float32x4_t zero = vdupq_n_f32(0.0f);
-        const Frame f = frameOf(ldq(rdram, q), zero);
-        float z[4];
-        vst1q_f32(z, ldq(rdram, sotc_decomp::relocated(rdram, 0x013D3C6Cu, 0x013D3C78u)));
-        float32x4_t v = vmulq_n_f32(f.r[0], z[0]);
-        v = vmlaq_n_f32(v, f.r[1], z[1]);
-        v = vmlaq_n_f32(v, f.r[2], z[2]);
-        float d[4];
-        vst1q_f32(d, v);
-        d[3] = z[3]; // vf0 w-row times z.w
-        d[1] = 0.0f;
-        const float len2 = d[0] * d[0] + d[2] * d[2];
-        const float inv = len2 > 0.0f ? 1.0f / std::sqrt(len2) : 3.4028235e38f;
-        d[0] *= inv;
-        d[2] *= inv;
-        const float c = d[0] * z[0] + d[1] * z[1] + d[2] * z[2];
-        const uint32_t axis = d[0] <= 0.0f ? sotc_decomp::relocated(rdram, 0x013D3D50u, 0x013D3D68u) : sotc_decomp::relocated(rdram, 0x013D3D80u, 0x013D3D90u);
-        const float sh = std::sqrt(std::fabs((1.0f - c) * 0.5f)), ch = std::sqrt(std::fabs((c + 1.0f) * 0.5f));
-        stq(rdram, out, vmulq_n_f32(ldq(rdram, axis), sh));
-        wrf(rdram, out + 0xCu, ch);
-        ctx->f[0] = sh;
-        ctx->f[1] = ch;
-        ctx->f[12] = c;
-        ++g_ctl.yrot;
-        returnTo(ctx);
-    }
+    // ---- ctl126 (round F1: the switch SOTC_CTL126 deleted, class E: route 6 hung with it on; MVHIST_Update and
+    // AI_GetYRotQuaternion run the recompiled code again; the getters below keep only their old path) ----
+    constexpr bool ctlOn() { return false; }
 
     // manager_sub_010AD048 (a motion root track's key): a0 out, a1 the track, a2 the frame. Kind (+0) below 6: the
     // frame's three floats from the table +0xc, w 1. Else w 1 and by +6's low bits: 0 the constant +0..+8, 2 three
@@ -879,8 +796,6 @@ D1_ALIAS(0x011357A8u, ExchangeLWQuaternion, cam126::exchangeLWSw, cam126::exchan
 SOTC_DECOMP_FUNCTION(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNodeQPSw);
 D1_ALIAS(0x010B6428u, GetMotionNodeQuaternionPos, cam126::motionNodeQPSw, cam126::motionNodeQP);
 SOTC_DECOMP_FUNCTION(0x010C1580u, GetCharacterClassNodeQuaternionPos, cam126::ccNodeQP);
-SOTC_DECOMP_FUNCTION(0x013A74E8u, MVHIST_Update, cam126::mvhist);
-SOTC_DECOMP_FUNCTION(0x013D3C68u, AI_GetYRotQuaternion, cam126::yRot);
 SOTC_DECOMP_FUNCTION(0x010AD048u, manager_sub_010AD048, cam126::rootKeySw);
 D1_ALIAS(0x010AD048u, manager_sub_010AD048, cam126::rootKeySw, cam126::rootKeyEntry);
 SOTC_DECOMP_FUNCTION(0x010B63C0u, GetMotionOptionNodeParentId, cam126::parentIdSw);

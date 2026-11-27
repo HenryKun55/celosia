@@ -94,30 +94,10 @@ namespace s8cloth
         {
             if (g_mode >= 0)
                 return;
-            g_mode = envI("SOTC_S8CLOTH", kDefault);
-            g_check = envI("SOTC_S8CLOTH_CHECK", 0);
-            g_log = envI("SOTC_S8CLOTH_LOG", 0);
-            g_learn = envI("SOTC_S8CLOTH_LEARN", 30);
-            g_spinUs = envI("SOTC_S8CLOTH_SPIN_US", 300);
-            // The geometry pointers that do not read through their pointers let go beside a job: off (smkR6 crashed with
-            // it and the alias calls off: a node pointer may be a string's layout object's, written by the job).
-            g_geoFilter = envI("SOTC_S8CLOTH_GEOFILTER", 0);
-            if (g_learn < 1)
-                g_learn = 1;
-            // char104's jobs use the same worker with their own joins: S8 stays off with them.
-            const char *c104 = std::getenv("SOTC_CHAR104");
-#if defined(__vita__)
-            const bool char104 = c104 && std::atoi(c104) == 1;
-#else
-            const bool char104 = !c104 || std::atoi(c104) == 1;
-#endif
-            if (char104 && g_mode > 0)
-            {
-                std::fprintf(stderr, "[s8cloth] off: SOTC_CHAR104's jobs are on (SOTC_CHAR104=0 for S8)\n");
-                g_mode = 0;
-            }
-            if (g_mode > 0)
-                installHook();
+            // Round F1: the switch SOTC_S8CLOTH and its knobs deleted (class E: stays off, A/B z > 2 against; Y2 / Z2
+            // replaced the cloth path): the mode is 0, so nothing below runs (the bodies are left for a cleanup round).
+            g_mode = 0;
+            (void)&installHook;
         }
 
         inline uint32_t rd32(const uint8_t *ram, uint32_t a)
@@ -1062,12 +1042,8 @@ namespace s8cloth
     {
         // Only with the jobs on (the env is there by now: the Vita runtime reads env.txt before the overrides install):
         // with them off nothing of S8 is in the function table.
-        g_gateMask = envI("SOTC_S8CLOTH_GATEMASK", 31);
-        if (envI("SOTC_S8CLOTH", kDefault) == 0 && envI("SOTC_S8CLOTH_INSTALL", 0) == 0)
-        {
-            g_mode = 0;
-            return;
-        }
-        installGates(runtime, std::make_integer_sequence<int, kGateCount>{});
+        // Round F1: SOTC_S8CLOTH / _INSTALL / _GATEMASK deleted: nothing of S8 is in the function table.
+        g_mode = 0;
+        (void)runtime;
     }
 }
