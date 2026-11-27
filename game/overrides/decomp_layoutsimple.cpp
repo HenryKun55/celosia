@@ -835,6 +835,27 @@ namespace decomp_layoutsimple
         }
     }
 
+    // Round Z2 (z2_dynamics.inc: the type-1 velocities' objects): UpdateLayoutClassSimpleGeometry(o, f12) as a C++ call
+    // from a host loop (no context; its frame at sp0 - 0x180 as the old body's, dead stack). false outside
+    // updateSimpleD3's domain or with another function in the table (nothing written: the caller makes the guest call).
+    bool z2Simple(uint8_t *rdram, PS2Runtime *runtime, uint32_t o, uint32_t sp0, float f12)
+    {
+        const d1::Mem m{rdram};
+        if (o >= PS2_RAM_SIZE - 0x1C0u || sp0 > PS2_RAM_SIZE || sp0 < 0x180u)
+            return false;
+        const int16_t count16 = m.get<int16_t>(o + 0x1B4u);
+        const PS2Runtime::RecompiledFunction scaleSlot = sotc_decomp::guestFunction(runtime, kGetScaleMatrix);
+        if (!d1::on() || sotc_decomp::guestFunction(runtime, kSimple) != &updateSimpleSw || !sotc_decomp::motionOn() || !sotc_decomp::leavesOn() ||
+            count16 < 0 || !sitesOk(rdram) || sotc_decomp::jalTarget(rdram, 0x010EEF48u) != kScaleMatrix ||
+            (scaleSlot != &decomp_copymatrix::scaleMatrixV && scaleSlot != &decomp_copymatrix::scaleMatrixVSw) || sotc_decomp::onWorkerLane(runtime))
+            return false;
+        static D3SimpleRegs s; // (static: no 16-aligned struct on the Vita's stack; only vf0 is read before it is written)
+        s.vf[0] = d1::vf0();
+        s.fcr31 = 0u;
+        d3SimpleCore(m, o, count16, sp0 - 0x180u, f12, sotc_decomp::relocated(rdram, 0x010EF2A8u, 0x010EF2ACu), s);
+        return true;
+    }
+
     void updateSimpleD3(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const d1::Mem m{rdram};

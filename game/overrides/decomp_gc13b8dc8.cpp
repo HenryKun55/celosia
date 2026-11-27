@@ -40,6 +40,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 #include "d1_native.h"
+#include "y2_cloth.h"
 
 #include <cstring>
 
@@ -5477,6 +5478,10 @@ namespace decomp_gc13b8dc8
 
     void strandsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
+        // Round Y2 (SOTC_Y2=1; y2_cloth.cpp): the solver as native C++ (false: outside its domain, or the check's
+        // reference run: the D1 body).
+        if (y2::on() && !y2::g_ref && y2::strandsEntry(rdram, ctx, runtime))
+            return;
         if (d1::on())
             strandsD1(rdram, ctx, runtime);
         else

@@ -48,6 +48,7 @@
 #include "sotc_decomp.h"
 #include "sotc_pf141.h"
 #include "w2_chara.h"
+#include "x1_chara.h"
 #include "runtime/ps2_diag.h"
 
 #include "ps2_runtime_macros.h"
@@ -65,7 +66,7 @@
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
 #endif
-#include "a9sweep.h"
+#include "a9sweep.h" // (round A1: on every platform, the Mac build uses A9S_HOIST too)
 
 namespace rest81
 {
@@ -507,6 +508,11 @@ namespace decomp_charageo
         if (__builtin_expect(pf141::g_cur != nullptr, 0))
             note141(rdram, GPR_U32(ctx, 4));
         rest81::nameCharacter(rdram, ctx, runtime, GPR_U32(ctx, 4));
+        // Round X1 (SOTC_X1=1 with d1native; x1_chara.h): the body as native C++ (false: a state the old body keeps).
+        // Here, not in the body: the old body's code (and its profile) stays as it is.
+        if (__builtin_expect(x1::on(), 0) && d1::on() && geo80::every() == 0u && sotc_decomp::motionOn() && sitesOk(rdram) &&
+            x1::execCharaGeometry(rdram, ctx, runtime))
+            return;
         if (__builtin_expect(geo80::every() == 0u, 1) || geo80::g_depth != 0)
             return execCharaGeometryBody(rdram, ctx, runtime);
         geo80::report();

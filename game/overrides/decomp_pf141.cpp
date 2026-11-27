@@ -27,7 +27,7 @@
 #if defined(__vita__)
 #include <psp2/kernel/processmgr.h>
 #endif
-#include "a9sweep.h"
+#include "a9sweep.h" // (round A1: on every platform, the Mac build uses A9S_HOIST too)
 
 namespace pf141
 {

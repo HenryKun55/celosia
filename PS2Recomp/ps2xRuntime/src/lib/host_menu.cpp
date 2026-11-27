@@ -18,6 +18,16 @@
 #include <psp2/system_param.h>
 #endif
 
+#if defined(__vita__)
+// Round A3 (ps2_vita_runtime.cpp): the CPU at 500 MHz through the K2 module.
+extern "C" int ps2x_cpu500_set(int on);
+extern "C" int ps2x_cpu500_state();
+#else
+// Not a Vita: nothing to change; the item shows "refused".
+static int ps2x_cpu500_set(int) { return 0; }
+static int ps2x_cpu500_state() { return -1; }
+#endif
+
 namespace hostmenu
 {
 namespace
@@ -58,6 +68,8 @@ namespace
                 return &k;
         return nullptr;
     }
+    // Round A3: SOTC_CPU500 in env / env.txt sets "CPU at 500 MHz" for this run only: saved only once changed here.
+    bool g_cpu500FromEnv = false, g_cpu500Changed = false;
 
     // ---- Text -------------------------------------------------------------
 
@@ -108,6 +120,12 @@ namespace
             {"Volume", "Volume"},
             {"Language", "Idioma"},
             {"Quit game", "Sair do jogo"},
+            {"CPU at 500 MHz", "CPU a 500 MHz"},
+            {"On (refused: 444 MHz)", "Ligado (recusado: 444 MHz)"},
+            {"Runs the Vita's CPU at 500 MHz instead of 444 (the game's own kernel module; needs HENkaku / taiHEN). "
+             "A few more frames per second; more battery use and heat. If the console refuses, the CPU stays at 444 MHz.",
+             "Roda a CPU do Vita a 500 MHz em vez de 444 (módulo de kernel do próprio jogo; precisa de HENkaku / taiHEN). "
+             "Alguns quadros por segundo a mais; gasta mais bateria e esquenta mais. Se o console recusar, a CPU fica em 444 MHz."},
             {"On", "Ligado"},
             {"Off", "Desligado"},
             {"Fit (4:3)", "Ajustar (4:3)"},
@@ -153,6 +171,7 @@ namespace
         kVolume,
         kLanguage,
         kQuit,
+        kCpu500,
     };
 
     struct Item
@@ -183,6 +202,9 @@ namespace
     };
     const Item kSystemItems[] = {
         {kLanguage, "Language", "Language of this menu. Automatic follows the system language."},
+        {kCpu500, "CPU at 500 MHz",
+         "Runs the Vita's CPU at 500 MHz instead of 444 (the game's own kernel module; needs HENkaku / taiHEN). "
+         "A few more frames per second; more battery use and heat. If the console refuses, the CPU stays at 444 MHz."},
         {kQuit, "Quit game", "Closes the game. Unsaved progress is lost."},
     };
     // The Graphics, Frame rate and Debug tabs list native_renderer::tuningItems()
@@ -197,7 +219,7 @@ namespace
         {"Frame rate", nullptr, -1},
         {"Debug", nullptr, -1},
         {"Sound", kSoundItems, 1},
-        {"System", kSystemItems, 2},
+        {"System", kSystemItems, 3},
         {"About", nullptr, 0},
     };
     constexpr int kTabCount = 7;
@@ -338,6 +360,7 @@ namespace
             return T(langs[std::clamp(g_settings.language.load(), 0, 2)]);
         }
         case kQuit: return g_quitArmed ? T("Press X again to quit") : "";
+        case kCpu500: return T(!g_settings.cpu500 ? "Off" : ps2x_cpu500_state() > 0 ? "On" : "On (refused: 444 MHz)");
         }
         return "";
     }
@@ -364,6 +387,10 @@ namespace
         std::fprintf(f, "settings_version=39\n");
         std::fprintf(f, "exact_alpha=%d\nshow_fps=%d\nscreen=%d\nvolume=%d\nlanguage=%d\n", g_settings.exactAlpha ? 1 : 0,
                      g_settings.showFps ? 1 : 0, g_settings.screenMode.load(), g_settings.volume.load(), g_settings.language.load());
+        if (!g_cpu500FromEnv || g_cpu500Changed) // round A3
+            std::fprintf(f, "cpu500=%d\n", g_settings.cpu500 ? 1 : 0);
+        else if (const KeptValue *file = findKept(g_fileValues, "cpu500"))
+            std::fprintf(f, "cpu500=%d\n", file->value != 0.0 ? 1 : 0);
         for (const native_renderer::TuningItem &item : native_renderer::tuningItems())
         {
             if (item.action)
@@ -410,6 +437,11 @@ namespace
         case kScreen: g_settings.screenMode = (g_settings.screenMode + 3 + dir) % 3; break;
         case kVolume: g_settings.volume = std::clamp(g_settings.volume + dir, 0, 10); break;
         case kLanguage: g_settings.language = (g_settings.language + 3 + dir) % 3; break;
+        case kCpu500:
+            g_settings.cpu500 = !g_settings.cpu500;
+            g_cpu500Changed = true;
+            ps2x_cpu500_set(g_settings.cpu500 ? 1 : 0); // (logs "[a3]" with the clock it got)
+            break;
         case kQuit:
             if (dir > 0)
             {
@@ -528,7 +560,23 @@ namespace
 Settings &settings() { return g_settings; }
 void saveSettings() { save(); }
 
+static void loadFile();
+
 void load()
+{
+    loadFile();
+    // Round A3: SOTC_CPU500=1 / 0 (env / env.txt) overrides the saved "CPU at 500 MHz" for this run; on, the clock is
+    // asked for now (after InitWindow's 444; one "[a3]" line says what the CPU got). Nothing at all when off.
+    if (const char *e = ps2_diag::env("SOTC_CPU500"))
+    {
+        g_cpu500FromEnv = true;
+        g_settings.cpu500 = e[0] && e[0] != '0';
+    }
+    if (g_settings.cpu500)
+        ps2x_cpu500_set(1);
+}
+
+static void loadFile()
 {
     if (const char *open = std::getenv("PS2X_SETTINGS_OPEN")) // development: open at start on tab N
     {
@@ -602,6 +650,7 @@ void load()
         else if (!std::strcmp(key, "screen")) g_settings.screenMode = std::clamp(value, 0, 2);
         else if (!std::strcmp(key, "volume")) g_settings.volume = std::clamp(value, 0, 10);
         else if (!std::strcmp(key, "language")) g_settings.language = std::clamp(value, 0, 2);
+        else if (!std::strcmp(key, "cpu500")) g_settings.cpu500 = value != 0;
     }
     if (old) // (written as the file of this round on its next save)
         g_fileValues.erase(std::remove_if(g_fileValues.begin(), g_fileValues.end(), [](const KeptValue &k) { return k.key == "dbg_subsys_prof"; }),

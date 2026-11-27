@@ -719,6 +719,8 @@ static int c3Release(void)
     return rc;
 }
 
+#include "celosia_a3.c" /* round A3: the ARM at 500 MHz (its own library CelosiaK2A3) */
+
 /* ---------------------------------------------------------------- process events */
 
 static int onGone(SceUID pid)
@@ -732,6 +734,7 @@ static int onGone(SceUID pid)
     {
         putBack(0);
         c3Release();
+        a3Release(); /* A3: 444 again, the NOP out */
         g_owner = -1;
         unlock();
     }
@@ -806,6 +809,7 @@ int celosiaK2Hello(uint32_t nonce, uint32_t *out4)
                 g_c3pid = -1;
                 p2Gone(g_owner);
                 c3Release();
+                a3Release(); /* A3 */
             }
             p2Forget();
             g_owner = pid;
@@ -1064,6 +1068,7 @@ int module_stop(SceSize args, void *argp)
     {
         putBack(0);
         c3Release();
+        a3Release(); /* A3 */
         unlock();
     }
     if (g_evh >= 0)

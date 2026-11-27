@@ -64,6 +64,8 @@ namespace char104 // round 104 (decomp_char104.cpp)
 }
 #include "lines67.h"
 #include "lean_hot.h"
+#include "x3_draw.h"
+#include "z4_sync.h"
 #include "ThreadNaming.h"
 
 #include <algorithm>
@@ -350,6 +352,8 @@ namespace native_renderer
 {
     extern bool g_s9Evict, g_s9Check; // round S9 (native_renderer_gl.cpp): evictKept's textures-only pass, its check
     extern uint64_t g_s9Stats[5]; // its counts: full passes, textures-only passes, checked, differ, evicted
+    extern bool g_z4Mem, g_z4Check; // round Z4 (native_renderer_gl.cpp): the [gl:mem] walks on the render thread, the empty heap pass
+    extern uint64_t g_z4Stats[5];   // passes without the walk, heap textures the check found there, lines handed over, walks compared, differ
 }
 namespace s8cloth
 {
@@ -431,6 +435,14 @@ namespace sotc_native
         extern std::atomic<uint64_t> g_workerHelpFrame;
         void join(int site);
         void frameStart(bool hookWorkerOn);
+    }
+    // Round DT1 (below, before modelDispHook): modelDisp's per-draw host part on a worker of its own from a record.
+    namespace dt1
+    {
+        void drain(int site);         // the game thread: every record handed over made (helps when the worker is not in one)
+        void waitDone(uint64_t seq);  // the hook worker: record seq made
+        void flushWake();             // the draw loop's end (round X3's batched wake-ups)
+        void report();                // [dt1] every 600 frames (the frame log)
     }
 
     // Round 76: the frame log's lines on a thread of their own (below, before frameLog).
@@ -4587,8 +4599,13 @@ namespace sotc_native
     {
         if (g_frame == 0)
             return;
+        sotc_p2::Scope z4State(z4sync::id(z4sync::bEfState)); // round Z4
+        z4sync::Part z4EfA(z4sync::id(z4sync::bEfA));
 #if defined(__vita__)
-        ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
+        {
+            const z4sync::Part z4Pmu(z4sync::id(z4sync::bEfPmu));
+            ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
+        }
 #endif
         if (mdsTraceOn())
             mdsTraceFrame();
@@ -4713,6 +4730,8 @@ namespace sotc_native
         // Round A14 (a14typed): stage 14's typed functions (runtime state as VU0-interface slots, break slots; typed_a14.h).
         a14FlagsNow();
         ++g_a14Frames[g_a14Typed ? 1 : 0];
+        z4EfA.close();
+        z4sync::Part z4EfB(z4sync::id(z4sync::bEfB));
         {
             // Round D1 (d1native): SOTC_D1_LOG=<n>: the D1 bodies' run counts every n frames (d1_native.cpp).
             static const uint64_t d1Log = [] {
@@ -5221,9 +5240,19 @@ namespace sotc_native
                          (unsigned long long)native_renderer::g_s9Stats[1], (unsigned long long)native_renderer::g_s9Stats[2],
                          (unsigned long long)native_renderer::g_s9Stats[3], (unsigned long long)native_renderer::g_s9Stats[4]);
         }
+        z4EfB.close();
+        z4sync::Part z4EfC(z4sync::id(z4sync::bEfC));
         prio100Apply();
         native_renderer::gfxLogIfChanged(g_frame); // round 124: [gfx124] at start and at each change
-        flush2D();
+        z4EfC.close();
+        sotc_p2::close(z4State.token);
+        z4State.token = 0u;
+        {
+            const sotc_p2::Scope z4b(z4sync::id(z4sync::bFlush2D));
+            flush2D();
+        }
+        sotc_p2::Scope z4Scene(z4sync::id(z4sync::bEfScene));
+        z4sync::Part z4ScFog(z4sync::id(z4sync::bScFog));
         // The GS vertex fog (every world batch has FGE): F = base + scale / w
         // from getFogFactor0/1 (0x1089b70/bb0), the colour as
         // graphSetFogParam last set FOGCOL (0x118b8dc/e0/e4).
@@ -5254,25 +5283,25 @@ namespace sotc_native
                              nearD, farD, nearR, farR, k, g_fog.base, g_fog.scale, word(0x118B8DCu), word(0x118B8E0u), word(0x118B8E4u));
             }
         }
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
             std::fprintf(stderr, "[bossfx] frame %llu flags %08x a0 %d b0 %d b4 %d b8 %d bc %d c0 %d c4 %d 298 %g\n", (unsigned long long)g_frame, word(0x1186290u),
                          static_cast<int32_t>(word(0x11862A0u)), static_cast<int32_t>(word(0x11862B0u)), static_cast<int32_t>(word(0x11862B4u)), static_cast<int32_t>(word(0x11862B8u)),
                          static_cast<int32_t>(word(0x11862BCu)), static_cast<int32_t>(word(0x11862C0u)), static_cast<int32_t>(word(0x11862C4u)), real(0x1186298u));
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (z4sync::nativeLog() && g_frame % 120u == 0u)
             std::fprintf(stderr, "[dof] frame %llu on %u rounds %d slices %d focus %g colour %08x %08x %08x %08x\n", (unsigned long long)g_frame, word(0x11862D0u),
                          static_cast<int32_t>(word(0x11862D4u)), static_cast<int32_t>(word(0x11862D8u)), static_cast<float>(static_cast<int32_t>(word(0x11862DCu))),
                          word(0x11862E0u), word(0x11862E4u), word(0x11862E8u), word(0x11862ECu));
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
         {
             std::fprintf(stderr, "[bloomcol] %llu:", (unsigned long long)g_frame);
             for (uint32_t a = 0x118C0C0u; a < 0x118C150u; a += 4u)
                 std::fprintf(stderr, " %x", word(a));
             std::fprintf(stderr, "\n");
         }
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
             std::fprintf(stderr, "[native-frame] %llu bloomZ %u ran %d zfog %d start %g width %g vfog %d base %g scale %g col %g %g %g models %u\n", (unsigned long long)g_frame, word(0x118C094u), g_bloomRan ? 1 : 0, g_fog.enabled ? 1 : 0,
                          g_fog.start, g_fog.width, g_fog.vertexFog ? 1 : 0, g_fog.base, g_fog.scale, g_fog.colour[0], g_fog.colour[1], g_fog.colour[2], g_modelDraws);
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (z4sync::nativeLog() && g_frame % 120u == 0u)
         {
             const uint32_t table = word(0x118BFCCu);
             for (uint32_t layer : {1u, 2u, 3u})
@@ -5284,6 +5313,8 @@ namespace sotc_native
                                  real(pk + 0x128u), real(pk + 0x12Cu));
             }
         }
+        z4ScFog.close();
+        z4sync::Part z4ScPost(z4sync::id(z4sync::bScPost));
         {
             // bossDeathEffect (on while the word 0x1186290 is set; most of the
             // game): layer 8 is drawn apart and laid over the picture sharp
@@ -5337,7 +5368,13 @@ namespace sotc_native
         // Drawn larger than the PS2's 512 x 448 (F10 / SOTC_RENDER_SCALE): the
         // geometry has no resolution; the effects measure in PS2 pixels.
         const float scale = std::clamp(native_renderer::tuning().renderScale, native_renderer::kMinRenderScale, native_renderer::kMaxRenderScale);
-        native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
+        z4ScPost.close();
+        sotc_p2::close(z4Scene.token);
+        z4Scene.token = 0u;
+        {
+            const sotc_p2::Scope z4b(z4sync::id(z4sync::bHandover));
+            native_renderer::endFrame(static_cast<uint32_t>(512.0f * scale + 0.5f), static_cast<uint32_t>(448.0f * scale + 0.5f));
+        }
         // SOTC_NATIVE=2: both drawn, the emulated picture shown unless F9
         // asked for the native one (Tuning::bothShowNative).
         static const bool both = std::atoi(std::getenv("SOTC_NATIVE")) == 2;
@@ -6439,9 +6476,14 @@ namespace sotc_native
         float lights[32] = {};
         uint64_t inputs = 0; // SOTC_HOOK_ASYNC_VERIFY: the inputs' hash at the hook
         uint64_t runInputs = 0; // round 32: what the job itself reads of guest memory, hashed at the hook (modelRunInputs)
+        // Round DT1 (dt1 below): the job made by the DT1 worker from its hook's record (record dt1Seq); the hook worker
+        // waits for that record before it reads anything else of the job. dt1Skip: the state found it out of view.
+        bool dt1 = false, dt1Skip = false;
+        uint64_t dt1Seq = 0;
     };
     void modelDispDraw(const ModelDispJob &job, bool onWorker);
     uint64_t modelDispInputs(const ModelDispJob &job);
+    uint64_t modelDispInputsOf(uint32_t own, uint32_t header); // round DT1
     uint64_t modelRunInputs(const ModelDispJob &job);
     ModelDispJob g_syncJob; // the job when it runs at once
     // The last palette's lo / hi (a model without one draws with them): the
@@ -6525,6 +6567,11 @@ namespace sotc_native
         // Jobs outstanding at most (the game thread waits past it; an area
         // change's cut frame has ~180). Each slot keeps its vectors' room.
         constexpr uint32_t kRing = 512u;
+        // Round X3 (SOTC_X3_RING=<n>, testing): the slots in use, a power of two <= kRing, set once before the first job;
+        // a slot is written again after g_ringLen jobs, not after 512 (1 144 bytes a slot: 585 KB cycled through, every
+        // model hook's slot cold; 256 slots: 293 KB). Off unless asked for (docs/decomp_x3.md: a full ring's waits).
+        uint32_t g_ringLen = kRing, g_ringMask = kRing - 1u;
+        uint32_t g_x3Unwoken = 0; // round X3 kWakePart: hand-overs since the last wake-up (game thread)
         HookJob g_ring[kRing];
         uint64_t g_copyHash[kRing] = {};
         uint64_t g_copyChecked = 0, g_copyDiffer = 0;
@@ -6679,9 +6726,9 @@ namespace sotc_native
                 const uint32_t tail = g_tail.load(std::memory_order_acquire);
                 uint32_t kinds = 0;
                 for (uint32_t i = tail; i != head; ++i)
-                    kinds |= 1u << g_ring[i % kRing].kind;
+                    kinds |= 1u << g_ring[i & g_ringMask].kind;
                 ++g_p3Kinds[kinds & 63u];
-                ++g_p3Last[g_ring[(head - 1u) % kRing].kind & 7u];
+                ++g_p3Last[g_ring[(head - 1u) & g_ringMask].kind & 7u];
                 const uint32_t n = head - tail;
                 ++g_p3Queued[n < 2u ? 0 : n < 5u ? 1 : n < 20u ? 2 : n < 100u ? 3 : 4];
                 ++g_p3Draws[g_frameDraws == 0u ? 0 : g_frameDraws < 50u ? 1 : g_frameDraws < 500u ? 2 : 3];
@@ -6695,7 +6742,7 @@ namespace sotc_native
                 uint32_t hit = 0;
                 for (uint32_t i = tail; i != head; ++i)
                 {
-                    const HookJob &j = g_ring[i % kRing];
+                    const HookJob &j = g_ring[i & g_ringMask];
                     if (j.kind != kJobModel)
                         continue;
                     const uint32_t r[4] = {j.model.instance, j.model.header, j.model.matrix, j.model.own};
@@ -7235,7 +7282,7 @@ namespace sotc_native
                 fresh->live = true;
                 const uint8_t k = static_cast<uint8_t>(fresh - g_p4Snaps) + 1u;
                 for (uint32_t i = covered; i != head; ++i)
-                    g_p4JobSnap[i % kRing].store(k, std::memory_order_release);
+                    g_p4JobSnap[i & g_ringMask].store(k, std::memory_order_release);
                 ++g_p4.snaps;
                 g_p4RamArmed = true;
                 g_p4RamSnap = k - 1u;
@@ -7291,7 +7338,7 @@ namespace sotc_native
         // the copy made before the first such move holds.
         void p4NoteReadImpl(uint32_t addr, uint32_t bytes)
         {
-            const uint8_t k = g_p4JobSnap[t_p4Job % kRing].load(std::memory_order_acquire);
+            const uint8_t k = g_p4JobSnap[t_p4Job & g_ringMask].load(std::memory_order_acquire);
             if (!k || k > kP4Snaps)
                 return;
             const P4Snap &s = g_p4Snaps[k - 1u];
@@ -7306,7 +7353,7 @@ namespace sotc_native
                     g_p4InMoved.fetch_add(1, std::memory_order_relaxed);
                     if (g_p4Told.fetch_add(1, std::memory_order_relaxed) < 40u)
                         std::fprintf(stderr, "[p4chk] frame %llu: job %u (kind %u, site %u) read %07x +%u inside a moved span [%07x, %07x)\n", (unsigned long long)g_frame,
-                                     t_p4Job, static_cast<unsigned>(g_ring[t_p4Job % kRing].kind), static_cast<unsigned>(t_readSite), a, n, s.span[i][0], s.span[i][1]);
+                                     t_p4Job, static_cast<unsigned>(g_ring[t_p4Job & g_ringMask].kind), static_cast<unsigned>(t_readSite), a, n, s.span[i][0], s.span[i][1]);
                     break;
                 }
             if (s.ram && g_ram && std::memcmp(s.ram + a, g_ram + a, n) != 0)
@@ -7318,7 +7365,7 @@ namespace sotc_native
                 g_p4DifferBytes.fetch_add(d, std::memory_order_relaxed);
                 if (g_p4Told.fetch_add(1, std::memory_order_relaxed) < 40u)
                     std::fprintf(stderr, "[p4chk] frame %llu: job %u (kind %u, site %u) read %07x +%u: %u bytes differ from the copy before the move\n", (unsigned long long)g_frame,
-                                 t_p4Job, static_cast<unsigned>(g_ring[t_p4Job % kRing].kind), static_cast<unsigned>(t_readSite), a, n, d);
+                                 t_p4Job, static_cast<unsigned>(g_ring[t_p4Job & g_ringMask].kind), static_cast<unsigned>(t_readSite), a, n, d);
             }
         }
 #endif
@@ -7339,7 +7386,7 @@ namespace sotc_native
             }
             const uint32_t m[4] = {dst, dst + bytes, src, src + bytes};
             // The oldest queued job's view of the moves must stay in the ring (sotc_decomp::g_guestMoves).
-            if (sotc_decomp::g_guestMoveCount - g_ring[tail % kRing].moveCount >= sotc_decomp::kGuestMoves / 2u)
+            if (sotc_decomp::g_guestMoveCount - g_ring[tail & g_ringMask].moveCount >= sotc_decomp::kGuestMoves / 2u)
             {
                 ++g_p4.guard;
                 ++g_p4.full;
@@ -7350,7 +7397,7 @@ namespace sotc_native
             for (uint32_t i = head - 1u; static_cast<int32_t>(i - tail) >= 0; --i)
             {
                 ++walked;
-                if (p4Touches(g_ring[i % kRing], i, m, why))
+                if (p4Touches(g_ring[i & g_ringMask], i, m, why))
                 {
                     last = i;
                     break;
@@ -7748,7 +7795,11 @@ namespace sotc_native
                     }
                     continue;
                 }
-                HookJob &job = g_ring[tail % kRing];
+                HookJob &job = g_ring[tail & g_ringMask];
+                // Round DT1: a model job the DT1 worker makes from its hook's record: that record made first (or made
+                // here when the DT1 worker is not inside one: dt1::waitDone runs the records up to it itself).
+                if (job.kind == kJobModel && job.model.dt1)
+                    dt1::waitDone(job.model.dt1Seq);
                 // SOTC_HOOK_WORKER_DELAY_US=<us> (testing, round 32): each job
                 // that long later, so SOTC_HOOK_ORDER_CHECK sees the game
                 // thread's draws while jobs are still pending, as a slow
@@ -7757,16 +7808,16 @@ namespace sotc_native
                 if (delayUs)
                     std::this_thread::sleep_for(std::chrono::microseconds(delayUs));
                 const uint64_t start = g_timing ? native_renderer::nowUs() : 0u;
-                if (start && g_pushUs[tail % kRing])
+                if (start && g_pushUs[tail & g_ringMask])
                 {
-                    const uint64_t lag = start > g_pushUs[tail % kRing] ? start - g_pushUs[tail % kRing] : 0u;
+                    const uint64_t lag = start > g_pushUs[tail & g_ringMask] ? start - g_pushUs[tail & g_ringMask] : 0u;
                     g_lagUs += lag;
                     g_lagMaxUs = std::max(g_lagMaxUs, lag);
                 }
                 if (g_verify)
                 {
                     ++g_copyChecked;
-                    g_copyDiffer += jobCopyHash(job) != g_copyHash[tail % kRing] ? 1u : 0u;
+                    g_copyDiffer += jobCopyHash(job) != g_copyHash[tail & g_ringMask] ? 1u : 0u;
                 }
                 if (g_verify && job.kind == kJobModel)
                 {
@@ -7792,7 +7843,7 @@ namespace sotc_native
                 runJob(job);
 #if PS2X_P4_CHECK
                 t_p4Track = false;
-                if (g_p4JobSnap[tail % kRing].load(std::memory_order_relaxed))
+                if (g_p4JobSnap[tail & g_ringMask].load(std::memory_order_relaxed))
                     g_p4Jobs.fetch_add(1, std::memory_order_relaxed);
 #endif
                 if (p3)
@@ -7919,30 +7970,51 @@ namespace sotc_native
         HookJob &next()
         {
             const uint32_t head = g_head.load(std::memory_order_relaxed);
-            if (head - g_tail.load(std::memory_order_acquire) >= kRing)
+            if (head - g_tail.load(std::memory_order_acquire) >= g_ringLen)
             {
                 ps2_load::Wait waiting(ps2_load::kSiteHookRing); // round 132: marked for prof129
-                while (head - g_tail.load(std::memory_order_acquire) >= kRing)
+                while (head - g_tail.load(std::memory_order_acquire) >= g_ringLen)
                     std::this_thread::yield();
             }
-            return g_ring[head % kRing];
+            return g_ring[head & g_ringMask];
         }
         void push()
         {
             {
-                HookJob &j = g_ring[g_head.load(std::memory_order_relaxed) % kRing]; // round P4: the moves as they are now
+                HookJob &j = g_ring[g_head.load(std::memory_order_relaxed) & g_ringMask]; // round P4: the moves as they are now
                 j.moveSerial = sotc_decomp::g_guestMoveSerial;
                 j.moveCount = sotc_decomp::g_guestMoveCount;
 #if PS2X_P4_CHECK
-                g_p4JobSnap[g_head.load(std::memory_order_relaxed) % kRing].store(0u, std::memory_order_relaxed);
+                g_p4JobSnap[g_head.load(std::memory_order_relaxed) & g_ringMask].store(0u, std::memory_order_relaxed);
 #endif
             }
-            if (g_verify)
-                g_copyHash[g_head.load(std::memory_order_relaxed) % kRing] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) % kRing]);
-            g_pushUs[g_head.load(std::memory_order_relaxed) % kRing] = g_timingLag ? native_renderer::nowUs() : 0u;
+            if (g_verify && !(g_ring[g_head.load(std::memory_order_relaxed) & g_ringMask].kind == kJobModel && g_ring[g_head.load(std::memory_order_relaxed) & g_ringMask].model.dt1))
+                g_copyHash[g_head.load(std::memory_order_relaxed) & g_ringMask] = jobCopyHash(g_ring[g_head.load(std::memory_order_relaxed) & g_ringMask]); // (round DT1: a DT1 job's by its maker)
+            g_pushUs[g_head.load(std::memory_order_relaxed) & g_ringMask] = g_timingLag ? native_renderer::nowUs() : 0u;
             g_head.store(g_head.load(std::memory_order_relaxed) + 1u, std::memory_order_seq_cst);
+            ++x3::g_st.hookPushes;
             if (g_sleeping.load(std::memory_order_seq_cst))
+            {
+                // Round X3 (kWakePart): in the draw loop, a sleeping worker woken every kWakeEvery hand-overs; every
+                // join wakes it as before, and x3WakeFlush at the loop's end.
+                if (x3::g_batchWakes && ++g_x3Unwoken < x3::kWakeEvery)
+                {
+                    ++x3::g_st.hookHeld;
+                    return;
+                }
+                g_x3Unwoken = 0;
+                ++x3::g_st.hookWakes;
                 wakeWorker();
+            }
+        }
+        void x3Flush()
+        {
+            g_x3Unwoken = 0;
+            if (g_sleeping.load(std::memory_order_seq_cst) && g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_acquire))
+            {
+                ++x3::g_st.flushWakes;
+                wakeWorker();
+            }
         }
         // A frame's end (syncFrame, after its join): the jobs' and joins' time
         // into the frame log's counters (hooks: the game thread's, joins
@@ -8010,6 +8082,26 @@ namespace sotc_native
         // A frame's start: jobs on the worker this frame unless a check runs.
         void frameStart()
         {
+            if (__builtin_expect(g_ringLen == kRing && g_head.load(std::memory_order_relaxed) == 0u, 0))
+            {
+                // Round X3: the ring's length, once, before any job (the Vita's env.txt is read after static init).
+                static bool once = false;
+                if (!once)
+                {
+                    once = true;
+                    // (Not part of SOTC_X3 by default: in Vita3K 128 slots made the game thread wait for a full ring in the
+                    // frames with 130-265 jobs, 33 s of waits in a 600 s ride, where 512 never waited.)
+                    uint32_t n = kRing;
+                    if (const char *e = std::getenv("SOTC_X3_RING"))
+                        n = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
+                    uint32_t len = 16u;
+                    while (len < n && len < kRing)
+                        len <<= 1;
+                    g_ringLen = len;
+                    g_ringMask = len - 1u;
+                    std::fprintf(stderr, "[x3] hook job ring: %u of %u slots (a slot %u bytes)\n", g_ringLen, kRing, static_cast<unsigned>(sizeof(HookJob)));
+                }
+            }
             static const bool checks = []
             {
                 for (const char *name : {"SOTC_DIFFTEST", "SOTC_MODELDISP_CHECK", "SOTC_VIEW_CHECK", "SOTC_NATIVE_LOG", "SOTC_NATIVE_LOGMAT", "SOTC_LOG_LAYER",
@@ -8087,6 +8179,21 @@ namespace sotc_native
         if (frame != g_frame)
         {
             const ps2_load::GameZone zone134(0x2020u); // round 134: the frame's change (prof129), whichever hook meets it
+            if (__builtin_expect(!z4sync::g_brInit, 0))
+            {
+                z4sync::init();
+                native_renderer::g_z4Mem = z4sync::g_on;
+                native_renderer::g_z4Check = z4sync::g_check;
+                z4sync::bracketInit();
+            }
+            if (z4sync::g_log && frame % z4sync::g_log == 0u)
+                std::fprintf(stderr, "[z4] frame %llu: on %d | heap-texture passes without the walk %llu (heap textures found there by the check %llu) | "
+                                     "[gl:mem] lines handed to the render thread %llu, walks compared %llu, differ %llu\n",
+                             (unsigned long long)frame, z4sync::g_on ? 1 : 0, (unsigned long long)native_renderer::g_z4Stats[0],
+                             (unsigned long long)native_renderer::g_z4Stats[1], (unsigned long long)native_renderer::g_z4Stats[2],
+                             (unsigned long long)native_renderer::g_z4Stats[3], (unsigned long long)native_renderer::g_z4Stats[4]);
+            const sotc_p2::Scope z4Sync(z4sync::id(z4sync::bSync)); // round Z4
+            z4sync::Part z4Head(z4sync::id(z4sync::bHead));
             const bool timed = native_renderer::tuning().frameTiming();
             uint64_t mark = timed ? native_renderer::nowUs() : 0u;
             uint64_t sync[kSyncParts] = {};
@@ -8108,36 +8215,59 @@ namespace sotc_native
                     std::memcpy(g_syncUs, parts, sizeof(g_syncUs));
                 }
             } syncDone{sync, lap};
-            hookJoin(hookjobs::k_frame); // the frame's model jobs (round 23)
+            z4Head.close();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bJoin));
+                hookJoin(hookjobs::k_frame); // the frame's model jobs (round 23)
+            }
             lap(kSyncJoin);
-            hookjobs::frameEnd();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bFrameEnd));
+                hookjobs::frameEnd();
+            }
+            z4sync::Part z4Clear(z4sync::id(z4sync::bClear));
             if (g_staleCheck)
             {
                 staleCompare("next frame");
                 g_stalePrevious.swap(g_staleRegions);
                 g_staleRegions.clear();
             }
-            endFrame();
+            z4Clear.close();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bEndFrame));
+                endFrame();
+            }
             g_skinRecords.clear();
             g_skinDrawList.clear();
             g_kickOwns.clear();
             g_kickMustJoin = false;
             lap(kSyncEnd);
-            frameLog();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bLog));
+                frameLog();
+            }
             lap(kSyncLog);
             // The debug menu's "Sound log" (round 20): audio_stats' level
             // follows it at each frame's end.
+            sotc_p2::Scope z4Audio(z4sync::id(z4sync::bAudio));
             {
                 const int level = static_cast<int>(native_renderer::tuning().audioLog + 0.5f);
                 if (level != ps2x::iop::audio_stats::level())
                     ps2x::iop::audio_stats::setLevel(level);
             }
             audioLog();
+            sotc_p2::close(z4Audio.token);
+            z4Audio.token = 0u;
             lap(kSyncAudio);
             // The idle thread's turn once a frame (round 25, sotc_overrides.cpp).
             if (g_runtimeForLog)
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bIdle));
                 sotc_decomp::idleTurn(rdram, g_runtimeForLog);
+            }
             lap(kSyncIdle);
+            const sotc_p2::Scope z4After(z4sync::id(z4sync::bAfter));
+            sotc_p2::Scope z4Ticks(z4sync::id(z4sync::bTicks));
             // SOTC_FRAME_STALL_MS=<ms> (measuring, round 10): the game thread
             // sleeps that long at each frame's end from frame
             // SOTC_FRAME_STALL_FROM (default 0) on, so the Mac runs frames as
@@ -8177,17 +8307,35 @@ namespace sotc_native
                              (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), dt * 1000.0f, player[0], player[1], player[2],
                              eye[0], eye[1], eye[2], horse[0], horse[1], horse[2]);
             }
-            sotc_prof::frameTick(frame);
-            sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
-            s5ptcl::frameEnd();            // round S5: the particle batch joined at the frame's end, its statistics
-            p2ptcl::frameEnd(rdram);       // round P2: the prefetch helper asked for the display walk's particles, its statistics
-            s6coll::frameEnd(rdram);       // round S6: the water indexes handed to the worker to be vouched for / made
+            {
+                z4sync::Part z4t(z4sync::id(z4sync::bTkProf));
+                sotc_prof::frameTick(frame);
+                z4t.close();
+                z4sync::Part z4w(z4sync::id(z4sync::bTkWorker));
+                sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
+                z4w.close();
+                z4sync::Part z4s5(z4sync::id(z4sync::bTkS5));
+                s5ptcl::frameEnd(); // round S5: the particle batch joined at the frame's end, its statistics
+                z4s5.close();
+                z4sync::Part z4p2(z4sync::id(z4sync::bTkP2));
+                p2ptcl::frameEnd(rdram); // round P2: the prefetch helper asked for the display walk's particles, its statistics
+                z4p2.close();
+                const z4sync::Part z4s6(z4sync::id(z4sync::bTkS6));
+                s6coll::frameEnd(rdram); // round S6: the water indexes handed to the worker to be vouched for / made
+            }
+            z4sync::Part z4TkRest(z4sync::id(z4sync::bTkRest));
             char104::frameTick(frame);     // round 104
             sotc_decomp::g_gameFrame = frame;
             sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
-            native_renderer::beginFrame();
+            z4TkRest.close();
+            sotc_p2::close(z4Ticks.token);
+            z4Ticks.token = 0u;
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bBegin));
+                native_renderer::beginFrame();
+            }
             // SOTC_DRAW_DUMP_FRAMES=f,f,... (debugging): those frames' draws to
             // SOTC_DRAW_DUMP_DIR (default shots)/draws_<frame>.txt.
             static const std::vector<uint64_t> dumpFrames = []
@@ -8226,7 +8374,12 @@ namespace sotc_native
             g_frame = frame;
             if (__builtin_expect(ps2_resume::testArmed(), 0)) // round V2: SOTC_TEST_SUSPEND
                 ps2_resume::testTick(frame);
-            newDrawOrder();
+            {
+                const sotc_p2::Scope z4b(z4sync::id(z4sync::bDrawOrder));
+                newDrawOrder();
+            }
+            const sotc_p2::Scope z4Start(z4sync::id(z4sync::bStart));
+            z4sync::Part z4StA(z4sync::id(z4sync::bStA));
             {
                 const auto envOn = [](const char *name)
                 {
@@ -8248,7 +8401,12 @@ namespace sotc_native
                 g_surfaceMemo = g_r2 && surfaceMemo;
                 g_prefetch = g_r2 && prefetch;
             }
-            hookjobs::frameStart();
+            z4StA.close();
+            {
+                const z4sync::Part z4StB(z4sync::id(z4sync::bStB));
+                hookjobs::frameStart();
+            }
+            const z4sync::Part z4StC(z4sync::id(z4sync::bStC));
             gcovDump(frame);
             g_frameDraws = 0;
             g_skinnedDraws = 0;
@@ -9449,7 +9607,7 @@ namespace sotc_native
             meshDispDraw(job);
             return;
         }
-        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobMesh;
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) & hookjobs::g_ringMask].kind = kJobMesh;
         hookjobs::push();
     }
 
@@ -9711,7 +9869,7 @@ namespace sotc_native
             shadowDispDraw(job);
             return;
         }
-        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobShadow;
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) & hookjobs::g_ringMask].kind = kJobShadow;
         hookjobs::push();
     }
 
@@ -10589,7 +10747,7 @@ namespace sotc_native
             ptclVtxDraw(job, env);
             return;
         }
-        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobPtcl;
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) & hookjobs::g_ringMask].kind = kJobPtcl;
         hookjobs::push();
     }
 
@@ -10780,7 +10938,7 @@ namespace sotc_native
             ptclVtxDraw(*job, env);
             return;
         }
-        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) % hookjobs::kRing].kind = kJobPtcl;
+        hookjobs::g_ring[hookjobs::g_head.load(std::memory_order_relaxed) & hookjobs::g_ringMask].kind = kJobPtcl;
         hookjobs::push();
     }
 
@@ -12655,6 +12813,7 @@ namespace sotc_native
         };
         constexpr uint32_t kRing = 1024u;
         Job g_ring[kRing];
+        uint32_t g_x3Unwoken = 0; // round X3 kWakePart: hand-overs since the last wake-up (game thread)
         uint64_t g_pushed = 0, g_frameFirst = 0; // game thread
         std::atomic<uint64_t> g_done{0};
         uint32_t g_lastClipOut = 0; // the lane's last job's register (read after a join)
@@ -12936,6 +13095,7 @@ namespace sotc_native
         // back in its context.
         void join(int site)
         {
+            dt1::drain(site); // round DT1: the records' states first (they write what the lane's would, CLIP included)
             sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
             if (g_verify)
                 g_trackValid = false; // a reader's own judgements are not in the records
@@ -13004,6 +13164,7 @@ namespace sotc_native
         void frameStart(bool hookWorkerOn)
         {
             join(kJFrame);
+            dt1::report(); // round DT1 (after the join: the records made)
             // (read at the first frame: the Vita's env.txt comes after static init)
             static const bool envRead = []
             {
@@ -13051,6 +13212,7 @@ namespace sotc_native
         // The hook: its inputs into the next job, the job handed over.
         Job &take(R5900Context *ctx)
         {
+            dt1::drain(-4); // round DT1: a lane job after DT1 records (a frame that changed its switch): those first (the CLIP chain)
             sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
             if ((c.pending && c.ctx != ctx) || g_pushed - g_frameFirst >= kRing)
             {
@@ -13088,8 +13250,28 @@ namespace sotc_native
             // Round 88: seq_cst (not release), so the g_sleeping load below
             // cannot be ordered before this store (see loop()).
             __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_SEQ_CST);
+            ++x3::g_st.lanePushes;
             if (g_sleeping.load(std::memory_order_seq_cst))
             {
+                // Round X3 (kWakePart): in the draw loop, a sleeping lane woken every kWakeEvery hand-overs (the hook
+                // worker and the game thread's joins run the jobs a model needs; x3WakeFlush at the loop's end).
+                if (x3::g_batchWakes && ++g_x3Unwoken < x3::kWakeEvery)
+                {
+                    ++x3::g_st.laneHeld;
+                    return;
+                }
+                g_x3Unwoken = 0;
+                ++x3::g_st.laneWakes;
+                std::lock_guard<std::mutex> lock(g_mutex);
+                g_work.notify_one();
+            }
+        }
+        void x3Flush()
+        {
+            g_x3Unwoken = 0;
+            if (g_sleeping.load(std::memory_order_seq_cst) && __atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) > g_done.load(std::memory_order_seq_cst))
+            {
+                ++x3::g_st.flushWakes;
                 std::lock_guard<std::mutex> lock(g_mutex);
                 g_work.notify_one();
             }
@@ -13182,6 +13364,959 @@ namespace sotc_native
         }
     }
 
+    // Round X3 (x3_draw.h kWakePart): the draw loop's end: a hook worker / lane left asleep with hand-overs pending woken.
+    void x3WakeFlush()
+    {
+        dt1::flushWake(); // round DT1
+        hookjobs::x3Flush();
+        mdslane::x3Flush();
+    }
+
+    // ---- Round DT1 (docs/decomp_dt1.md; SOTC_DT1=1, off by default): modelDisp's per-draw host part off the game thread ----
+    //
+    // arch_plan item 1, phase 1, the model path's first cut. With the lane on (round 61), the game thread's part of each
+    // model hook after the frame change was still ~15 k cycles on the console (P3 / wx brackets: modelDisp's self 1.06 M a
+    // frame at 42 hooks, 0.4 M of it the frame change): the plan lookup, the lane's hand-over, the part decision, the job's
+    // fields, the scroll rows, the palette and the lights. DT1 moves all of that to a worker of its own (core 1), from a
+    // record the hook writes (the packet): the instance, its matrix, the camera's two matrices, the LOD word, the fade, the
+    // globals the lane copies, the CLIP register's chain. What stays on the game thread is what other game-thread code
+    // reads: mdsOpacity's two guest words, the hook's draw / no-draw decision (opacity, the LOD's table), the kick's palette
+    // list and S4's read note (with a palette test of two words), the hook ring's slot in the draw order, and the CLIP
+    // register's lazy chain (sotc_decomp::g_lazyClip, as mdslane::take / push).
+    //
+    // The DT1 worker runs, per record and in the records' order: the plan (modelPlan), the lane's state (mdslane::run:
+    // modelDispState, the out-of-view test and the parts), the job's fields as the hook made them (hookScrolls, the palette
+    // copy, the lights). The hook worker waits for a model job's record before it reads the job (dt1::waitDone; it makes the
+    // records itself when the DT1 worker is not inside one, as round 72's lane help). Every game-thread reader of what the
+    // records write joins first: mdslane::join (the CLIP / layer-cache / shadow-flag readers, every hook join, the frame's
+    // start) drains the records first, and the kick drains them (its palette list, its join flag; the records read the
+    // frame's guest state, which the next frame's logic may change after the kick). The lane is idle in a DT1 frame.
+    //
+    // SOTC_DT1_CHECK=1: at one hook every SOTC_DT1_CHECK_EVERY (default 40) from frame SOTC_DT1_CHECK_FROM, on the game thread
+    // with the records drained: the old code (the hook's lines, the lane's job run inline) and the DT1 record path on one
+    // state, the job compared field by field, the CLIP register, and every guest word either leg wrote (one 32 MB copy; only
+    // the words the first leg changed are put back). SOTC_DT1_CHECK_CONTROL=1: the old code in both legs. SOTC_DT1_VERIFY=1:
+    // the guest inputs the worker reads after the hook (the chain's tags, lights and palette packet, the header's lists, the
+    // globals) hashed at the hook and again when the record is made. SOTC_DT1_LOG=<frames> (default 600): [dt1] lines.
+    uint64_t modelDispInputsOf(uint32_t own, uint32_t header);
+    namespace dt1
+    {
+        signed char g_on = -1;
+        bool g_check = false, g_control = false, g_verify = false, g_pin = true, g_paletteAtHook = true, g_wake = false, g_skipEnv = false;
+        uint64_t g_checkFrom = 0, g_checkEvery = 40;
+        uint32_t g_log = 600;
+        void readEnv()
+        {
+            const char *e = std::getenv("SOTC_DT1");
+            g_on = (e && e[0] == '1') ? 1 : 0;
+            g_check = (e = std::getenv("SOTC_DT1_CHECK")) && e[0] == '1';
+            g_control = (e = std::getenv("SOTC_DT1_CHECK_CONTROL")) && e[0] == '1';
+            g_verify = (e = std::getenv("SOTC_DT1_VERIFY")) && e[0] == '1';
+            g_pin = !((e = std::getenv("SOTC_DT1_PIN")) && e[0] == '0');
+            g_paletteAtHook = !((e = std::getenv("SOTC_DT1_PALETTE")) && e[0] == 'w'); // SOTC_DT1_PALETTE=worker: the copy in the record's make
+            g_wake = (e = std::getenv("SOTC_DT1_WAKE")) && e[0] == '1'; // 1: the hook wakes a sleeping worker (p3's batched wake-ups)
+            g_skipEnv = std::getenv("SOTC_NATIVE_SKIP") != nullptr; // (modelDispHook's debugging skip: the old path)
+            if ((e = std::getenv("SOTC_DT1_CHECK_FROM")))
+                g_checkFrom = std::strtoull(e, nullptr, 10);
+            if ((e = std::getenv("SOTC_DT1_CHECK_EVERY")))
+                g_checkEvery = std::max<uint64_t>(1u, std::strtoull(e, nullptr, 10));
+            if ((e = std::getenv("SOTC_DT1_LOG")))
+                g_log = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
+            if (g_on)
+                std::fprintf(stderr, "[dt1] on: check %d (from frame %llu, every %llu hooks, control %d) verify %d pin %d log %u palette at the %s, wake-ups %d\n", g_check ? 1 : 0,
+                             static_cast<unsigned long long>(g_checkFrom), static_cast<unsigned long long>(g_checkEvery), g_control ? 1 : 0, g_verify ? 1 : 0,
+                             g_pin ? 1 : 0, g_log, g_paletteAtHook ? "hook" : "worker", g_wake ? 1 : 0);
+        }
+        inline bool on()
+        {
+            if (__builtin_expect(g_on < 0, 0))
+                readEnv();
+            return g_on != 0;
+        }
+
+        // The packet: one record a model hook (host memory; guest addresses kept as keys and for the guest reads the
+        // worker makes of the frame's display data: the header, the plan's packets, the instance chain).
+        struct Rec
+        {
+            uint64_t seq = 0;
+            uint32_t instance = 0, matrix = 0, header = 0, own = 0, table = 0, lod = 0, gameLod = 0;
+            uint64_t lodWord = 0;
+            bool fading = false, partCulled = false, noJob = false, chained = false, verify = false, paletteAtHook = true;
+            uint32_t known = 0, shifts = 0, clipIn = 0;
+            float opacity = 0.0f;
+            float model[16] = {}, camera[16] = {}, projection[16] = {};
+            uint32_t boss = 0, cache = 0, fog = 0;
+            float ripple0 = 0.0f, ripple1 = 0.0f, lodScale = 0.0f;
+            uint32_t slot = 0;          // the hook ring's index of its job (the verify's copy hash)
+            HookJob *hook = nullptr;    // its job (none: the hook hands no job over; the state still runs)
+            uint64_t inputs = 0;        // SOTC_DT1_VERIFY
+        };
+        constexpr uint32_t kRing = 512u;
+        Rec g_ring[kRing];
+        uint64_t g_pushed = 0;            // the game thread's (records handed over)
+        std::atomic<uint64_t> g_done{0};  // records made (by whoever holds the token)
+        std::atomic<bool> g_token{false}, g_helpWanted{false}, g_sleeping{false};
+        std::mutex g_mutex;
+        std::condition_variable g_work;
+        bool g_started = false;
+        uint32_t g_unwoken = 0;
+        mdslane::Job g_laneJob; // the record's lane job (the token holder's)
+        thread_local bool t_gameThread = false;
+
+        // Counts: the token holder's (run, the made-by split) and the game thread's (hooks, drains); printed by the game
+        // thread after a drain. The helpers' counts are atomics.
+        struct Stats
+        {
+            uint64_t hooks = 0, records = 0, jobs = 0, noJob = 0, skipped = 0;
+            uint64_t drains = 0, drainWaits = 0, drainUs = 0, gameMade = 0;
+            uint64_t verified = 0, verifyDiffer = 0, verifyPart[4] = {};
+            uint64_t checks = 0, bad = 0, voided = 0, words = 0, unrepeatable = 0, checkNoJob = 0;
+            uint64_t ringDrains = 0;
+        };
+        Stats g_st;
+        std::atomic<uint64_t> g_workerMade{0}, g_hookMade{0}, g_hookWaits{0};
+        int g_brHook = -2, g_brDrain = -2;
+        inline int bracket(int &id, const char *name)
+        {
+            if (__builtin_expect(id == -2, 0))
+                id = sotc_p2::named(name, 2); // (level 2: at level 1 the A/B's halves carry the same brackets)
+            return id;
+        }
+
+        // The hook's CLIP x model product (as modelDispHook makes it).
+        __attribute__((noinline)) void clipOf(const float camera[16], const float model[16], float clip[16])
+        {
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k)
+                        sum += camera[k * 4 + r] * model[c * 4 + k];
+                    clip[c * 4 + r] = sum;
+                }
+        }
+        // The game's LOD and "Model detail"'s finer one, as the hook (and the lane's fill) work them out.
+        inline void lodsOf(uint32_t h, uint64_t lodWord, uint32_t &gameLod, uint32_t &lod)
+        {
+            uint32_t l = gameLodRaw(lodWord);
+            if ((word(h + 0x18u) & 1u) && l >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                l = word(h + 0x1Cu) - 1u;
+            gameLod = l;
+            if (const int finer = static_cast<int>(native_renderer::tuning().modelDetail + 0.5f); finer > 0 && l > 0u)
+            {
+                l = finer >= 2 ? 0u : l - 1u;
+                if (word(h + 0x30u + l * 4u) == 0u && word(h + 0x30u + gameLod * 4u) != 0u)
+                    l = gameLod;
+            }
+            lod = l;
+        }
+
+        // A record made: the plan, the lane's state, the job's fields (the worker's, or a helper's holding the token).
+        // `out` is the job to fill (the record's own, or the check's), `planOut` / `clipOut` the check's.
+        void make(const Rec &r, ModelDispJob *out, mdslane::Job &lj)
+        {
+            const uint32_t h = r.header;
+            // The plan of the game's LOD (modelDispHook's lookup before the state).
+            const bool planOn = g_planOn && native_renderer::tuning().fastHooks && g_surfaceMemo && native_renderer::tuning().packetQuickCheck;
+            ModelPlan *gamePlan = nullptr;
+            if (planOn)
+            {
+                uint32_t l = gameLodRaw(r.lodWord);
+                if ((word(h + 0x18u) & 1u) && l >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                    l = word(h + 0x1Cu) - 1u;
+                gamePlan = modelPlan(h, l);
+                ++g_planStats.uses;
+            }
+            float clip[16];
+            clipOf(r.camera, r.model, clip);
+            // The lane's job as the hook fills it, then its run (modelDispState, the out-of-view test, the parts).
+            uint32_t gl = 0, l = 0;
+            lodsOf(h, r.lodWord, gl, l);
+            lj.instance = r.instance;
+            lj.table = word(h + 0x30u + l * 4u);
+            lj.useGame = l == gl;
+            std::memcpy(lj.clip, clip, sizeof(lj.clip));
+            lj.partCulled = (word(h + 0x18u) & 1u) == 0u && word(h + 0x54u) != 1u;
+            std::memcpy(lj.model, r.model, sizeof(lj.model));
+            lj.plan = gamePlan;
+            MdsIn &in = lj.in;
+            in.lane = true;
+            in.header = h;
+            in.lodWord = r.lodWord;
+            std::memcpy(in.camera, r.camera, sizeof(in.camera));
+            in.fading = r.fading;
+            in.boss = r.boss;
+            in.cache = r.cache;
+            in.fog = r.fog;
+            lj.chained = r.chained;
+            lj.known = r.known;
+            lj.shifts = r.shifts;
+            if (!r.chained)
+                in.clipIn = r.clipIn;
+            mdslane::run(lj);
+            if (r.noJob || !out)
+                return;
+            // The job's fields, as modelDispHook's tail (the lean path with the lane on).
+            ModelDispJob &job = *out;
+            job.lane = false;
+            job.laneSeq = 0;
+            job.partVisible.swap(lj.parts);
+            job.dt1Skip = lj.skip;
+            job.instance = r.instance;
+            job.matrix = r.matrix;
+            job.header = h;
+            job.table = r.table;
+            job.lod = r.lod;
+            job.gameLod = r.gameLod;
+            job.fading = r.fading;
+            job.partCulled = r.partCulled;
+            job.opacity = r.opacity;
+            job.planOn = planOn;
+            job.plan = planOn ? (r.lod == r.gameLod ? gamePlan : modelPlan(h, r.lod)) : nullptr;
+            std::memcpy(job.clip, clip, sizeof(clip));
+            std::memcpy(job.projection, r.projection, sizeof(job.projection));
+            job.ripple[0] = r.ripple0;
+            job.ripple[1] = r.ripple1;
+            job.lodScale = r.lodScale;
+            if (hookjobs::g_on && g_kickDefer)
+                hookScrolls(job);
+            else
+            {
+                job.scrolls.clear();
+                job.scrollsTaken = false;
+            }
+            if (r.paletteAtHook)
+                return; // (the hook copied the palette and the lights into the job)
+            const uint32_t own = r.own;
+            job.own = own;
+            // (lo / hi without a palette: the worker's last, resolved in runJob as paletteDeferred says)
+            uint32_t lo = 0, hi = 0, ret = 0, bytes = 0;
+            job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+            job.paletteDeferred = mdslane::g_frameOn;
+            job.paletteLo = lo, job.paletteHi = hi;
+            if (!job.hasPalette)
+                job.palette.clear();
+            guestBlock(own + 0x10u, 128u, job.lights);
+        }
+
+        void run(Rec &r)
+        {
+            ++g_st.records;
+            if (r.verify)
+            {
+                ++g_st.verified;
+                const uint64_t now = modelDispInputsOf(r.own, r.header), diff = now ^ r.inputs;
+                for (int k = 0; k < 4; ++k)
+                    g_st.verifyPart[k] += ((diff >> (16 * k)) & 0xFFFFu) != 0u;
+                if (diff != 0u && g_st.verifyDiffer++ < 20u)
+                    std::fprintf(stderr, "[dt1] verify: frame %llu record %llu instance %08x header %08x chain %08x: the guest inputs changed between the hook and the "
+                                 "record's make (tags %d lights %d palette %d header / globals %d)\n",
+                                 static_cast<unsigned long long>(g_frame), static_cast<unsigned long long>(r.seq), r.instance, r.header, r.own,
+                                 ((diff >> 0) & 0xFFFFu) != 0u, ((diff >> 16) & 0xFFFFu) != 0u, ((diff >> 32) & 0xFFFFu) != 0u, ((diff >> 48) & 0xFFFFu) != 0u);
+            }
+            ModelDispJob *job = r.hook ? &r.hook->model : nullptr;
+            make(r, job, g_laneJob);
+            if (!job)
+            {
+                ++g_st.noJob;
+                return;
+            }
+            ++g_st.jobs;
+            g_st.skipped += job->dt1Skip;
+            if (hookjobs::g_verify)
+            {
+                job->inputs = modelDispInputs(*job);
+                job->runInputs = modelRunInputs(*job);
+                hookjobs::g_copyHash[r.slot] = jobCopyHash(*r.hook);
+            }
+        }
+
+        // Records up to `end` made by the caller when the token is free (false: someone else holds it). The worker and the
+        // hook worker give the token up after a record when the game thread wants it (g_helpWanted).
+        bool runTo(uint64_t end, uint64_t *made)
+        {
+            if (g_token.load(std::memory_order_relaxed) || g_token.exchange(true, std::memory_order_acquire))
+                return false;
+            uint64_t n = 0;
+            const bool game = t_gameThread;
+            for (uint64_t d = g_done.load(std::memory_order_relaxed); d < end && d < __atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE); ++d)
+            {
+                run(g_ring[d % kRing]);
+                g_done.store(d + 1u, std::memory_order_release);
+                ++n;
+                if (!game && g_helpWanted.load(std::memory_order_seq_cst))
+                    break;
+            }
+            g_token.store(false, std::memory_order_release);
+            if (made)
+                *made = n;
+            return true;
+        }
+
+        void loop()
+        {
+            native_renderer::threads::place(native_renderer::threads::kLane);
+#if defined(__vita__)
+            // Core 1 (arch_plan item 1: never core 2, the render thread's). SOTC_DT1_PIN=0: the lane's cores 1-2.
+            if (g_pin)
+            {
+                const int rc = sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
+                std::fprintf(stderr, "[dt1] worker on core 1 (rc %d)\n", rc);
+            }
+            // The hook worker waits for the records (and the kick drains them): above the hook worker's priority (150), as
+            // round 91's guest worker (140). SOTC_DT1_PRIO=<64..191>; 0: the lane's (the default).
+            {
+                const char *e = std::getenv("SOTC_DT1_PRIO");
+                const int prio = e ? std::atoi(e) : 140;
+                if (prio >= 64 && prio <= 191)
+                {
+                    const int rc = sceKernelChangeThreadPriority(sceKernelGetThreadId(), prio);
+                    std::fprintf(stderr, "[dt1] worker priority %d (rc %d)\n", prio, rc);
+                }
+            }
+#endif
+            ThreadNaming::SetCurrentThreadName("dt1");
+            ::sotc_prof::t_offGameThread = true;
+            uint32_t idle = 0; // polls in a row without a record (SOTC_DT1_WAKE=0)
+            for (;;)
+            {
+                uint64_t pushed = 0;
+                for (int spin = 0;; ++spin)
+                {
+                    pushed = __atomic_load_n(&g_pushed, __ATOMIC_ACQUIRE);
+                    if (pushed > g_done.load(std::memory_order_acquire))
+                        break;
+                    if (spin < 256)
+                        continue;
+                    if (!g_wake)
+                    {
+                        // Polled (the default): the hook does no kernel call to wake this thread (p3 measured ~27 us a
+                        // hook in Vita3K with the batched wake-ups); 50 us between looks while the walk hands records over,
+                        // 1 ms after ~10 ms without one. The hook worker and the drains make a record nobody has made yet.
+                        std::this_thread::sleep_for(std::chrono::microseconds(idle < 200u ? 50 : 1000));
+                        idle += idle < 0xFFFFu;
+                        spin = 0;
+                        continue;
+                    }
+                    std::unique_lock<std::mutex> lock(g_mutex);
+                    // (the lane's Dekker pair, round 88: both sides seq_cst; the wait timed)
+                    g_sleeping.store(true, std::memory_order_seq_cst);
+                    if (__atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) <= g_done.load(std::memory_order_seq_cst))
+                        g_work.wait_for(lock, std::chrono::milliseconds(5));
+                    g_sleeping.store(false, std::memory_order_relaxed);
+                    spin = 0;
+                }
+                if (g_helpWanted.load(std::memory_order_seq_cst))
+                {
+                    std::this_thread::yield();
+                    continue;
+                }
+                idle = 0;
+                uint64_t made = 0;
+                if (runTo(pushed, &made))
+                    g_workerMade.fetch_add(made, std::memory_order_relaxed);
+                else
+                    std::this_thread::yield();
+            }
+        }
+        void start()
+        {
+            if (g_started)
+                return;
+            g_started = true;
+#if defined(__vita__)
+            const unsigned int stackDefault = _pthread_stack_default_user;
+            _pthread_stack_default_user = 512u * 1024u; // (the plan builds walk a model's packets, as the hook worker's jobs)
+#endif
+            std::thread(loop).detach();
+#if defined(__vita__)
+            _pthread_stack_default_user = stackDefault;
+#endif
+        }
+        void wake()
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            g_work.notify_one();
+        }
+        void flushWake()
+        {
+            g_unwoken = 0;
+            if (g_started && g_wake && g_sleeping.load(std::memory_order_seq_cst) && __atomic_load_n(&g_pushed, __ATOMIC_SEQ_CST) > g_done.load(std::memory_order_seq_cst))
+                wake();
+        }
+        void publish()
+        {
+            // seq_cst (not release): the g_sleeping load below may not pass this store (the worker's side, loop()).
+            __atomic_store_n(&g_pushed, g_pushed + 1u, __ATOMIC_SEQ_CST);
+            if (g_wake && g_sleeping.load(std::memory_order_seq_cst))
+            {
+                if (x3::g_batchWakes && ++g_unwoken < x3::kWakeEvery)
+                    return;
+                g_unwoken = 0;
+                wake();
+            }
+        }
+
+        void drain(int site)
+        {
+            if (g_done.load(std::memory_order_acquire) == g_pushed)
+                return;
+            (void)site;
+            const sotc_p2::Scope br(bracket(g_brDrain, "display:dt1Drain"));
+            const uint64_t t0 = native_renderer::nowUs();
+            ++g_st.drains;
+            t_gameThread = true;
+            g_helpWanted.store(true, std::memory_order_seq_cst);
+            bool waited = false;
+            for (uint32_t spin = 0; g_done.load(std::memory_order_acquire) != g_pushed; ++spin)
+            {
+                uint64_t made = 0;
+                if (!g_token.load(std::memory_order_relaxed) && runTo(g_pushed, &made))
+                {
+                    g_st.gameMade += made;
+                    continue;
+                }
+                waited = true;
+                if (spin >= 4096u)
+                    std::this_thread::yield();
+            }
+            g_helpWanted.store(false, std::memory_order_seq_cst);
+            g_st.drainWaits += waited;
+            g_st.drainUs += native_renderer::nowUs() - t0;
+        }
+
+        void waitDone(uint64_t seq)
+        {
+            if (g_done.load(std::memory_order_acquire) > seq)
+                return;
+            g_hookWaits.fetch_add(1, std::memory_order_relaxed);
+            for (uint32_t spin = 0; g_done.load(std::memory_order_acquire) <= seq; ++spin)
+            {
+                uint64_t made = 0;
+                if (!g_token.load(std::memory_order_relaxed) && !g_helpWanted.load(std::memory_order_relaxed) && runTo(seq + 1u, &made))
+                {
+                    g_hookMade.fetch_add(made, std::memory_order_relaxed);
+                    continue;
+                }
+                if (spin >= 256u)
+                    std::this_thread::yield();
+            }
+        }
+
+        // ---- the check (SOTC_DT1_CHECK) ----
+        uint8_t *g_snap = nullptr;
+        bool g_snapFailed = false;
+        std::vector<uint32_t> g_diffAt, g_diffA, g_diffB, g_atB;
+        constexpr uint32_t kVBlankCount = 0x001E1314u, kVBlankCount2 = 0x001E133Cu;
+        uint64_t vblanks()
+        {
+            uint32_t a, b;
+            std::memcpy(&a, g_ram + kVBlankCount, 4);
+            std::memcpy(&b, g_ram + kVBlankCount2, 4);
+            return static_cast<uint64_t>(a) << 32 | b;
+        }
+        // The words that differ from the copy (8-byte steps, then the two words).
+        template <typename Fn>
+        void forDiff(Fn fn)
+        {
+            const uint8_t *ram = g_ram;
+            for (uint32_t a = 0; a < PS2_RAM_SIZE; a += 64u)
+            {
+                if (std::memcmp(ram + a, g_snap + a, 64u) == 0)
+                    continue;
+                for (uint32_t w = a; w < a + 64u; w += 4u)
+                {
+                    uint32_t x, y;
+                    std::memcpy(&x, ram + w, 4);
+                    std::memcpy(&y, g_snap + w, 4);
+                    if (x != y)
+                        fn(w);
+                }
+            }
+        }
+        void putWord(uint32_t w, uint32_t v) { std::memcpy(const_cast<uint8_t *>(g_ram) + w, &v, 4); }
+        uint32_t getWord(uint32_t w)
+        {
+            uint32_t v;
+            std::memcpy(&v, g_ram + w, 4);
+            return v;
+        }
+
+        // The old code for this hook (modelDispHook's lines from the plan to the hand-over, lean, the lane on; the lane's job
+        // run inline, as its token holder would run it): every input read from guest memory now, as the hook read it.
+        void oldLeg(const Rec &r, ModelDispJob *out, mdslane::Job &lj)
+        {
+            const uint32_t instance = r.instance, matrix = r.matrix;
+            float model[16];
+            guestBlock(matrix, 64u, model);
+            float camera[16], clip[16];
+            guestBlock(g_cameraContext + 0x5A0u, 64u, camera);
+            for (int c = 0; c < 4; ++c)
+                for (int rr = 0; rr < 4; ++rr)
+                {
+                    float sum = 0.0f;
+                    for (int k = 0; k < 4; ++k)
+                        sum += camera[k * 4 + rr] * model[c * 4 + k];
+                    clip[c * 4 + rr] = sum;
+                }
+            const bool planOn = g_planOn && native_renderer::tuning().fastHooks && g_surfaceMemo && native_renderer::tuning().packetQuickCheck;
+            ModelPlan *gamePlan = nullptr;
+            if (planOn)
+            {
+                const uint32_t h = word(word(instance) + 0x20u);
+                uint64_t lw;
+                std::memcpy(&lw, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+                uint32_t l = gameLodRaw(lw);
+                if ((word(h + 0x18u) & 1u) && l >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                    l = word(h + 0x1Cu) - 1u;
+                gamePlan = modelPlan(h, l);
+                ++g_planStats.uses;
+            }
+            {
+                const uint32_t h = word(word(instance) + 0x20u);
+                uint64_t lw;
+                std::memcpy(&lw, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+                uint32_t gl = gameLodRaw(lw);
+                if ((word(h + 0x18u) & 1u) && gl >= word(h + 0x1Cu) && word(h + 0x1Cu) != 0u)
+                    gl = word(h + 0x1Cu) - 1u;
+                uint32_t l = gl;
+                if (const int finer = static_cast<int>(native_renderer::tuning().modelDetail + 0.5f); finer > 0 && l > 0u)
+                {
+                    l = finer >= 2 ? 0u : l - 1u;
+                    if (word(h + 0x30u + l * 4u) == 0u && word(h + 0x30u + gl * 4u) != 0u)
+                        l = gl;
+                }
+                lj.instance = instance;
+                lj.table = word(h + 0x30u + l * 4u);
+                lj.useGame = l == gl;
+                std::memcpy(lj.clip, clip, sizeof(lj.clip));
+                lj.partCulled = (word(h + 0x18u) & 1u) == 0u && word(h + 0x54u) != 1u;
+                std::memcpy(lj.model, model, sizeof(lj.model));
+                lj.plan = gamePlan;
+                MdsIn &in = lj.in;
+                in.lane = true;
+                in.header = h;
+                in.lodWord = lw;
+                guestBlock(g_cameraContext + 0x5A0u, 64u, in.camera);
+                in.fading = 0.0f < real(instance + 0x244u);
+                in.boss = word(0x1186290u);
+                in.cache = word(0x118BFC8u);
+                in.fog = word(0x1186328u);
+                if (s10LaneSkipsCache())
+                    in.cache = 0u;
+                // (mdslane::take: the register as the record took it at this hook; the check runs right there)
+                lj.chained = r.chained;
+                lj.known = r.known;
+                lj.shifts = r.shifts;
+                if (!r.chained)
+                    in.clipIn = r.clipIn;
+                mdslane::run(lj);
+            }
+            const uint32_t header = word(word(instance) + 0x20u);
+            const bool fading = real(instance + 0x244u) > 0.0f;
+            float opacity = 1.0f - real(instance + 0x244u);
+            if (word(header + 0xCu) != 0u)
+                opacity *= 1.0f - real(instance + 0x248u);
+            if (!(opacity > 0.0f) || !out)
+                return;
+            opacity = std::min(opacity, 1.0f);
+            uint64_t lodWord;
+            std::memcpy(&lodWord, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+            uint32_t lod = gameLodRaw(lodWord);
+            if ((word(header + 0x18u) & 1u) && lod >= word(header + 0x1Cu) && word(header + 0x1Cu) != 0u)
+                lod = word(header + 0x1Cu) - 1u;
+            const uint32_t gameLod = lod;
+            if (const int finer = static_cast<int>(native_renderer::tuning().modelDetail + 0.5f); finer > 0 && lod > 0u)
+            {
+                lod = finer >= 2 ? 0u : lod - 1u;
+                if (word(header + 0x30u + lod * 4u) == 0u && word(header + 0x30u + gameLod * 4u) != 0u)
+                    lod = gameLod;
+            }
+            const uint32_t table = word(header + 0x30u + lod * 4u);
+            const bool partCulled = (word(header + 0x18u) & 1u) == 0u && word(header + 0x54u) != 1u;
+            if (partCulled && table == 0u)
+                return;
+            ModelDispJob &job = *out;
+            job.lane = false;
+            job.laneSeq = 0;
+            job.partVisible.swap(lj.parts);
+            job.dt1Skip = lj.skip;
+            job.instance = instance;
+            job.matrix = matrix;
+            job.header = header;
+            job.table = table;
+            job.lod = lod;
+            job.gameLod = gameLod;
+            job.fading = fading;
+            job.partCulled = partCulled;
+            job.opacity = opacity;
+            job.planOn = planOn;
+            job.plan = planOn ? (lod == gameLod ? gamePlan : modelPlan(header, lod)) : nullptr;
+            std::memcpy(job.clip, clip, sizeof(clip));
+            guestBlock(g_cameraContext + 0x40u, 64u, job.projection);
+            job.ripple[0] = real(0x0118C030u);
+            job.ripple[1] = static_cast<float>(static_cast<int32_t>(word(0x01192090u)));
+            job.lodScale = real(0x0118C180u);
+            if (hookjobs::g_on && g_kickDefer)
+                hookScrolls(job);
+            else
+            {
+                job.scrolls.clear();
+                job.scrollsTaken = false;
+            }
+            const uint32_t own = word(instance + 0xCu);
+            job.own = own;
+            uint32_t lo = 0, hi = 0, ret = 0, bytes = 0;
+            job.hasPalette = readChainPaletteLean(own, lo, hi, job.palette, ret, bytes);
+            job.paletteDeferred = mdslane::g_frameOn;
+            job.paletteLo = lo, job.paletteHi = hi;
+            if (!job.hasPalette)
+                job.palette.clear();
+            guestBlock(own + 0x10u, 128u, job.lights);
+        }
+
+        inline uint32_t fb(float f)
+        {
+            uint32_t b;
+            std::memcpy(&b, &f, 4);
+            return b;
+        }
+        // The two legs' jobs, field by field: the first differing field's name (nullptr: the same).
+        const char *jobDiff(const ModelDispJob &a, const ModelDispJob &b)
+        {
+            if (a.instance != b.instance) return "instance";
+            if (a.matrix != b.matrix) return "matrix";
+            if (a.header != b.header) return "header";
+            if (a.table != b.table) return "table";
+            if (a.lod != b.lod || a.gameLod != b.gameLod) return "lod";
+            if (a.own != b.own) return "own";
+            if (fb(a.lodScale) != fb(b.lodScale)) return "lodScale";
+            if (a.fading != b.fading || a.partCulled != b.partCulled || a.planOn != b.planOn) return "flags";
+            if (fb(a.opacity) != fb(b.opacity)) return "opacity";
+            if (std::memcmp(a.clip, b.clip, sizeof(a.clip)) != 0) return "clip";
+            if (std::memcmp(a.projection, b.projection, sizeof(a.projection)) != 0) return "projection";
+            if (std::memcmp(a.ripple, b.ripple, sizeof(a.ripple)) != 0) return "ripple";
+            if (a.plan != b.plan) return "plan";
+            if (a.scrollsTaken != b.scrollsTaken || a.scrolls.size() != b.scrolls.size()) return "scrolls";
+            for (size_t i = 0; i < a.scrolls.size(); ++i)
+                if (a.scrolls[i].at != b.scrolls[i].at || a.scrolls[i].w0 != b.scrolls[i].w0 || a.scrolls[i].w1 != b.scrolls[i].w1)
+                    return "scroll row";
+            if (a.dt1Skip != b.dt1Skip) return "out of view";
+            if (a.partVisible != b.partVisible) return "parts";
+            if (a.hasPalette != b.hasPalette || a.paletteDeferred != b.paletteDeferred) return "palette flags";
+            if (a.hasPalette && (a.paletteLo != b.paletteLo || a.paletteHi != b.paletteHi)) return "palette range";
+            if (a.palette.size() != b.palette.size() || (!a.palette.empty() && std::memcmp(a.palette.data(), b.palette.data(), a.palette.size() * 4u) != 0))
+                return "palette";
+            if (std::memcmp(a.lights, b.lights, sizeof(a.lights)) != 0) return "lights";
+            return nullptr;
+        }
+
+        // One hook checked (the game thread, the records drained, no other thread making a record): the old code, then the
+        // record path on the same state; the job, the CLIP register and every guest word either leg wrote compared. The
+        // state is left as the record path left it, its job is the hook's (`out`: the hook ring's slot, or none).
+        void check(const Rec &r, ModelDispJob *out)
+        {
+            if (!g_snap && !g_snapFailed)
+            {
+                g_snap = static_cast<uint8_t *>(std::malloc(PS2_RAM_SIZE));
+                g_snapFailed = g_snap == nullptr;
+                if (g_snapFailed)
+                    std::fprintf(stderr, "[dt1chk] no memory for the RAM copy: checks off\n");
+            }
+            static ModelDispJob jobA, jobB;
+            static mdslane::Job laneA, laneB;
+            if (!g_snap)
+            {
+                make(r, out, g_laneJob);
+                return;
+            }
+            const uint32_t clip0 = mdslane::g_lastClipOut;
+            std::memcpy(g_snap, g_ram, PS2_RAM_SIZE);
+            const uint64_t vb0 = vblanks();
+            // leg A: the old code
+            oldLeg(r, r.noJob ? nullptr : &jobA, laneA);
+            const uint32_t clipA = mdslane::g_lastClipOut;
+            g_diffAt.clear();
+            g_diffA.clear();
+            forDiff([&](uint32_t w) { g_diffAt.push_back(w), g_diffA.push_back(getWord(w)); });
+            for (uint32_t w : g_diffAt)
+                std::memcpy(const_cast<uint8_t *>(g_ram) + w, g_snap + w, 4);
+            mdslane::g_lastClipOut = clip0;
+            // leg B: the record (or the old code again: the control run)
+            ModelDispJob &b = out ? *out : jobB;
+            if (g_control)
+                oldLeg(r, r.noJob ? nullptr : &b, laneB);
+            else
+                make(r, r.noJob ? nullptr : &b, laneB);
+            const uint32_t clipB = mdslane::g_lastClipOut;
+            if (vblanks() != vb0)
+            {
+                if (g_st.voided++ < 20u)
+                    std::fprintf(stderr, "[dt1chk] check void (frame %llu): the VBlank count moved\n", static_cast<unsigned long long>(g_frame));
+                return;
+            }
+            ++g_st.checks;
+            g_st.checkNoJob += r.noJob;
+            const char *bad = nullptr;
+            if (!r.noJob)
+                bad = jobDiff(jobA, b);
+            if (!bad && clipA != clipB)
+                bad = "CLIP register";
+            // The guest words: either leg's writes, the same values (words another thread wrote while a leg ran are told
+            // apart by a repeat of the first leg, below).
+            g_atB.clear();
+            g_diffB.clear();
+            forDiff([&](uint32_t w) { g_atB.push_back(w), g_diffB.push_back(getWord(w)); });
+            g_st.words += g_diffAt.size();
+            uint32_t badAt = 0, va = 0, vbv = 0;
+            bool ramBad = g_atB != g_diffAt || g_diffB != g_diffA;
+            if (ramBad)
+            {
+                // Repeat probe: back to the copy, the first leg again; a word whose first-leg value it does not repeat was
+                // written by another thread: not a mismatch. Then the record path's state put back (the hook's job is `out`'s).
+                std::vector<uint32_t> at2, v2;
+                for (uint32_t w : g_atB)
+                    std::memcpy(const_cast<uint8_t *>(g_ram) + w, g_snap + w, 4);
+                mdslane::g_lastClipOut = clip0;
+                oldLeg(r, nullptr, laneA);
+                forDiff([&](uint32_t w) { at2.push_back(w), v2.push_back(getWord(w)); });
+                for (uint32_t w : at2)
+                    std::memcpy(const_cast<uint8_t *>(g_ram) + w, g_snap + w, 4);
+                auto valueIn = [](const std::vector<uint32_t> &at, const std::vector<uint32_t> &v, uint32_t w, bool &has) -> uint32_t
+                {
+                    const auto it = std::lower_bound(at.begin(), at.end(), w);
+                    has = it != at.end() && *it == w;
+                    return has ? v[static_cast<size_t>(it - at.begin())] : 0u;
+                };
+                ramBad = false;
+                std::vector<uint32_t> all(g_diffAt);
+                all.insert(all.end(), g_atB.begin(), g_atB.end());
+                std::sort(all.begin(), all.end());
+                all.erase(std::unique(all.begin(), all.end()), all.end());
+                for (uint32_t w : all)
+                {
+                    bool hA, hB, h2;
+                    const uint32_t a = valueIn(g_diffAt, g_diffA, w, hA), bb = valueIn(g_atB, g_diffB, w, hB), a2 = valueIn(at2, v2, w, h2);
+                    uint32_t snapV;
+                    std::memcpy(&snapV, g_snap + w, 4);
+                    const uint32_t va1 = hA ? a : snapV, vb1 = hB ? bb : snapV, va2 = h2 ? a2 : snapV;
+                    if (va1 == vb1)
+                        continue;
+                    if (va1 != va2)
+                    {
+                        ++g_st.unrepeatable;
+                        continue;
+                    }
+                    ramBad = true;
+                    badAt = w, va = va1, vbv = vb1;
+                    break;
+                }
+                // the record path's writes back
+                mdslane::g_lastClipOut = clip0;
+                for (size_t i = 0; i < g_atB.size(); ++i)
+                    putWord(g_atB[i], g_diffB[i]);
+                mdslane::g_lastClipOut = clipB;
+            }
+            if (!bad && ramBad)
+                bad = "guest word";
+            if (bad)
+            {
+                ++g_st.bad;
+                if (g_st.bad <= 20u)
+                    std::fprintf(stderr, "[dt1chk] MISMATCH (check %llu, frame %llu): instance %08x header %08x %s: %s (at %08x: old %08x dt1 %08x; clip %06x / %06x)\n",
+                                 static_cast<unsigned long long>(g_st.checks), static_cast<unsigned long long>(g_frame), r.instance, r.header,
+                                 r.noJob ? "(no job)" : "", bad, badAt, va, vbv, clipA, clipB);
+            }
+        }
+
+        void report()
+        {
+            if (!on() || g_log == 0u || g_frame % g_log != 0u || g_st.hooks == 0u)
+                return;
+            const Stats &s = g_st;
+            std::fprintf(stderr,
+                         "[dt1] frame %llu: hooks %llu, records %llu (jobs %llu, no job %llu, out of view %llu), made by the worker %llu / the game thread %llu / the hook "
+                         "worker %llu (its waits %llu); drains %llu (waited %llu, %.2f ms, %.3f ms a frame), ring drains %llu; verify %llu, %llu differ (tags %llu lights %llu palette %llu header %llu); check %llu "
+                         "(no job %llu), %llu bad, %llu void, %llu words compared, %llu unrepeatable\n",
+                         static_cast<unsigned long long>(g_frame), static_cast<unsigned long long>(s.hooks), static_cast<unsigned long long>(s.records),
+                         static_cast<unsigned long long>(s.jobs), static_cast<unsigned long long>(s.noJob), static_cast<unsigned long long>(s.skipped),
+                         static_cast<unsigned long long>(g_workerMade.load(std::memory_order_relaxed)), static_cast<unsigned long long>(s.gameMade),
+                         static_cast<unsigned long long>(g_hookMade.load(std::memory_order_relaxed)), static_cast<unsigned long long>(g_hookWaits.load(std::memory_order_relaxed)),
+                         static_cast<unsigned long long>(s.drains), static_cast<unsigned long long>(s.drainWaits), s.drainUs / 1000.0,
+                         s.drainUs / 1000.0 / std::max<double>(1.0, static_cast<double>(g_log)), static_cast<unsigned long long>(s.ringDrains),
+                         static_cast<unsigned long long>(s.verified), static_cast<unsigned long long>(s.verifyDiffer), static_cast<unsigned long long>(s.verifyPart[0]),
+                         static_cast<unsigned long long>(s.verifyPart[1]), static_cast<unsigned long long>(s.verifyPart[2]), static_cast<unsigned long long>(s.verifyPart[3]),
+                         static_cast<unsigned long long>(s.checks),
+                         static_cast<unsigned long long>(s.checkNoJob), static_cast<unsigned long long>(s.bad), static_cast<unsigned long long>(s.voided),
+                         static_cast<unsigned long long>(s.words), static_cast<unsigned long long>(s.unrepeatable));
+            g_st.drainUs = 0;
+        }
+
+        // The hook's switch: the lane's conditions (the hook worker on, lean) and none of the checks / tracers that read the
+        // hook's own steps.
+        inline bool wanted(bool lean, bool leanCheck, bool leanStats, bool check, bool ps2Lists, bool viewChecks)
+        {
+            return on() && hookjobs::g_on && mdslane::g_frameOn && lean && !leanCheck && !leanStats && !check && !ps2Lists && !viewChecks && !mdslane::g_verify &&
+                   !mdslane::g_check && !mdsTraceOn() && !s14hook::on(s14hook::kPalette) && !sotc_decomp::switchOn(sotc_decomp::kS16Plan) &&
+                   !sotc_decomp::p4moveOn() && !sotc_decomp::p3parOn() && !g_skipEnv;
+        }
+
+        // SOTC_P2BRACKET >= 3: the hook's game-thread part in four phases (the record and the CLIP chain, the draw decision,
+        // the ring slot with the palette and lights copy, the hand-overs).
+        int g_brPart[4] = {-2, -2, -2, -2};
+        struct Parts
+        {
+            uint32_t token = 0u;
+            void next(int i)
+            {
+                static const char *const kNames[4] = {"display:dt1HRecord", "display:dt1HDecide", "display:dt1HPalette", "display:dt1HPush"};
+                if (token)
+                    sotc_p2::close(token);
+                token = 0u;
+                if (g_brPart[i] == -2)
+                    g_brPart[i] = sotc_p2::named(kNames[i], 3);
+                if (g_brPart[i] >= 0)
+                    token = sotc_p2::open(g_brPart[i]);
+            }
+            ~Parts()
+            {
+                if (token)
+                    sotc_p2::close(token);
+            }
+        };
+        // The game thread's part of a model hook (after the frame change and the camera context): the record, the CLIP
+        // chain, mdsOpacity, the draw decision, the kick's palette list, the job's slot in the draw order.
+        void hook(R5900Context *ctx, uint32_t instance, uint32_t matrix, const float model[16])
+        {
+            const sotc_p2::Scope br(bracket(g_brHook, "display:dt1Hook"));
+            t_gameThread = true;
+            if (!g_started)
+                start();
+            ++g_st.hooks;
+            Parts ph;
+            ph.next(0);
+            sotc_decomp::LazyClip &c = sotc_decomp::g_lazyClip;
+            if (c.pending && c.ctx != ctx)
+                mdslane::join(mdslane::kJHook); // (another context's register pending: everything made first, as mdslane::take)
+            if (g_pushed - g_done.load(std::memory_order_acquire) >= kRing)
+            {
+                ++g_st.ringDrains;
+                drain(-2);
+            }
+            const bool checking = g_check && g_frame >= g_checkFrom && g_st.hooks % g_checkEvery == 0u;
+            if (checking)
+                drain(-3);
+            Rec &r = g_ring[g_pushed % kRing];
+            r.seq = g_pushed;
+            r.chained = c.pending;
+            if (c.pending)
+                r.known = c.known, r.shifts = c.shifts;
+            else
+                r.clipIn = ctx->vu0_clip_flags & 0xFFFFFFu;
+            r.instance = instance;
+            r.matrix = matrix;
+            const uint32_t h = word(word(instance) + 0x20u);
+            r.header = h;
+            std::memcpy(&r.lodWord, g_ram + ((instance + 0x250u) & 0x1FFFFF8u), 8);
+            std::memcpy(r.model, model, sizeof(r.model));
+            guestBlock(g_cameraContext + 0x5A0u, 64u, r.camera);
+            r.fading = 0.0f < real(instance + 0x244u);
+            r.boss = word(0x1186290u);
+            r.cache = word(0x118BFC8u);
+            r.fog = word(0x1186328u);
+            if (s10LaneSkipsCache())
+                r.cache = 0u; // round S10: the layer cache left out (as the lane's fill)
+            mdsOpacity(instance, h);
+            c.ctx = ctx; // (mdslane::push's part: the register pending until a reader joins)
+            c.pending = true;
+            c.known = c.shifts = 0;
+            // The hook's draw decision after the state (it hands a job over or not).
+            ph.next(1);
+            float opacity = 1.0f - real(instance + 0x244u);
+            if (word(h + 0xCu) != 0u)
+                opacity *= 1.0f - real(instance + 0x248u);
+            r.noJob = !(opacity > 0.0f);
+            r.hook = nullptr;
+            r.verify = false;
+            if (!r.noJob)
+            {
+                r.opacity = std::min(opacity, 1.0f);
+                lodsOf(h, r.lodWord, r.gameLod, r.lod);
+                r.table = word(h + 0x30u + r.lod * 4u);
+                r.partCulled = (word(h + 0x18u) & 1u) == 0u && word(h + 0x54u) != 1u;
+                r.noJob = r.partCulled && r.table == 0u;
+            }
+            if (!r.noJob)
+            {
+                r.own = word(instance + 0xCu);
+                guestBlock(g_cameraContext + 0x40u, 64u, r.projection);
+                r.ripple0 = real(0x0118C030u);
+                r.ripple1 = static_cast<float>(static_cast<int32_t>(word(0x01192090u)));
+                r.lodScale = real(0x0118C180u);
+                if (g_verify)
+                {
+                    r.verify = true;
+                    r.inputs = modelDispInputsOf(r.own, h);
+                }
+                ph.next(2);
+                HookJob &hj = hookjobs::next();
+                hj.kind = kJobModel;
+                hj.model.dt1 = !checking;
+                hj.model.dt1Seq = r.seq;
+                hj.model.dt1Skip = false;
+                r.hook = &hj;
+                r.slot = hookjobs::g_head.load(std::memory_order_relaxed) & hookjobs::g_ringMask;
+                r.paletteAtHook = g_paletteAtHook;
+                bool hasPalette;
+                if (g_paletteAtHook)
+                {
+                    // The palette and the lights copied here, into the job, as modelDispHook did: the chain's palette can be
+                    // rewritten before the record is made (SOTC_DT1_VERIFY: ride7 / the title, docs/decomp_dt1.md).
+                    ModelDispJob &job = hj.model;
+                    job.own = r.own;
+                    uint32_t lo = 0, hi = 0, ret = 0, bytes = 0;
+                    if (sotc_p2::g_direct[sotc_p2::kW1Palette] >= 0 && ((word(r.own) >> 28) & 7u) == 2u && (word(word(r.own + 4u)) & 0xFFFFu) > 5u)
+                    {
+                        const sotc_p2::DirectScope bracketPalette(sotc_p2::kW1Palette); // (round W1's bracket, as the hook)
+                        job.hasPalette = readChainPaletteLean(r.own, lo, hi, job.palette, ret, bytes);
+                    }
+                    else
+                        job.hasPalette = readChainPaletteLean(r.own, lo, hi, job.palette, ret, bytes);
+                    job.paletteDeferred = mdslane::g_frameOn;
+                    job.paletteLo = lo, job.paletteHi = hi;
+                    if (!job.hasPalette)
+                        job.palette.clear();
+                    guestBlock(r.own + 0x10u, 128u, job.lights);
+                    hasPalette = job.hasPalette;
+                }
+                else // (SOTC_DT1_PALETTE=worker: readChainPaletteLean's own test here, the copy the worker's)
+                    hasPalette = ((word(r.own) >> 28) & 7u) == 2u && (word(word(r.own + 4u)) & 0xFFFFu) > 5u;
+                // S4's read note and the kick's chain list (game-thread state read at the kick)
+                if (hasPalette)
+                    s4disp::paletteRead(r.own);
+                if (hasPalette && hookjobs::g_on && g_kickDefer && (g_kickOwns.empty() || g_kickOwns.back() != r.own))
+                    g_kickOwns.push_back(r.own);
+            }
+            ph.next(3);
+            if (checking)
+            {
+                // Made here, both ways, on one state (no record handed over: the records are drained, the order kept).
+                check(r, r.hook ? &r.hook->model : nullptr);
+                if (r.hook && hookjobs::g_verify)
+                {
+                    r.hook->model.inputs = modelDispInputs(r.hook->model);
+                    r.hook->model.runInputs = modelRunInputs(r.hook->model);
+                }
+                if (r.hook)
+                    hookjobs::push();
+                return;
+            }
+            publish();
+            if (r.hook)
+                hookjobs::push();
+        }
+    }
+
     // Round A9 sweep (a9sweep.h): modelDispHook's switches read once at install, not through nine function-local
     // statics (a guard load + dmb ish each, per call); the lean switches' side effects (g_hookLean, g_leanStats.on) are
     // still made at the hook's first call, as the statics' initialisers made them.
@@ -13237,7 +14372,11 @@ namespace sotc_native
             if (ps2_load::zonesWanted() && ps2_load::t_slot == ps2_load::kGame)
                 ps2_load::gameZone.store(z, std::memory_order_relaxed);
         };
+        x3::Phases x3ph; // round X3 (SOTC_X3_BRACKET): the hook's phases
+        x3ph.next(x3::bMdSync);
+        ++x3::g_st.hooks;
         { SOTC_PROF_SCOPE(kHookSync); syncFrame(rdram); }
+        x3ph.next(x3::bMdPre);
         zone(0x2002u);
         const lines67::Scope l67(lines67::kHook, true);
         const ModelDispEnv &env = __builtin_expect(a9s, 1) ? g_a9sMdEnv : []() -> const ModelDispEnv & { static const ModelDispEnv e; return e; }();
@@ -13305,6 +14444,13 @@ namespace sotc_native
         const uint32_t hideHeader = A9S_VAL(a9s, g_a9sMdh.hideHeader, uint32_t, std::getenv("SOTC_HIDE_HEADER") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_HIDE_HEADER"), nullptr, 16)) : 0u);
         if (hideHeader && word(word(instance) + 0x20u) == hideHeader)
             return;
+        // Round DT1 (dt1 above): the rest of the hook made by the DT1 worker from a record.
+        if (dt1::wanted(lean, leanCheck, leanStats, check, ps2Lists, A9S_VAL(a9s, g_a9sMdh.viewChecks, bool, ps2_diag::env("SOTC_VIEW_CHECK") != nullptr)))
+        {
+            x3ph.next(x3::bMdState);
+            dt1::hook(ctx, instance, matrix, model);
+            return;
+        }
         CallRecord *record = nullptr; // this draw's, for the next frame's prefetch
         if (g_prefetch)
         {
@@ -13377,6 +14523,7 @@ namespace sotc_native
         bool laneUsed = false; // round 61: the state made on the lane (mdslane)
         uint64_t laneSeq = 0;
         zone(0x2003u);
+        x3ph.next(x3::bMdState);
         if (check)
             modelDispCheck(rdram, ctx, runtime, instance, model);
         else if (!ps2Lists)
@@ -13427,6 +14574,7 @@ namespace sotc_native
                     laneSeq = lj.seq;
                     mdslane::push(ctx);
                     laneUsed = true;
+                    ++x3::g_st.hookLane;
                 }
                 else
                 {
@@ -13465,6 +14613,7 @@ namespace sotc_native
             else
             {
                 mdslane::join(mdslane::kJSync); // (the register and the walk's statics)
+                ++x3::g_st.hookSync;
                 if (lean)
                     modelDispState(ctx, instance, model, gamePlan, &job.partVisible, &partsTaken, &partsTable);
                 else
@@ -13474,6 +14623,7 @@ namespace sotc_native
                 mdsTraceModel();
         }
         zone(0x2004u);
+        x3ph.next(x3::bMdDecide);
 
         const uint32_t header = word(word(instance) + 0x20u);
         const uint32_t skipHeader = A9S_VAL(a9s, g_a9sMdh.skipHeader, uint32_t, std::getenv("SOTC_NATIVE_SKIP") ? static_cast<uint32_t>(std::strtoul(std::getenv("SOTC_NATIVE_SKIP"), nullptr, 16)) : 0u); // debugging
@@ -13529,6 +14679,7 @@ namespace sotc_native
         // needs of this moment taken now.
         if (hookJob)
             hookJob->kind = kJobModel;
+        job.dt1 = false, job.dt1Skip = false; // round DT1: a slot a DT1 job held before
         std::vector<uint8_t> &partVisible = job.partVisible;
         // Round 32: modelDispState's walk made the parts (the game's level,
         // the same table, each node once): the second walk below would give
@@ -13671,6 +14822,8 @@ namespace sotc_native
             job.scrolls.clear();
             job.scrollsTaken = false;
         }
+        x3ph.next(x3::bMdPalette);
+        x3::g_st.hookScrollRows += job.scrolls.size();
         {
             SOTC_PROF_SCOPE(kHookPalette);
             VuPalette &now = g_a9sMdhNow; // (round A9 sweep: was a function-local static)
@@ -13715,6 +14868,7 @@ namespace sotc_native
                     s14hook::noteFrame();
                 if (job.hasPalette)
                     s4disp::paletteRead(own); // round S4: the serial this read saw
+                x3::g_st.hookPalette += job.hasPalette;
                 job.paletteDeferred = mdslane::g_frameOn;
                 if (leanStatsOn() && job.hasPalette)
                     g_leanStats.paletteHostBytes += job.palette.size() * 4u; // its own copy
@@ -13780,6 +14934,7 @@ namespace sotc_native
                     job.lights[i] = real(own + 0x10u + i * 4u);
             }
         }
+        x3ph.next(x3::bMdPush);
         if (!hookjobs::g_on)
         {
             modelDispDraw(job, false);
@@ -13794,12 +14949,14 @@ namespace sotc_native
     // 4 bits, one per part that changed since the hook would be told apart
     // by comparing parts: [0] the own packet's tags, [1] its lights, [2] the
     // palette, [3] the model header's lists and the globals.
-    uint64_t modelDispInputs(const ModelDispJob &job)
+    uint64_t modelDispInputs(const ModelDispJob &job) { return modelDispInputsOf(job.own, job.header); }
+    // (round DT1: by the chain and the header, for the record's verify at the hook)
+    uint64_t modelDispInputsOf(uint32_t own, uint32_t header)
     {
         SOTC_READ_SITE(2);
         uint64_t h[4] = {0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull, 0xcbf29ce484222325ull};
         const auto mix = [&h](int k, uint32_t v) { h[k] = (h[k] ^ v) * 0x100000001b3ull; };
-        const uint32_t own = job.own; // (round 34: as taken at the hook; the instance's +0xc moves to the next frame's chain)
+        // (round 34: own as taken at the hook; the instance's +0xc moves to the next frame's chain)
         for (uint32_t a = own; a < own + 0x10u; a += 4u)
             mix(0, word(a));
         for (uint32_t a = own + 0x10u; a < own + 0x90u; a += 4u) // its lights
@@ -13811,8 +14968,8 @@ namespace sotc_native
             for (uint32_t a = ret; a < ret + 16u + n * 16u; a += 4u)
                 mix(2, word(a));
         }
-        mix(3, word(job.header + 0x60u));
-        mix(3, word(job.header + 0x50u));
+        mix(3, word(header + 0x60u));
+        mix(3, word(header + 0x50u));
         mix(3, word(0x1186290u));
         mix(3, word(0x1186328u));
         // 16 bits of each part's hash
@@ -13937,6 +15094,12 @@ namespace sotc_native
                     break; // out of view: modelDisp draws nothing (and keeps the last palette)
                 }
                 m.partVisible.swap(l.parts);
+            }
+            if (m.dt1Skip) // round DT1: its state (made from its record, or by the check) found it out of view, as the lane's skip
+            {
+                if (s4keep)
+                    s4disp::paletteKeep(m.own, m.paletteLo, m.paletteHi, m.palette);
+                break;
             }
             if (m.paletteDeferred)
             {
@@ -15144,6 +16307,10 @@ namespace decomp_tex64
 {
     void install(PS2Runtime &runtime);
 }
+namespace a1record
+{
+    void install(PS2Runtime &runtime); // round A1 (a1_record.cpp): the display walk's write / read sets (SOTC_A1_RECORD, the Mac)
+}
 namespace s8cloth
 {
     void install(PS2Runtime &runtime);
@@ -15186,6 +16353,7 @@ void installSotcNativeLate(PS2Runtime &runtime)
 {
     decomp_collcensus::install(runtime); // round 63, SOTC_COLL_CENSUS=1
     decomp_readcensus::install(runtime); // round 64, SOTC_READ_CENSUS=<subsystem> (the Mac)
+    a1record::install(runtime);          // round A1, SOTC_A1_RECORD=1 (the Mac)
     decomp_tex64::install(runtime);      // round 64: texReset's loop's join sites
     sotc_worker::install(runtime);       // round 91: the guest worker's join sites (the particle / wind module, the loader, the heap's moves)
     char104::install(runtime);           // round 104: the characters' census (SOTC_CHAR104_LOG)
@@ -15356,6 +16524,9 @@ void installSotcNative(PS2Runtime &runtime)
         // (skinAtKick), and the debugging checks.
         ps2_stats::kickHook = []
         {
+            // Round DT1: the frame's records made before the kick (the DT1 worker reads the frame's guest state; the
+            // next frame's logic may change it after the kick; the kick's palette list and its join flag are its).
+            sotc_native::dt1::drain(-1);
             // Round 34 (SOTC_KICK_DEFER): no join; the kick's palettes copied
             // and its skinned pass a job behind the frame's model jobs, joined
             // at the next frame's first hook.

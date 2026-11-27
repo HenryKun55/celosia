@@ -75,6 +75,7 @@
 #include "r1sort.h"
 #include "c2scene.h"
 #include "w1_disp.h"
+#include "x3_draw.h"
 #include "sotc_p2.h"
 
 namespace decomp_isys
@@ -116,6 +117,7 @@ namespace decomp_prefetch
 namespace sotc_native
 {
     bool nativeDraws(); // round 103: the model hook draws natively (no PS2 lists, no GS raster)
+    void x3WakeFlush(); // round X3 (x3_draw.h kWakePart)
     // round 128 (imm128): an immediate primitive's pairs straight to the 2D assembler; its check's records
     void immFeed128(uint8_t *rdram, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze);
     void immRecord128(std::vector<uint64_t> &rec, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze);
@@ -4902,10 +4904,13 @@ namespace decomp_walk
             g.a(4, camera);
             g.a(5, s0);
             g.a(6, s1);
+            const x3::Scope brSolid(x3::bSolid); // round X3 (SOTC_X3_BRACKET)
             g.callNative(solidDisp, kSolidDisp, 0x010F59C4u, sp);
         }
         else
         {
+            const x3::Scope brSkinned(x3::bSkinned);
+            ++x3::g_st.skinned;
             g.a(4, camera);
             g.a(5, s0);
             g.a(6, s1);
@@ -4916,6 +4921,7 @@ namespace decomp_walk
                 g.a(5, s1);
                 g.a(4, cameraClass);
                 g.a(6, s0);
+                ++x3::g_st.strips;
                 g.callNative(strips, kStrips, 0x010F59ACu, sp);
             }
         }
@@ -4929,6 +4935,8 @@ namespace decomp_walk
         if (v0 != 0u)
             return finish(v0);
         // The tail jump to DispCloth (0x11392c0) with its own frame at our caller's sp - 0x20.
+        const x3::Scope brCloth(x3::bCloth);
+        ++x3::g_st.cloth;
         const uint32_t cloths = m.u32(s0 + 0x178u);
         SET_GPR_U64(ctx, 16, in16);
         SET_GPR_U64(ctx, 17, in17);
@@ -5694,6 +5702,20 @@ namespace decomp_walk
             const uint32_t list = m.u32(kSortList2);
             set(19, list);
             sotc_p2::DirectScope bracketDraw(sotc_p2::kW1DrawLoop); // round W1
+            // Round X3 (kWakePart): the hand-overs' wake-ups batched while the loop runs (not on the guest worker's lane).
+            struct X3Wakes
+            {
+                bool on;
+                X3Wakes(bool o) : on(o) { x3::g_batchWakes = o; }
+                ~X3Wakes()
+                {
+                    if (on)
+                    {
+                        x3::g_batchWakes = false;
+                        sotc_native::x3WakeFlush();
+                    }
+                }
+            } x3Wakes(x3::part(x3::kWakePart) && !sotc_decomp::onWorkerLane(runtime));
             // Round W1: iosDlLockObj as host code while this walk holds the isys lock (w1lock below).
             const bool w1Lock = w1::part(w1::kLock) && !sotc_decomp::onWorkerLane(runtime);
             auto lockObj = [&](uint32_t obj, uint32_t site)
@@ -5794,6 +5816,7 @@ namespace decomp_walk
                 }
                 const uint32_t obj = m.u32(s2);
                 set(16, obj);
+                x3::Scope brLock(x3::bLockLayout); // round X3 (SOTC_X3_BRACKET)
                 const uint32_t lc = layoutClass(g, obj, 0x010F5710u, sp);
                 uint32_t cls;
                 if (lc != 0u)
@@ -5807,12 +5830,15 @@ namespace decomp_walk
                         lockObj(obj, 0x010F5728u); // iosDlLockObj (round W1: host while the walk holds the lock)
                         if (wp) wprof::add('K', 0u, sotc_prof::ticks() - t0_);
                     }
+                    brLock.close();
                     if (const uint32_t lights = m.u32(cls + 0xD4u))
                     {
                         g.a(6, m.u32(cls + 0xE4u));
                         g.a(4, s6);
                         g.a(5, obj);
                         {
+                            const x3::Scope brLights(x3::bLights);
+                            ++x3::g_st.lights;
                             const uint64_t t0_ = wprof::now();
                             g.call(lights, 0x010F5744u, sp);
                             if (wp) wprof::add('L', lights, sotc_prof::ticks() - t0_);
@@ -5823,9 +5849,16 @@ namespace decomp_walk
                     g.a(4, s6);
                     const uint64_t t0_ = wprof::now();
                     if (draw == kDisp)
+                    {
+                        const x3::Scope brDisp(x3::bDispLayout);
                         g.callNative(dispLayoutObjModel, kDisp, 0x010F5754u, sp);
+                    }
                     else
+                    {
+                        const x3::Scope brOther(x3::bOtherDraw);
+                        ++x3::g_st.otherDraw;
                         g.call(draw, 0x010F5754u, sp);
+                    }
                     if (wp) { wprof::add('D', draw, sotc_prof::ticks() - t0_); ++wprof::g_cnt[4]; }
                 }
                 else
@@ -5837,10 +5870,13 @@ namespace decomp_walk
                         g.a(4, obj);
                         lockObj(obj, 0x010F577Cu); // iosDlLockObj (round W1: host while the walk holds the lock)
                     }
+                    brLock.close();
                     const uint32_t draw = m.u32(cls + 0xD0u);
                     g.a(5, obj);
                     g.a(4, s6);
                     {
+                        const x3::Scope brGeo(x3::bGeoDraw);
+                        ++x3::g_st.geoDraw;
                         const uint64_t t0_ = wprof::now();
                         g.call(draw, 0x010F578Cu, sp); ++wprof::g_cnt[4];
                         if (wp) wprof::add('d', draw, sotc_prof::ticks() - t0_);
@@ -5861,6 +5897,7 @@ namespace decomp_walk
             ++w1::g_st.walks;
             w1::report();
         }
+        x3::report(); // round X3
         g.callRel(0x010F57ACu, sp); // isysObjSignalSema
         m.put32(kStripsOff, 0u);
         finish();
@@ -5871,8 +5908,10 @@ namespace decomp_walk
 // Round W1: the W1 build's text ended 0x690 bytes below a 64 KB boundary (vita-elf-create: "Cannot allocate 4828 bytes for
 // SCE data at end of segment 0; segment 1 overlaps") with sotc_vita_elf_room at 122 880. These 4 KB of read-only data move
 // the text end past that boundary (sotc_native.cpp's room left at 122 880, as the round rules ask); drop or resize them
-// when a merge moves the text end again (the same rule as sotc_vita_elf_room's).
-extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[4096] = {1};
+// when a merge moves the text end again (the same rule as sotc_vita_elf_room's). Round Y3: 4 KB -> 8 KB (Y3's text ended
+// 0x88c bytes below the next 64 KB boundary: the same vita-elf-create message). Round Z4: 8 -> 12 KB. Round A2-lod: 12 ->
+// 8 KB (main c6fbbf5 + A2-lod: text ended 0x119c bytes below the boundary with 12 KB, 0x19c with 16 KB; 8 KB leaves 0x219c).
+extern "C" __attribute__((used)) const unsigned char sotc_w1_elf_pad[8192] = {1};
 #endif
 
 // Round W1 (w1_disp.h): the [w1] counts every 600 walks (SOTC_W1_LOG=0: none).
@@ -6491,6 +6530,19 @@ namespace decomp_walk
     }
 
     // ---- 010F3A08 (partial D1): solidDisp with the matrix products as d1 vec4 chains ----
+    // Round X3 (kSolidPart): sotc_native::shadowCapture reads the instance packet (the chain shadowDisp is given) only
+    // when its first DMA tag is a reference (id 2) to a block of exactly 5 qwords (a rigid model's one matrix).
+    inline bool x3ShadowReadsNoBlock(const Ram m, uint32_t packet)
+    {
+        if (!Ram::ok(packet, 8u))
+            return false;
+        if (((m.u32(packet) >> 28) & 7u) != 2u)
+            return true;
+        const uint32_t ret = m.u32(packet + 4u);
+        return Ram::ok(ret, 4u) && (m.u32(ret) & 0xFFFFu) != 5u;
+    }
+    inline bool x3SolidOn() { return x3::part(x3::kSolidPart) && sotc_decomp::solid103On() && sotc_native::nativeDraws(); }
+
     void solidDispD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const lines67::Scope l67(lines67::kDisp, false, GPR_U32(ctx, 29));
@@ -6539,6 +6591,7 @@ namespace decomp_walk
             const int32_t s2 = m.s16(s1 + 0x1B4u);
             SET_GPR_S32(ctx, 18, s2);
             ctx->f[0] = 1.0f;
+            ++x3::g_st.solid103;
             // SOTC_SOLID103_POISON=1 (checking): the skipped blocks filled with
             // NaNs, so any reader left would show (a model gone or broken).
             const bool poison = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0);
@@ -6550,10 +6603,77 @@ namespace decomp_walk
                         m.putq(block(i) + k * 0x10u, nan);
             }
         }
+        else if (s0 == 0u && x3SolidOn() && !lensScaled() && x3ShadowReadsNoBlock(m, m.u32(m.u32(s1 + 0x144u) + 0xCu)) && m.s16(s1 + 0x1B4u) > 1)
+        {
+            // Round X3 (x3_draw.h kSolidPart): a model with a shadow record whose rigid-shadow capture reads nothing of
+            // the instance packet (sotc_native::shadowCapture takes the chain's one matrix only when its first
+            // reference carries exactly 5 qwords; a model of more than one part does not): the parts' blocks are the
+            // PS2's VU1 input only, as round 103's models without a shadow. The camera lookup stays (a guest call:
+            // v0 and the hook's state as before) and the last part's product is made, so VU0's vf14-vf17 / vf24-vf27
+            // and ACC are left as the loop leaves them (ACC depends on the last product only). The blocks are not
+            // written. SOTC_X3_CHECK=1: the old loop runs as well (its blocks are kept) and the registers are compared.
+            const int32_t s2 = m.s16(s1 + 0x1B4u);
+            SET_GPR_S32(ctx, 18, s2);
+            ++x3::g_st.solidX3;
+            x3::g_st.solidX3Parts += static_cast<uint32_t>(s2);
+            g.call(kGetCameraContext, 0x010F3A2Cu, sp);
+            const uint32_t t0 = g.v0() + 0x1A0u;
+            const uint32_t last = m.u32(s1 + 0x15Cu) + static_cast<uint32_t>(s2 - 1) * 0x40u;
+            const __m128 cc[4] = {m.q(t0), m.q(t0 + 0x10u), m.q(t0 + 0x20u), m.q(t0 + 0x30u)};
+            const __m128 src[4] = {m.q(last), m.q(last + 0x10u), m.q(last + 0x20u), m.q(last + 0x30u)};
+            __m128 accX3 = acc;
+            __m128 outX3[4];
+            for (int k = 0; k < 4; ++k)
+                outX3[k] = d1wApply(cc, src[k], accX3);
+            if (__builtin_expect(x3::checkOn(), 0))
+            {
+                // The old loop (as the branch below), its blocks written; its registers against X3's.
+                uint32_t a3 = m.u32(s1 + 0x15Cu);
+                __m128 accOld = acc, outOld[4], cOld[4];
+                for (int32_t i = 0; i < s2; ++i, a3 += 0x40u)
+                {
+                    const uint32_t dst = block(i);
+                    const __m128 c2[4] = {m.q(t0), m.q(t0 + 0x10u), m.q(t0 + 0x20u), m.q(t0 + 0x30u)};
+                    const __m128 sr[4] = {m.q(a3), m.q(a3 + 0x10u), m.q(a3 + 0x20u), m.q(a3 + 0x30u)};
+                    for (int k = 0; k < 4; ++k)
+                        outOld[k] = d1wApply(c2, sr[k], accOld);
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        m.putq(dst + static_cast<uint32_t>(k) * 0x10u, outOld[k]);
+                        cOld[k] = c2[k];
+                    }
+                }
+                ++x3::g_st.checks;
+                const bool same = A9_MEMEQ(outOld, outX3, sizeof(outOld)) && A9_MEMEQ(cOld, cc, sizeof(cOld)) && A9_MEMEQ(&accOld, &accX3, sizeof(accOld)) &&
+                                  x3ShadowReadsNoBlock(m, m.u32(m.u32(s1 + 0x144u) + 0xCu));
+                if (!same && x3::g_st.differ++ < 8u)
+                    std::fprintf(stderr, "[x3chk] solid %08x: the last part's registers differ from the loop's (%d parts)\n", s1, s2);
+            }
+            else if (A9S_VAL(::a9sweep::on(), a9s_decomp_walk_poison_2066, bool, std::getenv("SOTC_SOLID103_POISON") && std::atoi(std::getenv("SOTC_SOLID103_POISON")) != 0))
+            {
+                // SOTC_SOLID103_POISON=1 (checking, as round 103): the blocks left out filled with NaNs.
+                const __m128 nan = _mm_set1_ps(std::numeric_limits<float>::quiet_NaN());
+                for (int32_t i = 0; i < s2 && i < 256; ++i)
+                    for (uint32_t k = 0; k < 4u; ++k)
+                        m.putq(block(i) + k * 0x10u, nan);
+            }
+            for (int k = 0; k < 4; ++k)
+            {
+                lastC[k] = cc[k];
+                lastOut[k] = outX3[k];
+            }
+            acc = accX3;
+            vuTouched = true;
+            ctx->f[0] = 1.0f;
+        }
         else if (s0 == 0u)
         {
             const int32_t s2 = m.s16(s1 + 0x1B4u);
             SET_GPR_S32(ctx, 18, s2);
+            ++x3::g_st.solidBlocks;
+            x3::g_st.solidParts += s2 > 0 ? static_cast<uint32_t>(s2) : 0u;
+            x3::g_st.solidShadow += m.u32(m.u32(s1 + 0x144u) + 0x280u) != 0u;
+            x3::g_st.solidLens += lensScaled();
             g.call(kGetCameraContext, 0x010F3A2Cu, sp);
             const uint32_t t0 = g.v0() + 0x1A0u;
             uint32_t a3 = m.u32(s1 + 0x15Cu);
@@ -6659,6 +6779,7 @@ namespace decomp_walk
         else
         {
             // A parent's matrix block (+0x194: its object) taken as this one's.
+            ++x3::g_st.solidParent;
             const uint32_t parent = layoutClass(g, s0, 0x010F3C38u, sp);
             m.put32(m.u32(s1 + 0x144u) + 0xCu, m.u32(m.u32(parent + 0x144u) + 0xCu));
         }
@@ -6697,6 +6818,7 @@ namespace decomp_walk
         const uint32_t shadow = m.u32(geo + 0x280u);
         if (shadow == 0u)
             return finish(v0);
+        const x3::Scope brShadow(x3::bShadowPart); // round X3 (SOTC_X3_BRACKET)
         g.a(4, shadow);
         g.callRel(0x010F3C88u, sp);
         geo = m.u32(s1 + 0x144u);

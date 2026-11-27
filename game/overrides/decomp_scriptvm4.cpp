@@ -54,6 +54,12 @@
 
 #include <cstring>
 
+namespace x2 // round X2 (decomp_x2.cpp): the body as native C++ while SOTC_X2=1
+{
+    bool on();
+    bool animalScript(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
+}
+
 namespace decomp_scriptvm4
 {
     using sotc_decomp::callGuest;
@@ -78,6 +84,8 @@ namespace decomp_scriptvm4
     {
         if (!sotc_decomp::scriptVmOn())
             return fallback(kBody, rdram, ctx, runtime);
+        if (__builtin_expect(x2::on(), 0) && x2::animalScript(rdram, ctx, runtime))
+            return;
 
         uint32_t sp = GPR_U32(ctx, 29);
         // A call that cannot sleep / can sleep from this frame (ra = the jal's + 8).

@@ -87,6 +87,8 @@
 // is not one of the generated code's labels runs the recompiled code from
 // the start (nothing written before).
 #include "sotc_decomp.h"
+#include "sotc_p2.h"
+#include "y3_objanim.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -291,6 +293,10 @@ namespace decomp_hot46i
     {
         if (!sotc_decomp::hotList46On())
             return fallback(kExecObjectAnimation, rdram, ctx, runtime);
+        // Round Y3 (SOTC_Y3=1, y3_objanim.cpp): the native body; SOTC_Y3_BRACKET=1: the bracket in both halves.
+        const sotc_p2::Scope y3Bracket(y3::execBracket());
+        if (y3::on() && y3::execObjectAnimation(rdram, ctx, runtime))
+            return;
         const uint32_t sp0 = GPR_U32(ctx, 29), sp = sp0 - 0xF0u;
         const uint64_t object64 = GPR_U64(ctx, 4), owner64 = GPR_U64(ctx, 5); // s4, fp
         const uint32_t object = static_cast<uint32_t>(object64);

@@ -24589,3 +24589,397 @@ lanes of one register), and only where the arrays involved do not overlap.
   (pictures looked at); SOTC_W2_CHECK (old code vs W2 on the same input, bit for bit) ride7: 3 720 967 nodes, 1 591 876 rootBlend bones, 0 mismatches; GetMotionMatrix difftest 100 checks 0 mismatches; ExecCharaGeometry's whole-call difftest is not repeatable even with W2 off (timer / allocation state), so not used.
 - **Speed**: Vita3K (instruction weight only) rootBlendD3 0.59% -> 0.24% of the game thread, the pose and the node loop even;
   the console's off / on pair (the package) decides.
+
+## Decomp X1: ExecCharaGeometry and xz as native C++ (SOTC_X1, off by default) (2026-11-26)
+
+docs/decomp_x1.md. Package: `build/agent-scratch/x1/` (celosia-x1.vpk / .elf, env-x1-off.txt, env-x1-on.txt, env-x1-parts.txt,
+README.txt), built on 8e39115. Needs SOTC_D1NATIVE=1.
+
+- **ExecCharaGeometry's body** (x1_charageo.cpp): the class through a host pointer, VU0 math on host vectors with the same ops /
+  clamps / order written to the context only at guest calls and the exit, the node quaternions four dot products at a time,
+  the bone products with PLD three bones ahead; calls, frame slots, callee-saved registers as the original.
+- **xz** (0x10e7610, the player's root dynamics step, recompiled MIPS until now; x1_xz.inc): host code from the MIPS in its order,
+  the context holding only what callees / the caller can read.
+- **Check** (SOTC_X1_CHECK=1, SOTC_X1_CHECK_FROM=<frame>): thread-free record / replay; X1's run recorded per segment, the old body
+  (x1_charageo_ref.inc) and the recompiled xz (x1_xz_ref.inc) replayed against it, compared at every guest call and the exit.
+  ride7 with riding: body 38 613 calls, xz 4 956 calls, 0 mismatches (xz's 12 unrecorded bytes a call are its own relocatable
+  instruction words, read by the recompiled code, constant at run time).
+- **Brackets** (SOTC_P2BRACKET=2): x1Nodes / x1Bones and 17 recompiled charrootdyn_* / collision helpers under xz (kTargetsX1).
+- spalign 0 of 3 314, ELF room 122 880, no overlap. Expected console gain ~0.1-0.2 ms a frame (body) plus a small part of xz's
+  0.29 M cycles; console A/B pending.
+
+## Decomp X2: the script bodies ranked by weight; the heaviest (the small animals' script) as native C++ (SOTC_X2=1, off by default) (2026-11-26)
+
+docs/decomp_x2.md. Package, env files, README: `build/agent-scratch/x2/` (celosia-x2.vpk / .elf, env-x2-off / -on / -rank, built
+on 8e39115 + X2).
+
+- **Ranking tools**: `SOTC_X2_RANK=1` (one bracket per body function, level >= 2) and `SOTC_X2_ZONE=1` with prof129 (each sample
+  marked by the body it runs in, the P2 wrappers mark theirs, so the console splits execScript's self by body, type and function;
+  `tools/x2_zone.py`).
+- **Ranking** (Vita3K's zone split at the console's bracket level applied to the 2026-11-26 console samples, ms a frame): the
+  small animals' script 0.76, st_collisionalias 0.71 (the strand solver 0.25), st_playObjAnim 0.57 (the object animation),
+  the sheath script 0.31 (two collision functions), Agro's AI 0.28, the player 0.18, the sound / small-object manager 0.18, the
+  life bar 0.11; ~3.5 ms of execScript's 7.1 ms self. Per type (Vita3K): characters (0x09) lead on the ride, type 0x21 in the
+  lake. **The bodies are thin sequencers (under 2% of their own weight); the weight is the libraries they call** (AI, cloth /
+  strands, object animation, the sheath's collision test): the next rounds' targets.
+- **X2**: the animal body (gamecore_sub_013E3840) on a typed view of its work with a phase state machine for its sleeps, the
+  getters as host reads, AI_OptFloatFrameSample native; callee-saved registers and frame as the original at every call and
+  sleep (a sub-thread moves between the old and new body either way).
+- **Checks**: SOTC_X2_CHECK (each step against the old statements; the getters against the guest call): ride7 662 856 checks,
+  0 differ; lake6 4 073, 0 differ. spalign 0 of 3 026, ELF room 122 880, no overlap; rides on normal, pictures looked at.
+  Expected gain small (~0.02-0.05 ms); the rank ride (env-x2-rank) measures the body table on the console.
+
+## Decomp X3: the display walk's draw side measured to the phase, the model hand-overs' wake-ups batched (SOTC_X3=1, off by default) (2026-11-26)
+
+docs/decomp_x3.md. Package: `build/agent-scratch/x3/` (celosia-x3.vpk / .elf, env-x3-off.txt, env-x3-on.txt, env-x3-brk.txt,
+README.txt), built on 8e39115.
+
+- **Where it goes** (new `SOTC_X3_BRACKET=1` brackets inside the draw loop, DispLayoutObjModel and modelDispHook's six phases;
+  `[x3]` counts; the console's prof129 zones): modelDisp's console self is ~1/3 the frame change (syncFrame at the frame's
+  first hook, 0.76 ms, not draw work), ~1/3 the lane hand-over (0.46 ms), ~1/3 the rest (setup 0.12, decision 0.04, job
+  0.20). On ride7 61-65 of 62-66 solid models already skip their VU1 blocks (round 103); the hand-overs woke a sleeping lane
+  53-55 times and the hook worker 10-21 times a walk, each a kernel call on the game thread.
+- **What changed**: in the draw loop a hand-over wakes a sleeping hook worker / lane every 4 jobs, the loop's end wakes the
+  rest (joins wake / help as before). Testing only: `SOTC_X3_RING=<n>` (the hook job ring's length: 128 made Vita3K wait for a
+  full ring, 33 s in 600 s), `SOTC_X3_PARTS=6` (solidDisp's blocks left out for multi-part shadow models: none on ride7 /
+  lake6). Nothing drawn changes: the same jobs, contents and order.
+- **Vita3K** (clock brackets, us a frame at 222 MHz, off / on): x3MdState 732 / 229, x3MdPush 182 / 34; a model draw without
+  the frame change 36.5 / 23.1 us; lane wake-ups 53 -> 14-16 a walk, worker 10-21 -> 2-6; the game thread's joins ran ~0.01 ms
+  a frame more lane jobs themselves.
+- **Checks**: spalign 0 of 3 026, room 122 880, no overlap. `SOTC_HOOK_ASYNC_VERIFY` with X3 on: 1 206 818 and 1 665 218 jobs,
+  0 differ; no `hookring` waits with the shipped X3; pictures normal on ride7 / lake6 (t0300 / t0540).
+- **Console**: env-x3-off.txt then env-x3-on.txt, one ride each; expected ~0.05-0.2 ms of the game thread, in modelDisp's
+  self (prof129's "state" zone).
+
+## Decomp A1 (display census): the display walk's write / read census, phase 0 of "display as an off-thread consumer" (SOTC_A1_RECORD=1, Mac tool) (2026-11-27)
+
+docs/decomp_a1_display.md. A census, not a speed round: nothing changes with the switch off (the Vita gets an empty install).
+
+- **The recorder** (`game/overrides/a1_record.cpp`, the Mac; `tools/a1_census.py` sums its `[a1]` blocks): around a recorded
+  DispDispObjGroupModel (from its graphFsEffectReset after isysObjWaitSema to its isysObjSignalSema: the walk is suspended at
+  thread switches and resumed at labels), a 32 MB diff with byte masks gives W_disp; other guest threads' segments inside the
+  walk are diffed apart and kept out; the read watch (all lines, plus the memcpy / memmove stubs' sources) gives R_disp; the
+  lines holding W_disp bytes are watched until the next walk and every load of a byte still holding the walk's value is
+  logged (reader, same / next frame); a diff at the next walk gives W_logic and R_disp x W_logic. Runs with `SOTC_DECOMP=0`
+  and no `SOTC_NATIVE`, so the whole game is recompiled code and every guest load is seen.
+- **Runs** (Mac, EVERY=3): ride7 10 940 recorded walks, the shrine's altar 5 580, lake6 5 740 from walk 3 500.
+- **Census**: W_disp 22 978 words a walk riding (14 855 at the altar): the display-list packet buffers, the isys links,
+  the objects' delete locks and group-pass rows, the bone blocks, the texture queue. Readers outside the walk: only the
+  frame-end display / isys passes in the same frame, and in the next frame (a) gameplay's isysGroupForNext / First reading
+  the objects' +0xA halfword (delete flag; the walk raised the lock count in it), (b) isysAddGroupWithLinkParam on isys's
+  link free list, (c) InitLayoutObjMatrix on the group pass's billboard / camera-linked transforms, (d) the timer
+  extension. Nobody reads the light pass's, the draw loop's or modelDisp's output.
+- **Verdict**: item 1 is safe. Kept on the game thread, in order: the group pass, iosDlLockObj (links and delete locks),
+  modelDisp's texture-transfer requests (or texTransResolve moved with them), the walk's isys semaphore.
+- **Phase-1 design**: the game thread does the group pass, the locks and texture requests in the loop's order and writes a
+  double-buffered host packet (per drawn object ~160 B: matrix, LOD, flags, light inputs, the per-object words logic
+  rewrites; per skinned character its bone block; camera / light globals; 25-75 KB a frame; the measured logic-written
+  inputs are ~17.6 KB a walk riding, ~17 KB at the altar); core 1 runs the light pass, the draw loop and modelDisp's
+  job setup from the packet only. Expected -8.6..-9.1 ms light (conservative -7.1), -5.0..-5.4 ms heavy (conservative
+  -3.6, needs core 3). Check: old walk vs new on the same state, the hook job stream compared job by job and the kept
+  guest words compared word by word; the census re-run must list no reader of the worker's output.
+- **Mac build**: the Mac target builds again (`PS2X_RUNNER_UNITY_SKIP`, the a9sweep.h include outside the Vita guard in six
+  files); its ThinLTO link through an LTO cache.
+
+## Decomp Z1: the collision library the characters call as typed native C++ (SOTC_Z1=1, off by default) (2026-11-26)
+
+docs/decomp_z1.md. Package: `build/agent-scratch/z1/` (celosia-z1.vpk / .elf, env-z1-off.txt, env-z1-on.txt, README.txt),
+built on f6e2a5d (Z2).
+
+- **Where it goes** (Vita3K clock brackets on 32 + 32 collision entries, ride7 / lake6, Z1 off): ClipCollisionDirectCallBackOneObj
+  ~0.6-0.7 ms a frame on the ride (the sheath's probe against Agro's skinned body, ~480 us a call), 36 guest calls a frame
+  into CalcCollisionMultiDepSurfBoundary inside it (187 us); ClipCollisionDirect 484 us a frame at the lake; both were
+  register-for-register lifts (D5 / D7). ClipCollisionDirectCallBack's large self is already host code; the old tree walkers
+  never run.
+- **What changed**: OneObj and ClipCollisionDirect are host functions on decomp_collision's helpers (z1_oneobj.inc): the
+  cylinders / capsule in host locals with D1's operations in the original order and forms, the frame written only where a
+  callee reads it, f0 / VU0 / ACC kept in a host shadow and stored before each call and at the exit; MultiDep is host code
+  on round D3's corner core, called directly (and from obj125's D1 loop through an adapter).
+- **Vita3K** (ride7, clkOffE / clkOnE): the sheath's probe ~690 -> ~300 us a frame (-56%); OneObj 472 -> 305 us a call.
+- **Checks**: `SOTC_Z1_CHECK` (Y1's same-thread check, plus repeat probes both ways for words another host thread writes
+  during a ~1 s leg: a static block of time-like floats at 0x29126c.., shown by a control run with the old function in both
+  legs). chkRG ride7 (mounted at 3156): OneObj 508 checks, MultiDep 26, 0 bad; chkLWG lake6: OneObj 255, MultiDep 145,
+  Direct 58, 0 bad. spalign 0 of 3 417, room 122 880, no overlap; pictures normal on ride7 / lake6.
+- **Console**: env-z1-off.txt then env-z1-on.txt, one ride each; expected ~0.1-0.15 ms a frame while riding Agro.
+
+## Decomp Z2: the cloth callbacks and the type-1 velocities as native C++ (SOTC_Z2=1, off by default) (2026-11-26)
+
+docs/decomp_z2.md. Package: `build/agent-scratch/z2/` (celosia-z2.vpk / .elf, env-z2-off.txt, env-z2-on.txt, README.txt),
+built on main d783114 (build p2).
+
+- **What**: the parts of Y2's getClothDynamics driver that were still guest calls, as C++ calls from the driver
+  (`z2_dynamics.inc`, `z2_cloth.cpp`): the reins' / bridle callbacks 013978E8 / 013976B8 (round D2's walks called
+  directly, the head's frame made on the host), Agro's cloth pass 01397110 and Wander's fringe string keep 013BA790 (new
+  typed C++), and a type-1 cloth's velocities (manager_sub_01137640: D1's rows, then a host loop over the string's layout
+  objects with GetLayoutClass, the quaternion, UpdateLayoutClassSimpleGeometry and isysGroupForNext as cores;
+  isysGroupForFirst / Exit the only guest calls left). Needs SOTC_Y2=1; the fringe callback 013B9EE8 never runs and stays
+  a guest call.
+- **Ranking** (Vita3K clock, ride7, Z2 off): velocity 843, clothPass 243, stringKeep 48, bridleHead 42, bridleThree 38 us
+  a frame inclusive.
+- **Checks** (SOTC_Z2_CHECK, same thread, Z2's leg then the old guest call on one state, every word either leg changed
+  compared, Y1's put-back of only Z2's words): the first run found a real bug: the type-1 path read the rest length from
+  the cloth's +0x28 instead of the grid's (the old body goes through `lw fp, 0(a0)`), the first object's +0x98 scale
+  saturated to 0x7f7fffff; fixed (p2). On p2, chkRC + chkLC + chkRD (ride7 mounted at 5 001): three 80 / head 80 / pass 80
+  / keep 556 / type-1 635 checks, registers 81 928, **0 differ**, 0 void. spalign 0 of 3 373, room 122 880, no overlap.
+  Pictures normal (cape, reins, fringe, mane, tail, ground; ride7 mounted and on foot, lake6).
+- **Speed**: Vita3K getClothDynamics 1 229 -> 1 081 us a frame (-12 %), GetClothDynamics 1 504 -> 1 335, the reins'
+  owner execHorseBriddle 379 -> 283. Expected on the console ~0.1-0.2 ms a frame (~45 hand-overs a frame and ~85 guest
+  calls inside the type-1 path now C++ calls).
+- **Console**: env-z2-off.txt then env-z2-on.txt, one ride each.
+
+## Decomp Z4: the frame change (syncFrame) measured to the part; its renderer bookkeeping off the game thread (SOTC_Z4=1, off by default) (2026-11-27)
+
+docs/decomp_z4.md. Package: `build/agent-scratch/z4/` (celosia-z4.vpk / .elf, env-z4-off.txt, env-z4-on.txt, env-z4-brk.txt,
+README.txt), built on main 6d66c6b (build p5).
+
+- **What the 0.76 ms is**: X3's figure is a whole-run average; on the console's ride (prof129 windows 4-6 of wxoff / wxon)
+  the frame change runs **0.91-0.96 ms a frame**: sotc endFrame's own part ~0.35-0.39 (switches, flags, the last 2D batch,
+  the scene set-up), the GL hand-over's own work 0.21-0.32 (`[wait143]`: counters, swaps, the eviction bookkeeping), the
+  ticks and the next frame's start 0.11-0.17; the hook join, frame log, sound log and idle turn ~0. **The render-thread
+  wait is apart** (prof129 `wait render`): 0.18 / 1.51 ms a frame on the ride, 17-22 ms in the menus; real waiting (the
+  render thread's present waits for a display buffer), not counted in the 0.9 ms and not cuttable on the game thread.
+- **Brackets** (direct, `[p2b]`): `frame:z4Sync`, `z4Join`, `z4EndFrame`, `z4Handover`, `z4Log`, `z4After` with
+  SOTC_P2BRACKET >= 1; `SOTC_Z4_BRACKET=2 / 3` the finer parts down to the GL hand-over (`z4HoLock` = its wait,
+  `HoSwap`, `HoEvict`, `HoNotify`) and the eviction (`z4EvHeap` = newlib `mallinfo()`, `EvPool`, `EvPass`, `EvLog`).
+  Vita3K ride7, Z4 off (brk3E): z4Sync 521 us a frame, of it the render wait 162, the eviction 75 (`mallinfo` 503 us a call
+  every 16 frames, the `[gl:mem]` log 2.1 ms a call every 5 s, the pressure pass 307 us a call every 16 frames), endFrame's
+  switches 35, the fog set-up's five getenvs 28, the ticks 28, the 2D flush 21.
+- **Z4 (exact)**: the `[gl:mem]` line's walks (every mesh and texture, the mesh pools) and its print move to the render
+  thread at its pick-up of the frame handed over, on the same maps (the heap reading, which is state, stays on the game
+  thread at the same place); the heap-texture pressure pass skips its walk when no texture lives in the newlib heap
+  (`textureHeapBytes == 0`); endFrame's five `SOTC_NATIVE_LOG` tests read the env once.
+- **Checks** (SOTC_Z4_CHECK, game thread): the game thread's own walk of each `[gl:mem]` line against the render
+  thread's, and each skipped heap-texture walk done anyway: chkRE (ride7 600 s, mounted at 4 845) 95 lines compared / 504
+  passes, chkLE (lake6 400 s) 58 lines; **0 differ, 0 heap textures found**. spalign 0 of 3 417, room 122 880, no overlap
+  (W1's `sotc_w1_elf_pad` 8 -> 12 KB). Pictures normal (ride7 on Agro and on foot, the shrine stairs, lake6 with the HUD).
+- **Speed**: Vita3K (brk3E / brk3onE, level-3 brackets) the `[gl:mem]` line 2.1 -> 0.3 ms a call (every 5 s),
+  the fog set-up 27.7 -> 1.9 us a frame: ~45 us a frame less on the game thread in the parts changed. Expected on the console
+  ~0.03-0.05 ms a frame and one 2-4 ms stall every 5 s gone: small, because the frame change's ~0.9 ms is a long tail.
+- **Left, with numbers**: the heap reading (`mallinfo` walk, 0.4-0.7 ms a call in Vita3K every 16 frames: its value and
+  timing decide the evictions, so only a policy change can move it: an O(1) upper bound from
+  `__malloc_current_mallinfo.arena` minus the top chunk, or the reading a frame ahead on another thread), the pressure
+  pass's arena trims (the recording regrows ~0.8 MB every 16 frames over the heap mark), endFrame's ~30 A/B switches and
+  per-round flags a frame (go when those rounds' switches retire), and the render wait.
+- **Console**: env-z4-off.txt then env-z4-on.txt, one ride each.
+
+## Decomp A3 (cpu500): the CPU at 500 MHz as a player option through the K2 module (System tab "CPU at 500 MHz" / SOTC_CPU500=1, off by default) (2026-11-27)
+
+docs/decomp_a3cpu.md. This is not the 2026-11-21 "Decomp A3" (typed loops): this round reused the letter. Item 3 of
+docs/arch_plan.md. Package: `build/agent-scratch/a3/` (celosia-a3.vpk / .elf, pkg/eboot.bin + pkg/module/, env-a3-off.txt,
+env-a3-on.txt, README.txt), built on main 0d923a6 (build p1).
+
+- **What**: K2's resident kernel module gets a syscall library, CelosiaK2A3 (`vita/k2/celosia_a3.c`), and a bridge,
+  `celosia_a3u.suprx`. The route is PSVshell's, written here:
+  1. `kscePowerSetArmClockFrequency(444)`.
+  2. ScePervasiveForDriver 0xE9D95643 (SceLowio) with mul:div 15:16, after a Thumb NOP at its +0x1E (taiInjectAbs).
+  3. ScePower's data words +0x41C8 / +0x41CC set to 500 / 15.
+
+  Each site is checked before any write: ScePower's word must read 444 after the 444 set, and the patch site must be a
+  16-bit conditional branch or already the NOP. A kernel busy loop is timed before and after (`est = 444 x t444 / t`);
+  a 500 that is not at least 6% faster is undone. 444 is restored (NOP out) on request, at exit (atexit), on
+  process exit / kill (onGone), on a new owner's hello and at module stop.
+- **Game side**: nothing loads while the option is off. When it is on, K2 is loaded lazily if the boot did not load it,
+  then the A3 bridge, then `celosiaK2Clock(500)`.
+  - Any failure: 444 and one `[a3] ... CPU500 REFUSED` line with the reason.
+  - The resume watcher re-applies 500 after a resume or when ScePower's frequency no longer reads 500; it gives up
+    after 3 failures.
+  - Menu: System tab, saved as `cpu500` in settings.cfg; SOTC_CPU500 is used for one run and not saved.
+- **Vita3K**: on1 (all-on + SOTC_CPU500=1) and on2 (also SOTC_K2=0, the lazy load), ride7, 600 s, both mounted. Both
+  logged "CPU500 REFUSED" (no module answer) and ran as before; pictures normal. 0 errors, no overlap, room 122 880,
+  spalign 0 of 3 417.
+- **Console**: install eboot + module/celosia_k2.skprx, celosia_k2u.suprx, celosia_a3u.suprx; **reboot once** (an old
+  resident K2 lacks the library). Then env-a3-off.txt and env-a3-on.txt, one ride each. Proof: "[a3] cpu 500 ... after
+  (= ~500 MHz) ... CPU500 ON". Expected -7..-10% on the game thread.
+
+## Decomp Y3: the object animation library as native C++ (SOTC_Y3=1, off by default) (2026-11-26)
+
+docs/decomp_y3.md. Package: `build/agent-scratch/y3/` (celosia-y3.vpk / .elf, env-y3-off.txt, env-y3-on.txt, env-y3-brk.txt,
+README.txt), built on xm (X1 + X2 + X3).
+
+- **Ranking** (Vita3K clock brackets on 31 library functions, ride7 / lake6; `SOTC_Y3_LOG` counts every channel by type with
+  the sampler's and the kick's table words): the weight is ~60-90 animation channels a frame (the shrine's global light
+  animation: types 23-26, object / alpha / vector / colour samplers -> the four light updates; riding out of the shrine
+  area: types 1 / 5, optionNodeSample -> updateObjectGeo), each a guest-call ladder (ExecObjectAnimation -> the sampler's
+  0xd0 frame and table walk -> one evaluator -> the kick's 0x480 frame, its table and register syncs -> GetLayoutClass,
+  the light type test, one update). ExecObjectAnimation 918 us a frame in Vita3K at the shrine, ~1-3 channels on the plain.
+- **What changed**: ExecObjectAnimation as host code over typed views (AnimPart, WalkAnim / WalkChannel, Target, ResAnim /
+  ResChannel, Blend3Data); the sample by the sampler's word: a plain case's evaluator or optionNodeSample called directly
+  with the sampler's registers, the vec3 blend as direct C++ (D2 / D3 cores, the blend's VU0 statements on host vectors);
+  the kick by its word: the four global light cases (GetLayoutClass and the light type tests as host reads, the
+  out-of-range placing, the update as the one guest call left), caseObject / caseObjectAttach (updateObjectGeo with the
+  kick's registers), the damage case (updateDamageGeo's size test); the rest as before. `sotc_w1_elf_pad` 4 -> 8 KB.
+- **Checks** (`SOTC_Y3_CHECK=1`, same thread: old then new on the same state, compared; the object kicks through a spy in
+  updateObjectGeo's slot): ride7 564 659 samples, 301 159 light kicks, 225 084 object kicks, **0 differ**; lake6 372 595 /
+  226 338 / 8 860, **0 differ**; one place (a vector sample right after a teleport) where the old recompiled evaluator itself
+  is not repeatable (its second run equals Y3's). spalign 0 of 3 320, room 122 880, no overlap; pictures normal.
+- **Speed** (Vita3K, the shape): ExecObjectAnimation 918 -> 803 us a frame at the shrine (-12.5%); what is left is the
+  evaluators (still recompiled MIPS) and the updates: the next step.
+- **Console**: env-y3-off.txt then env-y3-on.txt, one ride each; expected ~0.05-0.15 ms a frame in the shrine area and while
+  riding out of it, about nothing on the open plain.
+
+## Decomp Y2: the cloth / strand library as native C++ (SOTC_Y2=1, off by default) (2026-11-26)
+
+docs/decomp_y2.md. Package: `build/agent-scratch/y2/` (celosia-y2.vpk / .elf, env-y2-off.txt, env-y2-on.txt, README.txt),
+built on main bc473f3.
+
+- **The strand solver** (gamecore_sub_013B8DC8, 1 096 MIPS instructions, Wander's mantle: the whole-set callback
+  nico_execPlayerMantle hands getClothDynamics) as C++ on typed views (`y2_cloth.cpp`: StrandSet / Grid / Row / RowParams /
+  Limit / Params): the pair relaxation, the two anchor frames (bones 10 and 0; iosTransMatrixF / iosMulRotMatrixXInt16 as
+  host math, the sine table), the third frame (round 122's GetQuaternionByAxisDirZY core, the quaternion matrix), the
+  walk's constraint and cylinder pushes; its 0x2b0-byte frame as host locals, no guest calls, D1's float operations in
+  the old order. The demos' per-point callback keeps the D1 body.
+- **getClothDynamics** (`y2_dynamics.inc`): the flip, D1's step and velocity cores and the strands as C++ calls; the
+  context only for the other callbacks (reins, fringe, the horse's cloths) and type-1 velocities, set up as the D1 driver
+  has it there.
+- **Checks** (SOTC_Y2_CHECK, segment by segment old vs new on the game thread, callee-saved registers, page-hash scans for
+  writes outside the regions): chkG + lchkG + chkH (the package): flip + step 650 104, strands 59 708, velocity 174 988,
+  registers 650 104, **0 differ**; 1 729 scans, 0 pages outside. spalign 0 of 3 320, room 122 880, no overlap. Pictures
+  normal (cape, mane, tail, reins riding). One check run (chkG, p4) stalled in Vita3K at ~310 s, not reproduced (chkH 900 s).
+- **Speed**: Vita3K getClothDynamics 1 242 -> 1 185 us a frame (clock brackets; strands 40 us a solve). Expected on the
+  console ~0.1-0.2 ms a frame (the solver's frame / call traffic, the driver's hand-overs).
+- **Console**: env-y2-off.txt then env-y2-on.txt, one ride each.
+
+## Decomp Y1: the small animals' AI library as typed native C++ (SOTC_Y1=1, off by default) (2026-11-26)
+
+docs/decomp_y1.md. Package: `build/agent-scratch/y1/` (celosia-y1.vpk / .elf, env-y1-off.txt, env-y1-on.txt, README.txt),
+built on 04986d4.
+
+- **Where it goes** (Vita3K clock brackets on 32 AI entries, ride7, Y1 off): animalStep 637, animalMove 273 and steer 167 us a
+  frame (~6.75 animals), their leaf table calls among them (AI_GetSmallAnimalAIParam 33.75 calls / 211 us a frame,
+  AI_UpdateVelocity 21.3, AI_GetRotVelocity 9.4 calls). Agro's AI (516 us) is next.
+- **What changed**: steer (013DD228) and animalMove (013E30D0) are new host functions: floats and VU0 registers as locals,
+  the leaves (AI_UpdateVelocity, AI_GetRotVelocity, AI_GetAreaDistScale, AI_GetInterRatio, AI_GetSideSignalFromDirLev,
+  the table sines) inline, written from their recompiled code; guest calls 14 -> 2 and 10 -> 3 a call. animalStep
+  (013E1E48) keeps round 43's body in a Y1 mode: the getters and leaves are on the host, and its five
+  AI_GetSmallAnimalAIParam calls run in one batch on the typed core (`aiParamBatchY1`); 12-17 -> ~2.5 guest calls.
+- **Vita3K** (us a call, off / on): animalStep 94.4 / 78.2, animalMove 40.5 / 39.0, steer 37.9 / 22.2; the three ~1.08 ->
+  ~0.89 ms a frame.
+- **Checks**: `SOTC_Y1_CHECK` (same thread; one 32 MB copy, only Y1's written words put back, every word either leg wrote
+  compared; checked only while the EE gate is not reached; void when the VBlank handler ran in a leg). ride7 (mounted
+  at 4261): steer 192, animalMove 256, animalStep 257 checks, 0 bad, 1 void. lake6 (the shrine's animals before the
+  teleport): 144 / 149 / 151, 0 bad, 2 void. The draft's two failures were the check, not Y1. Its lake6 "mismatch" at 0x1e0bd4 was the
+  VBlank handler and the threads it woke, run in the recompiled leg during the teleport's load. Its ride7 heap crash came
+  from putting all 32 MB back, which undid the other host threads' writes during the mount's loads. spalign 0 of 3 324,
+  room 122 880, no overlap; pictures normal on ride7 / lake6.
+- **Console**: env-y1-off.txt then env-y1-on.txt, one ride each; expected ~0.1-0.2 ms a frame while small animals are near.
+
+## Decomp Z3: the root-dynamics helpers under xz as typed native C++ (SOTC_Z3=1, off by default) (2026-11-27)
+
+docs/decomp_z3.md. Package: `build/agent-scratch/z3/` (README.txt, env-z3-off.txt, env-z3-on.txt; the VPK of the rebased
+build p3 still to make: the A1-A3 rounds took the heavy slots).
+
+- **Where it goes** (Vita3K clock brackets on X1's 17 targets, xz's other callees and theirs, ride7 / lake6): most of root
+  dynamics is collision code that is already native (GetCollisionDBCallBack ~0.9 ms a frame riding, the finders, the water
+  probe under CheckUnderVariableXZSurface ~0.8 ms at the lake, GetGeometryPointerPosition); the charrootdyn wrappers are
+  thin (getCollisionDB 9 of 409 us). Still lifted / generated with bodies of their own: slidecollisionCB, the parent
+  geometry (UpdateLayoutClassParentGeometry and its charrootdyn caller, both generated code in the table), the surface
+  attribute leaves.
+- **What changed**: charrootdyn_slidecollision / slidecollisionCB, charrootdyn_updateCharacterClassParentGeometry /
+  UpdateLayoutClassParentGeometry (new table entries; the generated code when off), GetGeometryPointerSurfaceAttribute /
+  GetCollisionDBAttribute as host functions (z3_funcs.inc), GetGeometryPointerObject as host code inside
+  UpdateLayoutClassParentGeometry; the VU0 operations are the recompiler's own statements on host registers (copied by a
+  script), the FPU divides on the context's fcr31; guest calls left: the finders, getBossDBInfo,
+  GetPointDistanceFromPlane, GetGeometryPointerQuatPos.
+- **Check** (SOTC_Z3_CHECK, Z1's design with the repeat probes): chkRE ride7 mounted at 3218, to frame 14 358: slide 42 /
+  slideCB 25 / parentGeo 148 / layoutGeo 76 / geoObj 112 / surfAttr 38, 0 bad; chkLD lake6: 80 / 1 / 120 / 103 / 236 / 65, 0
+  bad; chkRC 719 more, 0 bad; 0 void; the unrepeatable words are the known static block (the control run ctlLF shows them
+  with Z3 not run).
+- **Speed** (Vita3K, a loaded machine, normalised by an unchanged guest function): ~75 us a frame less while riding
+  (surface attribute ~60, parent geometry ~15, slide body ~2); GetGeometryPointerObject's own table entry was slower than
+  its 10-instruction body and was removed (p2). Expected on the console: ~0.03-0.06 ms a frame.
+- **Gates**: p1 / p2 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap.
+
+## Decomp A2-lod: charlod78 made safe to turn back on (SOTC_CHARLOD78=1, still off by default) (2026-11-27)
+
+docs/decomp_a2lod.md. Package: `build/agent-scratch/a2/` (celosia-a2lod.vpk / .elf, env-a2lod-off.txt, env-a2lod-on.txt,
+README.txt), build p14 = main c6fbbf5 + A2-lod. (The name "A2" belongs to an older round.)
+
+- **Round 78's faults** (each seen in `[charlod]` lines; `SOTC_CHARLOD78_LEGACY=1` = the old rule): the active colossus was
+  never excluded (0x1465AD4 is a boss table record; the handle is 0x1465908): Avion, collision radius 0.05, was put off
+  ~5 frames in 6 at its lake and drawn stale; the 2r+1 view margin with a 1-frame hold drew birds and lizards with old poses
+  (legacy shrine: 4 433 stale draws, 4 426 with a steady camera); the player's +0x170 stops following Wander while he rides
+  or swims (460-1 353 units off), so Agro and what rides along became "far"; and **Agro put off stops coming back to
+  Wander** (off: he walks out to ~50 units and back every ~2 000 frames; on: he stays at 50 for the whole run), a gameplay
+  change the time check does not see.
+- **The rule now**: only characters with collision radius < 0.3 (birds, lizards, small animals), more than 12 from Wander
+  (his place from his own tail) and 15 from the camera, not the active colossus, not seen in the last 8 frames by a view
+  test widened to 1.35 x the screen with a view radius of at least 6 (also at 1 x, both camera contexts), no camera cut or demo
+  end in the last 30 frames. `[charlod]` audit lines: stale (put off and in the drawn picture), entries (lead before a
+  character enters the picture), watch (demo words, boss handle).
+- **Checks**: stale **0** outside the first frame after Load Game's black screen (1-3 small characters there, every run:
+  the camera changes after the character tails in that frame) on the shrine (wkOnK p14, wkOnH, wkOnI, wkOnJ, wkOnE, enOnH),
+  ride7 (rdOnI p13) and the lake; characters entering the picture were updated 1-27 frames before; time given minus the
+  player's -0.35 .. +0.25 s per 300 frames (one pending interval); Agro and the small animals move as with the switch off.
+- **Avion's intro could not be replayed in Vita3K** (`boss4` + swim, `bdemo`, `bootflag4`, a teleport to its home place:
+  none plays it), so the reveal and the ptcl79 half of the old bisect are not proven here; 0x1465AC8 / 0x1465AC0 never
+  changed in any scene reached (not a working "demo running" flag for them).
+- **Speed** (Vita3K): small far characters' ExecCharaGeometry -0.6 ms a frame at the altar, -2.0 riding (per-character
+  lines); the A/B on a loaded machine is below its noise. Far below arch_plan's -4.2 ms, which counted Agro and stale draws.
+- **Gates**: p14 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1's elf pad 12 -> 8 KB on c6fbbf5).
+- **Console**: env-a2lod-off.txt then env-a2lod-on.txt, a ride from the shrine; and Avion's intro with the on env.
+
+
+## Decomp DT1: modelDisp's per-draw host part on a worker of its own from a record, arch_plan item 1's first cut (SOTC_DT1=1, off by default) (2026-11-27)
+
+docs/decomp_dt1.md. Package: `build/agent-scratch/dt1/` (celosia-dt1.vpk / .elf = build p7 on 2eee515, env-dt1-off.txt,
+env-dt1-on.txt, README.txt).
+
+- **What moved, and what could not**: of the display walk's game-thread work only modelDisp's per-draw host part is host
+  code already (console ~0.66 M cycles a frame after the frame change: the plan lookup, the lane hand-over, the part
+  decision, the job's fields, the scroll rows). DT1 moves it to a worker on core 1 (priority 140, polled) that makes each
+  hook's job from a record the hook writes (the packet: instance, matrix, the camera's two matrices, LOD word, fade,
+  globals, the CLIP chain). The light pass (guest light callbacks, the scratchpad work area) and the draw loop's guest
+  callbacks (DispLayoutObjModel / solidDisp, dispSkinned, strips, cloth, particles, sword blur: 1.16 M) did not move:
+  each needs its own native rewrite first (decomp_dt1.md section 6).
+- **Kept on the game thread**: mdsOpacity's guest words, the draw / no-draw decision, the palette and lights copy (the
+  verify found the chain's palette rewritten between the hook and the record's make in 1.2% of hooks), the kick's palette
+  list and S4's note, the hook ring's slot (the draw order), the CLIP register's lazy chain. Joins: every mdslane::join /
+  take and **the kick** drain the records (the kick is the one wait before the next frame's hand-over).
+- **Checks** (SOTC_DT1_CHECK, same thread, records drained, 32 MB copy, only the first leg's words put back, job compared
+  field by field, CLIP, every guest word; VBlank-void; repeat probe): chkRC ride7 (mounted at 2 719) 303 checks, chkLQ lake6
+  208, chkSQ the altar 230; **0 bad, 0 void, 0 unrepeatable**; ctlRQ (old code in both legs) 170, 0 bad. SOTC_DT1_VERIFY: tags / lights / header
+  never changed between hook and make; HOOK_ASYNC_VERIFY 620 270 DT1 jobs, 0 differ. No "[signal_handler] Unhandled".
+- **Speed** (Vita3K, clock brackets, us a frame, a loaded machine): the altar pair (the clean one, untouched group pass
+  equal to the microsecond): modelDisp 1 644 -> 1 305 (-0.34 ms), the walk -0.15 ms; ride7 / lake6 pairs -2.8 / -2.1 ms on
+  modelDisp under heavy host load (whole-frame deltas there are mostly load). Game-thread drains 0.01-0.2 ms a frame; the
+  worker makes 84-93% of the records. Far below arch_plan's -8.6 ms for the whole item; expected console ~0.3-1 ms.
+- **Gates**: p7 0 errors, spalign 0 of 3 417, room 0x1e000, no overlap (W1 pad 8 KB as main).
+- **Console**: env-dt1-off.txt then env-dt1-on.txt, one ride each; read modelDisp's and DispDispObjGroupModel's brackets.
+
+## Decomp K3: the core-3 enabler: the light misc threads on core 3 through K2 (SOTC_K3=1, off by default) (2026-11-27)
+
+Details: docs/decomp_k3.md. Base main ac722cb.
+
+- **No kernel code**:
+  - round C1 already gave K2's resident module the CelosiaK2C1 library: the `isIllegalAffinity` hook for our pid only,
+    and the release at exit / kill / module stop;
+  - C1 also gave the C1 bridge and the core-3 test thread;
+  - the VPK's celosia_k2.skprx is byte-identical to A3's.
+- **SOTC_K3=1, on the game side**:
+  - it turns on C1's hook and test;
+  - with core 3 ours, `threads::place` puts SOTC_K3_SET's kinds on 0x80000 alone (default
+    audio,loader,log,main,watch; SOTC_K3_WIDE=1: cores 1-3). The game thread and the render thread never move;
+    priorities are unchanged;
+  - a refused core-3 mask goes back to today's mask.
+- **The resume watcher** is noted as the new kind `watch`. It calls `ps2x_k3_watch` every 250 ms, which:
+  - places the watcher;
+  - registers the release at exit;
+  - prints the `[k3]` line: core-3 availability with the reason, then every thread's kind, name, mask (from
+    sceKernelGetThreadCpuAffinityMask), priority and CPU ms a frame. The line comes at frame 3 000, every 6 000 frames,
+    when new threads appear, and 2 s after a resume.
+- **Fallback**: with no K2 answer, every thread keeps today's mask and the `[k3]` line names the reason.
+- **Before** (console wxoff / k2pmu):
+  - cores 1-2 carry 47.7 ms of CPU per 42.2 ms frame;
+  - the moved kinds are audio 3.0-4.3, loader 4.6-4.8, log 1.2 and main 1.2-1.3: 10.0-11.6 ms a frame.
+- **Vita3K** (the fallback only; the module never runs there):
+  - k3RA (ride7) and k3LA (lake6) with K3 rode and swam to the end;
+  - k3dRA (full env + K3 + DT1) also rode to the end;
+  - in all three, the `[threads]` masks are identical to offRA's, the `[k3]` line reads "core 3 OFF: K2 did not answer
+    ...: fallback ...; on core 3: 0 of 17", there is no Unhandled, and the pictures are normal.
+- **Gates**: p1 has 0 errors; spalign 0 of 3 417; room 0x1e000; no overlap.
+- **Estimate** (an estimate, not a measurement):
+  - ~10-12 ms a frame leave cores 1-2, so the heavy scene's free room goes from ~4.3 to ~14 ms. That is enough for DT1's
+    worker;
+  - the game thread itself gains ~0-1 ms (within noise).
+- **Console**: package build/agent-scratch/k3 (env-k3-off, env-k3-on, env-k3-dt1). The proof is `[c1] ... CORE 3 ON`
+  plus `[k3] threads ...: CORE 3 ON ...; on core 3: 8 of N`, with game 0x10000 and render 0x40000.

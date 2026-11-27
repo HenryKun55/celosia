@@ -3,6 +3,7 @@
 // function table while SOTC_LIFTD7 is on (sotc_decomp::install; an A/B window swaps them back). Earlier batches' lifted
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D7".
 #include "sotc_decomp.h"
+#include "z1_coll.h" // round Z1: the ClipCollisionDirect hook
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
@@ -12989,6 +12990,7 @@ void CheckCollisionFinderAlive(uint8_t *rdram, R5900Context *ctx, PS2Runtime *ru
 void ClipCollisionDirect(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x112ED58u, 0)) { ClipCollisionDirect_0x112ed58(rdram, ctx, runtime); return; }
+    if (__builtin_expect(::z1coll::on(), 0) && ::z1coll::partOn(::z1coll::kDirect) && ::z1coll::enter(::z1coll::kDirect, &::z1coll::direct, rdram, ctx, runtime)) { return; } // round Z1 (z1_oneobj.inc)
     uint32_t at = Ps2GprU32(ctx, 1), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), s6 = Ps2GprU32(ctx, 22), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s7 = Ps2GprU64(ctx, 23), fp = Ps2GprU64(ctx, 30);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f20 = ctx->f[20], f21 = ctx->f[21], f22 = ctx->f[22];

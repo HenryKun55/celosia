@@ -1,6 +1,7 @@
 // The native renderer's front: picks a backend (native_backend.h) the first
 // time it is used. macOS: Metal, or OpenGL with SOTC_NATIVE_GL=1 (to check
 // the GL path against Metal); the Vita: OpenGL (vitaGL); elsewhere none.
+#include "runtime/z4_bracket.h"
 #include "native_backend.h"
 #include "runtime/ps2_diag.h"
 #include "runtime/native_tuning.h"
@@ -37,6 +38,7 @@
 #include <psp2/kernel/threadmgr.h>
 extern "C" unsigned int _pthread_stack_default_user; // ps2_vita_runtime.cpp
 extern "C" int ps2x_c1_core3();                       // ps2_vita_runtime.cpp (round C1): 1 when core 3 is ours
+extern "C" int ps2x_k3_state();                       // ps2_vita_runtime.cpp (round K3): 0 off, 1 wanted / core 3 off, 2 core 3 ours
 #endif
 
 #if defined(__APPLE__) || (defined(__vita__) && defined(PS2X_VITA_SDL2_SHIM))
@@ -1364,7 +1366,30 @@ namespace native_renderer
             std::mutex g_slotMutex;
             uint64_t g_cpuUs[kKinds] = {}, g_preempts[kKinds] = {}, g_moves[kKinds] = {};
             uint64_t g_lastCpuUs[kKinds] = {}, g_lastPreempts[kKinds] = {}, g_lastMoves[kKinds] = {}; // the last sample's alone
-            const char *const kNames[kKinds] = {"game", "worker", "render", "build", "audio", "main", "loader", "recorder", "log", "dma", "lane", "offload", "guest"};
+            const char *const kNames[kKinds] = {"game", "worker", "render", "build", "audio", "main", "loader", "recorder", "log", "dma", "lane", "offload", "guest", "watch"};
+            // Round K3: the kinds SOTC_K3_SET names (comma-separated kind names; default audio,loader,log,main,watch: the light
+            // misc threads), a bit per kind; game and render never.
+            uint32_t k3Kinds()
+            {
+                static const uint32_t bits = []
+                {
+                    const char *e = std::getenv("SOTC_K3_SET");
+                    const std::string list(e && e[0] ? e : "audio,loader,log,main,watch");
+                    uint32_t b = 0;
+                    size_t at = 0;
+                    while (at < list.size())
+                    {
+                        const size_t end = std::min(list.find(',', at), list.size());
+                        const std::string item = list.substr(at, end - at);
+                        at = end + 1;
+                        for (int k = 0; k < kKinds; ++k)
+                            if (item == kNames[k] && k != kGame && k != kRender)
+                                b |= 1u << k;
+                    }
+                    return b;
+                }();
+                return bits;
+            }
         }
         void place(Kind kind)
         {
@@ -1485,6 +1510,23 @@ namespace native_renderer
                     break;
                 }
             }
+            // Round K3 (docs/decomp_k3.md; SOTC_K3=1): with core 3 ours (C1's hook + test, ps2x_k3_state 2) the kinds of
+            // SOTC_K3_SET (default audio,loader,log,main,watch) go to core 3 alone (SOTC_K3_WIDE=1: cores 1-3); never the
+            // game or the render thread, priorities unchanged. Not applied over a SOTC_C1MAP map. Core 3 not ours
+            // (ps2x_k3_state 1): nothing changes, every thread keeps today's mask. A refused core-3 mask: today's mask again.
+            const int k3 = ps2x_k3_state();
+            const int k3before = mask; // today's mask (the layout above)
+            bool k3moved = false;
+            if (k3 == 2 && c1map <= 0 && kind != kGame && kind != kRender && (k3Kinds() & (1u << kind)))
+            {
+                static const bool wide = []
+                {
+                    const char *e = std::getenv("SOTC_K3_WIDE");
+                    return e && e[0] && e[0] != '0';
+                }();
+                mask = wide ? SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2 | SCE_KERNEL_CPU_MASK_SYSTEM : SCE_KERNEL_CPU_MASK_SYSTEM;
+                k3moved = true;
+            }
             // Round 70 (console experiments): SOTC_THREAD_PRIO=<kind>:<prio>,...
             // and SOTC_THREAD_CORES=<kind>:<mask bits 0-2>,... over the
             // placement above (the console's frame log showed the game thread
@@ -1513,7 +1555,16 @@ namespace native_renderer
             int maskResult = mask ? sceKernelChangeThreadCpuAffinityMask(self, mask) : 0;
             // Round C1: a mask with core 3 refused (no hook): the same mask without core 3 (core 2 if nothing is left),
             // never the default "any core" the refusal leaves, which includes the game thread's core 0.
-            if (maskResult < 0 && (mask & SCE_KERNEL_CPU_MASK_SYSTEM))
+            if (maskResult < 0 && k3moved && (mask & SCE_KERNEL_CPU_MASK_SYSTEM))
+            {
+                // Round K3: refused although the core-3 test passed: today's mask, never core 2 alone (the render thread's).
+                const int again = k3before ? sceKernelChangeThreadCpuAffinityMask(self, k3before) : 0;
+                std::fprintf(stderr, "[threads] %s: K3 core-3 mask 0x%x refused (0x%08x), today's 0x%x instead (rc 0x%08x)\n", kNames[kind],
+                             static_cast<unsigned>(mask), static_cast<unsigned>(maskResult), static_cast<unsigned>(k3before), static_cast<unsigned>(again));
+                maskResult = again;
+                k3moved = false;
+            }
+            else if (maskResult < 0 && (mask & SCE_KERNEL_CPU_MASK_SYSTEM))
             {
                 const int fallback = (mask & ~SCE_KERNEL_CPU_MASK_SYSTEM) ? (mask & ~SCE_KERNEL_CPU_MASK_SYSTEM) : SCE_KERNEL_CPU_MASK_USER_2;
                 const int again = sceKernelChangeThreadCpuAffinityMask(self, fallback);
@@ -1535,7 +1586,12 @@ namespace native_renderer
             }
             if (haveInfo)
             {
-                if (c1map > 0)
+                if (k3 > 0 && c1map <= 0)
+                    std::fprintf(stderr, "[threads] %s (%s, layout %d, K3 core 3 %s%s): cores 0x%x%s (rc 0x%08x), priority %d%s\n", kNames[kind], info.name,
+                                 layout() ? 1 : 0, k3 == 2 ? "on" : "off (fallback: today's cores)", k3moved ? ", moved to core 3" : "",
+                                 static_cast<unsigned>(info.currentCpuAffinityMask), maskResult < 0 ? " (refused)" : "", static_cast<unsigned>(maskResult),
+                                 info.currentPriority, prioResult < 0 ? " (refused)" : "");
+                else if (c1map > 0)
                     std::fprintf(stderr, "[threads] %s (%s, layout %d, C1 map %d -> %d, core 3 %s): cores 0x%x%s (rc 0x%08x), priority %d%s\n", kNames[kind],
                                  info.name, layout() ? 1 : 0, c1map, c1used, c3 ? "on" : "off", static_cast<unsigned>(info.currentCpuAffinityMask),
                                  maskResult < 0 ? " (refused)" : "", static_cast<unsigned>(maskResult), info.currentPriority, prioResult < 0 ? " (refused)" : "");
@@ -1668,6 +1724,80 @@ namespace native_renderer
             }
             return at;
         }
+        // Round K3: the [k3] line's thread list: every noted thread's kind, name, mask as sceKernelGetThreadCpuAffinityMask
+        // reports it (the info block's when the two differ), priority, and CPU ms per frame since the last list (run
+        // clocks; "-" where the system counts none, as in Vita3K).
+        int k3Line(char *out, size_t room, unsigned long long frame)
+        {
+            static uint64_t prevClocks[kSlots] = {};
+            static bool prevSeen[kSlots] = {};
+            static unsigned long long prevFrame = 0;
+            static int lists = 0;
+            if (!room)
+                return 0;
+            out[0] = 0;
+            int at = 0;
+            auto add = [&](const char *fmt, auto... args)
+            {
+                if (static_cast<size_t>(at) + 1 >= room)
+                    return;
+                const int w = std::snprintf(out + at, room - at, fmt, args...);
+                if (w > 0)
+                    at = std::min(at + w, static_cast<int>(room) - 1);
+            };
+            const uint32_t set = k3Kinds();
+            add("K3 set");
+            for (int k = 0, first = 1; k < kKinds; ++k)
+                if (set & (1u << k))
+                {
+                    add("%s%s", first ? " " : ",", kNames[k]);
+                    first = 0;
+                }
+            {
+                const char *e = std::getenv("SOTC_K3_WIDE");
+                add(" -> %s; ", ps2x_k3_state() != 2 ? "not moved" : e && e[0] && e[0] != '0' ? "0xe0000" : "0x80000");
+            }
+            const unsigned long long df = frame > prevFrame ? frame - prevFrame : 0;
+            const int n = g_slotCount.load(std::memory_order_acquire);
+            int on3 = 0, cpuSeen = 0;
+            add("threads %d (mask/priority/cpu ms a frame over %llu frames):", n, df);
+            for (int i = 0; i < n && i < kSlots; ++i)
+            {
+                const Slot &t = g_slots[i];
+                SceKernelThreadInfo info{};
+                info.size = sizeof(info);
+                const bool have = sceKernelGetThreadInfo(t.id, &info) >= 0;
+                const int m = sceKernelGetThreadCpuAffinityMask(t.id);
+                if (m > 0 && (m & SCE_KERNEL_CPU_MASK_SYSTEM))
+                    ++on3;
+                add(" %s %s 0x%x", kNames[t.kind], have ? info.name : "(gone)", static_cast<unsigned>(m));
+                if (have && static_cast<unsigned>(m) != static_cast<unsigned>(info.currentCpuAffinityMask))
+                    add(" (info 0x%x)", static_cast<unsigned>(info.currentCpuAffinityMask));
+                if (have)
+                    add("/%d", info.currentPriority);
+                if (have && df && info.runClocks)
+                {
+                    const uint64_t base = prevSeen[i] ? prevClocks[i] : 0;
+                    add("/%.2f", static_cast<double>(info.runClocks - base) / static_cast<double>(df) / 1000.0);
+                    ++cpuSeen;
+                }
+                else
+                    add("/-");
+                add(";");
+                if (have)
+                {
+                    prevClocks[i] = info.runClocks;
+                    prevSeen[i] = true;
+                }
+            }
+            add(" on core 3: %d of %d%s", on3, n, cpuSeen ? "" : " (no run clocks: cpu -)");
+            if (!lists && cpuSeen)
+                add(" (first list: cpu since each thread's start over every frame so far)");
+            ++lists;
+            prevFrame = frame;
+            return at;
+        }
+        int k3Count() { return g_slotCount.load(std::memory_order_acquire); }
 #else
         void place(Kind) {}
         void setKindPriority(Kind, int) {}
@@ -2953,6 +3083,7 @@ namespace native_renderer
     void endFrame(uint32_t width, uint32_t height)
     {
         RaceScope race("endFrame");
+        z4br::Part z4Pre(z4br::kHoPre); // round Z4
         g_lastFrameDraws.store(g_frameDraws.exchange(0u, std::memory_order_relaxed), std::memory_order_relaxed);
         if (g_asyncBuilds)
             g_asyncBuilds->flush(); // this frame's builds start now
@@ -3037,6 +3168,7 @@ namespace native_renderer
             if (native_recorder::active())
                 native_recorder::front::endFrame(width, height, hold);
         }
+        z4Pre.close();
         if (backend())
         {
             if (tuning().frameTiming() && !g_backend->timesItself())
@@ -3072,3 +3204,20 @@ namespace native_renderer
         return g_backend && g_backend->latestFrame(rgba, width, height);
     }
 }
+
+#if defined(__vita__)
+// Round K3 (ps2_vita_runtime.cpp's ps2x_k3_watch, on the resume watcher's thread): the [k3] line's thread list, the number
+// of noted threads, and the watcher itself noted / placed (kind "watch").
+extern "C" int ps2x_threads_k3_line(char *out, unsigned room, unsigned long long frame)
+{
+    return native_renderer::threads::k3Line(out, room, frame);
+}
+extern "C" int ps2x_threads_k3_count()
+{
+    return native_renderer::threads::k3Count();
+}
+extern "C" void ps2x_threads_place_watch()
+{
+    native_renderer::threads::place(native_renderer::threads::kWatch);
+}
+#endif

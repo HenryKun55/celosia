@@ -63,11 +63,18 @@
 //
 // SOTC_HOTLIST=0 or SOTC_DECOMP_SKIP=gamecore_sub_013E1E48: the recompiled code.
 #include "sotc_decomp.h"
+#include "y1_ai.h"
+#include "y1_leaves.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
 #include <cstring>
+
+namespace decomp_aiparam
+{
+    void aiParamBatchY1(uint8_t *rdram, R5900Context *ctx, const uint32_t (*args)[6], int n); // round Y1 (decomp_aiparam.cpp)
+}
 
 namespace decomp_hot43d
 {
@@ -169,6 +176,12 @@ namespace decomp_hot43d
         uint64_t s0, s1, s2, s3, s4, s5, s6, s7, fp; // the callee-saved registers as the original has them
         float f20, f21;
         __m128 vf7, acc; // the VU0 scratch between the blocks
+        bool y1 = false;  // round Y1 (SOTC_Y1=1): the leaf helpers and the getters as host code (y1Host)
+
+        // Round Y1: a call the host does itself (true): isysGetThisSubThread / GetLayoutClass / GetCharacterClass's plain
+        // cases while the target is the getter, AI_UpdateVelocity and AI_GetInterRatio (y1_leaves.h). Their results land in
+        // the context registers the callee would set (v0, f0 / f1, f14, fcr31); nothing else of theirs is read after.
+        bool y1Host(uint32_t target);
 
         uint32_t u32(uint32_t a) { return READ32(a); }
         int32_t s32(uint32_t a) { return static_cast<int32_t>(READ32(a)); }
@@ -190,6 +203,10 @@ namespace decomp_hot43d
         void arg(int r, uint64_t v) { SET_GPR_U64(ctx, r, v); }
         void call(uint32_t target, uint32_t ra)
         {
+            if (y1 && y1Host(target))
+                return;
+            if (y1)
+                y1ai::countGuestCall(y1ai::kStep);
             SET_GPR_U64(ctx, 16, s0);
             SET_GPR_U64(ctx, 17, s1);
             SET_GPR_U64(ctx, 18, s2);
@@ -208,6 +225,71 @@ namespace decomp_hot43d
 
         void run();
     };
+
+    bool Step::y1Host(uint32_t target)
+    {
+        const d1::Mem m{rdram};
+        switch (target)
+        {
+        case 0x001CA1B0u: // isysGetThisSubThread
+            SET_GPR_U32(ctx, 2, m.u32(0x001E1550u));
+            return true;
+        case 0x010F1A20u: // GetLayoutClass
+        {
+            const uint32_t obj = GPR_U32(ctx, 4);
+            if (!y1ai::inRam(obj + 8u, 1u) || !sotc_decomp::guestFunction(runtime, 0x010F1A20u))
+                return false;
+            const uint32_t index = static_cast<uint32_t>(m.get<uint8_t>(obj + 8u)) - 9u;
+            uint32_t cls = 0u;
+            if (index < 0xEu)
+            {
+                const uint32_t t = m.u32(0x01194070u + index * 4u);
+                if (t == 0x010F1A58u)
+                    cls = obj + 0x20u;
+                else if (t == 0x010F1A98u)
+                    cls = obj + 0x90u;
+                else if (t != 0x010F1AA0u)
+                    return false;
+            }
+            SET_GPR_U32(ctx, 2, cls);
+            return true;
+        }
+        case 0x010C0A70u: // GetCharacterClass
+        {
+            const uint32_t obj = GPR_U32(ctx, 4);
+            if (!y1ai::inRam(obj + 8u, 1u))
+                return false;
+            const uint32_t type = m.get<uint8_t>(obj + 8u);
+            SET_GPR_U32(ctx, 2, (type == 9u || type == 0x16u) ? obj + 0x90u : 0u);
+            return true;
+        }
+        case 0x013D3DA0u: // AI_UpdateVelocity(a0, f12, f13)
+        {
+            const uint32_t a0 = GPR_U32(ctx, 4);
+            if (!y1ai::inRam(a0, 4u))
+                return false;
+            uint32_t fcr = ctx->fcr31;
+            const uint64_t v0 = y1ai::updateVelocity(m, fcr, a0, ctx->f[12], ctx->f[13]);
+            ctx->fcr31 = fcr;
+            ctx->f[0] = FPU_MUL_S(ctx->f[13], m.f32(y1ai::kFrameTime));
+            ctx->f[1] = m.f32(a0);
+            SET_GPR_U64(ctx, 2, v0);
+            SET_GPR_U64(ctx, 3, v0);
+            return true;
+        }
+        case 0x013D4A28u: // AI_GetInterRatio(f12 .. f16)
+        {
+            uint32_t fcr = ctx->fcr31;
+            const float f13 = ctx->f[13], f14 = FPU_SUB_S(ctx->f[14], f13);
+            ctx->f[0] = y1ai::interRatio(fcr, ctx->f[12], f13, ctx->f[14], ctx->f[15], ctx->f[16]);
+            ctx->fcr31 = fcr;
+            ctx->f[14] = f14;
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
 
     void Step::run()
     {
@@ -750,7 +832,22 @@ namespace decomp_hot43d
             };
             const P params[5] = {{0x50u, 0u, 0x013E292Cu}, {0x1D0u, sp + 0x30u, 0x013E2948u}, {0xB0u, sp + 0x20u, 0x013E2964u},
                                  {0x110u, sp + 0x10u, 0x013E2980u}, {0x170u, static_cast<uint32_t>(s0), 0x013E299Cu}};
-            for (int i = 0; i < 5; ++i)
+            if (y1)
+            {
+                // Round Y1: the five calls on the typed core, one register load / store (decomp_aiparam.cpp).
+                uint32_t args[5][6];
+                for (int i = 0; i < 5; ++i)
+                {
+                    args[i][0] = o + params[i].out;
+                    args[i][1] = i == 0 ? u32(u32(sp + 0xE0u) + 0x134u) : (i == 4 ? static_cast<uint32_t>(s0) : params[i].pos);
+                    args[i][2] = u32(static_cast<uint32_t>(s7) + 0x134u);
+                    args[i][3] = u32(sp + 0xE8u);
+                    args[i][4] = u32(sp + 0xE4u);
+                    args[i][5] = static_cast<uint32_t>(fp);
+                }
+                decomp_aiparam::aiParamBatchY1(rdram, ctx, args, 5);
+            }
+            for (int i = 0; i < 5 && !y1; ++i)
             {
                 arg(4, sx(o + params[i].out));
                 if (i == 0)
@@ -798,11 +895,10 @@ namespace decomp_hot43d
         }
     }
 
-    void animalStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    void animalStepBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, bool y1)
     {
-        if (!sotc_decomp::hotListOn())
-            return sotc_decomp::recompiled(kSelf)(rdram, ctx, runtime);
         Step s{rdram, ctx, runtime};
+        s.y1 = y1;
         s.sp = GPR_U32(ctx, 29) - 0x150u;
         const uint32_t sp = s.sp;
         // the prologue: the callee-saved registers into the frame
@@ -846,6 +942,36 @@ namespace decomp_hot43d
         ctx->f[20] = fb(READ32(sp + 0x140u));
         SET_GPR_S32(ctx, 29, static_cast<int32_t>(sp + 0x150u));
         ctx->pc = GPR_U32(ctx, 31);
+    }
+
+    void animalStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        // Round Y1 (SOTC_Y1=1): the body with the getters, the leaf helpers and the five AI parameter calls on the host
+        // (y1ai::animalStep: its entry test, the check, the bracket).
+        if (__builtin_expect(y1ai::on(), 0) && y1ai::partOn(y1ai::kStep) && y1ai::animalStep(rdram, ctx, runtime))
+            return;
+        if (!sotc_decomp::hotListOn())
+            return sotc_decomp::recompiled(kSelf)(rdram, ctx, runtime);
+        animalStepBody(rdram, ctx, runtime, false);
+    }
+}
+
+namespace y1ai
+{
+    namespace
+    {
+        void stepBody(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime) { decomp_hot43d::animalStepBody(rdram, ctx, runtime, true); }
+    }
+    bool animalStep(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+    {
+        const uint32_t o = GPR_U32(ctx, 4), sp = GPR_U32(ctx, 29);
+        if (!inRam(o, 0x900u) || !inRam(sp - 0x2000u, 0x2000u))
+        {
+            countFallback(kStep);
+            return false;
+        }
+        enter(kStep, stepBody, rdram, ctx, runtime);
+        return true;
     }
 }
 

@@ -8,6 +8,7 @@
 #include "sotc_p2.h"
 
 #include "ps2_runtime.h"
+#include "runtime/ps2_thread_load.h"
 
 #include <array>
 #include <cstdint>
@@ -36,6 +37,7 @@ namespace sotc_p2
         };
         constexpr int kMax = 128; // (ps2_vita_p2.cpp's p2b::kMax)
         std::array<Wrapped, kMax> g_w;
+        bool g_zoneMark = false; // round X2: SOTC_X2_ZONE=1 (read at install)
 
         struct Bracket
         {
@@ -50,6 +52,15 @@ namespace sotc_p2
         void wrapped(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             const Wrapped &w = g_w[Slot];
+            if (__builtin_expect(g_zoneMark, 0))
+            {
+                // Round X2 (SOTC_X2_ZONE=1 with SOTC_PROF129=1): prof129's samples inside this bracket carry zone
+                // 0x5000 | slot, so a script body's zone (decomp_w3) marks only its own self.
+                const ps2_load::GameZone z(0x5000u | static_cast<uint32_t>(Slot));
+                const Bracket b(w.id);
+                w.inner(rdram, ctx, runtime);
+                return;
+            }
             const Bracket b(w.id);
             w.inner(rdram, ctx, runtime);
         }
@@ -162,6 +173,28 @@ namespace sotc_p2
             {0x0108FCC8u, "display:graphFsEffectReset"},
             {0x010998B8u, "display:modelSetEnviroment"},
         };
+        // Round X1 (SOTC_P2BRACKET=2; docs/decomp_x1.md): GetCharaRootDynamics' recompiled helpers under xz (0x10e7610,
+        // already in kTargetsP3), each in its own bracket, so the console's parts run splits root dynamics' 1.1 M cycles
+        // a frame (the ones of more than ~100 bytes; the tiny getters stay in their caller's self).
+        constexpr Target kTargetsX1[] = {
+            {0x010DF218u, "characters:charrootdyn_updateCharacterClassParentGeometry"},
+            {0x010DCDF8u, "characters:charrootdyn_addWindDynamicsToRoot"},
+            {0x010DCF10u, "characters:charrootdyn_getPlaneYFittingVector"},
+            {0x010DCB10u, "characters:charrootdyn_addSlideElement"},
+            {0x010DE1A0u, "characters:charrootdyn_getRegularColFinderPosition"},
+            {0x010D3D20u, "characters:charrootdyn_acceptMotionRootOffset"},
+            {0x010D6BD8u, "characters:charrootdyn_setkeepcolhitstatus"},
+            {0x010DDFB0u, "characters:charrootdyn_restoreposition"},
+            {0x010DC270u, "characters:charrootdyn_getGPPlaneInfo"},
+            {0x010DEFD0u, "characters:charrootdyn_detectCharEdge"},
+            {0x010D5BF0u, "characters:charrootdyn_getNipPlaneStatus"},
+            {0x010D5A40u, "characters:charrootdyn_getChainStatus"},
+            {0x010DC990u, "characters:charrootdyn_getWaterStatus"},
+            {0x010D5D70u, "collision:GetCharaVCollisionStatus"},
+            {0x01129C10u, "collision:GetCollisionEdgeLinkDBVWallFinder"},
+            {0x010F1EE0u, "display:ParentLayoutObj"},
+            {0x001BCA40u, "characters:StabilizeToYRotQuaternion"},
+        };
         // Round W3 (SOTC_P2BRACKET=3; docs/decomp_w3.md): the script walk's callees and the camera's steps (lifted code
         // calls them as known natives; wrapped, the slot no longer holds the known one, so the call goes through the table).
         constexpr Target kTargetsW3[] = {
@@ -194,6 +227,8 @@ namespace sotc_p2
     {
         if (!ps2x_p2b_wanted())
             return;
+        if (const char *z = std::getenv("SOTC_X2_ZONE"))
+            g_zoneMark = std::atoi(z) != 0;
         static const auto wrappers = makeWrappers(std::make_integer_sequence<int, kMax>{});
         int slot = 0;
         auto wrap = [&](uint32_t address, const char *name)
@@ -216,8 +251,12 @@ namespace sotc_p2
         for (const Target &t : kTargets)
             wrap(t.address, t.name);
         if (ps2x_p2b_level() >= 2)
+        {
             for (const Target &t : kTargetsP3)
                 wrap(t.address, t.name);
+            for (const Target &t : kTargetsX1)
+                wrap(t.address, t.name);
+        }
         if (ps2x_p2b_level() >= 3)
             for (const Target &t : kTargetsW3)
                 wrap(t.address, t.name);

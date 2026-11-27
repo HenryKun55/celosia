@@ -574,6 +574,17 @@ foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
     if(PS2X_SOURCE MATCHES "/overrides/a[0-9]+_typed_check\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
+    # Round A1's recorder (a1_record.cpp, a tool): a translation unit of its own, so the unity batches stay main's.
+    if(PS2X_SOURCE MATCHES "/overrides/a1_record\\.cpp$")
+        set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
+    # PS2X_RUNNER_UNITY_SKIP (empty by default): override file names built as translation units of their own. The Mac
+    # build's batches differ from the Vita's (platform-only sources), and some neighbours there collide (round A1).
+    foreach(PS2X_SKIP_NAME IN LISTS PS2X_RUNNER_UNITY_SKIP)
+        if(PS2X_SOURCE MATCHES "/overrides/${PS2X_SKIP_NAME}$")
+            set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+        endif()
+    endforeach()
     # The second set (lean_part_tN.cpp) defines PS2X_EE_TRUST_FINITE before
     # ps2_runtime_macros.h: not with the precompiled header, which has it 0.
     if(PS2X_SOURCE MATCHES "/overrides/lean_part_t[0-9]+\\.cpp$")
@@ -696,10 +707,10 @@ if(PS2X_IS_VITA)
             COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
                     "${PS2X_K2_DIR}/celosia_k2.c" -o "${PS2X_K2_OUT}.elf" "-L${PS2X_VITASDK}/arm-vita-eabi/lib"
                     -lSceSysmemForDriver_stub -lSceThreadmgrForDriver_stub -lSceSysclibForDriver_stub -lSceProcEventForDriver_stub
-                    -ltaihenForKernel_stub -ltaihenModuleUtils_stub -lSceIntrmgrForDriver_stub -lgcc
+                    -ltaihenForKernel_stub -ltaihenModuleUtils_stub -lSceIntrmgrForDriver_stub -lScePowerForDriver_stub -lgcc
             COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/exports.yml" "${PS2X_K2_OUT}.elf" "${PS2X_K2_OUT}.velf"
             COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_K2_OUT}.velf" "${PS2X_K2_OUT}.skprx"
-            DEPENDS "${PS2X_K2_DIR}/celosia_k2.c" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/celosia_p2.c" "${PS2X_K2_DIR}/celosia_p2.h" "${PS2X_K2_DIR}/exports.yml"
+            DEPENDS "${PS2X_K2_DIR}/celosia_k2.c" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/celosia_p2.c" "${PS2X_K2_DIR}/celosia_p2.h" "${PS2X_K2_DIR}/celosia_a3.c" "${PS2X_K2_DIR}/exports.yml"
             COMMENT "Building the K2 kernel module celosia_k2.skprx"
             VERBATIM)
         add_custom_command(OUTPUT "${PS2X_K2_OUT}u.suprx"
@@ -735,6 +746,18 @@ if(PS2X_IS_VITA)
             COMMENT "Building the P2 bridge celosia_p2u.suprx"
             VERBATIM)
         list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_P2_OUT}.suprx" "module/celosia_p2u.suprx")
+        # Round A3 (docs/decomp_a3cpu.md): the bridge to K2's library CelosiaK2A3 (the ARM at 500 MHz), loaded by the game only
+        # when the System tab's "CPU at 500 MHz" (or SOTC_CPU500=1 in env.txt) asks for it, packed as module/celosia_a3u.suprx.
+        set(PS2X_A3_OUT "${CMAKE_CURRENT_BINARY_DIR}/celosia_a3u")
+        add_custom_command(OUTPUT "${PS2X_A3_OUT}.suprx"
+            COMMAND "${PS2X_VITASDK}/bin/arm-vita-eabi-gcc" -O2 -Wall -nostdlib -fno-builtin -Wl,-q "-I${PS2X_K2_DIR}"
+                    "${PS2X_K2_DIR}/celosia_a3u.c" "${PS2X_K2_DIR}/a3u_stubs.S" -o "${PS2X_A3_OUT}.elf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-elf-create" -e "${PS2X_K2_DIR}/a3u_exports.yml" "${PS2X_A3_OUT}.elf" "${PS2X_A3_OUT}.velf"
+            COMMAND "${PS2X_VITASDK}/bin/vita-make-fself" -c "${PS2X_A3_OUT}.velf" "${PS2X_A3_OUT}.suprx"
+            DEPENDS "${PS2X_K2_DIR}/celosia_a3u.c" "${PS2X_K2_DIR}/a3u_stubs.S" "${PS2X_K2_DIR}/celosia_k2.h" "${PS2X_K2_DIR}/a3u_exports.yml"
+            COMMENT "Building the A3 bridge celosia_a3u.suprx"
+            VERBATIM)
+        list(APPEND PS2X_VITA_VPK_FILES FILE "${PS2X_A3_OUT}.suprx" "module/celosia_a3u.suprx")
 
         vita_create_self(eboot.bin ps2EntryRunner UNSAFE)
         vita_create_vpk(ps2EntryRunner.vpk ${PS2X_VITA_TITLEID} eboot.bin

@@ -50,6 +50,9 @@
 #include "sotc_pf141.h"
 #include "d1_native.h"
 #include "r1_chara.h"
+#include "y2_cloth.h"
+#include "sotc_p2.h"
+#include "sotc_worker.h"
 
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
@@ -2231,11 +2234,19 @@ namespace dc2
         SET_GPR_U64(ctx, 29, entrySp);
         ctx->pc = static_cast<uint32_t>(back);
     }
+    void entryDynamicsY2(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime); // round Y2 (y2_dynamics.inc)
     void entryDynamicsSw(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (d1::on())
+        if (y2::on())
+            entryDynamicsY2(rdram, ctx, runtime);
+        else if (d1::on())
             entryDynamicsD1(rdram, ctx, runtime);
         else
             entryDynamics(rdram, ctx, runtime);
     }
 } // namespace dc2
+
+// Round Z2 (SOTC_Z2=1): the driver's callbacks and type-1 velocities as C++ calls (used by y2_dynamics.inc).
+#include "z2_dynamics.inc"
+// Round Y2 (SOTC_Y2=1): getClothDynamics as a host driver (here for the D1 cores and the check's Snap).
+#include "y2_dynamics.inc"

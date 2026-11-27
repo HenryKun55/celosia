@@ -5,6 +5,7 @@
 // D5: --inline: small leaf callees spliced into their lifted callers behind a guard (the table's slot holds
 // that callee, the host stack has room); the call as before when it fails.
 #include "sotc_decomp.h"
+#include "z1_coll.h" // round Z1: the OneObj hook
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
 #include "typed_a3.h" // a3
@@ -13410,6 +13411,7 @@ void ps2__CalcCollisionMultiDepSurfBoundary(uint8_t *rdram, R5900Context *ctx, P
 void ClipCollisionDirectCallBackOneObj(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x112CA30u, 0)) { ClipCollisionDirectCallBackOneObj_0x112ca30(rdram, ctx, runtime); return; }
+    if (__builtin_expect(::z1coll::on(), 0) && ::z1coll::partOn(::z1coll::kOneObj) && ::z1coll::enter(::z1coll::kOneObj, &::z1coll::oneObj, rdram, ctx, runtime)) { return; } // round Z1 (z1_oneobj.inc)
     uint32_t at = Ps2GprU32(ctx, 1), t2 = Ps2GprU32(ctx, 10), t3 = Ps2GprU32(ctx, 11), s7 = Ps2GprU32(ctx, 23), fp = Ps2GprU32(ctx, 30), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s6 = Ps2GprU64(ctx, 22), sp = Ps2GprU64(ctx, 29);
     float f0 = ctx->f[0], f1 = ctx->f[1], f2 = ctx->f[2], f3 = ctx->f[3], f12 = ctx->f[12], f20 = ctx->f[20], f21 = ctx->f[21], f22 = ctx->f[22];

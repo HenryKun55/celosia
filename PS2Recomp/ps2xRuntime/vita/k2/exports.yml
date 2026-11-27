@@ -27,3 +27,8 @@ celosia_k2:
       nid: 0xC2C2C2F2
       functions:
         - celosiaK2P2: 0xC2F2C001
+    CelosiaK2A3:
+      syscall: true
+      nid: 0xC2C2C2A3
+      functions:
+        - celosiaK2Clock: 0xC2A3C001

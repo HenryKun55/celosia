@@ -375,6 +375,17 @@ namespace k1
 //   SOTC_C1CORE3=probe   only find and read the hook site (SceKernelThreadMgr's NID, the site's bytes), no hook
 //   SOTC_C1CORE3_EXPECT=0x<word>  hook only if the site's first word is this one (pins a firmware once a probe told it)
 // The thread maps that use core 3 are SOTC_C1MAP's (native_renderer.cpp threads::place).
+// Round K3 (docs/decomp_k3.md; SOTC_K3=1 in env.txt, off by default): arch_plan's core-3 enabler. SOTC_K3 implies C1's
+// hook and test (as SOTC_C1CORE3=1, never the probe) and so the K2 module; when the test passed, threads::place puts the
+// light misc threads (SOTC_K3_SET, default audio,loader,log,main,watch; never game / render) on core 3 alone
+// (SOTC_K3_WIDE=1: cores 1-3). Without core 3 (Vita3K, no module answer, an older resident K2, a failed test) every
+// thread keeps today's cores. The resume watcher (raylib_vita.cpp) calls ps2x_k3_watch every 250 ms: it places itself,
+// registers the exit release and prints the "[k3]" line (each thread's mask from sceKernelGetThreadCpuAffinityMask).
+namespace k3
+{
+    bool g_want = false;
+    volatile unsigned long long g_frame = 0; // the game's frame (ps2x_m1_pmu_tick, written only while g_want)
+}
 namespace c1
 {
     bool g_want = false, g_probe = false;
@@ -387,11 +398,15 @@ namespace c1
     volatile int g_ran = 0;
     void read()
     {
+        k3::g_want = bootenv::on("SOTC_K3="); // round K3: core 3 for the misc threads needs C1's hook
         char v[16];
         if (!bootenv::get("SOTC_C1CORE3=", v, sizeof(v)) || !v[0] || v[0] == '0')
+        {
+            g_want = k3::g_want;
             return;
+        }
         g_want = true;
-        g_probe = v[0] == 'p';
+        g_probe = v[0] == 'p' && !k3::g_want;
         char e[24];
         if (bootenv::get("SOTC_C1CORE3_EXPECT=", e, sizeof(e)))
         {
@@ -468,6 +483,98 @@ namespace c1
 extern "C" int ps2x_c1_core3()
 {
     return c1::g_core3 ? 1 : 0;
+}
+// Round K3: threads::place asks this: 0 SOTC_K3 off, 1 on but core 3 not ours (the fallback: today's cores), 2 core 3 ours.
+extern "C" int ps2x_k3_state()
+{
+    return !k3::g_want ? 0 : c1::g_core3 ? 2 : 1;
+}
+extern "C" int ps2x_threads_k3_line(char *out, unsigned room, unsigned long long frame); // native_renderer.cpp (round K3)
+extern "C" int ps2x_threads_k3_count();
+extern "C" void ps2x_threads_place_watch();
+namespace k3
+{
+    bool g_started = false, g_resumed = false, g_released = false;
+    int g_lines = 0, g_lastCount = 0, g_offRc = 1;
+    unsigned long long g_lastFrame = 0, g_every = 6000, g_first = 3000;
+    uint64_t g_startUs = 0, g_lastUs = 0, g_resumeUs = 0;
+    const char *why()
+    {
+        if (c1::g_core3)
+            return "CORE 3 ON for this process (C1's hook + test passed)";
+        if (c1::g_bridge == 1)
+            return "core 3 OFF: K2 did not answer (Vita3K / unsafe homebrew off / module not found): fallback, every thread on today's cores";
+        if (c1::g_bridge < 0)
+            return "core 3 OFF: the C1 bridge did not load (an older K2 module still resident: reboot the console): fallback, today's cores";
+        return "core 3 OFF: the hook or the core-3 test thread failed (see [c1]): fallback, today's cores";
+    }
+    // At exit (atexit, registered when core 3 was ours): the hook released, as A3's exitRestore puts 444 back. The module
+    // also releases it when the process exits or is killed (K2's process-event handler) and at module stop.
+    void exitRelease()
+    {
+        if (g_released || !c1::g_core3 || !c1::g_br.core3)
+            return;
+        g_released = true;
+        K2Core3 r;
+        std::memset(&r, 0, sizeof(r));
+        g_offRc = c1::g_br.core3(K2_C3_OFF, 0, &r);
+    }
+    void line(const char *when, unsigned long long frame, uint64_t now)
+    {
+        static char buf[4096];
+        int at = std::snprintf(buf, sizeof(buf), "[k3] %s, frame %llu (%u s): %s; ", when, frame,
+                               static_cast<unsigned>((now - g_startUs) / 1000000u), why());
+        if (at > 0 && at < static_cast<int>(sizeof(buf)))
+            ps2x_threads_k3_line(buf + at, static_cast<unsigned>(sizeof(buf) - at), frame);
+        std::fprintf(stderr, "%s\n", buf);
+    }
+}
+// Round K3: from the resume watcher (raylib_vita.cpp), every 250 ms; resumed 1 right after a resume. One branch when off.
+extern "C" void ps2x_k3_watch(int resumed)
+{
+    if (!k3::g_want)
+        return;
+    using namespace k3;
+    const uint64_t now = sceKernelGetProcessTimeWide();
+    if (!g_started)
+    {
+        g_started = true;
+        g_startUs = g_lastUs = now;
+        if (const char *e = std::getenv("SOTC_K3_EVERY"))
+            g_every = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
+        if (const char *e = std::getenv("SOTC_K3_FIRST"))
+            g_first = static_cast<unsigned long long>(std::strtoul(e, nullptr, 10));
+        ps2x_threads_place_watch(); // the watcher itself (kind "watch")
+        if (c1::g_core3)
+            std::atexit(exitRelease);
+    }
+    if (resumed)
+    {
+        g_resumed = true;
+        g_resumeUs = now;
+    }
+    const unsigned long long f = g_frame;
+    const int n = ps2x_threads_k3_count();
+    const char *when = nullptr;
+    if (g_lines == 0)
+    {
+        if (f >= g_first || now - g_startUs >= 120000000u)
+            when = "threads";
+    }
+    else if (g_resumed && now - g_resumeUs >= 2000000u)
+        when = "threads after a resume";
+    else if (n != g_lastCount && now - g_lastUs >= 10000000u)
+        when = "threads (new threads)";
+    else if (g_every && f - g_lastFrame >= g_every)
+        when = "threads";
+    if (!when)
+        return;
+    line(when, f, now);
+    ++g_lines;
+    g_resumed = false;
+    g_lastCount = n;
+    g_lastFrame = f;
+    g_lastUs = now;
 }
 namespace k2
 {
@@ -590,6 +697,247 @@ namespace k2
             return;
         g_remapRamRc = g_br.remap(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(block)), bytes, g_dry ? K2_REMAP_DRYRUN : 0u, &g_remapRam);
     }
+}
+// Round A3 (docs/decomp_a3cpu.md; the System tab's "CPU at 500 MHz", or SOTC_CPU500=1 in env.txt; off by default): the ARM
+// at 500 MHz instead of 444 through K2's library CelosiaK2A3 (vita/k2/celosia_a3.c) and its bridge celosia_a3u.suprx.
+// Nothing is loaded while the option is off. Turned on (at start from settings.cfg / env.txt, or in the menu): the K2
+// module is loaded now if the boot did not load it (the same two steps as k2::boot, after libc; k2's own state is left
+// alone, so none of K2's frame probes start), then the A3 bridge, then celosiaK2Clock(500). Any failure (no module
+// answer: Vita3K, unsafe homebrew off, an older resident K2 without the library, a firmware whose sites do not check out,
+// a busy loop that did not get faster) leaves the clock at 444 and says why in one "[a3]" line. Turned off: 444 through
+// the module (ScePower's own path, the NOP taken out). At exit: 444 (atexit here, and the module itself when the process
+// exits or is killed). After a resume / a return from LiveArea ScePower puts the game's 444 back: the resume watcher
+// (raylib_vita.cpp) asks ps2x_cpu500_watch every 250 ms, which applies 500 again when ScePower's frequency is not 500.
+namespace a3
+{
+    bool g_k2tried = false, g_k2ok = false, g_k2own = false;
+    int g_load = 1, g_startRc = 1, g_startRes = -1, g_k2u = 1, g_k2uStatus = -1, g_hello = 1;
+    int g_bridge = 1, g_bridgeStatus = -1;
+    uint32_t g_hello4[4];
+    K2StartRes g_start;
+    K2Bridge g_k2br;
+    K2A3Bridge g_br;
+    K2Clock g_last;
+    int g_lastRc = 1;
+    bool g_want = false;  // the option
+    int g_state = 0;      // 0 off, 1 500 on, -1 wanted but refused (444)
+    unsigned g_reapplies = 0, g_reapplyFails = 0;
+    bool g_atexit = false;
+    SceUID g_mutex = -1;
+    struct Lock
+    {
+        Lock()
+        {
+            if (g_mutex < 0)
+                g_mutex = sceKernelCreateMutex("celosia_a3", 0, 0, nullptr);
+            if (g_mutex >= 0)
+                sceKernelLockMutex(g_mutex, 1, nullptr);
+        }
+        ~Lock()
+        {
+            if (g_mutex >= 0)
+                sceKernelUnlockMutex(g_mutex, 1);
+        }
+    };
+    const char *g_why = "";
+    // The K2 module (and its owner claim): the boot's if it answered, else loaded now.
+    bool ensureK2()
+    {
+        if (g_k2tried)
+            return g_k2ok;
+        g_k2tried = true;
+        if (k2::g_ok)
+            return g_k2ok = true; // SOTC_K2 / C1 loaded it at boot: this process owns it already
+        if (k2::g_on)
+        {
+            g_why = "K2 was tried at boot and did not answer";
+            return false;
+        }
+        g_k2own = true;
+        k2::paths();
+        const uint32_t nonce = (static_cast<uint32_t>(sceKernelGetProcessTimeWide()) * 2246822519u) | 1u;
+        K2Start a;
+        std::memset(&a, 0, sizeof(a));
+        std::memset(&g_start, 0, sizeof(g_start));
+        a.magic = K2_MAGIC;
+        a.version = K2_VERSION;
+        a.nonce = nonce;
+        a.result_va = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&g_start));
+        bool answered = false, resident = false;
+        g_load = taiLoadKernelModule(k2::g_path, 0, nullptr);
+        if (g_load >= 0)
+        {
+            g_startRc = taiStartKernelModule(g_load, sizeof(a), &a, 0, nullptr, &g_startRes);
+            const volatile uint32_t *m = &g_start.magic, *n = &g_start.nonce;
+            answered = *m == K2_RES_MAGIC && *n == nonce && g_start.version == K2_VERSION;
+            resident = !answered && g_startRc < 0; // P3's case: the module resident from an earlier launch
+        }
+        else
+            resident = true; // (the console only: a K2 module left by an earlier, killed run)
+        if (!answered && !resident)
+        {
+            g_why = "the K2 module did not answer (Vita3K / unsafe homebrew off / module not found)";
+            return false;
+        }
+        // The K2 bridge: hello claims the module for this process (and tells an older resident version apart).
+        std::memset(&g_k2br, 0, sizeof(g_k2br));
+        K2Bridge *bp = &g_k2br;
+        g_k2u = sceKernelLoadStartModule(k2::g_upath, sizeof(bp), &bp, 0, nullptr, &g_k2uStatus);
+        if (g_k2u < 0 || g_k2br.magic != K2_BRIDGE_MAGIC || g_k2br.version != K2_VERSION || !g_k2br.hello)
+        {
+            g_why = "the K2 bridge celosia_k2u.suprx did not load";
+            return false;
+        }
+        std::memset(g_hello4, 0, sizeof(g_hello4));
+        g_hello = g_k2br.hello(nonce, g_hello4);
+        if (g_hello < 0 || g_hello4[0] != (K2_RES_MAGIC ^ nonce) || g_hello4[1] != K2_VERSION)
+        {
+            g_why = g_hello4[0] == (K2_RES_MAGIC ^ nonce) && g_hello4[1] != K2_VERSION ? "the resident K2 module is an older version (reboot the console once)"
+                                                                                      : "the K2 module refused this process (hello)";
+            return false;
+        }
+        return g_k2ok = true;
+    }
+    bool ensureBridge()
+    {
+        if (g_bridge != 1)
+            return g_bridge >= 0 && g_br.magic == K2A3_MAGIC && g_br.version == K2A3_VERSION && g_br.clock;
+        if (!ensureK2())
+        {
+            g_bridge = -2;
+            return false;
+        }
+        std::memset(&g_br, 0, sizeof(g_br));
+        K2A3Bridge *bp = &g_br;
+        g_bridge = sceKernelLoadStartModule("app0:module/celosia_a3u.suprx", sizeof(bp), &bp, 0, nullptr, &g_bridgeStatus);
+        if (g_bridge < 0 || g_br.magic != K2A3_MAGIC || g_br.version != K2A3_VERSION || !g_br.clock)
+        {
+            g_why = "the A3 bridge celosia_a3u.suprx did not load (an older K2 module still resident? reboot the console once)";
+            if (g_bridge >= 0)
+                g_bridge = -3;
+            return false;
+        }
+        return true;
+    }
+    const char *errName(int rc)
+    {
+        switch (rc)
+        {
+        case 0: return "ok";
+        case K2_ERR_NOT_OWNER: return "not the module's owner";
+        case K2_ERR_BUSY: return "module busy";
+        case K2_ERR_ARGS: return "bad request";
+        case K2_ERR_SITE: return "a site did not check out on this firmware (nothing written)";
+        case K2_ERR_CLOCK: return "the CPU did not get faster (undone)";
+        default: return "a kernel call failed";
+        }
+    }
+    void logClock(const char *why)
+    {
+        const K2Clock &c = g_last;
+        std::fprintf(stderr, "[a3] cpu %u (%s): rc %d (%s); kernel: busy loop %u us at 444 MHz, %u us before (= %u MHz), %u us after (= %u MHz); "
+                             "ScePower says %d -> %d, its words %u/%u -> %u/%u (module nid 0x%08x, info rc 0x%08x, words rc 0x%08x); set444 rc 0x%08x; "
+                             "pervasive fn 0x%08x (rc 0x%08x) site %04x|%04x NOP inject 0x%08x (release rc %d) call rc %d; on %u; "
+                             "scePowerGetArmClockFrequency now %d MHz: %s\n",
+                     static_cast<unsigned>(c.want), why, g_lastRc, errName(g_lastRc), static_cast<unsigned>(c.loop_us444),
+                     static_cast<unsigned>(c.loop_us_before), static_cast<unsigned>(c.est_before), static_cast<unsigned>(c.loop_us_after),
+                     static_cast<unsigned>(c.est_after), static_cast<int>(c.get_before), static_cast<int>(c.get_after),
+                     static_cast<unsigned>(c.var_before[0]), static_cast<unsigned>(c.var_before[1]), static_cast<unsigned>(c.var_after[0]),
+                     static_cast<unsigned>(c.var_after[1]), static_cast<unsigned>(c.power_nid), static_cast<unsigned>(c.info_rc),
+                     static_cast<unsigned>(c.var_rc), static_cast<unsigned>(c.set444_rc), static_cast<unsigned>(c.fn),
+                     static_cast<unsigned>(c.export_rc), static_cast<unsigned>(c.site_prev), static_cast<unsigned>(c.site_hw),
+                     static_cast<unsigned>(c.inject_uid), static_cast<int>(c.release_rc), static_cast<int>(c.pervasive_rc),
+                     static_cast<unsigned>(c.on), scePowerGetArmClockFrequency(),
+                     c.want == 500u ? (g_lastRc == 0 && c.on ? "CPU500 ON: the CPU runs at 500 MHz" : "CPU500 REFUSED: the CPU stays at 444 MHz")
+                                    : (g_lastRc == 0 ? "CPU500 OFF: the CPU back at 444 MHz" : "CPU500 OFF: 444 request failed"));
+    }
+    void exitRestore();
+    // Under the lock.
+    int apply500(const char *why)
+    {
+        if (!ensureBridge())
+        {
+            g_state = -1;
+            std::fprintf(stderr, "[a3] cpu 500 (%s): CPU500 REFUSED: the CPU stays at 444 MHz (%s; load 0x%08x start 0x%08x/%d k2u 0x%08x/%d hello 0x%08x "
+                                 "a3u 0x%08x/%d)\n",
+                         why, g_why, static_cast<unsigned>(g_load), static_cast<unsigned>(g_startRc), g_startRes, static_cast<unsigned>(g_k2u),
+                         g_k2uStatus, static_cast<unsigned>(g_hello), static_cast<unsigned>(g_bridge), g_bridgeStatus);
+            return 444;
+        }
+        std::memset(&g_last, 0, sizeof(g_last));
+        g_lastRc = g_br.clock(K2_A3_500, &g_last);
+        g_state = (g_lastRc == 0 && g_last.on) ? 1 : -1;
+        if (g_state < 0) // the fallback: 444 asked again through the system's own call
+            scePowerSetArmClockFrequency(444);
+        logClock(why);
+        if (g_state > 0 && !g_atexit)
+        {
+            g_atexit = true;
+            std::atexit(exitRestore);
+        }
+        return g_state > 0 ? 500 : 444;
+    }
+    int apply444(const char *why)
+    {
+        if (g_bridge == 1 || !ensureBridge())
+        {
+            g_state = 0;
+            return 444; // never loaded: nothing to undo
+        }
+        std::memset(&g_last, 0, sizeof(g_last));
+        g_lastRc = g_br.clock(K2_A3_444, &g_last);
+        if (g_lastRc < 0)
+            scePowerSetArmClockFrequency(444);
+        g_state = 0;
+        logClock(why);
+        return 444;
+    }
+    void exitRestore()
+    {
+        Lock l;
+        if (g_state > 0)
+            apply444("exit");
+    }
+}
+// The menu / settings (host_menu.cpp): on 1 asks for 500, 0 for 444. Returns the clock the CPU runs at now (500 / 444).
+extern "C" int ps2x_cpu500_set(int on)
+{
+    a3::Lock l;
+    a3::g_want = on != 0;
+    if (on)
+        return a3::g_state > 0 ? 500 : a3::apply500("option on");
+    if (a3::g_bridge >= 0 && a3::g_bridge != 1)
+        return a3::apply444("option off"); // (the bridge loaded: 444 through the module, the NOP out)
+    a3::g_state = 0;
+    return 444;
+}
+// 0 off, 1 running at 500, -1 asked for but refused (444).
+extern "C" int ps2x_cpu500_state()
+{
+    return a3::g_state;
+}
+// The resume watcher (raylib_vita.cpp), every 250 ms and after it set the clocks again on a resume: 500 applied again
+// when the option is on and ScePower's frequency is not 500 any more (a resume, a return from LiveArea, the game's own
+// 444). Three failed re-applies in a row: given up (444, "refused").
+extern "C" void ps2x_cpu500_watch(int resumed)
+{
+    if (!a3::g_want || a3::g_state <= 0)
+        return;
+    if (!resumed && scePowerGetArmClockFrequency() == 500)
+        return;
+    a3::Lock l;
+    if (!a3::g_want || a3::g_state <= 0)
+        return;
+    if (!resumed && scePowerGetArmClockFrequency() == 500)
+        return;
+    ++a3::g_reapplies;
+    a3::apply500(resumed ? "again after a resume" : "again: ScePower no longer at 500");
+    if (a3::g_state > 0)
+        a3::g_reapplyFails = 0;
+    else if (++a3::g_reapplyFails < 3)
+        a3::g_state = 1; // try again at the next wake-up
+    else
+        std::fprintf(stderr, "[a3] cpu 500: %u re-applies, the last 3 failed: given up, 444\n", a3::g_reapplies);
 }
 extern "C" void __wrap__init_vita_heap(void)
 {
@@ -1988,6 +2336,8 @@ extern "C" void ps2x_m1_pmu_tick(unsigned long long frame)
 {
     using namespace m1pmu;
     ps2x_p2_tick(frame); // round P2 (two loads and a branch when off)
+    if (k3::g_want)
+        k3::g_frame = frame; // round K3: the [k3] line's frame (one load and a branch when off)
     if (__builtin_expect(g_state < 0, 1))
         return;
     if (g_state == 0)

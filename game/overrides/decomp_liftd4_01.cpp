@@ -4,6 +4,7 @@
 // functions they call are called directly. Regenerate with the tool; see docs/decomp.md "Decomp D4".
 // D5: --inline: small leaf callees spliced into their lifted callers behind a guard (the table's slot holds
 // that callee, the host stack has room); the call as before when it fails.
+#include "z3_rootdyn.h"
 #include "sotc_decomp.h"
 #include "typed_a1.h" // a1
 #include "typed_a2.h" // a2
@@ -6638,6 +6639,7 @@ L_10d6df4:
 void charrootdyn_slidecollisionCB(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10D6E30u, 0)) { charrootdyn_slidecollisionCB_0x10d6e30(rdram, ctx, runtime); return; }
+    SOTC_Z3_HOOK(kSlideCB, slideCB) // round Z3 (z3_funcs.inc)
     uint32_t t3 = Ps2GprU32(ctx, 11), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), v1 = Ps2GprU64(ctx, 3), a0 = Ps2GprU64(ctx, 4), a1 = Ps2GprU64(ctx, 5), a2 = Ps2GprU64(ctx, 6), a3 = Ps2GprU64(ctx, 7), t0 = Ps2GprU64(ctx, 8), t1 = Ps2GprU64(ctx, 9), t2 = Ps2GprU64(ctx, 10), s0 = Ps2GprU64(ctx, 16), s1 = Ps2GprU64(ctx, 17), s2 = Ps2GprU64(ctx, 18), s3 = Ps2GprU64(ctx, 19), s4 = Ps2GprU64(ctx, 20), s5 = Ps2GprU64(ctx, 21), s6 = Ps2GprU64(ctx, 22), s7 = Ps2GprU64(ctx, 23), sp = Ps2GprU64(ctx, 29), fp = Ps2GprU64(ctx, 30);
     float f0 = ctx->f[0], f1 = ctx->f[1], f12 = ctx->f[12], f13 = ctx->f[13], f20 = ctx->f[20], f21 = ctx->f[21];
@@ -7260,6 +7262,7 @@ L_10d74bc:
 void charrootdyn_slidecollision(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
 {
     if (__builtin_expect(ctx->pc != 0x10DC020u, 0)) { charrootdyn_slidecollision_0x10dc020(rdram, ctx, runtime); return; }
+    SOTC_Z3_HOOK(kSlide, slide) // round Z3 (z3_funcs.inc)
     uint32_t v1 = Ps2GprU32(ctx, 3), sp = Ps2GprU32(ctx, 29), ra = Ps2GprU32(ctx, 31);
     uint64_t v0 = Ps2GprU64(ctx, 2), t2 = Ps2GprU64(ctx, 10), t3 = Ps2GprU64(ctx, 11);
     sp = sp - 0x20u;

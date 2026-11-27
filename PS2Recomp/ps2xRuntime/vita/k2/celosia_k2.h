@@ -124,6 +124,7 @@ typedef struct K2Remap
 #define K2_ERR_ARGS (-7)
 #define K2_ERR_BUSY (-8)
 #define K2_ERR_SITE (-9)       /* C1: the hook site is not what was expected (unreadable, odd, or not `expect`) */
+#define K2_ERR_CLOCK (-10)     /* A3: the busy loop did not get faster: the 500 setting undone */
 
 #define K2_MAX_SECTIONS 160
 
@@ -163,6 +164,58 @@ typedef struct K2C1Bridge
     uint32_t magic, version;
     int (*core3)(uint32_t flags, uint32_t expect, K2Core3 *out);
 } K2C1Bridge;
+
+/* Round A3 (docs/decomp_a3cpu.md): the ARM at 500 MHz for the owner, a player option (off by default). Another syscall
+ * library of the same module, CelosiaK2A3 (its own NID: an older resident K2 instance without it does not bind, the A3
+ * bridge celosia_a3u.suprx fails to load and the game stays at 444 MHz). celosiaK2Clock(mhz, out):
+ *   K2_A3_500  kscePowerSetArmClockFrequency(444) first (the retail top), then the PSVshell route written here: the
+ *              Pervasive clock function (SceLowio, ScePervasiveForDriver NID 0xE9D95643) with mul:div 15:16 after a
+ *              2-byte Thumb NOP at its +0x1E (the branch that keeps the multiplier at 444's), and ScePower's own
+ *              frequency / multiplier words (data +0x41C8 / +0x41CC) set to 500 / 15 so kscePowerGetArmClockFrequency
+ *              (and the game's scePowerGetArmClockFrequency) tell the truth. Every site is checked before any write: the
+ *              patch site must be a 16-bit conditional branch (or the NOP already: another plugin), ScePower's word must
+ *              read 444 right after the 444 set. Any check failing: nothing written, rc < 0, the clock stays at 444.
+ *   K2_A3_444  kscePowerSetArmClockFrequency(444) and the NOP taken back out.
+ * Both time a fixed busy loop before and after (the shortest of 9 runs, ksceKernelGetSystemTimeLow): the clock as the
+ * CPU runs it, against the first 444 MHz timing this module made (est = 444 x t444 / t). A 500 request whose loop did
+ * not get at least 6% faster is undone (K2_ERR_CLOCK). Released (444, NOP out) also when the owner exits or is killed
+ * and at module stop. */
+#define K2A3_LIB_NID 0xC2C2C2A3u
+#define K2A3_MAGIC 0x3341324Bu /* "K2A3" */
+#define K2A3_VERSION 1u
+#define K2_A3_444 444u
+#define K2_A3_500 500u
+#define K2_A3_SITE 0x1Eu       /* the Pervasive function's +0x1E (PSVshell: the Thumb export address + 0x1D) */
+#define K2_A3_VAR_FREQ 0x41C8u /* ScePower data segment: the ARM frequency kscePowerGetArmClockFrequency returns */
+#define K2_A3_VAR_MUL 0x41CCu  /* and its multiplier */
+
+typedef struct K2Clock
+{
+    int32_t rc;          /* 0 done; < 0: K2_ERR_* or the failing call's rc (the clock then 444) */
+    uint32_t want;       /* 444 / 500 */
+    int32_t set444_rc;   /* kscePowerSetArmClockFrequency(444) */
+    int32_t get_before, get_after; /* kscePowerGetArmClockFrequency before / after */
+    int32_t export_rc;   /* module_get_export_func(SceLowio, 0xE692C727, 0xE9D95643) */
+    uint32_t fn;         /* its address (Thumb: bit 0) */
+    uint32_t site_prev, site_hw; /* the half-word before the patch site, and the site's own (before any patch) */
+    int32_t inject_uid;  /* taiInjectAbsForKernel (>= 0: the NOP is in) */
+    int32_t release_rc;  /* taiInjectReleaseForKernel (1: not called) */
+    int32_t pervasive_rc; /* the Pervasive function's return (1: not called) */
+    int32_t info_rc;     /* taiGetModuleInfoForKernel(ScePower) */
+    uint32_t power_nid;  /* ScePower's module NID (tells the firmware build) */
+    int32_t var_rc;      /* module_get_offset of the two words */
+    uint32_t var_before[2], var_after[2]; /* freq / mul words after the 444 set, and at the end */
+    uint32_t loop_us444, loop_us_before, loop_us_after; /* the busy loop: first 444 timing ever, this call's before / after */
+    uint32_t est_before, est_after; /* the clock those timings give, MHz */
+    uint32_t on;         /* 1: the module holds 500 for the owner */
+    int32_t pid;
+} K2Clock;
+
+typedef struct K2A3Bridge
+{
+    uint32_t magic, version;
+    int (*clock)(uint32_t mhz, K2Clock *out);
+} K2A3Bridge;
 
 /* The bridge (celosia_k2u.suprx): module_start(sizeof(K2Bridge *), &ptr) fills the table. */
 typedef struct K2Bridge
