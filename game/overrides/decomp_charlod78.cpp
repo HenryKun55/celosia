@@ -36,6 +36,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_memory.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -82,6 +83,17 @@ namespace charlod78
             // at least SOTC_CHARLOD78_FAR_S seconds between updates.
             float far = envF("SOTC_CHARLOD78_FAR", 0.0f);
             float farS = envF("SOTC_CHARLOD78_FAR_S", 0.066f);
+            // Round A2: the view test widened so a character is current before it can reach the picture.
+            // kScale: the clip volume's x / y planes at |x|, |y| <= kScale * w (1.0: the screen's edges).
+            float kScale = envF("SOTC_CHARLOD78_K", 1.35f);
+            // The view sphere's radius is at least this (the drawn body, wings, a tail reach past the collision sphere).
+            float minVis = envF("SOTC_CHARLOD78_MINVIS", 6.0f);
+            // A character seen (by the widened test) in the last `hold` frames is never put off.
+            uint32_t hold = static_cast<uint32_t>(envF("SOTC_CHARLOD78_HOLD", 8.0f));
+            // 1: the round 78 rule exactly (the noted camera only, margin 2r+1, scale 1, hold 1, no event / boss exclusion).
+            bool legacy = envF("SOTC_CHARLOD78_LEGACY", 0.0f) != 0.0f;
+            // Audit: a put-off character the drawn frame's camera saw with this radius counts as shown stale.
+            float auditR = envF("SOTC_CHARLOD78_AUDIT_R", 6.0f);
             uint64_t logEvery = ps2_diag::env("SOTC_CHARLOD78_LOG") ? std::strtoull(ps2_diag::env("SOTC_CHARLOD78_LOG"), nullptr, 10) : 0u;
         };
         const Params &params()
@@ -103,10 +115,16 @@ namespace charlod78
             uint8_t type = 0;
             bool eligible = false;
             uint32_t entry = 0; // the model's view interval record (0: none)
+            uint64_t deferredFrame = ~0ull; // the frame its update was last put off
+            uint32_t stale = 0, excluded = 0; // audit: put off but the drawn camera saw it; held full by the event / boss rule
+            uint32_t pendingFrames = 0;      // frames put off in a row (the catch-up's length)
+            uint32_t maxPending = 0;
         };
         Rec g_rec[64];
         uint64_t g_logFrom = 0;
         uint64_t g_totalDeferred = 0, g_totalCalls = 0;
+        uint64_t g_totalStale = 0, g_totalStaleAll = 0, g_totalDeferredAll = 0, g_catchups = 0, g_eventFrames = 0;
+        uint64_t g_lastEventFrame = ~0ull;
 
         Rec &rec(uint32_t obj)
         {
@@ -154,11 +172,21 @@ namespace charlod78
             return plain(player) ? player : 0u;
         }
 
+        // The active colossus: the handle table entry whose back-pointer is 0x1465908 (as the player's 0x1465900),
+        // round D15. (Round 78 compared with 0x1465ad4, bossStatGetActiveBoss's cached boss *table record*, which is
+        // never an object: that exclusion never held.)
+        uint32_t bossObj()
+        {
+            const uint32_t index = u32(0x01465908u) & 0xFFFFu;
+            const uint32_t boss = index ? u32(0x0021B900u + index * 24u) : 0u;
+            return plain(boss) ? boss : 0u;
+        }
+
         // The sphere (centre p, radius r) against the camera's clip volume:
         // the planes w - x, w + x, w - y, w + y and w of the clip matrix
         // (column-major at +0x5A0, clip = M * (p, 1)), each distance scaled
         // by its normal's length.
-        bool sphereVisible(uint32_t camCtx, const float p[3], float r)
+        bool sphereVisible(uint32_t camCtx, const float p[3], float r, float k = 1.0f)
         {
             float m[16];
             for (int i = 0; i < 16; ++i)
@@ -172,6 +200,9 @@ namespace charlod78
             row(0, rx);
             row(1, ry);
             row(3, rw);
+            float rwk[4];
+            for (int c = 0; c < 4; ++c)
+                rwk[c] = rw[c] * k;
             auto test = [&](const float a[4], float sign, const float b[4])
             {
                 float n[4];
@@ -182,24 +213,28 @@ namespace charlod78
                 return !(d < -r * len); // NaN: visible
             };
             const float zero[4] = {0, 0, 0, 0};
-            return test(rw, 1.0f, zero) && test(rw, -1.0f, rx) && test(rw, 1.0f, rx) && test(rw, -1.0f, ry) && test(rw, 1.0f, ry);
+            return test(rw, 1.0f, zero) && test(rwk, -1.0f, rx) && test(rwk, 1.0f, rx) && test(rwk, -1.0f, ry) && test(rwk, 1.0f, ry);
         }
 
         void logLines(uint64_t frame)
         {
             const Params &P = params();
             const uint64_t n = frame - g_logFrom;
-            std::fprintf(stderr, "[charlod] frame %llu: %llu frames, %.2f calls a frame, %.2f put off a frame\n", (unsigned long long)frame, (unsigned long long)n,
-                         n ? double(g_totalCalls) / double(n) : 0.0, n ? double(g_totalDeferred) / double(n) : 0.0);
+            std::fprintf(stderr, "[charlod] frame %llu: %llu frames, %.2f calls a frame, %.2f put off a frame, stale %llu (all %llu of %llu put off, %llu catch-ups), event frames %llu, boss %08x demo %08x\n", (unsigned long long)frame, (unsigned long long)n,
+                         n ? double(g_totalCalls) / double(n) : 0.0, n ? double(g_totalDeferred) / double(n) : 0.0, (unsigned long long)g_totalStale,
+                         (unsigned long long)g_totalStaleAll, (unsigned long long)g_totalDeferredAll, (unsigned long long)g_catchups, (unsigned long long)g_eventFrames, bossObj(), u32(0x01465AC8u));
+            g_totalStale = 0;
+            g_eventFrames = 0;
             for (Rec &r : g_rec)
             {
                 if (r.obj == 0u || r.frames == 0u)
                     continue;
                 const bool e = plain(r.entry);
-                std::fprintf(stderr, "[charlod]   obj %08x type %u entry %08x (%.2f %.3f %.3f) cam %.1f player %.1f r %.2f %s: frames %u visible %u updates %u put off %u geo %u %.3f ms a frame (%.3f a call), time given %.3f s of %.3f\n", r.obj,
+                std::fprintf(stderr, "[charlod]   obj %08x type %u entry %08x (%.2f %.3f %.3f) cam %.1f player %.1f r %.2f %s: frames %u visible %u updates %u put off %u geo %u %.3f ms a frame (%.3f a call), time given %.3f s of %.3f, stale %u held %u longest %u\n", r.obj,
                              r.type, r.entry, e ? f32(r.entry + 4u) : 0.0f, e ? f32(r.entry + 8u) : 0.0f, e ? f32(r.entry + 12u) : 0.0f, r.camDist, r.playerDist, r.radius, r.eligible ? "lod" : "full", r.frames, r.visible, r.updates, r.deferred, r.geos,
-                             r.geoUs / 1000.0 / double(n ? n : 1), r.geos ? r.geoUs / 1000.0 / r.geos : 0.0, r.given, r.world);
+                             r.geoUs / 1000.0 / double(n ? n : 1), r.geos ? r.geoUs / 1000.0 / r.geos : 0.0, r.given, r.world, r.stale, r.excluded, r.maxPending);
                 r.frames = r.visible = r.updates = r.deferred = r.geos = 0;
+                r.stale = r.excluded = r.maxPending = 0;
                 r.geoUs = 0.0;
                 r.given = r.world = 0.0;
             }
@@ -268,17 +303,52 @@ namespace charlod78
         }
         r.playerDist = pd;
 
-        const bool vis = sphereVisible(camCtx, p, 2.0f * radius + P.margin);
+        const float tightR = 2.0f * radius + P.margin;
+        // Audit (round A2): put off last frame, and the camera that drew that frame (the display walk's note, still in
+        // g_cameraContextAddr at this tail) saw it with a generous radius: it was in the picture with an old pose.
+        if (newFrame && r.deferredFrame + 1u == frame)
+        {
+            if (sphereVisible(camCtx, p, std::max(tightR, P.auditR)))
+            {
+                ++r.stale;
+                ++g_totalStale;
+                ++g_totalStaleAll;
+            }
+        }
+        bool vis;
+        if (P.legacy)
+            vis = sphereVisible(camCtx, p, tightR);
+        else
+        {
+            // Round A2: widened (k x the screen, at least minVis), against both the drawn frame's camera and the
+            // camera context the game holds now (a cut / event camera switches the index before the display walk).
+            const float vr = std::max(tightR, P.minVis);
+            vis = sphereVisible(camCtx, p, vr, P.kScale);
+            const uint32_t idx = u32(0x0118FE4Cu);
+            const uint32_t now = idx < 64u ? u32(0x0122A8F0u + idx * 4u) : 0u;
+            if (!vis && plain(now) && now != camCtx)
+                vis = sphereVisible(now, p, vr, P.kScale);
+        }
         r.visible += vis && newFrame;
-        const bool sawLast = r.seenFrame + 1u >= frame; // visible this frame or the one before
+        const uint32_t hold = P.legacy ? 1u : std::max(1u, P.hold);
+        const bool sawLast = r.seenFrame != ~0ull && r.seenFrame + hold >= frame; // seen within the last `hold` frames
         if (vis)
             r.seenFrame = frame;
 
         const float rate = ctx->f[0];
-        // The active colossus (bossStatGetActiveBoss's cached object, 0x1465ad4) never.
-        const uint32_t boss = u32(0x01465AD4u);
-        const bool eligible = obj != player && obj != boss && player != 0u && pd > P.near && std::isfinite(radius) && radius <= P.maxR && std::isfinite(pd);
+        // The active colossus never (the handle at 0x1465908; round 78's 0x1465ad4 test is kept for the legacy rule).
+        const uint32_t boss = P.legacy ? u32(0x01465AD4u) : bossObj();
+        // An event / colossus demo running (getActivedemoStage, 0x1465ac8, non-zero): nothing is put off. The demo's
+        // cameras and scripts drive characters the gameplay view test knows nothing about (Avion's reveal).
+        const bool event = !P.legacy && u32(0x01465AC8u) != 0u;
+        if (event && g_lastEventFrame != frame)
+        {
+            g_lastEventFrame = frame;
+            ++g_eventFrames;
+        }
+        const bool eligible = obj != player && obj != boss && !event && player != 0u && pd > P.near && std::isfinite(radius) && radius <= P.maxR && std::isfinite(pd);
         r.eligible = eligible;
+        r.excluded += newFrame && (event || (boss != 0u && obj == boss));
         if (rate > 0.0f)
         {
             const bool offScreen = !vis && !sawLast;
@@ -295,11 +365,18 @@ namespace charlod78
                 ctx->f[0] = 0.0f;
                 ++r.deferred;
                 ++g_totalDeferred;
+                ++g_totalDeferredAll;
+                r.deferredFrame = frame;
+                ++r.pendingFrames;
+                r.maxPending = std::max(r.maxPending, r.pendingFrames);
             }
             else
             {
                 ++r.updates;
                 r.given += rate;
+                if (r.pendingFrames)
+                    ++g_catchups;
+                r.pendingFrames = 0;
             }
         }
     }
