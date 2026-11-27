@@ -1163,7 +1163,7 @@ namespace
         {
             a9sweep::init(); // round A9 sweep: the hoisted switches' values, before any native or hook is registered
             const char *native = std::getenv("SOTC_NATIVE");
-            if (!native || std::atoi(native) == 0 || std::getenv("SOTC_SYSTEM_EMULATED"))
+            if (!native || std::atoi(native) == 0)
                 return;
             struct Hook
             {
@@ -1236,7 +1236,7 @@ namespace
             g_gpReleaseFrame = runtime.lookupFunction(kGpReleaseFrame);
             runtime.registerFunction(kGpReleaseFrame, gpReleaseFrameHook);
         }
-        if (!std::getenv("SOTC_IDLE_SPIN") && runtime.hasFunction(kIosRecvMsg))
+        if (runtime.hasFunction(kIosRecvMsg))
         {
             g_iosRecvMsg = runtime.lookupFunction(kIosRecvMsg);
             runtime.registerFunction(kIosRecvMsg, iosRecvMsgHook);
@@ -1326,7 +1326,7 @@ void sotc_decomp::idleTurn(uint8_t *rdram, PS2Runtime *runtime)
     static const bool on = []
     {
         const char *v = std::getenv("SOTC_IDLE_TURN");
-        return !(v && std::atoi(v) == 0) && !std::getenv("SOTC_IDLE_SPIN");
+        return !(v && std::atoi(v) == 0);
     }();
     static uint64_t lastPolls = 0;
     const uint64_t polls = g_idlePolls;

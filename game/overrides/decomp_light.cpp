@@ -1500,46 +1500,7 @@ namespace decomp_light
         }
     };
 
-    // ---- Round S23 (SOTC_S23LIGHT, A/B s23light): the second and third walks over a host list -----------------------
-    // The pass walks the whole sort list three times (every object the display sorted: the ground's pieces, the
-    // grass, the particles, ...), though the second and third walks act only on layout objects (GetLayoutClass != 0)
-    // and skip every other node without touching memory or a register. S23 keeps, from the first walk, the nodes
-    // whose layout class is nonzero (in the list's order) as a host list, and runs the second and third walks over
-    // it, re-reading each node's id, class and fields live as before. A node whose class takes the guest
-    // GetLayoutClass (the script / camera / light objects' cases) is kept too and makes the call again, as the
-    // original does. The sort list's index word (+16), which the walks leave at its end value, is stored as the full
-    // walk leaves it. Not used for a pass where a node round 95's join adds (after the first walk) is not a plain
-    // class-0 node. SOTC_S23LIGHT_CHECK=1: the walks run the old way and the nodes they do not pass over at once and
-    // the index word they leave are compared with the host list's; SOTC_S23LIGHT_LOG=<frames>: [s23light] counts.
-    struct S23Stats
-    {
-        uint64_t passes = 0, host = 0, nodes = 0, kept = 0, guestClass = 0, midLayout = 0, checks = 0, differ = 0;
-    };
-    static S23Stats g_s23;
-    static int g_s23Check = -1;
-    static uint32_t g_s23Log = 0;
-    static uint64_t g_s23LogFrame = 0;
-    static void s23Init()
-    {
-        if (g_s23Check >= 0)
-            return;
-        const char *v = std::getenv("SOTC_S23LIGHT_CHECK");
-        g_s23Check = v && std::atoi(v) != 0 ? 1 : 0;
-        v = std::getenv("SOTC_S23LIGHT_LOG");
-        g_s23Log = v ? static_cast<uint32_t>(std::atoi(v)) : (g_s23Check ? 600u : 0u);
-    }
-    static void s23Report()
-    {
-        const uint64_t frame = sotc_decomp::g_gameFrame;
-        if (g_s23Log == 0u || frame < g_s23LogFrame + g_s23Log)
-            return;
-        g_s23LogFrame = frame;
-        const S23Stats &t = g_s23;
-        std::fprintf(stderr, "[s23light] frame %llu: passes %llu host %llu nodes %llu kept %llu (guest class %llu); fallback join %llu; check %llu differ %llu\n",
-                     (unsigned long long)frame, (unsigned long long)t.passes, (unsigned long long)t.host, (unsigned long long)t.nodes,
-                     (unsigned long long)t.kept, (unsigned long long)t.guestClass, (unsigned long long)t.midLayout, (unsigned long long)t.checks,
-                     (unsigned long long)t.differ);
-    }
+    // (Round F1: round S23's host list for the light pass's second and third walks, s23light / SOTC_S23LIGHT, deleted: exact but even.)
 
     void lightPass(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
@@ -1579,17 +1540,6 @@ namespace decomp_light
             call(kGetLayoutClass, site);
             return GPR_U32(ctx, 2);
         };
-        // Round S23: the layout nodes of the first walk (host list), used by the second and third walks while usable.
-        const bool s23 = sotc_decomp::switchOn(sotc_decomp::kS23Light);
-        static std::vector<uint32_t> s23Nodes;
-        bool s23Use = s23;
-        if (s23)
-        {
-            s23Init();
-            ++g_s23.passes;
-            s23Report();
-            s23Nodes.clear();
-        }
         auto flags64 = [&](uint32_t a)
         {
             uint64_t v;
@@ -1614,15 +1564,6 @@ namespace decomp_light
             if (c2)
                 c2scene::lightAhead(rdram, 1, obj);
             const uint32_t id = m.u32(obj);
-            if (s23)
-            {
-                // Every node the later walks do not pass over at once: a layout class inline, or the guest call's.
-                ++g_s23.nodes;
-                const uint32_t k = inlineClass(id);
-                if (k != 0u)
-                    s23Nodes.push_back(obj);
-                g_s23.guestClass += k == 1u;
-            }
             const uint32_t lc = layoutClass(id, 0x010F5008u);
             uint32_t callback = 0u;
             if (lc != 0u)
@@ -1670,12 +1611,6 @@ namespace decomp_light
             for (const uint32_t obj : nodes)
             {
                 const uint32_t id = m.u32(obj);
-                if (s23 && s23Use && inlineClass(id) != 0u)
-                {
-                    // A layout object (or one the guest class call decides) joined the list: the full walks.
-                    s23Use = false;
-                    ++g_s23.midLayout;
-                }
                 const uint32_t geo = rdram[(id + 8u) & PS2_RAM_MASK] == 0x24u ? id + 32u : 0u; // GetGeoDispClass
                 uint32_t callback;
                 if (geo != 0u && (callback = m.u32(geo + 224u)) != 0u)
@@ -1690,52 +1625,6 @@ namespace decomp_light
 
         sotc_decomp::walk83LightEnd();
 
-        // Round S23: the index word's value at the end of a full walk (GetFirstSortObj / GetNextSortObj's last store):
-        // the count when a bucket holds a node, count - 1 when none does, untouched for an empty count.
-        auto s23EndIndex = [&](bool &store) -> uint32_t
-        {
-            const int32_t count = static_cast<int32_t>(m.u32(list + 4u));
-            store = count > 0;
-            if (!store)
-                return 0u;
-            if (!s23Nodes.empty())
-                return static_cast<uint32_t>(count);
-            const uint32_t buckets = m.u32(list);
-            bool any = false;
-            if (const AliasU32 *w = bucketWords(m, list, buckets, count))
-                any = scanBuckets(w, 0, count) < count;
-            else
-                for (int32_t i = 0; i < count && !any; ++i)
-                    any = m.u32(buckets + static_cast<uint32_t>(i) * 4u) != 0u;
-            return static_cast<uint32_t>(any ? count : count - 1);
-        };
-        const bool s23Check = s23Use && g_s23Check > 0;
-        if (s23Use && !s23Check)
-            ++g_s23.host;
-        g_s23.kept += s23Use ? s23Nodes.size() : 0u;
-        // The check: the old walk's layout nodes (in order) against the host list, and the index word it leaves.
-        size_t s23Seen = 0;
-        bool s23Bad = false;
-        auto s23See = [&](uint32_t obj)
-        {
-            if (s23Seen >= s23Nodes.size() || s23Nodes[s23Seen] != obj)
-                s23Bad = true;
-            ++s23Seen;
-        };
-        auto s23Verify = [&](int walk)
-        {
-            bool store;
-            const uint32_t want = s23EndIndex(store);
-            if (s23Seen != s23Nodes.size() || (store && m.u32(list + 16u) != want))
-                s23Bad = true;
-            ++g_s23.checks;
-            if (s23Bad && ++g_s23.differ <= 8u)
-                std::fprintf(stderr, "[s23light] differ: frame %llu walk %d: layout nodes %u seen %u, index %u end %u\n",
-                             (unsigned long long)sotc_decomp::g_gameFrame, walk, static_cast<unsigned>(s23Nodes.size()), static_cast<unsigned>(s23Seen),
-                             m.u32(list + 16u), want);
-            s23Seen = 0;
-            s23Bad = false;
-        };
 
         // The layout objects' own lights (010F4A18) and their scale.
         float f0 = ctx->f[0];
@@ -1744,8 +1633,6 @@ namespace decomp_light
         auto walk2 = [&](uint32_t obj) __attribute__((always_inline))
         {
             const uint32_t id = m.u32(obj);
-            if (s23Check && inlineClass(id) != 0u)
-                s23See(obj);
             const uint32_t lc = layoutClass(id, 0x010F50B8u);
             if (lc == 0u)
                 return;
@@ -1776,20 +1663,8 @@ namespace decomp_light
         };
         auto s23Walk = [&](auto &&body, int walk) __attribute__((always_inline))
         {
-            if (s23Use && !s23Check)
-            {
-                for (const uint32_t obj : s23Nodes)
-                    body(obj);
-                bool store;
-                const uint32_t end = s23EndIndex(store);
-                if (store)
-                    m.put32(list + 16u, end);
-                return;
-            }
             for (uint32_t obj = sorted.first(); obj != 0u; obj = sorted.next(obj))
                 body(obj);
-            if (s23Check)
-                s23Verify(walk);
         };
         s23Walk(walk2, 2);
 
@@ -1797,8 +1672,6 @@ namespace decomp_light
         auto walk3 = [&](uint32_t obj) __attribute__((always_inline))
         {
             const uint32_t id = m.u32(obj);
-            if (s23Check && inlineClass(id) != 0u)
-                s23See(obj);
             const uint32_t lc = layoutClass(id, 0x010F5170u);
             if (lc == 0u)
                 return;
@@ -2642,7 +2515,7 @@ namespace decomp_light
     void lightPassD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++c_d1LightPass.n;
-        if (!sotc_decomp::fastNativeOn() || sotc_decomp::switchOn(sotc_decomp::kS23Light) || c2scene::on())
+        if (!sotc_decomp::fastNativeOn() || c2scene::on())
             return lightPass(rdram, ctx, runtime);
         const Mem mo(rdram, runtime);
         const D1Spr m{mo.rdram, mo.spr};

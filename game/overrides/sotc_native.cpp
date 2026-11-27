@@ -1,6 +1,5 @@
 #include <tuple>
 #include "sotc_replay.h"
-#include "s12_draw.h"
 #include "d1_native.h" // round D1: the D1 bodies' run counts (SOTC_D1_LOG)
 // Shadow of the Colossus: models drawn by the native renderer
 // (runtime/native_renderer.h) straight from the game's own model data, read
@@ -1823,9 +1822,8 @@ namespace sotc_native
         // With the memos carried by rekeyPacketMemo the walk back over the
         // moves finds little more (moves the ring lost, chunked copies) and
         // costs ~8 us a new packet (an area change's cut frame: ~1 600 new
-        // packets, 13 ms in calibrated Vita3K): only with SOTC_MOVE_WALK=1.
-        static const bool walkToo = std::getenv("SOTC_MOVE_WALK") != nullptr;
-        if (g_moveMemo && (!found || moved) && (!g_moveRekey || walkToo))
+        // packets, 13 ms in calibrated Vita3K): only without the rekey (round F1 deleted SOTC_MOVE_WALK).
+        if (g_moveMemo && (!found || moved) && !g_moveRekey)
         {
             SOTC_PROF_SCOPE(kHookMoves);
             PacketMemo *from = nullptr;
@@ -3703,7 +3701,7 @@ namespace sotc_native
     void zFogHook(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         ++g_s4Emits;
-        // Round 32: no wait here (SOTC_ZFOG_JOIN=1: as before). The hook's own
+        // Round 32: no wait here. The hook's own
         // part (g_fog) is the game thread's alone; whatever zFog draws comes
         // through gsReg's 2D path, which keeps the jobs' order itself. With
         // the textured 2D draws no longer waiting, this was the frame's one
@@ -3713,9 +3711,6 @@ namespace sotc_native
         // (SOTC_HOOK_WORKER_DELAY_US): no game-thread draw while jobs were
         // pending (SOTC_HOOK_ORDER_CHECK) and nothing the jobs read changed
         // under them (SOTC_HOOK_ASYNC_VERIFY).
-        static const bool join = std::getenv("SOTC_ZFOG_JOIN") && std::atoi(std::getenv("SOTC_ZFOG_JOIN")) != 0;
-        if (join)
-            hookJoin(hookjobs::k_zfog);
         g_ram = rdram;
         const int32_t slices = static_cast<int32_t>(word(0x118C46Cu));
         const float width = real(0x118C470u), margin = real(0x118C474u), farDistance = real(0x118C480u);
@@ -3970,7 +3965,7 @@ namespace sotc_native
         constexpr size_t kTuningCount = sizeof(kTuningFlags) / sizeof(kTuningFlags[0]);
         static int tuningAt[kTuningCount];
         // The decomp rounds' subsystem switches (sotc_decomp.h's table).
-        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "find84", "ground85", "ptcl89", "ptcl91", "join95", "draw95", "early95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "oan106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "flush119", "walk119", "part119", "view119", "ptcl123", "blend123", "seg123", "gaze122", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "texr128", "pf134", "clip134", "pose136", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "clip140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s12draw", "s13mot", "s14hook", "s17iop", "s16plan", "s19amb", "s21light", "s22ptcl", "s23light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c2scene", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch", "d1native", "r1char", "w2"};
+        static const char *const switchNames[sotc_decomp::kSwitchCount] = {"camcoll", "collprobe", "motion", "leaves", "hotlist", "hotlist44", "hotlist46", "hotlist47", "scriptvm", "isys", "hotlist48", "fastnative", "fastnative2", "fastnative3", "ptcl62", "coll63", "tex64", "walk67", "pref69", "coll71", "charlod78", "ptcl79", "seg80", "pose82", "walk83", "ptcl83", "probe84", "ground85", "ptcl89", "join95", "draw95", "obj96", "sel96", "sel97", "links97", "path97", "plan97", "walk101", "skin101", "leaf101", "obj101", "sw102", "ptcl103", "solid103", "grp106", "ai106", "coll115", "pkt117", "glv117", "draw117", "leaf117", "sym120", "heap120", "ptcl123", "blend123", "cloth122", "quat122", "keys122", "fin125", "obj125", "scroll127", "geo126", "ctl126", "imm128", "pf134", "clip134", "key136", "euler136", "pf135", "fin138", "sub139", "rnd139", "gc139", "sort140", "quad140", "pf141", "pfc141", "liftd1", "liftd2", "liftd3", "liftd4", "liftd5", "liftd6", "liftd7", "liftd8", "liftd9", "liftd10", "liftd11", "liftd12", "liftd13", "liftd14", "liftd15", "liftd16", "liftd17", "liftd18", "liftd20", "liftalt", "s1ptcl", "s2coll", "s3chara", "a9cmp", "s4disp", "a9sweep", "s5ptcl", "s6coll", "s9rt", "s10draw", "s11rt", "s13mot", "s14hook", "s17iop", "s16plan", "s21light", "n2snd", "n5sched", "n3direct", "r1sort", "n6nochk", "n4native", "c1keys", "c1rig", "dc1mot", "a1typed", "a2typed", "a3typed", "a4typed", "p1chara", "a5typed", "p2ptcl", "a6typed", "dc2chara", "p3par", "p4move", "a7typed", "b1sound", "b2load", "a8typed", "b3threads", "a9typed", "b4fast", "a10typed", "a11typed", "b6sync", "a12typed", "b7irq", "b8sched", "a13typed", "b9loop", "a14typed", "b10switch", "d1native", "r1char", "w2"};
         static int switchAt[sotc_decomp::kSwitchCount];
         static bool switchStart[sotc_decomp::kSwitchCount];
         static int layerAt[32];
@@ -4114,12 +4109,9 @@ namespace sotc_native
                         sotc_decomp::setSwitch(i, switchStart[i]);
                 }
         }
-        // Round 91: `r91all` the round's switch (ptcl91) off in its windows.
-        if (r91AllAt >= 0)
-            sotc_decomp::setSwitch(sotc_decomp::kPtcl91, isOffAt(r91AllAt) ? false : switchStart[sotc_decomp::kPtcl91]);
         // Round 95: `r95all` the round's switches off in its windows.
         if (r95AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kJoin95), static_cast<int>(sotc_decomp::kDraw95), static_cast<int>(sotc_decomp::kEarly95)})
+            for (int i : {static_cast<int>(sotc_decomp::kJoin95), static_cast<int>(sotc_decomp::kDraw95)})
                 if (isOffAt(r95AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r95AllAt) ? false : switchStart[i]);
         // Round 96: `r96all` the round's switches off in its windows.
@@ -4142,20 +4134,14 @@ namespace sotc_native
             for (int i : {static_cast<int>(sotc_decomp::kPtcl103), static_cast<int>(sotc_decomp::kSolid103)})
                 if (isOffAt(r103AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r103AllAt) ? false : switchStart[i]);
-        // Round 119: `r119all` the round's switches (flush119, walk119, part119, view119) off in its windows.
-        if (r119AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kFlush119), static_cast<int>(sotc_decomp::kWalk119), static_cast<int>(sotc_decomp::kPart119), static_cast<int>(sotc_decomp::kView119)})
-                if (isOffAt(r119AllAt) || switchAt[i] < 0)
-                    sotc_decomp::setSwitch(i, isOffAt(r119AllAt) ? false : switchStart[i]);
         // Round 123: `r123all` the round's switches (ptcl123, blend123, seg123) off in its windows.
         if (r123AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kPtcl123), static_cast<int>(sotc_decomp::kBlend123), static_cast<int>(sotc_decomp::kSeg123)})
+            for (int i : {static_cast<int>(sotc_decomp::kPtcl123), static_cast<int>(sotc_decomp::kBlend123)})
                 if (isOffAt(r123AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r123AllAt) ? false : switchStart[i]);
         // Round 122: `r122all` the round's switches (gaze122, cloth122, quat122, keys122) off in its windows.
         if (r122AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kGaze122), static_cast<int>(sotc_decomp::kCloth122), static_cast<int>(sotc_decomp::kQuat122),
-                          static_cast<int>(sotc_decomp::kKeys122)})
+            for (int i : {static_cast<int>(sotc_decomp::kCloth122), static_cast<int>(sotc_decomp::kQuat122), static_cast<int>(sotc_decomp::kKeys122)})
                 if (isOffAt(r122AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r122AllAt) ? false : switchStart[i]);
         // Round 125: `r125all` the round's switches (fin125, obj125) off in its windows.
@@ -4175,12 +4161,12 @@ namespace sotc_native
                     sotc_decomp::setSwitch(i, isOffAt(r126AllAt) ? false : switchStart[i]);
         // Round 128: `r128all` the round's switches (imm128, texr128) off in its windows.
         if (r128AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kImm128), static_cast<int>(sotc_decomp::kTexr128)})
+            for (int i : {static_cast<int>(sotc_decomp::kImm128)})
                 if (isOffAt(r128AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r128AllAt) ? false : switchStart[i]);
         // Round 106: `r106all` the round's switches (grp106, oan106, ai106) off in its windows.
         if (r106AllAt >= 0)
-            for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kOan106), static_cast<int>(sotc_decomp::kAi106)})
+            for (int i : {static_cast<int>(sotc_decomp::kGrp106), static_cast<int>(sotc_decomp::kAi106)})
                 if (isOffAt(r106AllAt) || switchAt[i] < 0)
                     sotc_decomp::setSwitch(i, isOffAt(r106AllAt) ? false : switchStart[i]);
         // Round 117: `r117all` the round's switches (pkt117, glv117, draw117, leaf117) off in its windows.
@@ -9090,15 +9076,9 @@ namespace sotc_native
     // first, as the packet has them.
     A9S_HOIST(bool, a9s_sotc_native_async_6697, !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0); // round A9 sweep (a9sweep.h)
     A9S_HOIST(bool, a9s_sotc_native_off_6700, std::getenv("SOTC_NATIVE_NOGL") != nullptr); // round A9 sweep (a9sweep.h)
-    std::vector<uint64_t> *g_s12OldRec = nullptr; // round S12's check: the old way's feed recorded (s12draw::armOld)
     void immRecord128(std::vector<uint64_t> &rec, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze);
     void immFeed128(uint8_t *rdram, const uint64_t *pairs, uint32_t count, uint32_t layer, bool haze)
     {
-        if (__builtin_expect(g_s12OldRec != nullptr, 0))
-        {
-            immRecord128(*g_s12OldRec, pairs, count, layer, haze);
-            g_s12OldRec = nullptr;
-        }
         const ps2_load::GameZone zone134(0x2013u); // round 134 (prof129): the 2D assembler's part of an immediate quad
         syncFrame(rdram);
         const bool async = A9S_VAL(::a9sweep::on(), a9s_sotc_native_async_6697, bool, !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0);
@@ -9131,77 +9111,6 @@ namespace sotc_native
     }
     void immArm128(std::vector<uint64_t> *rec) { g_immRec128 = rec; }
 
-    // ---- Round S12 (SOTC_S12DRAW part `strips`; s12_draw.h): an immediate quad's record into the 2D assembler.
-    // immFeed128's frame sync, join, layer and screen-copy note, and feed2D's assembler writes for the pairs the
-    // record stands for (TEST: none; PRIM: the primitive, the strip cleared; per vertex ST / UV, RGBAQ, then
-    // vertex2D with XYZF2's kick or XYZF3's none and the Z's low 24 bits), without the pairs and the register switch.
-    void s12Feed(uint8_t *rdram, const s12draw::Quad12 &q)
-    {
-        const ps2_load::GameZone zone134(0x2013u);
-        syncFrame(rdram);
-        const bool async = A9S_VAL(::a9sweep::on(), a9s_sotc_native_async_6697, bool, !std::getenv("SOTC_GLEND_ASYNC") || std::atoi(std::getenv("SOTC_GLEND_ASYNC")) != 0);
-        if (!async)
-            hookJoin(hookjobs::k_glend);
-        const bool off = A9S_VAL(::a9sweep::on(), a9s_sotc_native_off_6700, bool, std::getenv("SOTC_NATIVE_NOGL") != nullptr);
-        if (off || word(0x0118B5B0u) != 0u)
-            return;
-        const uint32_t requested = g_requested;
-        if (q.haze)
-            g_requested = kScreenCopy;
-        g_layers.push_back(q.layer);
-        g_2dDefer = async;
-        Assembler &a = g_2d;
-        const uint32_t header = g_requested;
-        g_s4Emits += 2u; // (feed2D's count: the TEST and PRIM pairs)
-        a.layer = q.layer;
-        a.header = header;
-        a.prim = q.prim;
-        a.strip.clear();
-        for (int i = 0; i < q.n; ++i)
-        {
-            if (q.stReg[i] == 2u)
-            {
-                std::memcpy(&a.s, &q.st[i], 4);
-                std::memcpy(&a.t, reinterpret_cast<const uint8_t *>(&q.st[i]) + 4, 4);
-                ++g_s4Emits;
-            }
-            else if (q.stReg[i] == 3u)
-            {
-                a.u = q.st[i] & 0x3FFFu;
-                a.v = (q.st[i] >> 16) & 0x3FFFu;
-                ++g_s4Emits;
-            }
-            a.rgbaq = q.rgbaq[i];
-            g_s4Emits += 2u;
-            a.layer = g_layers.back();
-            a.header = g_requested;
-            vertex2D(q.xyz[i], q.xyzReg[i] == 4u, static_cast<uint32_t>(q.xyz[i] >> 32) & 0xFFFFFFu);
-        }
-        g_2dDefer = false;
-        g_layers.pop_back();
-        g_requested = requested;
-    }
-    void s12Record(std::vector<uint64_t> &rec, const s12draw::Quad12 &q)
-    {
-        uint64_t pairs[2u * (2u + 3u * 4u)];
-        uint32_t count = 0;
-        const auto put = [&](uint64_t value, uint64_t reg)
-        {
-            pairs[2u * count] = value;
-            pairs[2u * count + 1u] = reg;
-            ++count;
-        };
-        put(q.test, q.testReg);
-        put(q.prim, 0u);
-        for (int i = 0; i < q.n; ++i)
-        {
-            if (q.stReg[i])
-                put(q.st[i], q.stReg[i]);
-            put(q.rgbaq[i], 1u);
-            put(q.xyz[i], q.xyzReg[i]);
-        }
-        immRecord128(rec, pairs, count, q.layer, q.haze);
-    }
 
     void gsRegLean(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime);
     bool s4LeanHooks();
@@ -11231,9 +11140,8 @@ namespace sotc_native
         // never write Z. Written natively, the clouds of mist over the bridge
         // hid the sky from the bloom's mask (Z <= threshold + 1): 42% of the
         // picture masked where the GS masks 95%, the sky grey instead of the
-        // GS's bright haze. SOTC_PTCL_DEPTH=1: they write depth, as before.
-        static const bool ptclDepth = std::getenv("SOTC_PTCL_DEPTH") && std::atoi(std::getenv("SOTC_PTCL_DEPTH")) != 0;
-        state.noDepthWrite = !ptclDepth;
+        // GS's bright haze.
+        state.noDepthWrite = true;
         native_renderer::draw(mesh, camera, state);
         ++g_frameDraws;
     }
@@ -16586,72 +16494,7 @@ void installSotcNative(PS2Runtime &runtime)
     std::cerr << "[sotc:native] models drawn by the native renderer" << std::endl;
 }
 
-// ---- Round S12 (SOTC_S12DRAW, A/B `s12draw`; s12_draw.h): the immediate quads as host vertex records -----------
-// Parts SOTC_S12DRAW_PARTS (bit 0 `strips`: decomp_walk.cpp quad12Body / imm12, the record fed by s12Feed; bit 1
-// `reuse`: quad12Body takes a vertex's three products from the quad before when its position and the three matrices
-// are the same bits; default 3). SOTC_S12DRAW_CHECK=1: every quad both ways (prim128), [s12draw] lines every SOTC_S12DRAW_LOG frames (600).
-namespace s12draw
-{
-    struct Config
-    {
-        bool read = false;
-        uint32_t parts = 3u; // bit 0 strips, bit 1 reuse
-        bool check = false;
-        uint32_t log = 600u;
-    };
-    Config g_cfg;
-    struct Stats
-    {
-        uint64_t fast = 0, declined = 0, checks = 0, clipped = 0, differ = 0;
-    };
-    uint64_t g_reused = 0, g_vertices = 0; // (part reuse: decomp_walk's quad12Body counts them)
-    Stats g_stats;
-    uint64_t g_logFrame = 0;
-    void readConfig()
-    {
-        g_cfg.read = true;
-        if (const char *e = std::getenv("SOTC_S12DRAW_PARTS"))
-            g_cfg.parts = static_cast<uint32_t>(std::strtoul(e, nullptr, 0));
-        const char *c = ps2_diag::env("SOTC_S12DRAW_CHECK");
-        g_cfg.check = c && std::atoi(c) != 0;
-        if (const char *e = std::getenv("SOTC_S12DRAW_LOG"))
-            g_cfg.log = static_cast<uint32_t>(std::strtoul(e, nullptr, 10));
-        std::fprintf(stderr, "[s12draw] parts %u check %d log %u\n", g_cfg.parts, g_cfg.check ? 1 : 0, g_cfg.log);
-    }
-    bool stripsOn()
-    {
-        if (__builtin_expect(!g_cfg.read, 0))
-            readConfig();
-        return (g_cfg.parts & 1u) && sotc_decomp::s12DrawOn();
-    }
-    bool reuseOn() { return (g_cfg.parts & 2u) != 0u; }
-    bool checkOn() { return g_cfg.check; }
-    void feed(uint8_t *rdram, const Quad12 &q) { sotc_native::s12Feed(rdram, q); }
-    void record(std::vector<uint64_t> &rec, const Quad12 &q) { sotc_native::s12Record(rec, q); }
-    void armOld(std::vector<uint64_t> *rec) { sotc_native::g_s12OldRec = rec; }
-    void noteQuad(bool fast, bool clipped, bool checked, bool differ)
-    {
-        Stats &s = g_stats;
-        if (fast)
-            ++s.fast;
-        else if (!checked)
-            ++s.declined;
-        if (checked)
-            ++s.checks;
-        if (clipped)
-            ++s.clipped;
-        if (differ)
-            ++s.differ;
-        const uint64_t frame = sotc_native::g_frame;
-        if (g_cfg.log && frame >= g_logFrame + g_cfg.log)
-        {
-            g_logFrame = frame;
-            std::fprintf(stderr, "[s12draw] frame %llu: quads fast %llu, declined %llu; checked %llu (clipped %llu), differ %llu; vertices %llu, reused %llu\n",
-                         (unsigned long long)frame, (unsigned long long)s.fast, (unsigned long long)s.declined, (unsigned long long)s.checks,
-                         (unsigned long long)s.clipped, (unsigned long long)s.differ, (unsigned long long)g_vertices, (unsigned long long)g_reused);
-        }
-    }
-}
+// (Round F1: round S12 / s12draw deleted.)
 
 #if defined(__vita__)
 // Round 55: room for vita-elf-create. It appends the module's SCE data

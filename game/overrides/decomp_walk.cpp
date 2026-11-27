@@ -66,7 +66,6 @@
 // anything is written.
 #include "sotc_decomp.h"
 #include "d1_native.h"
-#include "s12_draw.h"
 #include "a9cmp.h"
 #include "runtime/ps2_diag.h"
 #include "sotc_worker.h"
@@ -1500,7 +1499,7 @@ namespace decomp_walk
         }
     }
 
-    // ---- Round C2 (c2scene, SOTC_C2SCENE; A/B `c2scene`; c2scene.h): the display group as a host scene list ----
+    // ---- Round C2 (c2scene; c2scene.h; on with W1 since round F1 deleted SOTC_C2SCENE): the display group as a host scene list ----
     // The group pass records what it read anyway (entry, object, layout class, geometry record, geometry, whether
     // round 140's helper may clip it) in the walk's order; at the pass's end the record becomes `last` (a walk that
     // goes to the recompiled code midway keeps the previous one). Used only for round 140's helper list and for
@@ -1525,7 +1524,7 @@ namespace decomp_walk
         {
             if (__builtin_expect(g_check < 0, 0))
             {
-                const char *e = std::getenv("SOTC_C2SCENE_CHECK");
+                const char *e = ps2_diag::env("SOTC_C2SCENE_CHECK");
                 g_check = (e && e[0] == '1') ? 1 : 0;
             }
             return g_check != 0;
@@ -1534,7 +1533,7 @@ namespace decomp_walk
         {
             if (__builtin_expect(g_log < 0, 0))
             {
-                const char *e = std::getenv("SOTC_C2SCENE_LOG");
+                const char *e = ps2_diag::env("SOTC_C2SCENE_LOG");
                 g_log = e ? std::atoi(e) : (checkOn() ? 600 : 0);
                 if (g_log < 0)
                     g_log = 0;
@@ -1546,7 +1545,8 @@ namespace decomp_walk
             lines67::pref(a);
             __builtin_prefetch(rdram + (a & PS2_RAM_MASK));
         }
-        // SOTC_C2SCENE_PF: 0 (default) the helper list only, 1 + the group pass's prefetch, 2 + InitLayoutObjMatrix's and
+        // The prefetch level (round F1: a constant, SOTC_C2SCENE_PF is gone): 2 with W1's scene (the console has no hardware
+        // prefetcher), else 0. Levels: 0 the helper list only, 1 + the group pass's prefetch, 2 + InitLayoutObjMatrix's and
         // the light pass's first walk's (p1 had all three: ~0.4 ms a frame slower in Vita3K, the PLDs' bookkeeping; p2 with
         // level 1: -0.09 +- 0.09 ms pooled. Vita3K models no cache, so 1 / 2 are left for a console A/B of their own).
         signed char g_pf = -1;
@@ -1554,10 +1554,7 @@ namespace decomp_walk
         {
             if (__builtin_expect(g_pf < 0, 0))
             {
-                const char *e = std::getenv("SOTC_C2SCENE_PF");
-                // Round W1: level 2 with SOTC_W1 (the console has no hardware prefetcher; Vita3K models no cache).
-                const int v = e ? std::atoi(e) : w1::part(w1::kScene) ? 2 : 0;
-                g_pf = static_cast<signed char>(v < 0 ? 0 : v > 2 ? 2 : v);
+                g_pf = static_cast<signed char>(w1::part(w1::kScene) ? 2 : 0);
             }
             return g_pf;
         }
@@ -1809,466 +1806,7 @@ namespace decomp_walk
         void lightEnd() { g_lightOn = false; }
     }
 
-    // ---- Round 140 (clip140, SOTC_CLIP140; A/B `clip140`): the group pass's ClipLayoutObjModel run ahead ----
-    // The walk's group pass calls each layout object's update, ClipLayoutObjModel (clip83's fast path: the
-    // LOD level and the sort keys from the object's matrix, its model's sphere / boxes and the camera), one
-    // object after the other on the game thread (the console's profile: ClipLayoutObjModel 2.06% + the walk's
-    // misses around it). Here a helper thread (cores 1-2) computes those clips for the group's objects ahead
-    // of the walk, from the same words, without writing guest memory: each result is the words the clip
-    // would write (rec +0x20 .. +0x34, geo +0x230 .. +0x23c, geo +0x250 .. +0x257) and its v0 / f0. When the
-    // walk reaches the object, it writes them there and sets the registers the call leaves (ra / sp / pc as
-    // callGuest, v0, f0), in place of the call; an object the helper has not reached yet is claimed by the
-    // walk and clipped there as before. What the walk does between (the earlier objects' clips, billboards'
-    // simple updates, particle geodisps' updates, the visibility callbacks, AddSortObj) does not write what a
-    // clip reads (the object's class words, its matrix, its model's header / LOD record, the camera):
-    // SOTC_CLIP140_CHECK=1 runs every taken object's clip the old way too and compares ([clip140]).
-    // Objects with a billboard / camera link (their simple update before the clip), another update, a clip
-    // callback, or clip83's other paths (skinned, self-LOD models: ~characters) are left to the walk.
-    namespace clip140
-    {
-        using clip83::V4;
-        using clip83::host;
-        using clip83::hf;
-        using clip83::hu;
-        using clip83::hq;
-        using clip83::rows;
-        using clip83::load4;
-        using clip83::clipBits;
-        using clip83::boxOut;
-        struct Result
-        {
-            uint32_t object = 0, geo = 0, rec = 0;
-            float f0 = 0.0f;
-            uint8_t kind = 0; // 0 none (the walk clips), 1 geo 0, 2 faded (>= 1), 3 the full clip
-            bool keys = false; // geo +0x230 .. +0x23c written
-            uint32_t w30 = 0, w34 = 0, w20 = 0, w24 = 0, w28 = 0;
-            uint32_t k[4] = {};
-            uint64_t w250 = 0;
-        };
-        // clip83::clip's computation (the same reads and arithmetic, in the same order), its writes kept in r.
-        bool compute(const uint8_t *rdram, uint32_t object, Result &r)
-        {
-            r.kind = 0;
-            const uint8_t *ob = host(rdram, object, 0x10u);
-            if (!ob)
-                return false;
-            const uint32_t index = static_cast<uint32_t>(ob[8]) - 9u;
-            if (index >= 0xEu)
-                return false;
-            const uint32_t target = hu(rdram, kClassTable + index * 4u);
-            const uint32_t s0 = target == 0x010F1A58u ? object + 0x20u : target == 0x010F1A98u ? object + 0x90u : 0u;
-            const uint8_t *c0 = s0 ? host(rdram, s0, 0x170u) : nullptr;
-            if (!c0)
-                return false;
-            const uint32_t s1 = hu(c0, 0x140u), geo = hu(c0, 0x144u);
-            if (!host(rdram, s1, 0x40u))
-                return false;
-            r.object = object;
-            r.rec = s1;
-            r.geo = geo;
-            const float m1 = -1.0f;
-            if (geo == 0u)
-            {
-                std::memcpy(&r.w30, &m1, 4);
-                r.f0 = -1.0f;
-                r.kind = 1;
-                return true;
-            }
-            const uint8_t *gp = host(rdram, geo, 0x260u);
-            if (!gp)
-                return false;
-            // The kept words land at their places in one go: the record's and the geometry's ranges apart.
-            if (s1 + 0x20u < geo + 0x258u && geo + 0x230u < s1 + 0x38u)
-                return false;
-            const uint8_t *model = host(rdram, hu(gp, 0u), 0x24u);
-            const uint8_t *hd = model ? host(rdram, hu(model, 0x20u), 0x60u) : nullptr;
-            if (!hd || (hu(hd, 0x18u) & 1u) != 0u || hu(hd, 0xCu) != 0u)
-                return false;
-            const uint8_t *lod = host(rdram, hu(hd, 8u), 0x40u);
-            const uint8_t *mx = host(rdram, hu(c0, 0x15Cu), 0x40u);
-            const uint32_t cam = hu(rdram, 0x0122A8F0u + (hu(rdram, 0x0118FE4Cu) << 2));
-            const uint8_t *cp = host(rdram, cam, 0x5E0u);
-            if (hu(hd, 8u) == 0u || !lod || !mx || !cp)
-                return false;
-            const int32_t count = static_cast<int32_t>(hu(hd, 0x1Cu));
-            if (count <= 0 || count > 8)
-                return false;
-            const uint32_t mode = hu(lod, 0x14u);
-            uint32_t modeTarget = 0u;
-            if (mode < 5u)
-            {
-                modeTarget = hu(rdram, kLodModes + mode * 4u);
-                if (modeTarget != 0x01098968u && modeTarget != 0x01098970u && modeTarget != 0x01098978u && modeTarget != 0x01098980u && modeTarget != 0x010989D0u)
-                    return false;
-            }
-            std::memcpy(&r.w30, &m1, 4);
-            const float fade = hf(gp, 0x244u);
-            std::memcpy(&r.w34, &fade, 4);
-            if (!(fade < 1.0f))
-            {
-                r.f0 = fade;
-                r.kind = 2;
-                return true;
-            }
-            float lens = 1.0f;
-            if (hu(lod, 0x3Cu) != 0u && cam != 0u)
-                lens = 500.0f / hf(cp, 0xCu);
-            const float lodScale = hf(c0, 0x9Cu) * lens;
-            // geo +0x250 as the clip leaves it after its first store there (the scale in the low word).
-            uint32_t scaleBits;
-            std::memcpy(&scaleBits, &lodScale, 4);
-            uint64_t w250 = (static_cast<uint64_t>(hu(gp, 0x254u)) << 32) | scaleBits;
-            float level;
-            const V4 eye = hq(cp, 0x140u);
-            V4 M[4];
-            load4(mx, 0u, M);
-            auto dist3 = [](float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); };
-            bool done = false;
-            if ((hu(hd, 0x18u) >> 24) & 1u)
-            {
-                level = -2.0f;
-                done = true;
-            }
-            if (!done && hu(rdram, kLodOn) != 0u)
-            {
-                const float far = hf(lod, 0x30u);
-                if (0.0f < far && dist3(M[3].x - eye.x, M[3].y - eye.y, M[3].z - eye.z) < far)
-                {
-                    level = -2.0f;
-                    done = true;
-                }
-            }
-            float keys[4];
-            for (int i = 0; i < 4; ++i)
-                keys[i] = hf(gp, 0x230u + static_cast<uint32_t>(i) * 4u);
-            if (!done)
-            {
-                const V4 c = hq(hd, 0x20u);
-                const float rr = c.w * lodScale;
-                const V4 world = rows(M, c.x, c.y, c.z, 1.0f);
-                V4 P[4], VP[4], V[4];
-                load4(cp, 0x1E0u, P);
-                load4(cp, 0x5A0u, VP);
-                load4(cp, 0x1A0u, V);
-                const V4 pr = rows(P, rr, 0.0f, 0.0f, 1.0f);
-                V4 clipP = rows(VP, world.x, world.y, world.z, 1.0f);
-                clipP.w += pr.x;
-                const bool crosses = clipBits(clipP) != 0u;
-                const V4 vc = rows(V, world.x, world.y, world.z, world.w);
-                keys[0] = vc.z + rr;
-                keys[1] = vc.z;
-                keys[2] = vc.z - rr;
-                keys[3] = vc.w;
-                r.keys = true;
-                const float f21 = crosses ? dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z) : -1.0f;
-                float d = 0.0f;
-                switch (modeTarget)
-                {
-                case 0x01098968u: d = keys[1]; break;
-                case 0x01098970u: d = keys[2]; break;
-                case 0x01098978u: d = keys[0]; break;
-                case 0x01098980u: d = dist3(world.x - eye.x, 0.0f, world.z - eye.z); break;
-                case 0x010989D0u: d = dist3(world.x - eye.x, world.y - eye.y, world.z - eye.z); break;
-                default: d = 0.0f; break;
-                }
-                const bool keepsLast = static_cast<int32_t>(hu(lod, 0x28u)) == 0;
-                if (native_renderer::tuning().sacLod && keepsLast)
-                    d *= 1.6f;
-                if (native_renderer::tuning().sacDrawDist && !keepsLast)
-                    d *= 1.5f;
-                const Ram m{const_cast<uint8_t *>(rdram)};
-                float f12 = lodByDistance(m, hu(hd, 8u), d, static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
-                const int32_t lv = static_cast<int32_t>(f12);
-                float f20;
-                if (static_cast<uint64_t>(static_cast<int64_t>(lv)) < static_cast<uint64_t>(static_cast<int64_t>(count)))
-                    f20 = f12;
-                else
-                    f20 = keepsLast ? static_cast<float>(count - 1) : -1.0f;
-                if (f20 < 0.0f)
-                    level = -1.0f;
-                else if (f21 < 0.0f)
-                    level = f20;
-                else
-                {
-                    const uint32_t table = hu(hd, 0x30u + static_cast<uint32_t>(static_cast<int32_t>(f20)) * 4u);
-                    const uint8_t *tb = host(rdram, table, 0x20u);
-                    level = f20;
-                    if (tb)
-                    {
-                        V4 PM[4];
-                        for (int i = 0; i < 4; ++i)
-                            PM[i] = rows(VP, M[i].x, M[i].y, M[i].z, M[i].w);
-                        if (boxOut(PM, hq(tb, 0u), hq(tb, 0x10u)))
-                            level = -2.0f;
-                    }
-                }
-            }
-            const int32_t lvl = static_cast<int32_t>(level);
-            w250 = (w250 & 0xFFFFF8FFFFFFFFFFull) | (static_cast<uint64_t>(static_cast<uint32_t>(lvl) & 7u) << 40);
-            r.w250 = w250;
-            const float lf = static_cast<float>(static_cast<int32_t>(static_cast<int64_t>(w250 << 21) >> 61));
-            std::memcpy(&r.w30, &lf, 4);
-            std::memcpy(r.k, keys, 16);
-            r.w20 = r.k[0];
-            r.w28 = r.k[2];
-            r.w24 = r.k[1];
-            r.f0 = keys[1];
-            r.kind = 3;
-            return true;
-        }
-        // The kept words into guest memory (the walk, at the object's turn).
-        void apply(uint8_t *rdram, const Result &r)
-        {
-            uint8_t *rec = rdram + r.rec;
-            std::memcpy(rec + 0x30u, &r.w30, 4);
-            if (r.kind == 1)
-                return;
-            std::memcpy(rec + 0x34u, &r.w34, 4);
-            if (r.kind == 2)
-                return;
-            uint8_t *gp = rdram + r.geo;
-            std::memcpy(gp + 0x250u, &r.w250, 8);
-            if (r.keys)
-                std::memcpy(gp + 0x230u, r.k, 16);
-            std::memcpy(rec + 0x20u, &r.w20, 4);
-            std::memcpy(rec + 0x28u, &r.w28, 4);
-            std::memcpy(rec + 0x24u, &r.w24, 4);
-        }
-
-
-        // ---- the helper thread and the walk's side ----
-        // A slot's state: the walk's generation << 2 | 0 free, 1 the helper's, 2 done (result kept), 3 the
-        // walk's. The helper claims and finishes a slot by compare-and-swap on its generation, so a helper
-        // still busy with an earlier walk's slot when the next walk lists its objects only loses that result
-        // (the walk never waits for the helper to stop, and never reads a result of another walk).
-        constexpr int kMax = 2048;
-        struct Slot
-        {
-            std::atomic<uint32_t> state{0};
-            Result r;
-        };
-        Slot g_slots[kMax];
-        uint32_t g_objects[kMax];
-        std::atomic<int> g_count{0};
-        std::atomic<uint32_t> g_gen{0};
-        std::atomic<bool> g_abort{false};
-        std::atomic<uint32_t> g_posted{0};
-        std::mutex g_mutex;
-        std::condition_variable g_work;
-        bool g_started = false;
-        int g_n = 0; // this walk's count (the game thread's)
-        const uint8_t *g_rdram = nullptr;
-        // Counters (SOTC_CLIP140_LOG=1: a line every 600 walks).
-        uint64_t g_walks = 0, g_listed = 0, g_taken = 0, g_byWalk = 0, g_waited = 0, g_none = 0, g_missed = 0, g_checks = 0, g_differ = 0;
-        A9S_HOIST(int, a9s_decomp_walk_v_1651, ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0); // round A9 sweep (a9sweep.h)
-        int checkMode()
-        {
-            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_1651, int, ps2_diag::env("SOTC_CLIP140_CHECK") ? std::atoi(ps2_diag::env("SOTC_CLIP140_CHECK")) : 0);
-        }
-        A9S_HOIST(bool, a9s_decomp_walk_v_1656, ps2_diag::env("SOTC_CLIP140_LOG") != nullptr); // round A9 sweep (a9sweep.h)
-        bool logOn()
-        {
-            return A9S_VAL(::a9sweep::on(), a9s_decomp_walk_v_1656, bool, ps2_diag::env("SOTC_CLIP140_LOG") != nullptr);
-        }
-        void loop()
-        {
-            native_renderer::threads::place(native_renderer::threads::kOffload);
-            ps2SetEeFloatingPointMode(); // the game thread's rounding (toward zero) and flush-to-zero
-            uint32_t seen = 0;
-            for (;;)
-            {
-                {
-                    std::unique_lock<std::mutex> lock(g_mutex);
-                    g_work.wait(lock, [&] { return g_posted.load(std::memory_order_acquire) != seen; });
-                }
-                seen = g_posted.load(std::memory_order_acquire);
-                const uint32_t gen = g_gen.load(std::memory_order_acquire) << 2;
-                const int n = g_count.load(std::memory_order_acquire);
-                // From the list's end back: the walk takes the objects from its start, the two meet (the
-                // walk never waits for an object the helper is clipping: it clips that one itself).
-                for (int i = n - 1; i >= 0 && !g_abort.load(std::memory_order_relaxed); --i)
-                {
-                    uint32_t expect = gen;
-                    if (!g_slots[i].state.compare_exchange_strong(expect, gen | 1u, std::memory_order_acq_rel))
-                        continue;
-                    compute(g_rdram, g_objects[i], g_slots[i].r);
-                    expect = gen | 1u;
-                    g_slots[i].state.compare_exchange_strong(expect, gen | 2u, std::memory_order_acq_rel);
-                }
-            }
-        }
-        // The walk's start: the group's objects the helper may clip, in the walk's order (the chain read as
-        // isysGroupForNext walks it, without its counters' writes). False: nothing posted.
-        A9S_HOIST(bool, a9s_decomp_walk_clipPart83_1695, !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0')); // round A9 sweep (a9sweep.h)
-        bool post(const Ram m, uint32_t first, PS2Runtime *runtime, uint32_t group = 0u)
-        {
-            g_n = 0;
-            if (!sotc_decomp::clip140On() || !sotc_decomp::walk83On() || clip83::checkMode() != 0 ||
-                sotc_decomp::guestFunction(runtime, kClip) != &clipLayoutObjModel)
-                return false;
-            const bool clipPart83 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_clipPart83_1695, bool, !(std::getenv("SOTC_WALK83_CLIP") && std::getenv("SOTC_WALK83_CLIP")[0] == '0'));
-            if (!clipPart83)
-                return false;
-            int n = 0;
-            // Round C2 (c2scene): the last walk's objects the helper may clip, from the host scene, in place of the
-            // chain walk below (its guest reads: each entry, each object, a layout object's class and record lines).
-            // A guess: an object the walk does not meet in that order is clipped by the walk, one it meets is taken
-            // only where the walk takes one (update ClipLayoutObjModel, no billboard / camera link / clip callback).
-            c2::g_fromScene = false;
-            if (group != 0u && c2::g_walkOn && group == c2::g_lastGroup && !c2::g_last.empty())
-            {
-                for (const c2scene::Obj &o : c2::g_last)
-                {
-                    if (n >= kMax)
-                        break;
-                    if (o.flags & c2scene::kClipOk)
-                        g_objects[n++] = o.object;
-                    c2::g_st.linesAvoided += c2::chainLines(o);
-                }
-                c2::g_fromScene = true;
-                ++c2::g_st.scenePosts;
-                c2::g_st.listed += static_cast<uint64_t>(n);
-            }
-            else if (c2::g_walkOn)
-                ++c2::g_st.chainPosts;
-            for (uint32_t e = c2::g_fromScene ? 0u : first, steps = 0; e != 0u && n < kMax && steps < 0x10000u; ++steps)
-            {
-                if (!Ram::ok(e, 0x10u))
-                    break;
-                const uint32_t object = m.u32(e);
-                if (Ram::ok(object, 0x1C0u))
-                    if (const uint32_t lc = layoutClassHint(m, object); lc != 0u && Ram::ok(lc, 0x1C0u))
-                        if (m.s8(lc + 0x1B6u) == 0 && m.s8(lc + 0x1B7u) == 0 && m.s8(lc + 0x1B8u) != 0)
-                            if (const uint32_t rec = m.u32(lc + 0x140u); Ram::ok(rec, 0xE0u) && m.u32(rec + 0xD8u) == kClip && m.u32(rec + 0xDCu) == 0u)
-                                g_objects[n++] = object;
-                // isysGroupForNext's walk: the next index in +0xc's high half, past entries being deleted
-                // (+0xc's byte) and hidden objects (+0xa bit 0).
-                uint32_t index = static_cast<uint16_t>(m.u32(e + 0xCu) >> 16);
-                e = 0u;
-                for (uint32_t k = 0; index != 0u && k < 0x10000u; ++k)
-                {
-                    const uint32_t c = kEntries + index * 24u;
-                    if (!Ram::ok(c, 0x10u))
-                        break;
-                    if (m.u8(c + 0xCu) == 0u)
-                    {
-                        const uint32_t o = m.u32(c);
-                        if (Ram::ok(o, 0xCu) && (m.u8(o + 0xAu) & 1u) == 0u)
-                        {
-                            e = c;
-                            break;
-                        }
-                    }
-                    index = static_cast<uint16_t>(m.u32(c + 0xCu) >> 16);
-                }
-            }
-            if (n == 0)
-                return false;
-            const uint32_t gen = (g_gen.load(std::memory_order_relaxed) + 1u) & 0x3FFFFFFFu;
-            for (int i = 0; i < n; ++i)
-                g_slots[i].state.store(gen << 2, std::memory_order_relaxed);
-            g_rdram = m.rdram;
-            g_abort.store(false, std::memory_order_relaxed);
-            g_count.store(n, std::memory_order_relaxed);
-            g_gen.store(gen, std::memory_order_release);
-            g_n = n;
-            ++g_walks;
-            g_listed += static_cast<uint64_t>(n);
-            if (!g_started)
-            {
-                g_started = true;
-                std::thread(loop).detach();
-            }
-            {
-                std::lock_guard<std::mutex> lock(g_mutex);
-                g_posted.fetch_add(1u, std::memory_order_release);
-            }
-            g_work.notify_one();
-            return true;
-        }
-        // The walk's end (every way out): the helper told to stop (its results are of no use any more).
-        void finish()
-        {
-            if (g_n == 0)
-                return;
-            g_abort.store(true, std::memory_order_relaxed);
-            g_n = 0;
-            if (logOn() && g_walks % 600u == 0u)
-            {
-                std::fprintf(stderr, "[clip140] walks %llu: listed %.1f a walk, taken %.1f, met the helper %.2f, clipped by the walk %.1f, not the fast path %.1f, "
-                                     "out of order %.2f; checks %llu differ %llu\n",
-                             (unsigned long long)g_walks, g_listed / 600.0, g_taken / 600.0, g_waited / 600.0, g_byWalk / 600.0, g_none / 600.0, g_missed / 600.0,
-                             (unsigned long long)g_checks, (unsigned long long)g_differ);
-                g_listed = g_taken = g_waited = g_byWalk = g_none = g_missed = 0;
-            }
-        }
-        // SOTC_CLIP140_CHECK=1: the clip ran the old way (the truth); its writes and registers against the result.
-        void check(const uint8_t *rdram, const R5900Context *ctx, const Result &r)
-        {
-            ++g_checks;
-            auto w32 = [&](uint32_t a) { uint32_t v; std::memcpy(&v, rdram + a, 4); return v; };
-            uint32_t f0;
-            std::memcpy(&f0, &ctx->f[0], 4);
-            uint32_t rf0;
-            std::memcpy(&rf0, &r.f0, 4);
-            bool bad = GPR_U32(ctx, 2) != r.geo || f0 != rf0 || w32(r.rec + 0x30u) != r.w30;
-            if (r.kind >= 2)
-                bad |= w32(r.rec + 0x34u) != r.w34;
-            if (r.kind == 3)
-            {
-                uint64_t w250;
-                std::memcpy(&w250, rdram + r.geo + 0x250u, 8);
-                bad |= w250 != r.w250 || w32(r.rec + 0x20u) != r.w20 || w32(r.rec + 0x24u) != r.w24 || w32(r.rec + 0x28u) != r.w28;
-                if (r.keys)
-                    bad |= !A9_MEMEQ(rdram + r.geo + 0x230u, r.k, 16);
-            }
-            if (bad && ++g_differ <= 20u)
-                std::fprintf(stderr, "[clip140] differ: object %08x kind %d v0 %08x / %08x f0 %08x / %08x rec+30 %08x / %08x\n", r.object, r.kind, GPR_U32(ctx, 2), r.geo, f0, rf0,
-                             w32(r.rec + 0x30u), r.w30);
-            if (g_checks % 20000u == 0u)
-                std::fprintf(stderr, "[clip140] checks %llu differ %llu\n", (unsigned long long)g_checks, (unsigned long long)g_differ);
-        }
-        // The walk at `object` (its update ClipLayoutObjModel): the helper's result when it has one (the
-        // slot claimed), else nullptr (the walk calls the clip). cursor: the next slot in the list's order.
-        const Result *take(uint32_t object, int &cursor)
-        {
-            const int n = g_n;
-            int at = -1;
-            for (int i = cursor; i < n && i < cursor + 8; ++i)
-                if (g_objects[i] == object)
-                {
-                    at = i;
-                    break;
-                }
-            if (at < 0)
-            {
-                if (n)
-                    ++g_missed;
-                return nullptr;
-            }
-            cursor = at + 1;
-            const uint32_t gen = g_gen.load(std::memory_order_relaxed) << 2;
-            uint32_t expect = gen;
-            if (g_slots[at].state.compare_exchange_strong(expect, gen | 3u, std::memory_order_acq_rel))
-            {
-                ++g_byWalk;
-                return nullptr;
-            }
-            if (expect != (gen | 2u))
-            {
-                ++g_waited; // the helper is clipping it now: the walk clips it too (the helper's result unused)
-                return nullptr;
-            }
-            const Result &r = g_slots[at].r;
-            if (r.kind == 0 || r.object != object)
-            {
-                ++g_none;
-                return nullptr;
-            }
-            ++g_taken;
-            return &r;
-        }
-    }
+    // (Round F1: round 140's clip helper, clip140 / SOTC_CLIP140, deleted: it declined whenever D1NATIVE was on, the default.)
 
     namespace c2
     {
@@ -2283,10 +1821,10 @@ namespace decomp_walk
             std::fprintf(stderr,
                          "[c2scene] walks %llu: complete %.2f, scene %.1f objects (%.1f layout), helper list from the scene %.2f (%.1f objects) / chain %.2f, "
                          "chain lines not read %.0f (%.0f bytes), group pass synced %.1f missed %.1f, init synced %.1f missed %.1f, light synced %.1f missed %.1f, "
-                         "prefetch level %d; clip140 checks %llu differ %llu\n",
+                         "prefetch level %d\n",
                          (unsigned long long)t.walks, t.complete / w, t.objects / w, t.layout / w, t.scenePosts / w, t.listed / w, t.chainPosts / w,
                          t.linesAvoided / w, t.linesAvoided * 32.0 / w, t.grpSync / w, t.grpMiss / w, t.initSync / w, t.initMiss / w, t.lightSync / w,
-                         t.lightMiss / w, pfLevel(), (unsigned long long)clip140::g_checks, (unsigned long long)clip140::g_differ);
+                         t.lightMiss / w, pfLevel());
             const uint64_t walks = t.walks;
             g_st = Stats{};
             g_st.walks = walks;
@@ -3728,426 +3266,7 @@ namespace decomp_walk
         return true;
     }
 
-    // ---- Round S12 (SOTC_S12DRAW part `strips`, bit 0; s12_draw.h): the quad as one host pass. quad117's
-    // operations in its order (the colour clamp of glColor4f, glTexCoord2f's ST, the kick's three products, Q,
-    // the CLIP history, the primitive's decision, the Z and fog) on values in registers: the gl block is read once
-    // (the state words, the pending count, the Z scale, the fog byte, the colour, the ring slots' unwritten ST
-    // lanes) and written once at the end with what quad117 leaves there (the ring slots, the ADC bytes, the colour,
-    // the ST words, the state words, the ring index). The output is the 2D assembler's record (Quad12), not pairs.
-    // False (nothing written): another path for any vertex, as quad117.
-    // ps2VuClipFlags(v, v) on NEON (round S12): x, y, z against |w| as the same integer compares (bits > limit for +,
-    // sign-flipped bits > limit for -), the limit |w|'s bits or 0x7fffff when w's exponent is 0, i.e. max(|w| bits,
-    // 0x7fffff); the six bits put together without the scalar version's store and lane loads.
-    inline uint32_t clipFlags12(__m128 v)
-    {
-#if defined(__ARM_NEON)
-        const int32x4_t b = vreinterpretq_s32_f32(vreinterpretq_f32_m128(v));
-        const int32x2_t w = vdup_lane_s32(vget_high_s32(b), 1);
-        const int32x2_t lim2 = vmax_s32(vreinterpret_s32_u32(vand_u32(vreinterpret_u32_s32(w), vdup_n_u32(0x7FFFFFFFu))), vdup_n_s32(0x007FFFFF));
-        const int32x4_t lim = vcombine_s32(lim2, lim2);
-        const uint32x4_t gt = vcgtq_s32(b, lim);
-        const uint32x4_t lt = vcgtq_s32(veorq_s32(b, vdupq_n_s32(static_cast<int32_t>(0x80000000u))), lim);
-        static const uint32_t kGt[4] = {1u, 4u, 16u, 0u}, kLt[4] = {2u, 8u, 32u, 0u};
-        const uint32x4_t bits = vorrq_u32(vandq_u32(gt, vld1q_u32(kGt)), vandq_u32(lt, vld1q_u32(kLt)));
-        const uint32x2_t two = vorr_u32(vget_low_u32(bits), vget_high_u32(bits));
-        return vget_lane_u32(vorr_u32(two, vrev64_u32(two)), 0);
-#else
-        return ps2VuClipFlags(v, v);
-#endif
-    }
-
-    // Part `reuse`'s memory (game thread only): the last quad's vertices, double-buffered (the quad reads the one
-    // before while it fills the other). Plain storage: no guard, no constructor.
-    struct Reuse12
-    {
-        uint32_t n;
-        __m128 mats[12];
-        __m128 pos[4], v10[4], v27[4], v26[4], acc[4];
-    };
-    Reuse12 g_reuse12[2];
-    uint32_t g_reuse12Cur = 0; // the buffer the last quad filled; g_reuse12[cur].n 0: none
-    template <bool A9>
-    __attribute__((noinline)) bool quad12Body(const G g, uint32_t sp, const Vert117 *vs, int n, s12draw::Quad12 &out)
-    {
-        const Ram m = g.m;
-        R5900Context *ctx = g.ctx;
-        const uint32_t camera = m.u32(kGl);
-        const uint32_t index0 = m.u32(kGl + 0x41F0u);
-        if (n < 1 || n > 4 || camera == 0u || !Ram::ok(camera, 0x6A0u) || index0 + static_cast<uint32_t>(n) >= 0x100u || m.u32(kViewIndex) >= 0x20u)
-            return false;
-        const bool texturing = m.u32(kGl + 0x18u) != 0u;
-        const uint32_t uvMode = texturing ? m.u32(kGl + 0x2Cu) : 0u;
-        if (uvMode > 1u || (uvMode == 1u && sotc_decomp::jalTarget(g.rdram, 0x0108D9B0u) != 0x001BE700u))
-            return false;
-        const uint32_t prim = m.u32(kGl + 0x10u);
-        const uint32_t target = prim < 7u ? m.u32(0x01191730u + prim * 4u) : 0x0108DC48u;
-        if (target != 0x0108DAE0u && target != 0x0108DAF8u && target != 0x0108DB58u && target != 0x0108DB78u && target != 0x0108DC48u)
-            return false;
-        for (int i = 0; i < n; ++i)
-            if (!Ram::ok(vs[i].pos, 0x10u))
-                return false;
-        const bool lazy134 = index0 == 0u && sotc_decomp::clip134On() && sotc_decomp::g_lazyClip.ctx == ctx &&
-                             (sotc_decomp::g_lazyClip.pending || sotc_decomp::g_lazyClip.tracking);
-        if (!lazy134)
-            sotc_decomp::clipNeeded(ctx);
-        const bool glv116 = A9S_VAL(::a9sweep::on(), a9s_decomp_walk_glv116_2791, bool, ps2_diag::env("SOTC_GLV116_LOG") != nullptr);
-        __m128 *vf = ctx->vu0_vf;
-        const __m128 vf0 = vf[0];
-        const uint32_t view = kViewStack + (m.u32(kViewIndex) << 6);
-        const __m128 viewM[4] = {m.q(view), m.q(view + 0x10u), m.q(view + 0x20u), m.q(view + 0x30u)};
-        const __m128 clipM[4] = {m.q(camera + 0x5E0u), m.q(camera + 0x5F0u), m.q(camera + 0x600u), m.q(camera + 0x610u)};
-        const __m128 screenM[4] = {m.q(camera + 0x660u), m.q(camera + 0x670u), m.q(camera + 0x680u), m.q(camera + 0x690u)};
-        __m128 viewN[4], clipN[4], screenN[4];
-        for (int i = 0; i < 4; ++i)
-        {
-            viewN[i] = PS2X_VU_IN(viewM[i]);
-            clipN[i] = PS2X_VU_IN(clipM[i]);
-            screenN[i] = PS2X_VU_IN(screenM[i]);
-        }
-        auto applyN = [](const __m128 c[4], __m128 v, __m128 &acc) -> __m128
-        {
-            const __m128 vn = PS2X_VU_IN(v);
-            acc = PS2_VMUL_K(1, 1, c[0], lane<0>(vn));
-            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[1], lane<1>(vn)));
-            acc = PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[2], lane<2>(vn)));
-            return PS2_VADD_K(1, 1, acc, PS2_VMUL_K(1, 1, c[3], lane<3>(vn)));
-        };
-        const bool perspective = m.u32(kGl + 0x5Cu) != 0u;
-        // Part `reuse` (bit 1): a strip segment's second quad repeats two vertices of its first (sp+0x120 / +0x130).
-        // The three products of a vertex depend on its position and the three matrices only (pure VU0 arithmetic):
-        // when the matrices are the same bits as the quad before's and the position too, its results are taken.
-        // (Game thread only: the strips and 01142350's quads.)
-        const bool reuse = s12draw::reuseOn();
-        const Reuse12 &r12 = g_reuse12[g_reuse12Cur];
-        Reuse12 &next = g_reuse12[g_reuse12Cur ^ 1u];
-        bool sameMats = false;
-        if (reuse)
-        {
-            // (the rows compared as integers: the same bits)
-            uint32x4_t diff = vdupq_n_u32(0u);
-            for (int k = 0; k < 4; ++k)
-            {
-                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[k]), vreinterpretq_u32_f32(viewM[k])));
-                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[4 + k]), vreinterpretq_u32_f32(clipM[k])));
-                diff = vorrq_u32(diff, veorq_u32(vreinterpretq_u32_f32(r12.mats[8 + k]), vreinterpretq_u32_f32(screenM[k])));
-            }
-            const uint32x2_t d2 = vorr_u32(vget_low_u32(diff), vget_high_u32(diff));
-            sameMats = r12.n != 0u && (vget_lane_u32(d2, 0) | vget_lane_u32(d2, 1)) == 0u;
-        }
-        // The gl block's words, once.
-        uint64_t state = m.u64(kGl + 0x1B0u);
-        int32_t pending = m.s32(kGl + 0x1B4u);
-        const float zScale = m.f32(kGl + 0x41F4u);
-        const uint64_t fog = static_cast<uint64_t>(m.u32(kGl + 0x60u)) << 56;
-        __m128 colour = m.q(kGl + 0x90u);
-        bool colourSet = false;
-        __m128 vf5 = vf[5], vf6 = vf[6];
-        __m128 vf10 = vf[10], vf23 = vf[23], vf24 = vf[24], vf25 = vf[25], vf26 = vf[26], vf27 = vf[27], acc = ctx->vu0_acc;
-        float f0 = 0.0f, f1 = 0.0f, f2 = 0.0f;
-        // What the ring slots get (written at the end).
-        auto sx = [](uint32_t v) -> uint64_t { return static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(v))); };
-        for (int i = 0; i < n; ++i)
-        {
-            const Vert117 &vx = vs[i];
-            if (glv116)
-                glv116Note(vx.site + 8u);
-            if (vx.colour)
-            {
-                // glColor4f(0.5, 0.5, 0.5, alpha): the products, then each word clamped to 255 above, 0 below.
-                float c[4] = {FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(0.5f, 255.0f), FPU_MUL_S(vx.alpha, 128.0f)};
-                for (int k = 0; k < 4; ++k)
-                {
-                    float w = c[k];
-                    if (FPU_C_OLT_S(255.0f, w))
-                    {
-                        c[k] = 255.0f;
-                        w = 255.0f;
-                    }
-                    if (FPU_C_OLT_S(w, 0.0f))
-                        c[k] = 0.0f;
-                }
-                std::memcpy(&colour, c, 16);
-                colourSet = true;
-            }
-            const uint32_t index = index0 + static_cast<uint32_t>(i);
-            const uint32_t slot = kGl + (index << 6);
-            // glVertex3fv's own part: the state's bits 0 / 3, the slot's colour, ST and position.
-            state = (state & ~9ull) | 8u;
-            m.putq(slot + 0x220u, colour);
-            if (texturing)
-            {
-                m.putf(slot + 0x210u, vx.u);
-                m.putf(slot + 0x214u, vx.v);
-            }
-            vf23 = m.q(vx.pos);
-            m.putq(slot + 0x200u, vf23);
-            const __m128 raw24 = m.q(slot + 0x210u);
-            // The kick.
-            vf24 = raw24;
-            vf25 = colour;
-            int hit = -1;
-            if (sameMats)
-                for (uint32_t j = 0; j < r12.n; ++j)
-                {
-                    const uint32x4_t d = veorq_u32(vreinterpretq_u32_f32(r12.pos[j]), vreinterpretq_u32_f32(vf23));
-                    const uint32x2_t d2 = vorr_u32(vget_low_u32(d), vget_high_u32(d));
-                    if ((vget_lane_u32(d2, 0) | vget_lane_u32(d2, 1)) == 0u)
-                    {
-                        hit = static_cast<int>(j);
-                        break;
-                    }
-                }
-            if (hit >= 0)
-            {
-                vf10 = r12.v10[hit];
-                vf27 = r12.v27[hit];
-                vf26 = r12.v26[hit];
-                acc = r12.acc[hit];
-                ++s12draw::g_reused;
-            }
-            else
-            {
-                vf10 = applyN(viewN, vf23, acc);
-                vf27 = applyN(screenN, vf10, acc);
-                vf26 = applyN(clipN, vf10, acc);
-            }
-            ++s12draw::g_vertices;
-            if (reuse)
-            {
-                next.pos[i] = vf23;
-                next.v10[i] = vf10;
-                next.v27[i] = vf27;
-                next.v26[i] = vf26;
-                next.acc[i] = acc;
-            }
-            ctx->vu0_q = ps2VuDivide(ctx->vu0_status, _mm_cvtss_f32(lane<3>(vf0)), _mm_cvtss_f32(lane<3>(vf27)));
-            vf25 = ftoi(vf25, 1.0f, A9);
-            const uint32_t judgement = clipFlags12(vf26);
-            const uint32_t flags = ((ctx->vu0_clip_flags << 6) | judgement) & 0xFFFFFFu;
-            ctx->vu0_clip_flags = flags;
-            if (lazy134)
-                sotc_decomp::clipShift(ctx, judgement & 0x3Fu);
-            const __m128 q = _mm_set1_ps(ctx->vu0_q);
-            vf27 = sel(vf27, PS2_VMUL(vf27, q), kXyz);
-            vf27 = sel(vf27, PS2_VMUL(vf0, q), kW);
-            if (perspective)
-                vf24 = sel(vf24, PS2_VMUL(vf24, q), kXyz);
-            const uint32_t s0 = flags;
-            vf27 = sel(vf27, ftoi(vf27, 16.0f, A9), kXyz);
-            m.putq(slot + 0x1F0u, vf26);
-            uint32_t w24[4], w25[4], w27[4];
-            std::memcpy(w24, &vf24, 16);
-            std::memcpy(w25, &vf25, 16);
-            std::memcpy(w27, &vf27, 16);
-            out.stReg[i] = 0u;
-            if (texturing && uvMode == 0u)
-            {
-                out.st[i] = static_cast<uint64_t>(w24[0]) | (static_cast<uint64_t>(w24[1]) << 32);
-                out.stReg[i] = 2u;
-            }
-            else if (texturing)
-            {
-                vf5 = raw24;
-                vf6 = ftoi(vf5, 16.0f, A9);
-                uint32_t uv[4];
-                std::memcpy(uv, &vf6, 16);
-                out.st[i] = static_cast<uint64_t>(uv[0]) | (static_cast<uint64_t>(uv[1]) << 16);
-                out.stReg[i] = 3u;
-            }
-            {
-                const uint64_t q32 = perspective ? (sx(w27[3]) << 32) : 0x3F80000000000000ull;
-                out.rgbaq[i] = (sx(w25[0]) | q32) | ((sx(w25[2]) << 16) | (sx(w25[1]) << 8)) | (sx(w25[3]) << 24);
-            }
-            uint32_t s2 = 0u, s5 = 0u;
-            const int32_t count = static_cast<int32_t>(index);
-            auto pairs = [&](const uint32_t *masks, int k) -> bool
-            {
-                for (int j = 0; j < k; ++j)
-                    if ((s0 & masks[j]) == masks[j])
-                        return true;
-                return false;
-            };
-            switch (target)
-            {
-            case 0x0108DAE0u:
-                if (s0 & 0x3Fu)
-                    s2 = 1u;
-                break;
-            case 0x0108DAF8u:
-            {
-                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
-                if (count > 0 && (s0 & 0xFFFu) != 0u)
-                {
-                    if (!pairs(two, 5))
-                        s5 = ((s0 & 0x820u) ^ 0x820u) != 0u ? 1u : 0u;
-                    s2 = 1u;
-                }
-                break;
-            }
-            case 0x0108DB58u:
-                if (count > 0 && (s0 & 0xFFFu) != 0u)
-                    s2 = 1u;
-                break;
-            case 0x0108DB78u:
-            {
-                static const uint32_t two[] = {0x41u, 0x82u, 0x104u, 0x208u, 0x410u};
-                if (count == 0 && (s0 & 0x3Fu) != 0u)
-                {
-                    state |= 0x10u;
-                    s2 = 1u;
-                }
-                const bool run = ((state >> 4) & 1u) != 0u;
-                if (count < 2)
-                {
-                    if (run)
-                    {
-                        s5 = 1u;
-                        s2 = 1u;
-                    }
-                }
-                else if ((s0 & 0xFFFu) == 0u)
-                {
-                    if (run)
-                    {
-                        s5 = 1u;
-                        s2 = 1u;
-                    }
-                }
-                else
-                {
-                    if (pairs(two, 5) || (s0 & 0x820u) == 0x820u)
-                        s5 = run ? 0u : 1u;
-                    else
-                        s5 = 1u;
-                    s2 = 1u;
-                }
-                break;
-            }
-            default: // 0x0108DC48: triangles / fans
-            {
-                static const uint32_t three[] = {0x1041u, 0x2082u, 0x4104u, 0x8208u, 0x10410u};
-                if (!(count < 2) && (s0 & 0x3FFFFu) != 0u)
-                {
-                    if (!pairs(three, 5))
-                        s5 = ((s0 & 0x20820u) ^ 0x20820u) != 0u ? 1u : 0u;
-                    s2 = 1u;
-                }
-                break;
-            }
-            }
-            s2 |= (0 < pending) ? 1u : 0u;
-            uint8_t reg = 4u;
-            if (s2 != 0u)
-            {
-                if (pending > 0)
-                    --pending;
-                reg = 0xCu;
-            }
-            f1 = zScale;
-            f2 = 2147483648.0f;
-            f0 = FPU_MUL_S(FPU_CVT_S_W(static_cast<int32_t>(w27[2]) >> 4), f1);
-            uint64_t z;
-            if (FPU_C_OLE_S(f2, f0))
-            {
-                f0 = FPU_SUB_S(f0, f2);
-                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0))) | 0xFFFFFFFF80000000ull;
-            }
-            else
-                z = static_cast<uint64_t>(static_cast<int64_t>(FPU_CVT_W_S(f0)));
-            {
-                const int32_t zi = static_cast<int32_t>(z);
-                std::memcpy(&f1, &zi, 4);
-            }
-            out.xyz[i] = (sx(w27[0]) | fog) | ((z << 32) | (sx(w27[1]) << 16));
-            out.xyzReg[i] = reg;
-            m.put8(kGl + 0x41F8u + index, static_cast<uint8_t>(s5));
-        }
-        out.n = n;
-        if (reuse)
-        {
-            for (int k = 0; k < 4; ++k) // (read again: nothing here writes them; fewer registers held over the loop)
-            {
-                next.mats[k] = m.q(view + 16u * k);
-                next.mats[4 + k] = m.q(camera + 0x5E0u + 16u * k);
-                next.mats[8 + k] = m.q(camera + 0x660u + 16u * k);
-            }
-            next.n = static_cast<uint32_t>(n);
-            g_reuse12Cur ^= 1u;
-        }
-        // The gl block's words as quad117 leaves them (the ring slots are written as they are made).
-        if (colourSet)
-            m.putq(kGl + 0x90u, colour);
-        m.putf(kGl + 0xA0u, vs[n - 1].u); // glTexCoord2f's (s, t, 1, 0)
-        m.putf(kGl + 0xA4u, vs[n - 1].v);
-        m.putf(kGl + 0xA8u, 1.0f);
-        m.put32(kGl + 0xACu, 0u);
-        m.put64(kGl + 0x1B0u, state);
-        m.put32(kGl + 0x1B4u, static_cast<uint32_t>(pending));
-        m.put32(kGl + 0x41F0u, index0 + static_cast<uint32_t>(n));
-        // What the last kick leaves.
-        vf[5] = vf5;
-        vf[6] = vf6;
-        vf[10] = vf10;
-        for (uint32_t i = 0; i < 4u; ++i)
-        {
-            vf[11 + i] = m.q(view + 16u * i);
-            vf[15 + i] = m.q(camera + 0x5E0u + 16u * i);
-            vf[19 + i] = m.q(camera + 0x660u + 16u * i);
-        }
-        vf[23] = vf23;
-        vf[24] = vf24;
-        vf[25] = vf25;
-        vf[26] = vf26;
-        vf[27] = vf27;
-        ctx->vu0_acc = acc;
-        ctx->f[0] = f0;
-        ctx->f[1] = f1;
-        ctx->f[2] = f2;
-        const uint32_t last = index0 + static_cast<uint32_t>(n);
-        SET_GPR_S32(ctx, 2, static_cast<int32_t>(last));
-        SET_GPR_U32(ctx, 4, last - 1u);
-        SET_GPR_U32(ctx, 31, vs[n - 1].site + 8u);
-        SET_GPR_U32(ctx, 29, sp);
-        return true;
-    }
-
-    // imm128 the S12 way: glBegin's words (begin128), the quad in one pass (quad12Body), its record to the 2D
-    // assembler (s12draw::feed), glEnd's software clip as imm128 calls it. rec (the check): the record only, dry.
-    bool imm12(const G g, uint32_t sp, const Vert117 *vs, int n, uint32_t prim, bool haze, std::vector<uint64_t> *rec, bool *clippedOut = nullptr)
-    {
-        const Ram m = g.m;
-        uint64_t pairs[4];
-        uint32_t layer = 0;
-        if (n > 4 || !begin128(m, prim, pairs, &layer))
-            return false;
-        s12draw::Quad12 q;
-        q.test = pairs[0];
-        q.testReg = pairs[1];
-        q.prim = pairs[2];
-        q.layer = layer;
-        q.haze = haze;
-        if (!(a9cmp::on() ? quad12Body<true>(g, sp, vs, n, q) : quad12Body<false>(g, sp, vs, n, q)))
-            return false; // (begin128's words are glBegin's own: the calls write them again)
-        bool clipped = false;
-        for (int i = 0; i < n; ++i)
-            clipped |= m.u8(kGl + 0x41F8u + static_cast<uint32_t>(i)) != 0u;
-        if (clippedOut)
-            *clippedOut = clipped;
-        if (rec)
-        {
-            s12draw::record(*rec, q);
-            return true;
-        }
-        s12draw::feed(g.rdram, q);
-        if (clipped)
-        {
-            ++g_imm128.clipped;
-            sotc_decomp::clipNeeded(g.ctx);
-            g.call(0x0108CD80u, 0x0108D128u, sp);
-        }
-        SET_GPR_U32(g.ctx, 2, 0u);
-        return true;
-    }
+    // (Round F1: round S12's quad as one host pass, s12draw / SOTC_S12DRAW, deleted: exact but even.)
 
     // glBegin(prim) at beginSite, body() (the vertices), glEnd at endSite: as
     // imm128 when it takes them, else as the calls.
@@ -4166,79 +3285,6 @@ namespace decomp_walk
             body();
             g.call(kGlEnd, endSite, sp);
         };
-        // Round S12 (part `strips`): the quad as one host pass, its record straight to the 2D assembler.
-        if (s12draw::stripsOn() && sotc_native::nativeDraws())
-        {
-            if (__builtin_expect(s12draw::checkOn(), 0))
-            {
-                // Both ways from the same state: the new dry (the record, the gl block, VU0 / f0 - f2 / the
-                // registers it leaves), then the old (imm128, else the calls: the picture's), the old feed's
-                // record taken at immFeed128. With a clip flag 0108CD80 ran in the old way only: the record alone.
-                const Ram m = g.m;
-                R5900Context *ctx = g.ctx;
-                static std::vector<uint8_t> blk0(0x5300u), blkN(0x5300u), ctx0(sizeof(R5900Context)), ctxN(sizeof(R5900Context));
-                static std::vector<uint64_t> recN, recO;
-                recN.clear();
-                recO.clear();
-                std::memcpy(blk0.data(), m.p(kGl), 0x5300u);
-                std::memcpy(ctx0.data(), ctx, sizeof(R5900Context));
-                const sotc_decomp::LazyClip lazy0 = sotc_decomp::g_lazyClip;
-                bool clipped = false;
-                const bool took = imm12(g, sp, vs, n, prim, haze, &recN, &clipped);
-                std::memcpy(blkN.data(), m.p(kGl), 0x5300u);
-                std::memcpy(ctxN.data(), ctx, sizeof(R5900Context));
-                std::memcpy(m.p(kGl), blk0.data(), 0x5300u);
-                std::memcpy(ctx, ctx0.data(), sizeof(R5900Context));
-                sotc_decomp::g_lazyClip = lazy0;
-                s12draw::armOld(&recO);
-                const bool oldFast = sotc_decomp::imm128On() && sotc_decomp::glv117On() && imm128(g, sp, vs, n, prim, haze, nullptr);
-                if (!oldFast)
-                {
-                    sotc_native::immArm128(&recO); // (glEndHook records the packet's pairs the same way)
-                    calls();
-                    sotc_native::immArm128(nullptr);
-                }
-                s12draw::armOld(nullptr);
-                if (!took)
-                {
-                    s12draw::noteQuad(false, false, false, false);
-                    return;
-                }
-                const bool recSame = recN == recO;
-                const bool blkSame = clipped || (A9_MEMEQ(blkN.data() + 0xCu, m.p(kGl) + 0xCu, 0x5300u - 0xCu) &&
-                                                 A9_MEMEQ(blkN.data(), m.p(kGl), 4u)); // (+4 / +8: the old way's packet words)
-                const R5900Context *N = reinterpret_cast<const R5900Context *>(ctxN.data());
-                const bool vuSame = clipped || (A9_MEMEQ(N->vu0_vf, ctx->vu0_vf, sizeof(ctx->vu0_vf)) && A9_MEMEQ(&N->vu0_acc, &ctx->vu0_acc, 16) &&
-                                                A9_MEMEQ(&N->vu0_q, &ctx->vu0_q, 4) && N->vu0_clip_flags == ctx->vu0_clip_flags &&
-                                                std::memcmp(N->f, ctx->f, 3 * sizeof(float)) == 0);
-                const bool same = recSame && blkSame && vuSame;
-                static uint64_t said = 0;
-                if (!same && said++ < 20u)
-                {
-                    uint32_t first = 0x5300u;
-                    for (uint32_t i = 0; i < 0x5300u; ++i)
-                        if (blkN[i] != m.p(kGl)[i])
-                        {
-                            first = i;
-                            break;
-                        }
-                    size_t at = 0;
-                    while (at < recN.size() && at < recO.size() && recN[at] == recO[at])
-                        ++at;
-                    std::fprintf(stderr, "[s12draw] check DIFFERS (site %08x, old %s): record %d (sizes %u / %u, first word %u: %016llx / %016llx) gl block %d (first +%x) vu0/f %d clipped %d\n",
-                                 beginSite, oldFast ? "imm128" : "calls", recSame ? 0 : 1, (unsigned)recN.size(), (unsigned)recO.size(), (unsigned)at,
-                                 (unsigned long long)(at < recN.size() ? recN[at] : 0), (unsigned long long)(at < recO.size() ? recO[at] : 0), blkSame ? 0 : 1, first,
-                                 vuSame ? 0 : 1, clipped ? 1 : 0);
-                }
-                s12draw::noteQuad(false, clipped, true, !same);
-                return;
-            }
-            if (imm12(g, sp, vs, n, prim, haze, nullptr))
-            {
-                s12draw::noteQuad(true, false, false, false);
-                return;
-            }
-        }
         if (on && st.every > 0 && st.quads % static_cast<uint64_t>(st.every) == 0u)
         {
             const Ram m = g.m;
@@ -5179,13 +4225,6 @@ namespace decomp_walk
             c2::begin(m.u32(sp + 0x20u));
         c2scene::Ahead c2ahead;
         const bool c2pf = c2on && c2::pfLevel() >= 1;
-        // Round 140 (clip140): the group's layout objects' clips handed to the helper thread, ahead of the pass.
-        const bool c140 = clip140::post(m, s4, runtime, c2on ? m.u32(sp + 0x20u) : 0u);
-        int cursor140 = 0;
-        struct Finish140
-        {
-            ~Finish140() { clip140::finish(); }
-        } finish140;
         QuatProduct qp{};
         const bool walk83 = sotc_decomp::walk83On();
         bool s6Known = false;
@@ -5435,28 +4474,7 @@ namespace decomp_walk
                         g.a(4, s3);
                         {
                             const uint64_t t0_ = wprof::now();
-                            // Round C2: a helper list from the scene is taken only where round 140's own list would
-                            // have had the object (no clip callback either).
-                            const clip140::Result *r140 = c140 && update == kClip && !simple && (!c2::g_fromScene || m.u32(s2 + 0xDCu) == 0u)
-                                                              ? clip140::take(s3, cursor140)
-                                                              : nullptr;
-                            if (r140 && clip140::checkMode() == 0 && !(c2::g_fromScene && c2::checkOn()))
-                            {
-                                // ClipLayoutObjModel's writes and what its call leaves (callGuest's ra / sp, the
-                                // native's return: pc = ra, v0 the geometry class, f0).
-                                clip140::apply(rdram, *r140);
-                                SET_GPR_U32(ctx, 31, 0x010F550Cu);
-                                SET_GPR_U32(ctx, 29, sp);
-                                ctx->pc = 0x010F550Cu;
-                                ctx->f[0] = r140->f0;
-                                SET_GPR_S32(ctx, 2, static_cast<int32_t>(r140->geo));
-                            }
-                            else
-                            {
-                                g.call(update, 0x010F5504u, sp);
-                                if (r140)
-                                    clip140::check(rdram, ctx, *r140);
-                            }
+                            g.call(update, 0x010F5504u, sp);
                             if (wp) wprof::add('U', update, sotc_prof::ticks() - t0_);
                         }
                     }
@@ -5551,7 +4569,6 @@ namespace decomp_walk
             s4 = next;
             set(20, s4);
         }
-        clip140::finish();
         if (c2on)
             c2::complete();
         bracketGroup.close();
@@ -5567,7 +4584,7 @@ namespace decomp_walk
         // Not after an early hand-over (early95): the job started a camera before and is
         // mostly done or waiting for its kept calls here; holding the geodisps longer only
         // costs (p5: riding, join95 + draw95 on top of early95 1.4 ms slower than without).
-        const bool early95 = sotc_decomp::early95Kicked();
+        constexpr bool early95 = false; // (round F1: early95 deleted)
         const bool late95 = defer91 && !deferred91.empty() && sotc_decomp::join95On() && !early95;
         late95::g_earlyWalks += early95 ? 1u : 0u;
         sotc_worker::noteWalk(); // round 95: a camera manager call after this in the frame makes no early hand-over
@@ -5959,7 +4976,7 @@ SOTC_DECOMP_AB_FUNCTION(0x0108EBC0u, glVertex3fv, decomp_walk::glVertex3fvEntry)
 // Round C2 (c2scene.h): the scene's public face.
 namespace c2scene
 {
-    bool on() { return sotc_decomp::switchOn(sotc_decomp::kC2Scene) || w1::part(w1::kScene); } // round W1: the scene is part of SOTC_W1
+    bool on() { return w1::part(w1::kScene); } // round W1: the scene is part of W1 (round F1 deleted C2's own switch, SOTC_C2SCENE)
     bool checkOn() { return decomp_walk::c2::checkOn(); }
     int prefetchLevel() { return decomp_walk::c2::pfLevel(); }
     const std::vector<Obj> &last() { return decomp_walk::c2::g_last; }

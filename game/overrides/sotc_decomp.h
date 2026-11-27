@@ -660,13 +660,10 @@ namespace sotc_decomp
         kWalk83,      // round 83: the display walk's light colours kept while their inputs stay, the layout objects' clip as plain A9 code (decomp_walk83)
         kPtcl83,      // round 83: the particle manager's per-system round trips as host code (decomp_hot47e); on by default since round 89
         kProbe84,     // round 84: the world probes that need no per-frame answer (the AI path's segment tests at path scale, the camera's water search) (decomp_collision, decomp_probe84)
-        kFind84,      // round 84 (measuring, off by default): the collision finder's candidate surfaces of a still object kept while the query stays within 3 cm (decomp_hot47j)
         kGround85,    // round 85: Wander's ground step's near surfaces in a host array (decomp_ground85)
         kPtcl89,      // round 89: the particle emitters' frame without its leaf round trips (the camera context, the effect's name and step kind, as host code; decomp_ptclupdate)
-        kPtcl91,      // round 91: the particle systems' step on the guest worker thread beside the display walk's group pass (sotc_worker, decomp_hot47e, decomp_walk)
         kJoin95,      // round 95: with ptcl91, the particle geodisps' clip in the job and the walk's join inside the light pass (decomp_walk, decomp_light, decomp_hot47e)
         kDraw95,      // round 95: with join95, the walk's join moved into its draw loop (the particle geodisps put in the drawn list when the job is done or their turn comes; decomp_walk)
-        kEarly95,     // round 95 (default off): with ptcl91, the particle manager (and its job's hand-over) run before the camera manager (decomp_hot47e)
         kObj96,       // round 96: small creatures the camera cannot see woken once in 4 frames by the script pass (decomp_obj96, decomp_hot44d)
         kSel96,       // round 96: ground85's kept surfaces tested sphere and plane first, the tree path after (exact; decomp_hot47j)
         kSel97,       // round 97: sel96's sphere and plane tests four surfaces at a time in NEON (exact; decomp_hot47j)
@@ -681,7 +678,6 @@ namespace sotc_decomp
         kPtcl103,     // round 103: particleDraw's ptclman packets (for the PS2's VU1 only) not built: the renderer's job made from their inputs (decomp_ptcldraw, sotc_native)
         kSolid103,    // round 103: the solid models' draw without the PS2's VU1 matrix blocks no native code reads (decomp_walk)
         kGrp106,      // round 106: the frame start's group fix-up (013448C0) with its pure leaf calls inline (exact; decomp_hot44c)
-        kOan106,      // round 106: three of the object animations' key evaluators (010AF2A0, 010AF4D8, 010B06A8) native (exact but no faster: default off, SOTC_OAN106=1; decomp_hot46h)
         kAi106,       // round 106: the small animals' leader search (013E1520) and helpers as A9 code (exact; decomp_ai106)
         kColl115,     // round 115: the segment test's walk and leaves on host-format collision data (coll115.h; seg80's reuse off with it)
         kPkt117,      // round 117: the other particle drawers' ptclman packets not built (0113DBF8, 0113E6C8, 0113DEA0; exact; decomp_hot46j, sotc_native)
@@ -690,14 +686,8 @@ namespace sotc_decomp
         kLeaf117,     // round 117: the emitter frame's leaves native and called straight (exact; decomp_ptclupdate, decomp_hot47e)
         kSym120,      // round 120: the module system's symbol resolution (sheetMgrResolve, the imports' retry, the hash lookups) as A9 code (exact; decomp_sym120)
         kHeap120,     // round 120: the game heap's allocator (malloc's block search and split, the free lists) as A9 code (exact; decomp_heap120)
-        kFlush119,    // round 119: FlushCollisionWorkByWorkStruct passes over empty modified lists (exact; decomp_collision)
-        kWalk119,     // round 119: coll115's walk pushes a node's second side only when the segment reaches it (exact; coll115.h)
-        kPart119,     // round 119: transform() / matrixProduct() without the row clamps when every lane is small (exact; decomp_collision)
-        kView119,     // round 119: the finder lists' surfaces as host contact sets (plane addresses), the clip / keep loops' plane test from them (exact; coll119.h)
         kPtcl123,     // round 123: each particle's step in plain host floats, called straight from the emitter's loop (port, not exact; decomp_particles)
         kBlend123,    // round 123: the emitter parameter blend in plain host floats (port, not exact; decomp_hot47e)
-        kSeg123,      // round 123: a segment test's answer kept while its ends stay within 1 mm and nothing it can hit moved (validated memo; coll123.h)
-        kGaze122,     // round 122: the characters' gaze as host code on decoded keys (not bit-exact: same to the eye; decomp_char122)
         kCloth122,    // round 122: the cloths' step / constraint / velocity passes as one host loop, the reins' walks in plain NEON (not bit-exact; decomp_char122, decomp_bridle)
         kQuat122,     // round 122: the boot ELF's quaternion / arc helpers as plain float code (not bit-exact; decomp_char122)
         kKeys122,     // round 122: the motions' per-frame keys as host code (not bit-exact; decomp_char122)
@@ -707,10 +697,8 @@ namespace sotc_decomp
         kGeo126,      // round 126: the geometry pointers' position / quaternion getters and their quaternion helpers as host code (port; decomp_cam126)
         kCtl126,      // round 126: the characters' control helpers (movement history, the y turn, the root track's key, the option nodes' getters) as host code (port; decomp_cam126, decomp_hot47a)
         kImm128,      // round 128: the immediate-mode quads' GS pairs straight to the native 2D assembler, no guest GIF packet / glBegin / glEnd (same draws; decomp_walk, sotc_native)
-        kTexr128,     // round 128: texreset's list from a host index (exact; default off: slower in Vita3K, for the console's A/B; decomp_texreset)
         kPf134,       // round 134: cache lines asked for ahead (PLD) where the console waits on memory: the sub-threads' register frames, the segment tests' next objects (exact; decomp_subthread, decomp_collision)
         kClip134,     // round 134: the immediate quads' vertex kicks (quad117) record their CLIP judgements (clipShift) instead of joining the model lane: they decide on their own judgements only (exact; decomp_walk)
-        kPose136,     // round 136: GetMotionMatrix's bones kept per buffer set; a bone whose inputs and parent are the same bits takes its kept results (exact; default off: no faster in Vita3K, for the console's A/B; decomp_pose82)
         kKey136,      // round 136: GetMotionIntFrame's keys decoded as host code (round 122's decodeKey), no curveEval guest calls (not bit-exact: keys122's tolerance; decomp_motionframe, decomp_char122)
         kEuler136,    // round 136: GetEulerYXZFromQuaternion in plain floats (not bit-exact: quat122's tolerance; decomp_quat, decomp_char122)
         kPf135,       // round 135: cache lines asked for ahead in the finder leaf's boundary scan (the next surfaces' records and flags) and obj125's part loop (the next part's record and matrix) (exact; decomp_collision)
@@ -720,7 +708,6 @@ namespace sotc_decomp
         kGc139, // round 139: the garbage pass's blocks with nothing to move walked in host locals (exact; decomp_gctick)
         kSort140,  // round 140: the display walk's sort lists cleared / scanned as host words (exact; decomp_walk)
         kQuad140,  // round 140: the strips' quads (quad117) with their per-vertex helpers inlined (exact; decomp_walk)
-        kClip140,  // round 140: the walk's layout objects' ClipLayoutObjModel run ahead on the walk helper threads (exact; decomp_walk)
         kPf141,    // round 141: the characters' noted memory asked for (PLD) one script-pass segment ahead on a helper thread (prefetch only; decomp_pf141)
         kPfc141,   // round 141: pf141's notes from the collision natives too (the objects / parts / kept surfaces each segment's tests read; prefetch only)
         kLiftD1,   // decomp D1: the functions tools/lift_d1.py lifted to host locals (exact: the recompiler's semantics; decomp_liftd1_*.cpp)
@@ -769,9 +756,6 @@ namespace sotc_decomp
                    // readers no longer join the modelDispState lane (sotc_native.cpp s10draw; checked in-run: SOTC_S10DRAW_CHECK)
         kS11Rt,    // round S11: the PS2 machinery on the game thread (s11rt.h): the isys lock's kernel calls inline from the
                    // scheduler's state, the IOP in larger batches (fewer slow checkpoints); SOTC_S11RT_PARTS picks parts
-        kS12Draw,  // round S12 (off unless SOTC_S12DRAW=1): the display's immediate quads (the strips) as host vertex records: one host pass per quad,
-                   // the gl block written once, the vertices straight into the 2D assembler without GS A+D pairs
-                   // (sotc_native.cpp s12draw, decomp_walk.cpp quad12; checked in-run: SOTC_S12DRAW_CHECK)
         kS13Mot,   // round S13: the motion data as host code over named views (s13mot.h, s13_motion.cpp): kMotion's packed root
                    // keys exact, the root getters host routines, the time slice stretched while nothing could preempt
                    // (exact: SOTC_S13MOT_CHECK; SOTC_S13MOT_PARTS picks parts)
@@ -783,17 +767,9 @@ namespace sotc_decomp
         kS16Plan,  // round S16 (off unless SOTC_S16PLAN=1): the model draw plans vouched for by the game's model setup calls
                    // (modelInitialize / modelReInitialize / modelInitDispModelClass, hooked), not checked against the guest
                    // packet list every frame (s16plan.h, sotc_native.cpp planChecked; exact: SOTC_S16PLAN_CHECK)
-        kS19Amb,   // round S19 (off unless SOTC_S19AMB=1): getAmbientColorC's light-grid lookups without guest calls: the ambient light group's links
-                   // walked as host reads (no isysGroupForFirst / Next / Exit, GetAmbientLightClass calls), floorf called
-                   // as the native it is (decomp_ambient.cpp; exact: SOTC_S19AMB_CHECK)
         kS21Light, // round S21 (SOTC_S21LIGHT=0 off): the global light query's lights as host records: each light slot's inverse
                    // matrix and registers kept while its quaternion / position bytes stay, the range test through one host
                    // pointer (decomp_light.cpp; exact: SOTC_S21LIGHT_CHECK)
-        kS22Ptcl,  // round S22: the particle draw list (0113ACB8) without a guest call per node: its runs' sort as a host
-                   // copy of the libc qsort over the nodes' depths, each node's view pass and disp_particle_emitter called
-                   // straight (decomp_ptcl117.cpp; exact: SOTC_S22PTCL_CHECK)
-        kS23Light, // round S23 (off unless SOTC_S23LIGHT=1): the light pass's second and third walks over the layout objects the first walk found (a host
-                   // list), not the whole sort list again (decomp_light.cpp; exact: SOTC_S23LIGHT_CHECK)
         kN2Snd,    // round N2 (SOTC_N2SND=0 off): the sound engine's remote layer on the host: Sg2RemoteSend / Sg2RemoteTickProc
                    // hand their commands to the native driver straight (no guest ring, no SIF RPC), the reply written into the
                    // game's status block; the mixer's N2 paths (sound_n2.cpp, sound_mixer.cpp; docs/sound_n2.md; SOTC_N2SND_CHECK)
@@ -811,9 +787,6 @@ namespace sotc_decomp
         kN4Native, // round N4b (SOTC_N4NATIVE=0 off; only while NOCHK is on): NOCHK calls into loop-free ABI-proven leaves
                    // call their native entries (register inputs as values, v0 returned; sotc_decomp.h PS2_N4_FAST,
                    // tools/n4_native.py, docs/n4b_native.txt; SOTC_N4_LOG; docs/native_n4b.md)
-        kC2Scene,  // round C2 (off unless SOTC_C2SCENE=1): the display group as a host scene list kept from the last walk: the clip
-                   // helper's list without walking the guest chain, the group pass / InitLayoutObjMatrix / the light pass asking
-                   // for their objects' lines ahead from it (c2scene.h, decomp_walk.cpp; docs/console_c2.md; SOTC_C2SCENE_CHECK)
         kC1Keys,   // round C1 (off unless SOTC_C1KEYS=1): the motion keys' decoded rows kept per motion in host memory (rows by frame,
                    // validated once a frame against the motion's records), so GetMotionFloatFrameNoCaribration / GetMotionIntFrame
                    // read a compact host row instead of every channel's record and key words (docs/console_c1.md)
@@ -904,8 +877,8 @@ namespace sotc_decomp
         kSwitchCount
     };
     inline const char *const kSwitchEnv[kSwitchCount] = {"SOTC_CAMCOLL", "SOTC_COLLPROBE", "SOTC_MOTION", "SOTC_LEAVES", "SOTC_HOTLIST", "SOTC_HOTLIST44", "SOTC_HOTLIST46", "SOTC_HOTLIST47",
-                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_FIND84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_PTCL91", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_EARLY95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_OAN106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_FLUSH119", "SOTC_WALK119", "SOTC_PART119", "SOTC_VIEW119", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_SEG123", "SOTC_GAZE122", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_TEXR128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_POSE136", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_CLIP140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S12DRAW", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S19AMB", "SOTC_S21LIGHT", "SOTC_S22PTCL", "SOTC_S23LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK", "SOTC_N4NATIVE", "SOTC_C2SCENE", "SOTC_C1KEYS", "SOTC_C1RIG", "SOTC_DC1MOT", "SOTC_A1TYPED", "SOTC_A2TYPED", "SOTC_A3TYPED", "SOTC_A4TYPED", "SOTC_P1CHARA", "SOTC_A5TYPED", "SOTC_P2PTCL", "SOTC_A6TYPED", "SOTC_DC2CHARA", "SOTC_P3PAR", "SOTC_P4MOVE", "SOTC_A7TYPED", "SOTC_B1SOUND", "SOTC_B2LOAD", "SOTC_A8TYPED", "SOTC_B3THREADS", "SOTC_A9TYPED", "SOTC_B4FAST", "SOTC_A10TYPED", "SOTC_A11TYPED", "SOTC_B6SYNC", "SOTC_A12TYPED", "SOTC_B7IRQ", "SOTC_B8SCHED", "SOTC_A13TYPED", "SOTC_B9LOOP", "SOTC_A14TYPED", "SOTC_B10SWITCH", "SOTC_D1NATIVE", "SOTC_R1CHAR", "SOTC_W2"};
-    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
+                                                         "SOTC_SCRIPTVM", "SOTC_ISYS", "SOTC_HOTLIST48", "SOTC_FASTNATIVE", "SOTC_FASTNATIVE2", "SOTC_FASTNATIVE3", "SOTC_PTCL62", "SOTC_COLL63", "SOTC_TEX64", "SOTC_WALK67", "SOTC_PREF69", "SOTC_COLL71", "SOTC_CHARLOD78", "SOTC_PTCL79", "SOTC_SEG80", "SOTC_POSE82", "SOTC_WALK83", "SOTC_PTCL83", "SOTC_PROBE84", "SOTC_GROUND85", "SOTC_PTCL89", "SOTC_JOIN95", "SOTC_DRAW95", "SOTC_OBJ96", "SOTC_SEL96", "SOTC_SEL97", "SOTC_LINKS97", "SOTC_PATH97", "SOTC_PLAN97", "SOTC_WALK101", "SOTC_SKIN101", "SOTC_LEAF101", "SOTC_OBJ101", "SOTC_SW102", "SOTC_PTCL103", "SOTC_SOLID103", "SOTC_GRP106", "SOTC_AI106", "SOTC_COLL115", "SOTC_PKT117", "SOTC_GLV117", "SOTC_DRAW117", "SOTC_LEAF117", "SOTC_SYM120", "SOTC_HEAP120", "SOTC_PTCL123", "SOTC_BLEND123", "SOTC_CLOTH122", "SOTC_QUAT122", "SOTC_KEYS122", "SOTC_FIN125", "SOTC_OBJ125", "SOTC_SCROLL127", "SOTC_GEO126", "SOTC_CTL126", "SOTC_IMM128", "SOTC_PF134", "SOTC_CLIP134", "SOTC_KEY136", "SOTC_EULER136", "SOTC_PF135", "SOTC_FIN138", "SOTC_SUB139", "SOTC_RND139", "SOTC_GC139", "SOTC_SORT140", "SOTC_QUAD140", "SOTC_PF141", "SOTC_PFC141", "SOTC_LIFTD1", "SOTC_LIFTD2", "SOTC_LIFTD3", "SOTC_LIFTD4", "SOTC_LIFTD5", "SOTC_LIFTD6", "SOTC_LIFTD7", "SOTC_LIFTD8", "SOTC_LIFTD9", "SOTC_LIFTD10", "SOTC_LIFTD11", "SOTC_LIFTD12", "SOTC_LIFTD13", "SOTC_LIFTD14", "SOTC_LIFTD15", "SOTC_LIFTD16", "SOTC_LIFTD17", "SOTC_LIFTD18", "SOTC_LIFTD20", "SOTC_LIFTALT", "SOTC_S1PTCL", "SOTC_S2COLL", "SOTC_S3CHARA", "SOTC_A9CMP", "SOTC_S4DISP", "SOTC_A9SWEEP", "SOTC_S5PTCL", "SOTC_S6COLL", "SOTC_S9RT", "SOTC_S10DRAW", "SOTC_S11RT", "SOTC_S13MOT", "SOTC_S14HOOK", "SOTC_S17IOP", "SOTC_S16PLAN", "SOTC_S21LIGHT", "SOTC_N2SND", "SOTC_N5SCHED", "SOTC_N3DIRECT", "SOTC_R1SORT", "SOTC_N6NOCHK", "SOTC_N4NATIVE", "SOTC_C1KEYS", "SOTC_C1RIG", "SOTC_DC1MOT", "SOTC_A1TYPED", "SOTC_A2TYPED", "SOTC_A3TYPED", "SOTC_A4TYPED", "SOTC_P1CHARA", "SOTC_A5TYPED", "SOTC_P2PTCL", "SOTC_A6TYPED", "SOTC_DC2CHARA", "SOTC_P3PAR", "SOTC_P4MOVE", "SOTC_A7TYPED", "SOTC_B1SOUND", "SOTC_B2LOAD", "SOTC_A8TYPED", "SOTC_B3THREADS", "SOTC_A9TYPED", "SOTC_B4FAST", "SOTC_A10TYPED", "SOTC_A11TYPED", "SOTC_B6SYNC", "SOTC_A12TYPED", "SOTC_B7IRQ", "SOTC_B8SCHED", "SOTC_A13TYPED", "SOTC_B9LOOP", "SOTC_A14TYPED", "SOTC_B10SWITCH", "SOTC_D1NATIVE", "SOTC_R1CHAR", "SOTC_W2"};
+    inline signed char g_switch[kSwitchCount] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}; // -1: not read yet (kA9Sweep: 0, off, until a9sweep::init reads it; kN5Sched: 0 until sotc_native's init reads SOTC_N5SCHED)
     inline bool switchOn(int which)
     {
         signed char v = g_switch[which];
@@ -984,11 +957,14 @@ namespace sotc_decomp
             // Round B9: b9loop off unless SOTC_B9LOOP=1 (docs/decomp_b9.md). Round A14: a14typed off unless SOTC_A14TYPED=1 (docs/decomp_a14.md).
             // Round B10: b10switch off unless SOTC_B10SWITCH=1 (docs/decomp_b10.md).
             // Round R1: r1char off unless SOTC_R1CHAR=1 (docs/decomp_r1.md).
+            // Round F1 deleted these switches and their code (docs/switches.md, class E): find84, ptcl91, early95, oan106,
+            // flush119, walk119, part119, view119, gaze122, texr128, seg123, pose136, s12draw, s19amb, s22ptcl, s23light,
+            // c2scene (now part of W1), clip140, s14hook, s16plan, s13mot, ctl126; the comments above are their history.
             // Round F1 (docs/release_config.md): d1native and w2 on with no env (SOTC_D1NATIVE=0 / SOTC_W2=0: the kill switches,
             // read in every build); a12typed opt-in here too (SOTC_A12TYPED=1), so the table says what a12FlagsNow does.
-            v = (which == kFind84 || which == kPtcl91 || which == kEarly95 || which == kObj96 || which == kCharLod78 ||
-                 which == kPtcl79 || which == kOan106 || which == kFlush119 || which == kWalk119 || which == kPart119 || which == kView119 ||
-                 which == kGaze122 || which == kTexr128 || which == kCtl126 || which == kSeg123 || which == kPose136 || which == kS12Draw || which == kS14Hook || which == kS16Plan || which == kS19Amb || which == kS22Ptcl || which == kS23Light || which == kC2Scene || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par || which == kP4Move || which == kB1Sound || which == kB2Load || which == kB3Threads || which == kB4Fast || which == kB6Sync || which == kB7Irq || which == kB8Sched || which == kB9Loop || which == kA14Typed || which == kB10Switch || which == kR1Char || which == kA12Typed)
+            v = (which == kObj96 || which == kCharLod78 ||
+                 which == kPtcl79 ||
+                 which == kCtl126 || which == kS14Hook || which == kS16Plan || which == kC1Keys || which == kC1Rig || which == kP1Chara || which == kP2Ptcl || which == kDc2Chara || which == kP3Par || which == kP4Move || which == kB1Sound || which == kB2Load || which == kB3Threads || which == kB4Fast || which == kB6Sync || which == kB7Irq || which == kB8Sched || which == kB9Loop || which == kA14Typed || which == kB10Switch || which == kR1Char || which == kA12Typed)
                     ? (e && e[0] >= '1' && e[0] <= '3')
                     : !(e && e[0] == '0');
             g_switch[which] = v;
@@ -1104,7 +1080,6 @@ namespace sotc_decomp
     inline bool walk83On() { return switchOn(kWalk83); }
     inline bool ptcl83On() { return switchOn(kPtcl83); }
     inline bool probe84On() { return switchOn(kProbe84); }
-    inline bool find84On() { return switchOn(kFind84); }
     inline bool ground85On() { return switchOn(kGround85); }
     inline bool ptcl89On() { return switchOn(kPtcl89); }
     inline bool obj96On() { return switchOn(kObj96); }
@@ -1120,39 +1095,25 @@ namespace sotc_decomp
     inline bool ptcl103On() { return switchOn(kPtcl103); }
     inline bool solid103On() { return switchOn(kSolid103); }
     inline bool grp106On() { return switchOn(kGrp106); }
-    inline bool oan106On() { return switchOn(kOan106); }
     inline bool ai106On() { return switchOn(kAi106); }
     inline bool pkt117On() { return switchOn(kPkt117); }
     inline bool glv117On() { return switchOn(kGlv117); }
     inline bool imm128On() { return switchOn(kImm128); }
     // Round S10 (SOTC_S10DRAW, A/B `s10draw`): the model draw path without the GS layer cache (sotc_native.cpp s10draw).
     inline bool s10DrawOn() { return switchOn(kS10Draw); }
-    // Round S12 (SOTC_S12DRAW, A/B `s12draw`): the immediate quads as host vertex records (sotc_native.cpp s12draw).
-    inline bool s12DrawOn() { return switchOn(kS12Draw); }
     inline bool pf134On() { return switchOn(kPf134); }
     inline bool clip134On() { return switchOn(kClip134); }
     inline bool pf135On() { return switchOn(kPf135); }
     inline bool gc139On() { return switchOn(kGc139); } // round 139
     inline bool sort140On() { return switchOn(kSort140); } // round 140
     inline bool quad140On() { return switchOn(kQuad140); } // round 140
-    inline bool clip140On() { return switchOn(kClip140); } // round 140
     inline bool pf141On() { return switchOn(kPf141); } // round 141
     inline bool pfc141On() { return switchOn(kPfc141); } // round 141
     inline bool rnd139On() { return switchOn(kRnd139); } // round 139
     inline bool sub139On() { return switchOn(kSub139); } // round 139 (decomp_subthread)
     inline bool draw117On() { return switchOn(kDraw117); }
     inline bool leaf117On() { return switchOn(kLeaf117); }
-    // Round 91 (sotc_worker): SOTC_PTCL91=1 the particle step on the worker beside the walk's group pass,
-    // 2 handed over and joined at once (no overlap), 3 run on the game thread through the same split.
-    inline bool ptcl91On() { return switchOn(kPtcl91); }
-    inline int ptcl91Mode()
-    {
-        static const int m = [] {
-            const char *e = std::getenv("SOTC_PTCL91");
-            return e ? std::atoi(e) : 0;
-        }();
-        return m;
-    }
+    // (Round F1: round 91's particle step on the worker, ptcl91 / SOTC_PTCL91, deleted: the console measured it slower.)
     // Round 95 (SOTC_JOIN95, default on; only with ptcl91): the job also runs
     // the particle geodisps' clip (their class's update, clip_particle_geodisp)
     // after the layers, and the display walk joins it inside the light pass,
@@ -1164,14 +1125,6 @@ namespace sotc_decomp
     // light callbacks after the light pass (its result copied to RAM by
     // LoopExecAfterLightColMan, read through the same pointer).
     inline bool draw95On() { return switchOn(kDraw95); }
-    // Round 95 (SOTC_EARLY95=1, default off; only with ptcl91 mode 1): the
-    // particle manager is called at the camera manager's entry (the same
-    // arguments its task would give it) and skipped at its own call, so the
-    // job starts a camera earlier. Not exact: the step sees the camera of the
-    // frame before (culling, distances); the clip is left to the walk.
-    inline bool early95On() { return switchOn(kEarly95); }
-    // Round 95: an early hand-over happened since the last call (the display walk asks once a walk; decomp_hot47e).
-    bool early95Kicked();
     // Round 95: the geodisp's clip was run by the last job (decomp_hot47e; read after the join).
     bool ptcl95Clipped(uint32_t object);
     // Round 95: the light pass's hook after its light callbacks (decomp_light calls it when set, then the

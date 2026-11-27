@@ -615,80 +615,10 @@ namespace decomp_hot47j
     // caller's +0), +0x10 the segment record, +0x20 its length, +0x24 /
     // +0x28 a2 / a3, +0x2c - +0x34 t1 - t3, +0x38 the keep index; the saves
     // s0 +0x40 .. s7 +0x78, fp +0x80, ra +0x88, f20 +0x90.
-    // ---- Round 84 (SOTC_FIND84, default OFF: measured +0.93 ms matched at the
-    // altar in Vita3K, below the round's 1 ms bar; SOTC_FIND84=1 turns it on,
-    // and then SOTC_AB_FLAG takes find84)
-    // The collision finder's candidates kept per still object. Round 80's
-    // find80 kept a whole group's candidates and was dropped: Wander's
-    // groups always hold characters (Mono, the birds, his own head), whose
-    // bodies move, so it almost never applied. Here the unit is one object
-    // of the group: a layout object that is not a character (type 9 / 0x16)
-    // whose finder step's inputs are those of an earlier step (the caller,
-    // the finder, the object, the radius f12, t1-t3 and the 16 bytes each
-    // points to, the caller's stack word, the object's collision flag and
-    // geometry, its world matrix's 64 bytes) with both of the query's points
-    // within SOTC_FIND84_EPS (0.03 units) of that step's, made at most
-    // SOTC_FIND84_AGE (5) game frames before, gets that step's candidate
-    // (object, surface) pairs entered again (EntryCollisionFinder, in the
-    // same order) and its v0, instead of the tree walk, the leaves'
-    // boundary, filter and duplicate tests. Characters always run. The
-    // narrow phase after it (keep, slope, slide and landing) runs every frame
-    // on those candidates with the current points. A candidate missing for a
-    // query 3 cm away is a surface whose bounds the query sphere just
-    // touches; at most 5 frames.
-    // SOTC_FIND84_CHECK=1: on a kept step the game's step runs (and is used)
-    // and its pairs are compared with the kept ones ([find84] lines);
-    // SOTC_FIND84_LOG=1: [find84] every 600 frames.
+    // ---- Round 84: find84's memo deleted in round F1 (it measured +0.93 ms, slower); plainRam stays (other steps use it).
     namespace find84
     {
-        struct Params
-        {
-            float eps = 0.03f;
-            uint32_t age = 5u;
-            int check = 0;
-            bool log = false;
-            Params()
-            {
-                if (const char *e = std::getenv("SOTC_FIND84_EPS"))
-                    eps = static_cast<float>(std::atof(e));
-                if (const char *e = std::getenv("SOTC_FIND84_AGE"))
-                    age = static_cast<uint32_t>(std::atoi(e));
-                if (const char *e = ps2_diag::env("SOTC_FIND84_CHECK"))
-                    check = std::atoi(e);
-                log = ps2_diag::env("SOTC_FIND84_LOG") && std::atoi(ps2_diag::env("SOTC_FIND84_LOG")) != 0;
-            }
-        };
-        const Params &params()
-        {
-            static const Params p;
-            return p;
-        }
-        constexpr int kKey = 52;
-        struct Slot
-        {
-            uint32_t key[kKey] = {};
-            float a[3] = {}, b[3] = {};
-            uint64_t frame = 0, used = 0, v0 = 0, h = 0;
-            bool live = false;
-            std::vector<std::pair<uint32_t, uint32_t>> pairs;
-        };
-        constexpr int kSlots = 64;
-        Slot g_slots[kSlots];
-        uint64_t g_use = 0, g_logFrame = 0;
-        struct Stats
-        {
-            uint64_t steps = 0, eligible = 0, hits = 0, pairs = 0, checked = 0, differ = 0;
-        } g_stats;
         inline bool plainRam(uint32_t a, uint32_t n) { return a >= 0x100000u && a < 0x02000000u - n; }
-        void log()
-        {
-            if (!params().log || sotc_decomp::g_gameFrame < g_logFrame + 600u)
-                return;
-            g_logFrame = sotc_decomp::g_gameFrame;
-            std::fprintf(stderr, "[find84] frame %llu: steps %llu still objects %llu kept %llu (pairs %llu) checked %llu differ %llu\n", (unsigned long long)g_logFrame, (unsigned long long)g_stats.steps,
-                         (unsigned long long)g_stats.eligible, (unsigned long long)g_stats.hits, (unsigned long long)g_stats.pairs, (unsigned long long)g_stats.checked, (unsigned long long)g_stats.differ);
-            g_stats = Stats{};
-        }
     }
 
 
@@ -1365,122 +1295,12 @@ namespace decomp_hot47j
         // the steps run as the original's, and nothing kept by the game thread is read or written.)
         const bool lane1 = sotc_decomp::onWorkerLane(runtime);
         const bool ground85Here = sotc_decomp::ground85On() && !lane1 && (ra == 0x010D4668u || ra == 0x010D46B0u);
-        // Round 84: the step through find84's memo for still layout objects.
+        // The step (round F1 deleted round 84's memo for still layout objects, find84 / SOTC_FIND84).
         auto step = [&](uint64_t object, uint32_t ret)
         {
             if (ground85Here && ground(object, ret))
                 return;
-            if (!sotc_decomp::find84On() || lane1)
-                return realStep(object, ret);
-            find84::log();
-            ++find84::g_stats.steps;
-            const uint32_t obj = static_cast<uint32_t>(object);
-            const uint32_t pa = READ32(sp + 0x24u), pb = READ32(sp + 0x28u);
-            if (!find84::plainRam(obj, 16u) || !find84::plainRam(pa, 16u) || !find84::plainRam(pb, 16u) || !find84::plainRam(finder, 0x14u))
-                return realStep(object, ret);
-            const uint8_t type = READ8(obj + 8u);
-            if (type == 9u || type == 0x16u || type < 9u || type > 22u)
-                return realStep(object, ret);
-            // the layout class as GetLayoutClass's plain cases give it (+0x20 / +0x90); the others run
-            const uint32_t target = READ32(0x01194070u + (type - 9u) * 4u);
-            const uint32_t layout = target == 0x010F1A58u ? obj + 0x20u : target == 0x010F1A98u ? obj + 0x90u : 0u;
-            const uint32_t matrix = layout ? READ32(layout + 0x158u) : 0u;
-            if (layout == 0u || !find84::plainRam(matrix, 64u))
-                return realStep(object, ret);
-            ++find84::g_stats.eligible;
-            uint32_t key[find84::kKey] = {};
-            int n = 0;
-            key[n++] = static_cast<uint32_t>(ra);
-            key[n++] = finder;
-            key[n++] = obj;
-            key[n++] = bf(f[20]);
-            key[n++] = READ32(sp + 0xA0u);
-            key[n++] = READ8(layout + 0x1B8u) | (static_cast<uint32_t>(READ8(layout + 0x1BBu)) << 8);
-            for (uint32_t w = 0x90u; w < 0xA0u; w += 4u) // the scale the step reads
-                key[n++] = READ32(layout + w);
-            key[n++] = READ32(layout + 0x184u);
-            key[n++] = matrix;
-            for (uint32_t w = 0; w < 64u; w += 4u)
-                key[n++] = READ32(matrix + w);
-            for (uint32_t off : {0x2Cu, 0x30u, 0x34u})
-            {
-                const uint32_t v = READ32(sp + off);
-                key[n++] = v;
-                if (find84::plainRam(v, 16u))
-                    for (uint32_t w = 0; w < 16u; w += 4u)
-                        key[n++] = READ32(v + w);
-                else
-                    n += 4;
-            }
-            float qa[3], qb[3];
-            for (int i = 0; i < 3; ++i)
-            {
-                qa[i] = fb(READ32(pa + 4u * i));
-                qb[i] = fb(READ32(pb + 4u * i));
-            }
-            uint64_t h = 1469598103934665603ull; // FNV-1a over the key's words: the slots are told apart by it first
-            for (int i = 0; i < n; ++i)
-                h = (h ^ key[i]) * 1099511628211ull;
-            const uint64_t frame = sotc_decomp::g_gameFrame;
-            const float e = find84::params().eps;
-            find84::Slot *slot = &find84::g_slots[0], *hit = nullptr;
-            for (find84::Slot &sl : find84::g_slots)
-            {
-                bool same = sl.live && sl.h == h && sl.frame + find84::params().age >= frame && A9_MEMEQ(sl.key, key, sizeof key);
-                for (int i = 0; same && i < 3; ++i)
-                    same = std::fabs(sl.a[i] - qa[i]) <= e && std::fabs(sl.b[i] - qb[i]) <= e;
-                if (same)
-                {
-                    hit = &sl;
-                    break;
-                }
-                if (!sl.live || sl.used < slot->used)
-                    slot = &sl;
-            }
-            const int32_t before = static_cast<int32_t>(READ32(finder)), cap = static_cast<int32_t>(READ32(finder + 4u));
-            if (hit && before + static_cast<int32_t>(hit->pairs.size()) < cap && find84::params().check == 0)
-            {
-                ++find84::g_stats.hits;
-                find84::g_stats.pairs += hit->pairs.size();
-                hit->used = ++find84::g_use;
-                for (const auto &pr : hit->pairs)
-                {
-                    SET_GPR_U64(ctx, 4, finder64);
-                    SET_GPR_U32(ctx, 5, pr.first);
-                    SET_GPR_U32(ctx, 6, pr.second);
-                    call(kEntryFinder84, ret);
-                }
-                SET_GPR_U64(ctx, 2, hit->v0);
-                return;
-            }
-            realStep(object, ret);
-            const int32_t after = static_cast<int32_t>(READ32(finder));
-            if (!(after >= before && after < cap && after - before <= 512))
-                return;
-            const uint32_t ids = READ32(finder + 0xCu);
-            if (hit)
-            {
-                // the check: the kept pairs against the step's own
-                ++find84::g_stats.hits;
-                ++find84::g_stats.checked;
-                bool differ = hit->pairs.size() != static_cast<size_t>(after - before) || hit->v0 != GPR_U64(ctx, 2);
-                for (int32_t i = before; !differ && i < after; ++i)
-                    differ = hit->pairs[i - before] != std::make_pair(READ32(ids + 8u * i), READ32(ids + 8u * i + 4u));
-                find84::g_stats.differ += differ ? 1u : 0u;
-                return;
-            }
-            find84::Slot &sl = *slot;
-            sl.live = true;
-            sl.h = h;
-            std::memcpy(sl.key, key, sizeof key);
-            std::memcpy(sl.a, qa, sizeof qa);
-            std::memcpy(sl.b, qb, sizeof qb);
-            sl.frame = frame;
-            sl.used = ++find84::g_use;
-            sl.v0 = GPR_U64(ctx, 2);
-            sl.pairs.clear();
-            for (int32_t i = before; i < after; ++i)
-                sl.pairs.emplace_back(READ32(ids + 8u * i), READ32(ids + 8u * i + 4u));
+            return realStep(object, ret);
         };
         // The object filter (jalr fp: object, the caller's word): v0.
         auto filteredReal = [&](uint64_t object, uint32_t ret) -> bool

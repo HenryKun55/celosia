@@ -688,9 +688,7 @@ namespace coll115
         int top = 0;
         bool sides = first < 0, high = first > 0;
         uint8_t *const rd = c.g.rdram;
-        // Round 119 (SOTC_WALK119): the second side is pushed only when the segment (as it is at the
-        // push) reaches it: the pop would make the same test with the same values and go on.
-        const bool prune = sotc_decomp::switchOn(sotc_decomp::kWalk119);
+        // (Round F1: round 119's pruned push, walk119 / SOTC_WALK119, deleted.)
         uint64_t nodes = 0;
         struct Count
         {
@@ -711,25 +709,6 @@ namespace coll115
             if (sides)
             {
                 high = Unit ? key(f0) <= key(f1) : f0 <= f1;
-                if (prune)
-                {
-                    // the other side's test (as the pop below would make it)
-                    const float s2 = Unit ? split : split * c.scale;
-                    bool o0, o1;
-                    if constexpr (Unit)
-                    {
-                        const int32_t ks = key(s2), k1 = key(f1), k0 = key(f0);
-                        o0 = !high ? ks <= k1 : k1 <= ks;
-                        o1 = !high ? ks <= k0 : k0 <= ks;
-                    }
-                    else
-                    {
-                        o0 = !high ? s2 <= f1 : f1 <= s2;
-                        o1 = !high ? s2 <= f0 : f0 <= s2;
-                    }
-                    if (!(o0 || o1))
-                        goto noPush;
-                }
                 if (top == kDepth)
                 {
                     // Deeper than the host stack: given back to the original walk from the start when no leaf

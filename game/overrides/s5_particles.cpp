@@ -300,15 +300,13 @@ namespace s5ptcl
             init();
         joinIfPending(1u); // (the frame's end joined already)
         reset(g_job);
-        g_window = may && sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) && sotc_worker::gated() && !sotc_worker::onWorker() &&
-                   !sotc_decomp::switchOn(sotc_decomp::kPtcl91);
+        g_window = may && sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) && sotc_worker::gated() && !sotc_worker::onWorker();
         g_job.rdram = rdram;
         ++g_st.managers;
         g_st.windows += g_window;
         if (g_st.log && !g_st.firstLogged && (g_st.firstLogged = true))
-            std::fprintf(stderr, "[s5ptcl] first manager call: may %d, switch %d, gated %d, on worker %d, ptcl91 %d\n", may ? 1 : 0,
-                         sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) ? 1 : 0, sotc_worker::gated() ? 1 : 0, sotc_worker::onWorker() ? 1 : 0,
-                         sotc_decomp::switchOn(sotc_decomp::kPtcl91) ? 1 : 0);
+            std::fprintf(stderr, "[s5ptcl] first manager call: may %d, switch %d, gated %d, on worker %d\n", may ? 1 : 0,
+                         sotc_decomp::switchOn(sotc_decomp::kS5Ptcl) ? 1 : 0, sotc_worker::gated() ? 1 : 0, sotc_worker::onWorker() ? 1 : 0);
     }
 
     bool wantDefer(const uint8_t *rdram, const Emitter123 &e)

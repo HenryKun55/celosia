@@ -396,7 +396,7 @@ namespace decomp_hot44b
         static const bool timed = ps2_diag::env("SOTC_COLL115_LOG") && std::atoi(ps2_diag::env("SOTC_COLL115_LOG")) != 0;
         if (__builtin_expect(timed, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
-            const int st = sotc_decomp::switchOn(sotc_decomp::kView119) ? 1 : 0;
+            constexpr int st = 0; // (F1: view119 deleted)
             const uint64_t t0 = nowUs119();
             finderWithKeepBody(rdram, ctx, runtime);
             g_keep119Us[st] += nowUs119() - t0;
@@ -453,7 +453,7 @@ namespace decomp_hot44b
             // or ends (it writes the same frame words and registers every earlier one would have, and
             // nothing else ran in between), so the loop leaves what the original's leaves.
             // (Round 125: with fin125 too: the plane from its contact sets, decomp_collision's keepEarlyFrom.)
-            const bool skip119 = (sotc_decomp::switchOn(sotc_decomp::kView119) || sotc_decomp::switchOn(sotc_decomp::kFin125)) && !sotc_decomp::onWorkerLane(runtime) && sotc_decomp::hotList44On() &&
+            const bool skip119 = sotc_decomp::switchOn(sotc_decomp::kFin125) && !sotc_decomp::onWorkerLane(runtime) && sotc_decomp::hotList44On() &&
                                  sotc_decomp::guestFunction(runtime, kKeepThenSlope) == &keepThenSlope &&
                                  sotc_decomp::guestFunction(runtime, kKeepFull) == &decomp_collision::clipKeep;
             const uint32_t list0 = s0;

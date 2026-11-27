@@ -111,7 +111,7 @@ namespace decomp_ambient
         R5900Context *ctx;
         PS2Runtime *runtime;
         uint32_t sp; // the original's frame
-        bool host = false; // round S19: the walks and floorf without guest calls
+        bool host = false; // round S19: the walks and floorf without guest calls (always false: S19's host path deleted in F1)
 
         uint32_t u32(uint32_t a) const
         {
@@ -153,81 +153,14 @@ namespace decomp_ambient
 
         // The group walk: the grid of the cell (x, y), 0 if none. `sites`:
         // isysGroupForFirst, isysGroupForNext, GetAmbientLightClass, isysGroupForExit.
-        // Round S19: a link index's address (0: none) and the walk as host reads; false: a link or object outside
-        // what the walk can read (the guest walk then runs; nothing was written).
-        static uint32_t linkAt(uint32_t index) { return index == 0u ? 0u : kLinks + index * 0x18u; }
-        static bool linkOk(uint32_t link) { return link >= kLinks && link < kLinks + 0x10000u * 0x18u && link + 0x18u <= PS2_RAM_SIZE; }
-        // isysGroupForFirst / ForNext's pick from a link index on: the first link not marked removed whose object is
-        // not flagged (0: none).
-        bool pick(uint32_t index, uint32_t &link, uint32_t &steps) const
-        {
-            for (link = linkAt(index); link != 0u; link = linkAt(u16(link + 0xEu)))
-            {
-                if (!linkOk(link) || ++steps > 0x10000u)
-                    return false;
-                if (u8(link + 0xCu) != 0u)
-                    continue;
-                const uint32_t object = u32(link);
-                if (object == 0u || object + 0x20u > PS2_RAM_SIZE)
-                    return false;
-                if ((u16(object + 0xAu) & 1u) != 0u)
-                    continue;
-                return true;
-            }
-            return true;
-        }
-        bool hostWalk(uint32_t group, int32_t x, int32_t y, uint32_t &grid) const
-        {
-            if (group == 0u || group + 2u > PS2_RAM_SIZE)
-                return false;
-            uint32_t link, steps = 0;
-            if (!pick(u16(group), link, steps))
-                return false;
-            uint32_t found = 0u;
-            while (link != 0u)
-            {
-                ++g_s19.linksHost;
-                const uint32_t obj = u32(link);
-                const uint32_t cls = u8(obj + 8u) == 0x14u ? obj + 0x1Cu : 0u; // GetAmbientLightClass
-                if (s32(cls + 4u) == x && s32(cls + 8u) == y)
-                {
-                    found = u32(u32(cls) + 0x20u);
-                    break;
-                }
-                if (!pick(u16(link + 0xEu), link, steps))
-                    return false;
-            }
-            grid = found;
-            return true;
-        }
         // floorf(f12) into f0 as the jal at `site` makes it: the native straight, with the call's ra / sp.
         void floorAt(uint32_t site, float &f0) const
         {
-            if (host)
-            {
-                ++g_s19.floors;
-                ctx->f[0] = f0;
-                SET_GPR_U32(ctx, 31, site + 8u);
-                SET_GPR_U32(ctx, 29, sp);
-                ctx->pc = kFloorf;
-                decomp_leaves::floorF(rdram, ctx, runtime);
-                f0 = ctx->f[0];
-                return;
-            }
             call(jalTarget(rdram, site), site, f0);
         }
 
         uint32_t walk(uint32_t group, int32_t x, int32_t y, const uint32_t (&sites)[4], float &f0) const
         {
-            if (host)
-            {
-                uint32_t found;
-                if (hostWalk(group, x, y, found))
-                {
-                    ++g_s19.walksHost;
-                    return found;
-                }
-            }
             ++g_s19.walksGuest;
             uint32_t obj = 0u, grid = 0u;
             SET_GPR_U32(ctx, 4, group);
@@ -296,20 +229,9 @@ namespace decomp_ambient
         float f0 = ctx->f[0];
 
         uint32_t group;
-        if (host)
-        {
-            // GetAmbientLightObjGroup (lui v1, 0x119; lw v0, -0x34e0(v1); addiu v0, 0x14), ra / sp as its jal leaves them.
-            group = g.u32(0x0118CB20u) + 0x14u;
-            SET_GPR_U32(ctx, 3, 0x01190000u);
-            SET_GPR_U32(ctx, 2, group);
-            SET_GPR_U32(ctx, 31, 0x01091E88u);
-            SET_GPR_U32(ctx, 29, sp);
-        }
-        else
-        {
-            g.call(kObjGroup, 0x01091E80u, f0);
-            group = g.v0();
-        }
+        g.call(kObjGroup, 0x01091E80u, f0);
+        group = g.v0();
+        
         f0 = 0.0f;
         g.putf(out + 0u, f0);
         g.putf(out + 0xCu, f0);
@@ -481,93 +403,11 @@ namespace decomp_ambient
         returnTo(ctx);
     }
 
-    // Round S19: may the host path run here? The relocated sites name the functions it stands in for, the game's
-    // runtime (not the worker's shell), and this thread holds the isys lock already (isysGroupForFirst's acquire would
-    // only nest it: no semaphore call, no wait).
-    bool hostOk(uint8_t *rdram, PS2Runtime *runtime)
-    {
-        if (!sotc_decomp::switchOn(sotc_decomp::kS19Amb))
-            return false;
-        static constexpr uint32_t kFirst[2] = {0x01091EC8u, 0x010921F0u}, kNext[2] = {0x01091ED8u, 0x01092200u}, kExit[2] = {0x01091F2Cu, 0x01092250u};
-        for (int i = 0; i < 2; ++i)
-            if (jalTarget(rdram, kFirst[i]) != kForFirst || jalTarget(rdram, kNext[i]) != kForNext || jalTarget(rdram, kExit[i]) != kForExit)
-            {
-                ++g_s19.sites;
-                return false;
-            }
-        if (jalTarget(rdram, 0x01092090u) != kFloorf || jalTarget(rdram, 0x010920A0u) != kFloorf || jalTarget(rdram, 0x01091E80u) != kObjGroup)
-        {
-            ++g_s19.sites;
-            return false;
-        }
-        const int tid = s11rt::threadId(rdram, runtime);
-        uint32_t owner, depth;
-        std::memcpy(&owner, rdram + kOwner, 4);
-        std::memcpy(&depth, rdram + kDepth, 4);
-        if (tid < 0 || owner != static_cast<uint32_t>(tid) || static_cast<int32_t>(depth) < 1)
-        {
-            ++g_s19.notNested;
-            return false;
-        }
-        return true;
-    }
-
     void getAmbientColorC(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         if (!sotc_decomp::motionOn() || !sitesOk(rdram))
             return sotc_decomp::recompiled(kSelf)(rdram, ctx, runtime);
-        s19Init();
-        ++g_s19.calls;
-        s19Report();
-        const bool host = hostOk(rdram, runtime);
-        g_s19.host += host;
-        if (!host || g_s19Check <= 0)
-            return impl(rdram, ctx, runtime, host);
-        // The check: the old way first, then the host way from the same state; compared.
-        static R5900Context before, after;
-        const uint32_t outq = GPR_U32(ctx, 4) & PS2_RAM_MASK & ~0xFu, cell = (GPR_U32(ctx, 29) - 0xF0u + 0x30u) & PS2_RAM_MASK;
-        uint8_t out0[16], cell0[16], outA[16], cellA[16];
-        std::memcpy(&before, ctx, sizeof(R5900Context));
-        std::memcpy(out0, rdram + outq, 16);
-        std::memcpy(cell0, rdram + cell, 16);
-        impl(rdram, ctx, runtime, false);
-        std::memcpy(&after, ctx, sizeof(R5900Context));
-        std::memcpy(outA, rdram + outq, 16);
-        std::memcpy(cellA, rdram + cell, 16);
-        auto keepOld = [&]
-        {
-            std::memcpy(ctx, &after, sizeof(R5900Context));
-            std::memcpy(rdram + outq, outA, 16);
-            std::memcpy(rdram + cell, cellA, 16);
-        };
-        std::memcpy(ctx, &before, sizeof(R5900Context));
-        std::memcpy(rdram + outq, out0, 16);
-        std::memcpy(rdram + cell, cell0, 16);
-        if (!hostOk(rdram, runtime)) // the old way changed the lock's state (it should not): its results stand
-        {
-            ++g_s19.differ;
-            return keepOld();
-        }
-        impl(rdram, ctx, runtime, true);
-        ++g_s19.checks;
-        const bool same = std::memcmp(outA, rdram + outq, 16) == 0 && std::memcmp(cellA, rdram + cell, 16) == 0 && GPR_U64(&after, 2) == GPR_U64(ctx, 2) &&
-                          std::memcmp(&after.f[0], &ctx->f[0], 8) == 0 && after.fcr31 == ctx->fcr31 &&
-                          std::memcmp(&after.vu0_vf[5], &ctx->vu0_vf[5], 48) == 0 && after.pc == ctx->pc && GPR_U32(&after, 29) == GPR_U32(ctx, 29) &&
-                          GPR_U32(&after, 31) == GPR_U32(ctx, 31);
-        if (!same)
-        {
-            if (++g_s19.differ <= 8u)
-            {
-                uint32_t a[4], b[4];
-                std::memcpy(a, outA, 16);
-                std::memcpy(b, rdram + outq, 16);
-                std::fprintf(stderr, "[s19amb] differ: frame %llu out %08x %08x %08x %08x / %08x %08x %08x %08x v0 %llx / %llx f0 %08x / %08x f1 %08x / %08x fcr %08x / %08x\n",
-                             (unsigned long long)sotc_decomp::g_gameFrame, a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3],
-                             (unsigned long long)GPR_U64(&after, 2), (unsigned long long)GPR_U64(ctx, 2), fb(after.f[0]), fb(ctx->f[0]), fb(after.f[1]), fb(ctx->f[1]),
-                             after.fcr31, ctx->fcr31);
-            }
-            keepOld();
-        }
+        impl(rdram, ctx, runtime, false); // (round F1: S19's host lookups, s19amb / SOTC_S19AMB, deleted)
     }
 }
 
@@ -669,7 +509,7 @@ namespace decomp_ambient
 
     void getAmbientColorCD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
-        if (!sotc_decomp::motionOn() || !sitesOk(rdram) || sotc_decomp::switchOn(sotc_decomp::kS19Amb))
+        if (!sotc_decomp::motionOn() || !sitesOk(rdram))
             return getAmbientColorC(rdram, ctx, runtime);
         ++c_d1Ambient.n;
         // The old entry's bookkeeping (host path off: s19amb is off).

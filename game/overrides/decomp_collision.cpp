@@ -587,36 +587,7 @@ namespace decomp_collision
     inline __attribute__((always_inline)) __m128 transform(const G g, uint32_t m, __m128 v)
     {
 #if PS2X_VU_NEON_A32
-        // Round 119 (SOTC_PART119): the rows as they are when every lane and v's are small (finite,
-        // below 2^61): the clamp of a small lane is that lane, a denormal the signed zero NEON reads
-        // anyway (round 49's argument), so the chain gives the clamped rows' bits without the four clamps.
-        if (__builtin_expect(sotc_decomp::switchOn(sotc_decomp::kPart119) && !fast::checkOn(), 1))
-        {
-            const uint32_t a = m & ~0xFu;
-            if (__builtin_expect(G::plain(a, 0x40u), 1))
-            {
-                vu::Rows raw;
-                std::memcpy(&raw.r[0], g.rdram + a, 16);
-                std::memcpy(&raw.r[1], g.rdram + a + 0x10u, 16);
-                std::memcpy(&raw.r[2], g.rdram + a + 0x20u, 16);
-                std::memcpy(&raw.r[3], g.rdram + a + 0x30u, 16);
-                bool small;
-                const __m128 r = fast::transformSmallImpl(raw, v, small);
-                if (__builtin_expect(small, 1))
-                {
-                    static int check = -1; // SOTC_PART119_CHECK=1: the clamped rows' result compared (FastCheck "collision.part119")
-                    if (__builtin_expect(check < 0, 0))
-                        check = ps2_diag::env("SOTC_PART119_CHECK") != nullptr ? 1 : 0;
-                    if (__builtin_expect(check, 0))
-                    {
-                        static sotc_decomp::FastCheck fc("collision.part119");
-                        const vu::Rows cl{{vu::clamp(raw.r[0]), vu::clamp(raw.r[1]), vu::clamp(raw.r[2]), vu::clamp(raw.r[3])}};
-                        fc.note(fast::same(r, vu::apply(cl, v)));
-                    }
-                    return r;
-                }
-            }
-        }
+        // (Round F1: round 119's raw-row fast path, part119 / SOTC_PART119, deleted: no faster in the whole frame.)
 #endif
         const vu::Rows rows{{vu::clamp(g.q(m)), vu::clamp(g.q(m + 0x10u)), vu::clamp(g.q(m + 0x20u)), vu::clamp(g.q(m + 0x30u))}};
 #if PS2X_VU_NEON_A32
@@ -1387,10 +1358,9 @@ namespace decomp_collision
     // A finder list's host view (coll119::viewOf; nullptr: none) and the test for its entry k.
     const void *keepView(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t list, int32_t n)
     {
-        if (!keepFastOk() || !coll119::on(runtime))
-            return nullptr;
-        const G g{rdram, ctx, runtime};
-        return coll119::viewOf(g, list, n);
+        // (Round F1: round 119's finder-list views, view119 / SOTC_VIEW119, deleted: none.)
+        (void)rdram, (void)ctx, (void)runtime, (void)list, (void)n;
+        return nullptr;
     }
     namespace coll125
     {
@@ -3807,29 +3777,7 @@ namespace decomp_collision
     {
         __m128 r[4];
 #if PS2X_VU_NEON_A32
-        // Round 119 (SOTC_PART119): transform()'s raw-row form for each row of m (the same bits).
-        if (sotc_decomp::switchOn(sotc_decomp::kPart119) && !fast::checkOn() && G::plain(by & ~0xFu, 0x40u))
-        {
-            vu::Rows raw;
-            for (int i = 0; i < 4; ++i)
-                raw.r[i] = g.q(by + i * 0x10u);
-            if (fast::allSmall(raw))
-            {
-                bool ok = true;
-                for (int i = 0; i < 4 && ok; ++i)
-                {
-                    uint32x2_t sm;
-                    r[i] = fast::applySmall(raw, g.q(m + i * 0x10u), sm);
-                    ok = vget_lane_u32(sm, 0) != 0u;
-                }
-                if (ok)
-                {
-                    for (int i = 0; i < 4; ++i)
-                        g.put(out + i * 0x10u, r[i]);
-                    return;
-                }
-            }
-        }
+        // (Round F1: round 119's raw-row form, part119, deleted.)
 #endif
         const vu::Rows rows{{vu::clamp(g.q(by)), vu::clamp(g.q(by + 0x10u)), vu::clamp(g.q(by + 0x20u)), vu::clamp(g.q(by + 0x30u))}};
         for (int i = 0; i < 4; ++i)
@@ -4123,7 +4071,6 @@ namespace decomp_collision
             g_stats.clear();
         }
     }
-#include "coll123.h"
     // The memo around a segment test with ClipCollisionDirectCallBack's
     // arguments (a0 the result, a1 / a2 the points, a3 the group, t0-t3 the
     // filters, the caller's stack word): `fn` tells the tests apart.
@@ -4131,11 +4078,8 @@ namespace decomp_collision
     void segMemo(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime, uint32_t fn, Body body)
     {
         static int depth = 0; // (lane 0's: the worker never enters the memo)
-        // Round 123 (SOTC_SEG123): under coll115, the validated memo (coll123.h) in place of seg80's blind reuse
-        // (round 84's AI path tests keep probe84's pool below).
-        if (sotc_decomp::switchOn(sotc_decomp::kSeg123) && depth == 0 && !sotc_decomp::onWorkerLane(runtime) && coll115::on(runtime) &&
-            !(sotc_decomp::probe84On() && seg80::pathCaller(GPR_U32(ctx, 31))))
-            return coll123::memo(rdram, ctx, runtime, fn, body, depth);
+        // (Round F1: round 123's validated memo, seg123 / SOTC_SEG123 / coll123.h, deleted: not exact by design.)
+        (void)fn;
         if (!sotc_decomp::seg80On() || sotc_decomp::onWorkerLane(runtime) || depth != 0)
             return body();
         // Round 115: with coll115 seg80's 1 cm reuse is off (the camera's, the characters' and the horse's tests
@@ -4850,12 +4794,9 @@ namespace decomp_collision
             ++g_obj125N[o125];
             if (st)
             {
-                const int p119 = sotc_decomp::switchOn(sotc_decomp::kPart119) ? 1 : 0; // round 119: by part119 too
+                constexpr int p119 = 0; // round 119: by part119 too (F1: part119 deleted)
                 coll119::g_t.usQ[p119] += dt;
                 ++coll119::g_t.nQ[p119];
-                const int s123 = sotc_decomp::switchOn(sotc_decomp::kSeg123) ? 1 : 0; // round 123
-                coll123::g_t.us[s123] += dt;
-                ++coll123::g_t.n[s123];
             }
             return;
         }
@@ -5105,7 +5046,7 @@ namespace decomp_collision
                                                 ++coll115::g_st.nW[st115];
                                                 if (st115)
                                                 {
-                                                    const int w119 = sotc_decomp::switchOn(sotc_decomp::kWalk119) ? 1 : 0;
+                                                    constexpr int w119 = 0; // (F1: walk119 deleted)
                                                     coll119::g_t.usW[w119] += coll115::nowUs() - tw;
                                                     ++coll119::g_t.nW[w119];
                                                 }
@@ -6226,7 +6167,7 @@ namespace decomp_collision
         // Round 119: SOTC_COLL115_LOG=1: the call's host time by flush119's state ([coll119t]).
         if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
-            const int st = sotc_decomp::switchOn(sotc_decomp::kFlush119) ? 1 : 0;
+            constexpr int st = 0; // (F1: flush119 deleted)
             const uint64_t t0 = coll115::nowUs();
             flushWorkBody(rdram, ctx, runtime);
             coll119::g_t.usF[st] += coll115::nowUs() - t0;
@@ -6243,18 +6184,10 @@ namespace decomp_collision
         const uint32_t work = GPR_U32(ctx, 4), withB = GPR_U32(ctx, 6), withA = GPR_U32(ctx, 7);
         const int32_t parts = GPR_S32(ctx, 5);
         const uint32_t sp0 = GPR_U32(ctx, 29), ra0 = GPR_U32(ctx, 31), sp = sp0 - 0x30u;
-        // Round 119 (SOTC_FLUSH119, default on): an empty list (count 0) is not handed to
-        // FlushModifiedManager's native, which would only set v0 = 2 and return: a0 stays the list
-        // as the call leaves it; ra / sp / v0 are set at the end below whatever the last call left.
-        const bool skipEmpty = sotc_decomp::switchOn(sotc_decomp::kFlush119) && sotc_decomp::guestFunction(runtime, kFlushModified) == &flushModified;
+        // (Round F1: round 119's skip of the empty lists, flush119 / SOTC_FLUSH119, deleted: every list goes to the native.)
         auto flush = [&](uint32_t list, uint32_t site)
         {
             SET_GPR_U32(ctx, 4, list);
-            if (skipEmpty && G::plain(list, 4u) && g.u32(list) == 0u)
-            {
-                SET_GPR_U64(ctx, 2, 2u);
-                return;
-            }
             sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, &flushModified, site + 8u, sp);
         };
         uint32_t part = g.u32(work + 0x24u);
@@ -6451,7 +6384,7 @@ namespace decomp_collision
         // Round 119: SOTC_COLL115_LOG=1: the call's host time by view119's state ([coll119t]).
         if (__builtin_expect(coll115::params().log, 0) && !sotc_decomp::onWorkerLane(runtime))
         {
-            const int st = coll119::on(runtime) ? 1 : 0;
+            constexpr int st = 0; // (F1: view119 deleted)
             const int s125 = coll125::on(runtime) ? 1 : 0; // round 125
             const uint64_t t0 = coll115::nowUs();
             finderClipBody<Filtered>(rdram, ctx, runtime);
@@ -6580,7 +6513,7 @@ namespace decomp_collision
         {
             g.put(sp, g.q(a2));
             uint32_t cand = g.u32(a3 + 0xCu);
-            coll119::View *view119 = coll119::on(g.runtime) && keepFastOk() ? coll119::viewOf(g, cand, n) : nullptr;
+            coll119::View *view119 = nullptr; // (F1: view119 deleted)
             coll119::log();
             // Round 85: the ground fill's candidates with their sphere and plane in host
             // arrays (ground85::View): a candidate the segment cannot reach (both ends on
@@ -6591,9 +6524,7 @@ namespace decomp_collision
             // (Round 108: lane 0's only: the game thread rewrites it at any time.)
             // (Round 119, view119: the list's words compared with the view's copy, not hashed: 64-bit multiplies per word.)
             const bool hostView = !sotc_decomp::onWorkerLane(g.runtime) && view.finder == a3 && view.list == cand && view.count >= n && sotc_decomp::ground85On() &&
-                                  (coll119::on(g.runtime) && G::plain(cand, 8u * static_cast<uint32_t>(view.count))
-                                       ? std::memcmp(g.rdram + cand, view.words, 8u * static_cast<uint32_t>(view.count)) == 0
-                                       : ground85::listSum(g.rdram, cand, view.count) == view.sum);
+                                  ground85::listSum(g.rdram, cand, view.count) == view.sum;
             const int check85 = hostView ? ground85Check() : 0;
             if (hostView)
                 ++view.uses;
@@ -7807,7 +7738,7 @@ namespace decomp_collision
     void directCallBackD1(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         const uint32_t ra = GPR_U32(ctx, 31);
-        if (obj125Check() != 0 || coll115::params().log || (coll115::params().check == 1 && coll115::on(runtime)) || sotc_decomp::switchOn(sotc_decomp::kSeg123) ||
+        if (obj125Check() != 0 || coll115::params().log || (coll115::params().check == 1 && coll115::on(runtime)) ||
             g_queryNote != nullptr || !sotc_decomp::fastNativeOn() || !obj125On(runtime) || (native_renderer::tuning().sacCamColl && ra == 0x0140F2ACu) ||
             (sotc_decomp::seg80On() && (d1Seg80Asked() || !coll115::on(runtime) || (sotc_decomp::probe84On() && seg80::pathCaller(ra)))))
             return directCallBack(rdram, ctx, runtime);
@@ -8352,16 +8283,10 @@ namespace decomp_collision
         else
         {
             // a list the core refused (nothing of it written): from there as the old body runs it
-            const bool skipEmpty = sotc_decomp::switchOn(sotc_decomp::kFlush119) && slot == &flushModified;
             for (uint32_t k = out.next; k < total; ++k)
             {
                 const uint32_t list = w.d2List(k);
                 SET_GPR_U32(ctx, 4, list);
-                if (skipEmpty && G::plain(list, 4u) && m.u32(list) == 0u)
-                {
-                    SET_GPR_U64(ctx, 2, 2u);
-                    continue;
-                }
                 sotc_decomp::callNative(rdram, ctx, runtime, kFlushModified, slot, w.d2Site(k) + 8u, sp);
             }
             m.set<uint32_t>(work + 0x1Cu, 0u);

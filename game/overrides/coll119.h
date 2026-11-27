@@ -90,7 +90,7 @@ namespace coll119
     };
     inline Stats g_vst;
 
-    inline bool on(const PS2Runtime *runtime) { return sotc_decomp::switchOn(sotc_decomp::kView119) && !sotc_decomp::onWorkerLane(runtime); }
+    // (Round F1: the switch view119 / SOTC_VIEW119 deleted: no caller makes a view; the timing slots stay.)
     A9S_HOIST(int, a9s_coll119_v_96, ps2_diag::env("SOTC_VIEW119_CHECK") ? std::atoi(ps2_diag::env("SOTC_VIEW119_CHECK")) : 0); // round A9 sweep (a9sweep.h)
     inline int checkLevel()
     {

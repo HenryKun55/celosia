@@ -1252,34 +1252,19 @@ namespace decomp_hot47e
             std::memcpy(env.eyeBuf, eye83, sizeof(env.eyeBuf));
             env.eye83 = env.eyeBuf;
         }
-        const int mode91 = !skipStep && sotc_decomp::ptcl91On() ? sotc_decomp::ptcl91Mode() : 0;
-        s5ptcl::managerBegin(rdram, mode91 == 0); // round S5: the particles' steps go to a batch until managerEnd
+        s5ptcl::managerBegin(rdram, true); // round S5: the particles' steps go to a batch until managerEnd (F1: round 91's job deleted)
         uint64_t s1 = 0u;
         SET_GPR_S32(ctx, 4, kGroups);
         SET_GPR_U64(ctx, 5, 0u);
         call(jalTarget(rdram, kSiteFirst1), 0x0113A48Cu);
         uint64_t s0 = GPR_U64(ctx, 2);
         SET_GPR_U64(ctx, 16, s0);
-        if (mode91 >= 1 && mode91 <= 3)
-        {
-            g_job91.gds.clear();
-            g_job91.entries.clear();
-            g_job91.here.clear();
-        }
         if (s0 != 0u)
         {
             s1 = sx(READ32(static_cast<uint32_t>(s0)));
             for (;;)
             {
-                if (mode91 >= 1 && mode91 <= 3)
-                {
-                    // Round 91: the list for the job (the step and the auto-end check there).
-                    SET_GPR_U64(ctx, 17, s1);
-                    g_job91.gds.push_back(static_cast<uint32_t>(s1));
-                    g_job91.entries.push_back(static_cast<uint32_t>(s0));
-                }
-                else
-                    stepOne(rdram, ctx, runtime, sp, s1, env);
+                stepOne(rdram, ctx, runtime, sp, s1, env);
                 SET_GPR_U64(ctx, 4, s0);
                 SET_GPR_U64(ctx, 5, 0u);
                 uint32_t next83;
@@ -1301,69 +1286,6 @@ namespace decomp_hot47e
             SET_GPR_U64(ctx, 5, 0u);
             call(jalTarget(rdram, kSiteExit1), 0x0113A4DCu);
         }
-        if (mode91 >= 1 && mode91 <= 3)
-        {
-            Job91 &j = g_job91;
-            j.freed.clear();
-            j.clipped.clear();
-            j.clip95 = mode91 == 1 && sotc_decomp::join95On() && !g_early95;
-            j.env = env;
-            j.frame = sp;
-            // The geodisps with an emitter attached to a geometry pointer (its
-            // +0xc4 == 1: 0113AEF8 asks GetGeometryPointerPosition /
-            // Quaternion for a character's node, a collision surface, cloth)
-            // are stepped here first: those queries read the characters'
-            // motion, which only the game thread may touch; the job takes the
-            // rest (the order of the geodisps' steps is not the group's then).
-            if (mode91 != 3)
-            {
-                size_t keep = 0;
-                uint32_t answers = 0;
-                for (size_t i = 0; i < j.gds.size(); ++i)
-                {
-                    const uint32_t gd = j.gds[i];
-                    bool attached = false;
-                    if (gd != 0u && ptcl83::ok(gd, 0x110u) && rdram[gd + 8u] == 0x24u)
-                    {
-                        uint32_t n = 0;
-                        for (uint32_t node = ptcl83::rw(rdram, gd + 0x20u + 0xE8u); node != 0u && !attached; node = ptcl83::rw(rdram, node + 0x1B0u))
-                            attached = !ptcl83::ok(node, 0x1C0u) || ++n > 64u || ptcl83::rw(rdram, node + 0x10u + 0xC4u) == 1u;
-                    }
-                    if (attached && prepare91(rdram, ctx, runtime, sp, gd, answers))
-                        attached = false; // its emitters' positions and turns asked here: the job's
-                    if (attached)
-                    {
-                        SET_GPR_U64(ctx, 16, sx(j.entries[i]));
-                        if (stepOne(rdram, ctx, runtime, sp, sx(gd), env))
-                            j.freed.push_back(gd);
-                        j.here.push_back(gd);
-                        ++g_here91;
-                    }
-                    else
-                    {
-                        j.gds[keep] = gd;
-                        j.entries[keep] = j.entries[i];
-                        ++keep;
-                    }
-                }
-                j.gds.resize(keep);
-                j.entries.resize(keep);
-                static uint64_t calls = 0, jobGds = 0;
-                jobGds += keep;
-                if (++calls % 600u == 0u)
-                {
-                    std::fprintf(stderr, "[ptcl91] %llu calls: geodisps a frame %.1f on the worker, %.1f on the game thread (attached emitters)\n",
-                                 (unsigned long long)calls, jobGds / 600.0, g_here91 / 600.0);
-                    jobGds = g_here91 = 0;
-                }
-            }
-            const bool kicked = mode91 != 3 && sotc_worker::kick(rdram, runtime, *ctx, job91, &j);
-            if (!kicked)
-                job91Run(rdram, ctx, runtime, sp, j);
-            else if (mode91 == 2)
-                sotc_worker::join(sotc_worker::kSiteKick);
-        }
-        else
         {
             afterSteps();
             // Round P2 (p2ptcl): the layers pass as one host pass (exact; the original when it cannot vouch for an address).
@@ -1409,49 +1331,13 @@ namespace decomp_hot47e
     // then); disp_particle_manager and the draws are where they were.
     constexpr uint32_t kCameraManager95 = 0x0141D280u, kPlayerObj95 = 0x01343410u, kArg3Getter95 = 0x01345410u, kTaskBlock95 = 0x01465650u;
 
-    uint64_t g_early95Calls = 0;
-    bool g_early95Kicked = false; // an early hand-over since the display walk last asked (sotc_decomp::early95Kicked)
     void cameraEarly95(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
     {
         // Round P2 (p2ptcl): the prefetch helper walks last frame's particle geodisps while the camera runs.
         if (p2ptcl::on() && p2ptcl::prefetchOn())
             p2ptcl::prefetchKick(rdram, 0);
-        const auto camera = sotc_decomp::recompiled(kCameraManager95);
-        if (sotc_worker::skipPending())
-        {
-            // The manager's own call was not reached since the last early one (its task did not run): no early call now.
-            sotc_worker::skipEntryOnce(0u);
-            return camera(rdram, ctx, runtime);
-        }
-        if (!sotc_decomp::early95On() || !sotc_decomp::ptcl91On() || sotc_decomp::ptcl91Mode() != 1 || !sotc_worker::gated() || sotc_worker::busy() || sotc_worker::walked() ||
-            native_renderer::tuning().sacFxHalf || runtime->guestFunctionAt(kPlayerObj95) == nullptr || runtime->guestFunctionAt(kArg3Getter95) == nullptr)
-            return camera(rdram, ctx, runtime);
-        uint64_t saved[32];
-        for (int r = 0; r < 32; ++r)
-            saved[r] = GPR_U64(ctx, r);
-        const float f12 = ctx->f[12], f13 = ctx->f[13];
-        const uint32_t sp = GPR_U32(ctx, 29) - 0x40u, ra = GPR_U32(ctx, 31);
-        callGuest(rdram, ctx, runtime, kPlayerObj95, ra, sp);
-        const uint64_t a2 = GPR_U64(ctx, 2);
-        callGuest(rdram, ctx, runtime, kArg3Getter95, ra, sp);
-        const uint64_t a3 = GPR_U64(ctx, 2);
-        SET_GPR_S32(ctx, 4, static_cast<int32_t>(kTaskBlock95 + 0x230u));
-        SET_GPR_S32(ctx, 5, static_cast<int32_t>(kTaskBlock95 + 0x240u));
-        SET_GPR_U64(ctx, 6, a2);
-        SET_GPR_U64(ctx, 7, a3);
-        ctx->f[12] = fb(READ32(kTaskBlock95 + 0x180u));
-        ctx->f[13] = fb(READ32(kTaskBlock95 + 0x170u));
-        g_early95 = true;
-        g_early95Kicked = true;
-        callGuest(rdram, ctx, runtime, kManager, ra, sp);
-        g_early95 = false;
-        sotc_worker::skipEntryOnce(kManager);
-        ++g_early95Calls;
-        for (int r = 0; r < 32; ++r)
-            SET_GPR_U64(ctx, r, saved[r]);
-        ctx->f[12] = f12;
-        ctx->f[13] = f13;
-        camera(rdram, ctx, runtime);
+        // (Round F1: round 95's early particle manager, early95 / SOTC_EARLY95, deleted.)
+        sotc_decomp::recompiled(kCameraManager95)(rdram, ctx, runtime);
     }
 
     // ---- get_particle_parameter_blend_doit ----------------------------------
@@ -1889,12 +1775,6 @@ namespace sotc_decomp
     {
         const std::vector<uint32_t> &f = decomp_hot47e::g_job91.freed;
         return std::find(f.begin(), f.end(), object) != f.end();
-    }
-    bool early95Kicked()
-    {
-        const bool k = decomp_hot47e::g_early95Kicked;
-        decomp_hot47e::g_early95Kicked = false;
-        return k;
     }
     bool ptcl95Clipped(uint32_t object)
     {

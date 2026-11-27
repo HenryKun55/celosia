@@ -1,4 +1,4 @@
-// Round C2 (c2scene, SOTC_C2SCENE, off by default; docs/console_c2.md): the display group as a host scene list.
+// Round C2 (c2scene: on with W1, round F1 deleted its own switch SOTC_C2SCENE; docs/console_c2.md): the display group as a host scene list.
 //
 // The console profile (docs/console_profile_2026-11-20.md) has the display cluster at 7.5-8.2 ms a frame riding and
 // the cost in DRAM latency: the walks over the layout display group chase guest pointers (the group chain's
