@@ -352,6 +352,8 @@ namespace native_renderer
 {
     extern bool g_s9Evict, g_s9Check; // round S9 (native_renderer_gl.cpp): evictKept's textures-only pass, its check
     extern uint64_t g_s9Stats[5]; // its counts: full passes, textures-only passes, checked, differ, evicted
+    extern bool g_z4Mem, g_z4Check; // round Z4 (native_renderer_gl.cpp): the [gl:mem] walks on the render thread, the empty heap pass
+    extern uint64_t g_z4Stats[5];   // passes without the walk, heap textures the check found there, lines handed over, walks compared, differ
 }
 namespace s8cloth
 {
@@ -4592,7 +4594,10 @@ namespace sotc_native
         sotc_p2::Scope z4State(z4sync::id(z4sync::bEfState)); // round Z4
         z4sync::Part z4EfA(z4sync::id(z4sync::bEfA));
 #if defined(__vita__)
-        ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
+        {
+            const z4sync::Part z4Pmu(z4sync::id(z4sync::bEfPmu));
+            ps2x_m1_pmu_tick((unsigned long long)g_frame); // round M1: SOTC_M1PMU (one load and a branch when off)
+        }
 #endif
         if (mdsTraceOn())
             mdsTraceFrame();
@@ -5270,25 +5275,25 @@ namespace sotc_native
                              nearD, farD, nearR, farR, k, g_fog.base, g_fog.scale, word(0x118B8DCu), word(0x118B8E0u), word(0x118B8E4u));
             }
         }
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
             std::fprintf(stderr, "[bossfx] frame %llu flags %08x a0 %d b0 %d b4 %d b8 %d bc %d c0 %d c4 %d 298 %g\n", (unsigned long long)g_frame, word(0x1186290u),
                          static_cast<int32_t>(word(0x11862A0u)), static_cast<int32_t>(word(0x11862B0u)), static_cast<int32_t>(word(0x11862B4u)), static_cast<int32_t>(word(0x11862B8u)),
                          static_cast<int32_t>(word(0x11862BCu)), static_cast<int32_t>(word(0x11862C0u)), static_cast<int32_t>(word(0x11862C4u)), real(0x1186298u));
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (z4sync::nativeLog() && g_frame % 120u == 0u)
             std::fprintf(stderr, "[dof] frame %llu on %u rounds %d slices %d focus %g colour %08x %08x %08x %08x\n", (unsigned long long)g_frame, word(0x11862D0u),
                          static_cast<int32_t>(word(0x11862D4u)), static_cast<int32_t>(word(0x11862D8u)), static_cast<float>(static_cast<int32_t>(word(0x11862DCu))),
                          word(0x11862E0u), word(0x11862E4u), word(0x11862E8u), word(0x11862ECu));
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
         {
             std::fprintf(stderr, "[bloomcol] %llu:", (unsigned long long)g_frame);
             for (uint32_t a = 0x118C0C0u; a < 0x118C150u; a += 4u)
                 std::fprintf(stderr, " %x", word(a));
             std::fprintf(stderr, "\n");
         }
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 60u == 0u)
+        if (z4sync::nativeLog() && g_frame % 60u == 0u)
             std::fprintf(stderr, "[native-frame] %llu bloomZ %u ran %d zfog %d start %g width %g vfog %d base %g scale %g col %g %g %g models %u\n", (unsigned long long)g_frame, word(0x118C094u), g_bloomRan ? 1 : 0, g_fog.enabled ? 1 : 0,
                          g_fog.start, g_fog.width, g_fog.vertexFog ? 1 : 0, g_fog.base, g_fog.scale, g_fog.colour[0], g_fog.colour[1], g_fog.colour[2], g_modelDraws);
-        if (ps2_diag::env("SOTC_NATIVE_LOG") && g_frame % 120u == 0u)
+        if (z4sync::nativeLog() && g_frame % 120u == 0u)
         {
             const uint32_t table = word(0x118BFCCu);
             for (uint32_t layer : {1u, 2u, 3u})
@@ -8158,7 +8163,18 @@ namespace sotc_native
         {
             const ps2_load::GameZone zone134(0x2020u); // round 134: the frame's change (prof129), whichever hook meets it
             if (__builtin_expect(!z4sync::g_brInit, 0))
+            {
+                z4sync::init();
+                native_renderer::g_z4Mem = z4sync::g_on;
+                native_renderer::g_z4Check = z4sync::g_check;
                 z4sync::bracketInit();
+            }
+            if (z4sync::g_log && frame % z4sync::g_log == 0u)
+                std::fprintf(stderr, "[z4] frame %llu: on %d | heap-texture passes without the walk %llu (heap textures found there by the check %llu) | "
+                                     "[gl:mem] lines handed to the render thread %llu, walks compared %llu, differ %llu\n",
+                             (unsigned long long)frame, z4sync::g_on ? 1 : 0, (unsigned long long)native_renderer::g_z4Stats[0],
+                             (unsigned long long)native_renderer::g_z4Stats[1], (unsigned long long)native_renderer::g_z4Stats[2],
+                             (unsigned long long)native_renderer::g_z4Stats[3], (unsigned long long)native_renderer::g_z4Stats[4]);
             const sotc_p2::Scope z4Sync(z4sync::id(z4sync::bSync)); // round Z4
             z4sync::Part z4Head(z4sync::id(z4sync::bHead));
             const bool timed = native_renderer::tuning().frameTiming();
@@ -8274,16 +8290,29 @@ namespace sotc_native
                              (unsigned long long)ps2_stats::vblanks.load(std::memory_order_relaxed), dt * 1000.0f, player[0], player[1], player[2],
                              eye[0], eye[1], eye[2], horse[0], horse[1], horse[2]);
             }
-            sotc_prof::frameTick(frame);
-            sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
-            s5ptcl::frameEnd();            // round S5: the particle batch joined at the frame's end, its statistics
-            p2ptcl::frameEnd(rdram);       // round P2: the prefetch helper asked for the display walk's particles, its statistics
-            s6coll::frameEnd(rdram);       // round S6: the water indexes handed to the worker to be vouched for / made
+            {
+                z4sync::Part z4t(z4sync::id(z4sync::bTkProf));
+                sotc_prof::frameTick(frame);
+                z4t.close();
+                z4sync::Part z4w(z4sync::id(z4sync::bTkWorker));
+                sotc_worker::frameTick(frame); // round 91: the guest worker joined at the frame's end, its statistics
+                z4w.close();
+                z4sync::Part z4s5(z4sync::id(z4sync::bTkS5));
+                s5ptcl::frameEnd(); // round S5: the particle batch joined at the frame's end, its statistics
+                z4s5.close();
+                z4sync::Part z4p2(z4sync::id(z4sync::bTkP2));
+                p2ptcl::frameEnd(rdram); // round P2: the prefetch helper asked for the display walk's particles, its statistics
+                z4p2.close();
+                const z4sync::Part z4s6(z4sync::id(z4sync::bTkS6));
+                s6coll::frameEnd(rdram); // round S6: the water indexes handed to the worker to be vouched for / made
+            }
+            z4sync::Part z4TkRest(z4sync::id(z4sync::bTkRest));
             char104::frameTick(frame);     // round 104
             sotc_decomp::g_gameFrame = frame;
             sotc_decomp::fastStatsTick(frame);
             ps2_lean::frameTick(frame);
             sotc_decomp::abTick(frame);
+            z4TkRest.close();
             sotc_p2::close(z4Ticks.token);
             z4Ticks.token = 0u;
             {

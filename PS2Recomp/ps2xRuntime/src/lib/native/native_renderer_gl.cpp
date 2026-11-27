@@ -82,6 +82,12 @@ namespace native_renderer
     // textures-only passes, passes checked against the full candidate list (SOTC_S9RT_CHECK), differ, evicted.
     bool g_s9Evict = false, g_s9Check = false;
     uint64_t g_s9Stats[5] = {};
+    // Round Z4 (game/overrides/z4_sync.h; sotc_native sets them at the first frame change): the [gl:mem] line's walks and
+    // print on the render thread (logMemory), the textures-only pressure pass's walk skipped when no texture lives in the
+    // newlib heap (evictKept), and their check. Counts: passes without the walk, of them with a heap texture found by the
+    // check's walk (must stay 0), memory lines handed over, walks compared (the check), differ.
+    bool g_z4Mem = false, g_z4Check = false;
+    uint64_t g_z4Stats[5] = {};
 }
 
 namespace
@@ -9268,6 +9274,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             std::unique_lock<std::mutex> lock(m_mutex);
             waitData(lock);
             z4Lock.close();
+            if (m_z4MinePending && m_z4DonePending)
+            {
+                // Round Z4's check: the render thread's walk of the last [gl:mem] line against the game thread's own.
+                ++native_renderer::g_z4Stats[3];
+                native_renderer::g_z4Stats[4] += (m_z4Mine == m_z4Done) ? 0u : 1u;
+                m_z4MinePending = m_z4DonePending = false;
+            }
             z4br::Part z4Swap(z4br::kHoSwap);
             // The render thread waits: what it holds changes hands. What the
             // last frame drawn cost goes into this frame's counters.
@@ -9351,6 +9364,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             if (m_memLog && native_renderer::nowUs() >= m_nextMemLog)
             {
                 m_nextMemLog = native_renderer::nowUs() + 5000000u;
+                const z4br::Part z4Log(z4br::kEvLog); // round Z4
                 logMemory();
             }
             z4Evict.close();
@@ -9558,45 +9572,96 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
         // pools; "in heap": vitaGL had to put them in the newlib heap). Host:
         // uploads waiting (the most one frame queued), the frame arenas and
         // draw lists (both frames), the hooks' skinned packets (bind poses).
-        void logMemory()
+        // Round Z4: logMemory split in three: the game thread's own numbers (a snapshot taken at the hand-over, the heap
+        // reading among them: it is state, the pressure test reads it), the walks over the render thread's maps (the
+        // working set, the mesh pools: numbers for the line only) and the print. SOTC_Z4=1 (native_renderer::g_z4Mem):
+        // the walks and the print on the render thread at its pick-up of the frame handed over, before anything of it
+        // changes (the same maps the game thread would have walked); the game thread keeps the snapshot and the heap
+        // reading at the same place. SOTC_Z4_CHECK=1: the game thread walks too, and compares its walk with the render
+        // thread's at the next hand-over (on the game thread, the render thread waiting).
+        struct MemSnap
         {
+            bool asked = false;
+            uint64_t heap = 0, cacheBudget = 0, uploadPeak = 0, skinnedPackets = 0, evictedBudgetBytes = 0, evictedPressureBytes = 0;
+            uint64_t recArenaBytes = 0, recDrawCap = 0, recPaletteCap = 0, vglPoolFree = 0, poolLowPasses = 0;
+            uint32_t flushes = 0, evictedAged = 0, evictedBudget = 0, evictedPressure = 0, pressureSpared = 0, skipped = 0;
+        };
+        struct MemWalk
+        {
+            uint32_t kept = 0, pools = 0;
+            uint64_t recentBytes = 0, poolFree = 0, poolLargest = 0, poolPending = 0;
+            bool operator==(const MemWalk &o) const
+            {
+                return kept == o.kept && pools == o.pools && recentBytes == o.recentBytes && poolFree == o.poolFree && poolLargest == o.poolLargest &&
+                       poolPending == o.poolPending;
+            }
+        };
+        MemSnap m_z4Ask;            // under m_mutex: the snapshot handed to the render thread (asked: a line wanted)
+        MemWalk m_z4Done, m_z4Mine; // under m_mutex: the render thread's last walk; the game thread's own (SOTC_Z4_CHECK)
+        bool m_z4DonePending = false, m_z4MinePending = false;
+        MemSnap memSnap()
+        {
+            MemSnap S;
+            S.asked = true;
+            S.heap = m_heap;
+            S.cacheBudget = m_cacheBudget;
+            S.uploadPeak = m_uploadPeak;
+            S.skinnedPackets = native_renderer::frontendMemory();
+            S.evictedBudgetBytes = m_evictedBudgetBytes;
+            S.evictedPressureBytes = m_evictedPressureBytes;
+            S.recArenaBytes = m_rec.arena.bytes() + m_rec.indexArena.bytes();
+            S.recDrawCap = m_rec.draws.capacity();
+            S.recPaletteCap = m_rec.palettes.capacity();
+            S.vglPoolFree = m_poolFree;
+            S.poolLowPasses = m_poolLowPasses;
+            S.flushes = m_flushes;
+            S.evictedAged = m_evictedAged;
+            S.evictedBudget = m_evictedBudget;
+            S.evictedPressure = m_evictedPressure;
+            S.pressureSpared = m_pressureSpared;
+            S.skipped = m_skipped;
+            return S;
+        }
+        // The walks: the render thread's maps (r), as they are at the hand-over (the render thread waiting) or at its
+        // pick-up of that frame (before ++arenaFrame and the uploads).
+        MemWalk memWalk() const
+        {
+            MemWalk W;
             // The working set: drawn in the last 120 frames (what a budget
             // could not evict).
             const uint64_t recent = r->arenaFrame > 120u ? r->arenaFrame - 120u : 0u;
-            uint32_t kept = 0;
-            uint64_t recentBytes = 0;
             r->meshes.forEach([&](uint64_t, const Mesh &m)
             {
                 if (!m.dynamic)
                 {
-                    ++kept;
-                    recentBytes += m.used >= recent ? m.bytes : 0u;
+                    ++W.kept;
+                    W.recentBytes += m.used >= recent ? m.bytes : 0u;
                 }
             });
-            r->textures.forEach([&](uint64_t, const Texture &t) { recentBytes += t.used >= recent ? t.bytes : 0u; });
-            const uint64_t skinnedPackets = native_renderer::frontendMemory();
-            const double MB = 1048576.0;
-            const uint64_t arenas = r->arena.bytes() + r->indexArena.bytes() + m_rec.arena.bytes() + m_rec.indexArena.bytes();
-            const uint64_t lists = (r->draws.capacity() + m_rec.draws.capacity()) * sizeof(Draw) + (r->palettes.capacity() + m_rec.palettes.capacity()) * sizeof(float);
-            m_heap = heapUsed();
+            r->textures.forEach([&](uint64_t, const Texture &t) { W.recentBytes += t.used >= recent ? t.bytes : 0u; });
             // Round 34: the mesh pools themselves (each 2.3 MB of vitaGL
             // memory however little of it the meshes use; a pool goes only
             // when empty): their number, size, room free, largest free range,
             // ranges let go but not yet reusable; and the merged runs' copies.
-            uint32_t pools = 0;
-            uint64_t poolFree = 0, poolLargest = 0, poolPending = 0;
             for (const Renderer::Pool &pool : r->pools)
                 if (pool.buffer)
                 {
-                    ++pools;
+                    ++W.pools;
                     for (const auto &f : pool.free)
                     {
-                        poolFree += f.second;
-                        poolLargest = std::max<uint64_t>(poolLargest, f.second);
+                        W.poolFree += f.second;
+                        W.poolLargest = std::max<uint64_t>(W.poolLargest, f.second);
                     }
                 }
             for (const Renderer::PoolRange &pr : r->poolPending)
-                poolPending += pr.count;
+                W.poolPending += pr.count;
+            return W;
+        }
+        void memPrint(const MemSnap &S, const MemWalk &W)
+        {
+            const double MB = 1048576.0;
+            const uint64_t arenas = r->arena.bytes() + r->indexArena.bytes() + S.recArenaBytes;
+            const uint64_t lists = (r->draws.capacity() + S.recDrawCap) * sizeof(Draw) + (r->palettes.capacity() + S.recPaletteCap) * sizeof(float);
             const double vb = static_cast<double>(sizeof(native_renderer::Vertex));
             std::fprintf(stderr,
                          "[gl:mem] t=%.0f heap %.1f MB | textures %u %.1f MB (in heap %.1f) | meshes %u %.1f MB (skinned %.1f) | drawn in 120 frames %.1f MB, budget %.0f MB | "
@@ -9604,13 +9669,13 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                          "evicted aged %u, budget %u (%.1f MB), pressure %u (%.1f MB), kept in pools %u | skipped %u | "
                          "mesh pools %u (%.1f MB, free %.1f MB, largest free %.0f KB, let go %.1f MB; emptied %llu, %.1f MB moved), run copies %.1f MB | "
                          "vgl pools free %.1f MB, low-room passes %llu\n",
-                         (native_renderer::nowUs() - m_startUs) / 1e6, m_heap / MB, static_cast<unsigned>(r->textures.size()), r->textureBytes / MB,
-                         r->textureHeapBytes / MB, kept, r->meshBytes / MB, r->skinnedBytes / MB, recentBytes / MB, m_cacheBudget == ~0ull ? 0.0 : m_cacheBudget / MB,
-                         m_uploadPeak / MB, m_flushes, arenas / MB, lists / MB, skinnedPackets / MB, m_evictedAged, m_evictedBudget,
-                         m_evictedBudgetBytes / MB, m_evictedPressure, m_evictedPressureBytes / MB, m_pressureSpared, m_skipped, pools,
-                         pools * static_cast<double>(Renderer::kPoolVertices) * vb / MB, poolFree * vb / MB, poolLargest * vb / 1024.0, poolPending * vb / MB,
-                         static_cast<unsigned long long>(r->poolsEmptied), r->poolMoved * vb / MB, r->runVertices * vb / MB, m_poolFree / MB,
-                         static_cast<unsigned long long>(m_poolLowPasses));
+                         (native_renderer::nowUs() - m_startUs) / 1e6, S.heap / MB, static_cast<unsigned>(r->textures.size()), r->textureBytes / MB,
+                         r->textureHeapBytes / MB, W.kept, r->meshBytes / MB, r->skinnedBytes / MB, W.recentBytes / MB, S.cacheBudget == ~0ull ? 0.0 : S.cacheBudget / MB,
+                         S.uploadPeak / MB, S.flushes, arenas / MB, lists / MB, S.skinnedPackets / MB, S.evictedAged, S.evictedBudget,
+                         S.evictedBudgetBytes / MB, S.evictedPressure, S.evictedPressureBytes / MB, S.pressureSpared, S.skipped, W.pools,
+                         W.pools * static_cast<double>(Renderer::kPoolVertices) * vb / MB, W.poolFree * vb / MB, W.poolLargest * vb / 1024.0, W.poolPending * vb / MB,
+                         static_cast<unsigned long long>(r->poolsEmptied), r->poolMoved * vb / MB, r->runVertices * vb / MB, S.vglPoolFree / MB,
+                         static_cast<unsigned long long>(S.poolLowPasses));
 #if defined(PS2X_NATIVE_VITA)
             {
                 // Round 65c: vitaGL's uniform circular pool, a frame's share
@@ -9634,6 +9699,24 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                 m_unifHazards = hazards, m_unifGrows = grows, m_unifWaits = waits, m_unifWaitUs = waitUs, m_unifUnsafe = unsafe;
             }
 #endif
+        }
+        void logMemory()
+        {
+            m_heap = heapUsed();
+            const MemSnap S = memSnap();
+            if (native_renderer::g_z4Mem)
+            {
+                // Round Z4: the walks and the print go to the render thread (its pick-up of this frame).
+                m_z4Ask = S;
+                ++native_renderer::g_z4Stats[2];
+                if (native_renderer::g_z4Check)
+                {
+                    m_z4Mine = memWalk();
+                    m_z4MinePending = true;
+                }
+            }
+            else
+                memPrint(S, memWalk());
             m_pressureSpared = 0;
             m_uploadPeak = 0;
             m_flushes = m_evictedAged = m_evictedBudget = m_evictedPressure = m_skipped = 0;
@@ -9691,7 +9774,10 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const uint64_t nowTime = native_renderer::nowUs();
             m_frameTimes[frame % kFrameTimes] = nowTime;
             if (m_heapHigh && frame % kHeapEvery == 0)
+            {
+                const z4br::Part z4Heap(z4br::kEvHeap); // round Z4
                 m_heap = heapUsed();
+            }
             const bool aging = frame % kEvery == 0 && frame >= kUnused;
             const bool pressure = m_heapHigh && m_heap > m_heapHigh && frame >= m_nextPressure;
             // Round 34 (the Vita, SOTC_GL_POOL_LOW_MB, default 12; 0: off):
@@ -9707,6 +9793,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             static const uint64_t kPoolLow = mb("SOTC_GL_POOL_LOW_MB", 12.0);
             if (kPoolLow && frame % kHeapEvery == 0)
             {
+                const z4br::Part z4Pool(z4br::kEvPool); // round Z4
                 size_t used[VGL_MEM_ALL] = {}, spill = 0, spills = 0, total = 0, peak = 0;
                 vglCeloMemStats(used, &spill, &spills, &total, &peak);
                 uint64_t free = 0;
@@ -9723,6 +9810,7 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             const bool overBudget = (r->textureBytes + r->meshBytes > m_cacheBudget || poolShort) && frame >= m_nextBudget;
             if (!aging && !pressure && !overBudget)
                 return;
+            const z4br::Part z4Pass(z4br::kEvPass); // round Z4
             // The draws' / uploads' meshes and textures, kept whatever their age (round S9: built later, and only what
             // the pass reads, in its textures-only pass).
             auto buildKeep = [&](bool meshes)
@@ -9798,7 +9886,21 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
             {
                 ++native_renderer::g_s9Stats[1];
                 bool any = false;
-                r->textures.forEach([&](uint64_t, const Texture &t) { any |= t.used < oldest && t.inHeap; });
+                if (native_renderer::g_z4Mem && r->textureHeapBytes == 0u)
+                {
+                    // Round Z4: every texture's bytes are > 0 and a texture in the heap adds them to textureHeapBytes
+                    // (uploadTexture; forget takes them away): none in the heap, none can be a candidate.
+                    ++native_renderer::g_z4Stats[0];
+                    if (native_renderer::g_z4Check)
+                    {
+                        bool full = false;
+                        r->textures.forEach([&](uint64_t, const Texture &t) { full |= t.used < oldest && t.inHeap; });
+                        native_renderer::g_z4Stats[1] += full ? 1u : 0u;
+                        any = full;
+                    }
+                }
+                else
+                    r->textures.forEach([&](uint64_t, const Texture &t) { any |= t.used < oldest && t.inHeap; });
                 if (any)
                 {
                     buildKeep(false);
@@ -9981,6 +10083,22 @@ float4 main(float4 vUV : TEXCOORD0, uniform sampler2D uSrc, uniform sampler2D uS
                     }
 #endif
                     m_work.wait_for(lock, kRecheck);
+                }
+                if (m_z4Ask.asked && m_queued)
+                {
+                    // Round Z4: the [gl:mem] line of the frame handed over, before its flushed uploads and its own
+                    // change anything here (the maps as the game thread left them; it waits in waitData while m_queued).
+                    const MemSnap ask = m_z4Ask;
+                    m_z4Ask.asked = false;
+                    lock.unlock();
+                    const MemWalk walk = memWalk();
+                    memPrint(ask, walk);
+                    lock.lock();
+                    if (native_renderer::g_z4Check)
+                    {
+                        m_z4Done = walk;
+                        m_z4DonePending = true;
+                    }
                 }
                 // Flushed uploads first (they were asked for before this frame's).
                 if (!m_side.empty())
