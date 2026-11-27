@@ -530,8 +530,11 @@ namespace z3rd
     }
 }
 
-// The three whose slot held the generated code (their lifts are only fallback copies): Z3's entries in the table, the
-// generated code when Z3 is off or declines.
+// The two whose slot held the generated code (their lifts are only fallback copies): Z3's entries in the table, the
+// generated code when Z3 is off or declines. GetGeometryPointerObject (0x11329c0, ~50 calls a frame, a 10-instruction
+// leaf) keeps the generated code in its slot: a table entry of its own cost more than its body in the clock pair (the
+// entry's switch / count / bracket test against a jump through a table); Z3 runs it as host code inside
+// UpdateLayoutClassParentGeometry only.
 namespace z3rd
 {
     namespace
@@ -541,11 +544,6 @@ namespace z3rd
             SOTC_Z3_HOOK(kLayoutGeo, layoutGeo)
             UpdateLayoutClassParentGeometry_0x10f22b8(rdram, ctx, runtime);
         }
-        void geoObjEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
-        {
-            SOTC_Z3_HOOK(kGeoObj, geoObj)
-            GetGeometryPointerObject_0x11329c0(rdram, ctx, runtime);
-        }
         void parentGeoEntry(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
         {
             SOTC_Z3_HOOK(kParentGeo, parentGeo)
@@ -554,5 +552,4 @@ namespace z3rd
     }
 }
 SOTC_DECOMP_FUNCTION(0x010F22B8u, z3UpdateLayoutClassParentGeometry, z3rd::layoutGeoEntry);
-SOTC_DECOMP_FUNCTION(0x011329C0u, z3GetGeometryPointerObject, z3rd::geoObjEntry);
 SOTC_DECOMP_FUNCTION(0x010DF218u, z3UpdateCharacterClassParentGeometry, z3rd::parentGeoEntry);
