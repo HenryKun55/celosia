@@ -1206,7 +1206,8 @@ namespace
         {
             a->endFrame(w, h);
             b->endFrame(w, h);
-            b->finishFrames(); // the same frame from both
+            a->finishFrames(); // the same frame from both
+            b->finishFrames();
             if (++m_frames % 60u != 0u)
                 return;
             std::vector<uint8_t> x, y;
