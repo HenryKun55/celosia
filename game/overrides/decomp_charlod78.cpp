@@ -88,7 +88,10 @@ namespace charlod78
         struct Params
         {
             float off = envF("SOTC_CHARLOD78_OFF", 0.25f);    // small ones (collision sphere radius below 0.3: birds, lizards)
-            float offBig = envF("SOTC_CHARLOD78_OFF_BIG", 0.12f); // the rest up to MAXR (Agro)
+            // The rest up to MAXR (Agro). Round A2-lod: 0 by default = never put off. Agro put off at 0.12 s (round 78's value)
+            // stopped coming back to Wander at the shrine: off, he walks out to ~50 units and back every ~2 000 frames; on (any
+            // view rule), he stays at 50 for the whole run (wkOnE / wkOnH / wkOnI / wkOnJ / wkLegF). A gameplay change: not allowed.
+            float offBig = envF("SOTC_CHARLOD78_OFF_BIG", 0.0f);
             float near = envF("SOTC_CHARLOD78_NEAR", 12.0f);
             float maxR = envF("SOTC_CHARLOD78_MAXR", 2.0f);
             float margin = envF("SOTC_CHARLOD78_MARGIN", 1.0f);
@@ -101,6 +104,7 @@ namespace charlod78
             float kScale = envF("SOTC_CHARLOD78_K", 1.35f);
             // The view sphere's radius is at least this (the drawn body, wings, a tail reach past the collision sphere).
             float minVis = envF("SOTC_CHARLOD78_MINVIS", 6.0f);
+            float camNear = envF("SOTC_CHARLOD78_CAM_NEAR", 15.0f);
             // A character seen (by the widened test) in the last `hold` frames is never put off.
             uint32_t hold = static_cast<uint32_t>(envF("SOTC_CHARLOD78_HOLD", 8.0f));
             // 1: the round 78 rule exactly (the noted camera only, margin 2r+1, scale 1, hold 1, no event / boss exclusion).
@@ -453,7 +457,10 @@ namespace charlod78
             // Behind the camera's apex a larger k narrows the planes, so the k = 1 test is made too, and anything within
             // the view radius of the camera itself counts as seen (ride7: a small character 6 units from the camera
             // failed the k test and was drawn stale twice).
-            vis = r.camDist <= vr || sphereVisible(camCtx, p, vr, P.kScale) || sphereVisible(camCtx, p, vr, 1.0f);
+            // Anything within SOTC_CHARLOD78_CAM_NEAR (15) of the camera counts as seen too: near the camera a small
+            // creature moved by its AI (its place moves while its pose waits) crosses the screen's edge in a frame or
+            // two (ride7: a bird 6.9 from the camera drawn stale after 3 put-offs).
+            vis = r.camDist <= std::max(vr, P.camNear) || sphereVisible(camCtx, p, vr, P.kScale) || sphereVisible(camCtx, p, vr, 1.0f);
             const uint32_t idx = u32(0x0118FE4Cu);
             const uint32_t now = idx < 64u ? u32(0x0122A8F0u + idx * 4u) : 0u;
             if (!vis && plain(now) && now != camCtx)
@@ -483,7 +490,7 @@ namespace charlod78
         {
             const bool offScreen = !vis && !sawLast;
             const bool farAway = P.far > 0.0f && r.camDist > P.far;
-            const float need = offScreen ? (radius < 0.3f ? P.off : P.offBig) : farAway ? P.farS : 0.0f;
+            const float need = offScreen ? (radius < 0.3f ? P.off : (P.legacy ? 0.12f : P.offBig)) : farAway ? P.farS : 0.0f;
             if (on && eligible && rate < need)
             {
                 // Put the update off as the game's own in-between frames do:
