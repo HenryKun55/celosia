@@ -567,6 +567,10 @@ endif()
 # rename the functions they hold (lean/renames.inc), so each is a
 # translation unit of its own.
 foreach(PS2X_SOURCE IN LISTS RUNNER_SRC_FILES)
+    # Checkers install translation-unit-specific guest memory and call macros.
+    if(PS2X_SOURCE MATCHES "/overrides/a[1-8]_typed_check[.]cpp$")
+        set_source_files_properties("${PS2X_SOURCE}" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
     if(PS2X_SOURCE MATCHES "/overrides/lean_[^/]*\\.cpp$")
         set_source_files_properties(${PS2X_SOURCE} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
