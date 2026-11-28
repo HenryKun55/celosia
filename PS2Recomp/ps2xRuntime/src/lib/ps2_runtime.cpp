@@ -1085,6 +1085,7 @@ bool PS2Runtime::initialize(const char *title)
         SetConfigFlags(FLAG_WINDOW_RESIZABLE | (std::getenv("PS2X_HIDDEN_WINDOW") ? FLAG_WINDOW_HIDDEN : 0));
 #endif
         InitWindow(HOST_WINDOW_WIDTH, HOST_WINDOW_HEIGHT, title);
+        PSPadBackend::installGamepadMappings();
 #if defined(__APPLE__)
         if (std::getenv("PS2X_GS_HW"))
         {
@@ -3533,6 +3534,10 @@ void PS2Runtime::run()
             // drawn every frame, so the flip is instant; with SOTC_NATIVE=1 the
             // GS starts drawing again when its picture is asked for.
             static const bool bothDrawn = std::getenv("SOTC_NATIVE") && std::atoi(std::getenv("SOTC_NATIVE")) == 2;
+            // A controller connected after the start: logged (its GUID when unmapped).
+            static uint32_t padPoll = 0;
+            if (++padPoll % 60u == 0u)
+                PSPadBackend::pollControllers();
             if (IsKeyPressed(KEY_F9))
             {
                 native_renderer::Tuning &t = native_renderer::tuning();

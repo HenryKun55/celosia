@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+#include "GLFW/glfw3.h"
+#endif
 #include <atomic>
 #include <cstdio>
 #include <cmath>
@@ -71,6 +74,77 @@ void PSPadBackend::setSteerStick(bool on, float x, float y)
 {
     auto byte = [](float v) { const float c = v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v); return static_cast<uint32_t>(127.5f + 127.5f * c) & 0xFFu; };
     g_steerStick.store(on ? (0x10000u | byte(y) << 8 | byte(x)) : 0u, std::memory_order_relaxed);
+}
+
+namespace
+{
+    // A [pad] line for each controller GLFW sees that was not there at the last
+    // scan: its name when it has a gamepad mapping (its buttons reach the
+    // game), its name and GUID when it has none. At start and, for one
+    // plugged in or paired later, from the host loop (pollControllers). GLFW's
+    // joystick calls belong on the main thread.
+    void scanControllers()
+    {
+#if defined(__APPLE__)
+        static uint32_t known = 0;
+        uint32_t present = 0;
+        for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid)
+        {
+            if (!glfwJoystickPresent(jid))
+                continue;
+            present |= 1u << jid;
+            if (known & (1u << jid))
+                continue;
+            const char *name = glfwGetJoystickName(jid);
+            const char *guid = glfwGetJoystickGUID(jid);
+            if (glfwJoystickIsGamepad(jid))
+                std::fprintf(stderr, "[pad] gamepad %d: %s\n", jid, name ? name : "?");
+            else
+                std::fprintf(stderr, "[pad] controller %d (%s, %s) has no gamepad mapping: add its SDL_GameControllerDB line "
+                                     "to gamecontrollerdb.txt (or PS2X_GAMEPAD_DB)\n",
+                             jid, name ? name : "?", guid ? guid : "?");
+        }
+        known = present; // (one unplugged and plugged back is reported again)
+#endif
+    }
+}
+
+void PSPadBackend::pollControllers()
+{
+#if !defined(PLATFORM_VITA)
+    scanControllers();
+#endif
+}
+
+void PSPadBackend::installGamepadMappings()
+{
+#if !defined(PLATFORM_VITA)
+    // SDL_GameControllerDB lines for controllers whose macOS mapping raylib's GLFW does not carry.
+    // 8BitDo Ultimate 2 Wireless over Bluetooth: the Ultimate 2C's macOS layout (triggers a4 / a5,
+    // right stick a2 / a3), the same as SDL_GameControllerDB's Ultimate 2 Bluetooth line for Linux.
+    static const char *const kBuiltIn =
+        "03000000c82d00001260000001000000,8BitDo Ultimate 2 Wireless,a:b0,b:b1,back:b10,dpdown:h0.4,dpleft:h0.8,"
+        "dpright:h0.2,dpup:h0.1,guide:b12,leftshoulder:b6,leftstick:b13,lefttrigger:a5,leftx:a0,lefty:a1,"
+        "rightshoulder:b7,rightstick:b14,righttrigger:a4,rightx:a2,righty:a3,start:b11,x:b3,y:b4,"
+        "platform:Mac OS X,\n";
+    SetGamepadMappings(kBuiltIn);
+
+    const char *dbEnv = std::getenv("PS2X_GAMEPAD_DB");
+    const char *dbPath = (dbEnv && *dbEnv) ? dbEnv : "gamecontrollerdb.txt";
+    if (FileExists(dbPath))
+    {
+        if (char *text = LoadFileText(dbPath))
+        {
+            const int added = SetGamepadMappings(text);
+            UnloadFileText(text);
+            std::fprintf(stderr, "[pad] gamepad mappings from %s (%d)\n", dbPath, added);
+        }
+    }
+    else if (dbEnv && *dbEnv)
+        std::fprintf(stderr, "[pad] PS2X_GAMEPAD_DB: %s not found\n", dbPath);
+
+    scanControllers();
+#endif
 }
 
 bool PSPadBackend::readState(int /*port*/, int /*slot*/, uint8_t *data, size_t size)
