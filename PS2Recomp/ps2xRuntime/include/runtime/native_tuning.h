@@ -87,6 +87,12 @@ namespace native_renderer
         bool skyImage = true;       // the sky image laid behind the scene (bgEnd's copy)
         bool mipmaps = true;        // SOTC_NATIVE_NOMIPS
         bool textureScroll = true;  // VIF ROW scrolling (SOTC_NATIVE_NOROW)
+        // Texture packs (worklist #21, runtime/texture_pack.h; Mac only):
+        // the textures that have a picture in textures/pack/ drawn with it
+        // (SOTC_TEXTURE_PACK=1; read at start), and each decoded texture
+        // written once to textures/dump/ (SOTC_TEXTURE_DUMP=1).
+        bool texturePack = false;
+        bool textureDump = false;
         // The picture shown at most 30 times a second, evenly (SOTC_CAP30).
         // Off by default: above 30 fps (logos, menus, loading) the game
         // thread is held back, and with it every guest thread (in Vita3K's
@@ -701,10 +707,11 @@ namespace native_renderer
         // Round 124: the Graphics page's group (0 none; 1 the preset, 2
         // resolution & filtering, 3 lighting & post, 4 shadows, 5 fog,
         // 6 effects & particles, 7 distance & detail, 8 performance cuts that
-        // no preset touches); inPreset: the presets set it.
+        // no preset touches, 9 Mac-only extras no preset touches, marked
+        // "(restart)" when they need one); inPreset: the presets set it.
         uint8_t group = 0;
         bool inPreset = false;
-        bool restart = false;           // takes effect only after a restart (none of the Graphics items so far)
+        bool restart = false;           // takes effect only after a restart (the texture pack)
         uint8_t backends = 3;           // bit 0: Metal, bit 1: OpenGL (the Vita) - where it changes anything
         // An action instead of a value (the Debug group's "Mark"): run on
         // Cross / left / right, never saved; its value text from `actionText`.

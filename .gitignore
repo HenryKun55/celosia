@@ -16,6 +16,7 @@ PS2Recomp/ps2xRuntime/src/runner/*
 vu1rec_*.cpp
 
 # Runtime state
+/textures/
 /logs/
 /shots/
 /mc0/
