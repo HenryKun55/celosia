@@ -24983,3 +24983,50 @@ Details: docs/decomp_k3.md. Base main ac722cb.
   - the game thread itself gains ~0-1 ms (within noise).
 - **Console**: package build/agent-scratch/k3 (env-k3-off, env-k3-on, env-k3-dt1). The proof is `[c1] ... CORE 3 ON`
   plus `[k3] threads ...: CORE 3 ON ...; on core 3: 8 of N`, with game 0x10000 and render 0x40000.
+
+## Decomp F1: the release configuration with no env file: the 15 rounds on by default, class E deleted, debug through ps2_diag (2026-11-27)
+
+Round F1 makes the code match round F0's classification (`docs/switches.md`, `docs/switches.json`). The no-env
+behaviour, the menu and the escape hatches are in `docs/release_config.md`.
+
+- **On with no env**: D1NATIVE, DT1, W1, W2, W3, X1, X2, X3, Y1, Y2, Y3, Z1, Z2, Z3, Z4. Each keeps one kill switch,
+  `SOTC_<NAME>=0`, read with `std::getenv` so a release build honours it too (11 of the 15 never ran on the console).
+  W3 used to be read through `ps2_diag::env`, which made it off in any release build. Their knobs are constants (W1 /
+  X3 / Y1 / Z1 / Z2 / Z3 parts; DT1's pin, priority 140, palette at the hook, no wake-ups). `[w1]`, `[x3]` and `[dt1]`
+  lines are off by default.
+- **Class E**: the code paths and switches of BLOOM_OLD, the GL renderer's old ways (ARENA_CLIB, FLUSH_WAIT,
+  NO_STENCIL, PRESSURE_POOLFREE, RUN_EVICT_OLD, SHADOWMASK_VITA, NATIVE_BGFOG, SHADOW_HARD; the Tuning flags
+  glInflight87 / glInflight100 / glShmask87 / glSort87 / ps2Lists), MOVE_WALK, PTCL_DEPTH, ZFOG_JOIN, IDLE_SPIN,
+  SYSTEM_EMULATED, the table switches find84, ptcl91, early95, oan106, flush119, walk119, part119, view119, gaze122,
+  texr128, seg123, pose136, s12draw, s16plan, s19amb, s22ptcl, s23light, clip140 and C2's own switch (the scene stays, part
+  of W1) are deleted. S13MOT, S14HOOK, CTL126 and S8CLOTH lose their switch and their `on()` is a constant false (their
+  bodies are woven through live functions and are left for a cleanup round). **Moved to F instead** (live): the K1 family
+  (K2's shared boot code), SEG80 (its memo still serves probe84's AI path callers by default; the table's "on" was right)
+  and CHAR104 with its knobs (on by default on the Mac runner).
+- **Class D / B**: every debug / profiling / check read and every player option's variable goes through
+  `ps2_diag::env` (306 literal reads, the generic env helpers of 19 files, the vitaGL glue and the sound side; the boot
+  reads of K2 / K2REMAP_DRY / K2_PATH / C1CORE3_EXPECT behind `!ps2_diag::kRelease`), so a `PS2X_VITA_RELEASE` build has
+  none and its menu / settings.cfg are the only source of the options. Four debug names F0 missed are recorded.
+- **Switch table**: a12typed is opt-in in the table too (a12FlagsNow's rule).
+- **Mac runner**: main's unity batches collided on the Mac (CurveRegs, EulerRegs, D3ScaleMatrixOut, the a*_typed_check
+  files' rd / wr / st); those files are translation units of their own there by default, and the runner links again.
+- **Gates** (p2, the package): 0 errors; spalign 0 sp-based of 3 462; `sotc_vita_elf_room` 0x1e000; no "segment 1
+  overlaps" (text ends 0x2c84 below the boundary with the 8 KB W1 pad unchanged). The release build (`PS2X_VITA_RELEASE=ON`)
+  also builds (spalign 0 of 3 445, room 0x18000 as round 130 set it) and boots.
+- **Vita3K, no env file** (only input / route / FRAME_LOG / the 89 MB the console lacks; 222 MHz, 3 cores, muted) against
+  main 7b70a6f (K3's build) with all/env-all-on.txt minus its profilers (P2BRACKET, PROF129, M1PMU, K2), run in pairs at the
+  same time. Mean frame ms over the last 60 % of each run:
+
+  | route | F1, no env | main + env-all-on | Unhandled |
+  |---|---|---|---|
+  | ride7 600 s | 37.7 (mounted at frame 4 559) | 37.1 (mounted at 2 220) | 0 / 0 |
+  | shrine / altar 600 s | 41.6 | 41.6 | 0 / 0 |
+  | lake6 480 s | 36.4 | 35.3 | 0 / 0 |
+  | attract 300 s (no settings.cfg) | 20.6 | 20.7 | 0 / 0 |
+
+  Within run-to-run noise (the mount frame alone varies 2 200-6 400 between identical runs of earlier rounds; F1 also runs
+  Z3, Z4 and DT1, which env-all-on lacked). Every kill switch `=0` (ride7): 36.8 ms, mounted, 0 Unhandled, no round's
+  "on" line. Boots: 6 of 6 Load Game boots of the no-env package reached gameplay (ride7, shrine, lake6 and three 200 s
+  shrine boots), plus the kill-switch ride and both release-build boots (attract, shrine). The pictures (ground, Agro and
+  Wander riding, the shrine with Mono, the lake's water) look the same as the baseline's.
+- **Package**: build/agent-scratch/f1 (celosia-f1.vpk, pkg/eboot.bin, README.txt; celosia-f1-release.vpk the release build).
