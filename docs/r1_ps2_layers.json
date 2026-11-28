@@ -1,0 +1,1299 @@
+{
+ "note": "Round R1 (docs/r1_ps2_layers.md): the console game thread split into (a) game logic, (b) PS2 emulation / SDK layers, (c) our runtime, from existing data only. ms a frame of the a3off run (prof129 windows 1-3, riding the plain, 43.43 ms/frame wall). Console buckets are measured (sampled guest pc + zones + wait sites); adjusted_ms moves the host layers the console sampler cannot see out of (a) by their Vita3K shares (estimate). Replacement savings are estimates with their assumption.",
+ "tool": "tools/r1_split.py",
+ "console": {
+  "run": "run-20261127-a3off",
+  "windows": "1-3",
+  "frames": 4211,
+  "wall_s": 182.9,
+  "ms_per_frame": 43.43,
+  "running_ms": 41.05,
+  "samples": 105723,
+  "buckets": {
+   "A.chars": {
+    "label": "(a) characters / motion / cloth / IK",
+    "ms": 7.772,
+    "share": 0.17893,
+    "top": [
+     [
+      "getClothDynamics [dc2::entryDynamicsSw]",
+      1.398
+     ],
+     [
+      "GetMotionMatrix [void sotc_p2::wrapped<7>]",
+      0.942
+     ],
+     [
+      "ExecCharaGeometry",
+      0.602
+     ],
+     [
+      "manager_sub_010CE558 [void sotc_p2::wrapped<9>]",
+      0.316
+     ],
+     [
+      "GetArbitraryDirectionInverseMatrix [decomp_quat::invMatrixSw]",
+      0.283
+     ],
+     [
+      "GetMotionFloatFrame [decomp_motionframe::motionFloatFrameSw]",
+      0.202
+     ],
+     [
+      "GetCharaRootDynamicsAfter [decomp_hot47c::rootDynamicsAfterSw]",
+      0.182
+     ],
+     [
+      "GetClothDynamics",
+      0.178
+     ]
+    ]
+   },
+   "A.disp": {
+    "label": "(a) display, game side: the walk, clip, lights, layout, texture reset, sprites",
+    "ms": 7.112,
+    "share": 0.16374,
+    "top": [
+     [
+      "DispDispObjGroupModel",
+      1.268
+     ],
+     [
+      "ClipLayoutObjModel [decomp_walk::clipLayoutObjModelSw]",
+      0.73
+     ],
+     [
+      "manager_sub_010F4FB8",
+      0.555
+     ],
+     [
+      "UpdateLayoutClassGeometry [void sotc_p2::wrapped<3>]",
+      0.489
+     ],
+     [
+      "ClipCollisionDirectCallBackOneObj",
+      0.397
+     ],
+     [
+      "CalcLightLayoutObj [decomp_hot43b::calcLightLayoutObjSw]",
+      0.24
+     ],
+     [
+      "execPointListSort [decomp_pointsort::sortSw]",
+      0.226
+     ],
+     [
+      "GetLayoutClass [decomp_layoutclass::getLayoutClassSw]",
+      0.174
+     ]
+    ]
+   },
+   "A.coll": {
+    "label": "(a) collision / physics",
+    "ms": 2.825,
+    "share": 0.06504,
+    "top": [
+     [
+      "ClipCollisionDirectCallBack",
+      0.892
+     ],
+     [
+      "GetCollisionDBCallBack",
+      0.251
+     ],
+     [
+      "ClipCollisionFinderCallBack [void decomp_collision::finderClip<true>]",
+      0.246
+     ],
+     [
+      "ClipCollisionDirectCallBack [void sotc_p2::wrapped<13>]",
+      0.223
+     ],
+     [
+      "manager_sub_01115798 [decomp_collision::finderLeafSw]",
+      0.199
+     ],
+     [
+      "ClipCollisionFinder [void decomp_collision::finderClip<false>]",
+      0.115
+     ],
+     [
+      "FlushCollisionWorkByWorkStruct [decomp_collision::flushWorkSw]",
+      0.101
+     ],
+     [
+      "ClipCollisionDB [void sotc_p2::wrapped<12>]",
+      0.074
+     ]
+    ]
+   },
+   "A.ptcl": {
+    "label": "(a) particles / wind (incl. the particle module run behind the worker gates)",
+    "ms": 2.023,
+    "share": 0.04658,
+    "top": [
+     [
+      "manager_sub_0113B610 [void sotc_worker::gate<13>]",
+      0.387
+     ],
+     [
+      "manager_sub_0113B928",
+      0.354
+     ],
+     [
+      "doit_particle_manager",
+      0.345
+     ],
+     [
+      "manager_sub_0113B928 [void sotc_worker::gate<14>]",
+      0.272
+     ],
+     [
+      "get_particle_parameter_blend_doit [void sotc_worker::gate<139>]",
+      0.201
+     ],
+     [
+      "manager_sub_0113AAE0 [void sotc_worker::gate<8>]",
+      0.09
+     ],
+     [
+      "manager_sub_0113E940 [void sotc_p2::wrapped<20>]",
+      0.078
+     ],
+     [
+      "manager_sub_0113E940",
+      0.043
+     ]
+    ]
+   },
+   "A.script": {
+    "label": "(a) scripts / AI / other game code",
+    "ms": 11.836,
+    "share": 0.2725,
+    "top": [
+     [
+      "manager_sub_01137640",
+      0.457
+     ],
+     [
+      "gamecore_sub_013CFBE0",
+      0.447
+     ],
+     [
+      "manager_sub_010F3FB0 {zone 0x2012}",
+      0.315
+     ],
+     [
+      "manager_sub_010C6238 [decomp_gaze::gazeSw]",
+      0.282
+     ],
+     [
+      "manager_sub_01102638",
+      0.257
+     ],
+     [
+      "manager_sub_010E1068",
+      0.217
+     ],
+     [
+      "manager_sub_01116958",
+      0.215
+     ],
+     [
+      "_setNodeHPB [decomp_hot44d::setNodeHPBSw]",
+      0.197
+     ]
+    ]
+   },
+   "A.cam": {
+    "label": "(a) camera",
+    "ms": 0.474,
+    "share": 0.01092,
+    "top": [
+     [
+      "CAM_get_new_look_at_posi_from_camera_posi_and_rotXY [lift_d1::CAM_get_new_look_at_posi_from_c]",
+      0.037
+     ],
+     [
+      "CAM_get_camera_space_axisXY [lift_d1::CAM_get_camera_space_axisXY]",
+      0.031
+     ],
+     [
+      "testGetCamPos [lift_d1::testGetCamPos]",
+      0.016
+     ],
+     [
+      "doit_camera_region_manager [lift_d1::doit_camera_region_manager]",
+      0.014
+     ],
+     [
+      "get_main_cameraman_camera_obj [lift_d1::get_main_cameraman_camera_obj]",
+      0.014
+     ],
+     [
+      "update_by_cam_and_look_at_posi_mode_common_camera_data [lift_d1::update_by_cam_and_look_at_posi_]",
+      0.013
+     ],
+     [
+      "doit_cameraman_manager [void sotc_p2::wrapped<15>]",
+      0.01
+     ],
+     [
+      "SetCameraReverbFlag [lift_d1::SetCameraReverbFlag]",
+      0.009
+     ]
+    ]
+   },
+   "A.engine": {
+    "label": "(a) engine services: isys objects / groups / letters, heap alloc, engine math, frame loop",
+    "ms": 2.612,
+    "share": 0.06013,
+    "top": [
+     [
+      "isysGroupForFirst [decomp_isys::forFirstSw]",
+      0.234
+     ],
+     [
+      "CalcNodeInterp [decomp_nodeinterp::calcNodeInterpSw]",
+      0.183
+     ],
+     [
+      "manager_sub_010CDD10 [dc2::entryFindRecordSw]",
+      0.119
+     ],
+     [
+      "GetGeometryPointerPosition [cam126::geoPosSw]",
+      0.118
+     ],
+     [
+      "isysGroupForExit [decomp_isys::forExitSw]",
+      0.099
+     ],
+     [
+      "isysGroupForNext [decomp_group::groupForNextSw]",
+      0.077
+     ],
+     [
+      "iosGetRandom [decomp_r139::getRandomSw]",
+      0.067
+     ],
+     [
+      "isysGroupForNextForce [decomp_group::groupForNextForceSw]",
+      0.065
+     ]
+    ]
+   },
+   "B.kernel": {
+    "label": "(b) EE kernel: thread switches (dispatcher), semaphores, message boxes, interrupt handlers, system threads t4 / t5 / t8 / t10, timers",
+    "ms": 1.065,
+    "share": 0.02453,
+    "top": [
+     [
+      "iosSendMsg {zone 0x2040}",
+      0.208
+     ],
+     [
+      "SignalSema [b6sync::signalHost]",
+      0.107
+     ],
+     [
+      "iosSendMsg",
+      0.069
+     ],
+     [
+      "iosGetTCountExtension [sysnative::getTCountExtension]",
+      0.056
+     ],
+     [
+      "kernel_sub_001B2CA0",
+      0.054
+     ],
+     [
+      "kernel_sub_001C8078 [gpReleaseFrameHook]",
+      0.051
+     ],
+     [
+      "iosRecvMsg {zone 0x2040}",
+      0.051
+     ],
+     [
+      "kernel_sub_001AD270",
+      0.044
+     ]
+    ]
+   },
+   "B.subthr": {
+    "label": "(b) guest sub-thread switching (script coroutines on PS2 register frames)",
+    "ms": 0.24,
+    "share": 0.00552,
+    "top": [
+     [
+      "isysWakeupSubThread [decomp_subthread::wake]",
+      0.127
+     ],
+     [
+      "isysWakeupSubThread [decomp_subthread::sleep]",
+      0.072
+     ],
+     [
+      "isysGetThisSubThread [decomp_scriptvm3::thisSubThreadSw]",
+      0.038
+     ],
+     [
+      "isysWakeupSubThread",
+      0.001
+     ],
+     [
+      "isysStartSubThread [lift_d1::isysStartSubThread]",
+      0.001
+     ],
+     [
+      "isysInitSubThreadObj [lift_d1::isysInitSubThreadObj]",
+      0.0
+     ]
+    ]
+   },
+   "B.sound": {
+    "label": "(b) SG2 sound library, EE side (sequencer ticks, SIF RPC to the IOP driver)",
+    "ms": 0.561,
+    "share": 0.01291,
+    "top": [
+     [
+      "Sg2RemoteTickProc [sound_n2::sg2RemoteTickProc]",
+      0.159
+     ],
+     [
+      "Sg2ModTickProc",
+      0.06
+     ],
+     [
+      "sceDbcSendData2 {zone 0x2030}",
+      0.032
+     ],
+     [
+      "sound3DCalc [lift_d1::sound3DCalc]",
+      0.028
+     ],
+     [
+      "Sg2SepTickProc",
+      0.023
+     ],
+     [
+      "sndSepTickProc",
+      0.021
+     ],
+     [
+      "Sg2SlotTickProc [sound_n2::sg2SlotTickProc]",
+      0.018
+     ],
+     [
+      "kernel_sub_001CDF38 [lift_d1::kernel_sub_001CDF38]",
+      0.014
+     ]
+    ]
+   },
+   "B.gs": {
+    "label": "(b) GS / DMA / display-list plumbing (gsReg, iosDl*, DMA chain send, frame-buffer copy, VRAM texture requests, SPR copies)",
+    "ms": 0.744,
+    "share": 0.01713,
+    "top": [
+     [
+      "iosChkGpDlTransExec [sysnative::chkGpDlTransExec]",
+      0.108
+     ],
+     [
+      "iosDmaSendSChainPath1 [sysnative::dmaSendPath1]",
+      0.101
+     ],
+     [
+      "gsReg [sotc_native::gsRegHook]",
+      0.074
+     ],
+     [
+      "iosCopyFrameBuffer [sysnative::copyFrameBuffer]",
+      0.067
+     ],
+     [
+      "iosDlSwap",
+      0.051
+     ],
+     [
+      "iosDlPushLayer [sotc_native::pushLayerHook]",
+      0.039
+     ],
+     [
+      "texTransRequest [void decomp_tex64::wrap<0>]",
+      0.035
+     ],
+     [
+      "iosDlPopLayer [sotc_native::popLayerHook]",
+      0.034
+     ]
+    ]
+   },
+   "B.load": {
+    "label": "(b) CD / loader / XFF module relocation and run-time symbol resolution",
+    "ms": 0.399,
+    "share": 0.00919,
+    "top": [
+     [
+      "sheetMgrResolve",
+      0.104
+     ],
+     [
+      "kernel_sub_001B4760 [decomp_sym120::resolveImportsSw]",
+      0.085
+     ],
+     [
+      "LoaderSysRelocateOnlineElfInfo",
+      0.047
+     ],
+     [
+      "kernel_sub_001AC9C8",
+      0.039
+     ],
+     [
+      "RelocateCode [decomp_reloc::relocateCodeSw]",
+      0.035
+     ],
+     [
+      "kernel_sub_001B4170",
+      0.03
+     ],
+     [
+      "iosCdStRead",
+      0.018
+     ],
+     [
+      "isysMoveModuleObj",
+      0.008
+     ]
+    ]
+   },
+   "B.heap": {
+    "label": "(b) PS2 heap compaction (the garbage pass: block moves through the scratchpad)",
+    "ms": 0.717,
+    "share": 0.01651,
+    "top": [
+     [
+      "kernel_sub_001AD958 [sysnative::copyViaSpr]",
+      0.54
+     ],
+     [
+      "kernel_sub_001C81B0",
+      0.138
+     ],
+     [
+      "iosMallocGarbageTickProc",
+      0.015
+     ],
+     [
+      "kernel_sub_001AE270",
+      0.013
+     ],
+     [
+      "kernel_sub_001AE270 [lift_d1::kernel_sub_001AE270]",
+      0.005
+     ],
+     [
+      "iosMallocGarbageTickProc [decomp_gctick::tick]",
+      0.005
+     ],
+     [
+      "garbageNmoCallBack [lift_d1::garbageNmoCallBack]",
+      0.001
+     ],
+     [
+      "garbageColResCallBack [lift_d1::garbageColResCallBack]",
+      0.0
+     ]
+    ]
+   },
+   "B.pad": {
+    "label": "(b) pad / vibration / memory-card SDK",
+    "ms": 0.124,
+    "share": 0.00285,
+    "top": [
+     [
+      "padSysTickProc",
+      0.035
+     ],
+     [
+      "sceDbcSendData2",
+      0.021
+     ],
+     [
+      "iosPadRead [lift_d1::iosPadRead]",
+      0.011
+     ],
+     [
+      "iosPadGetXZInputLwithThreshold [lift_d1::iosPadGetXZInputLwithThreshold]",
+      0.011
+     ],
+     [
+      "iosPadTickProc",
+      0.006
+     ],
+     [
+      "Shock_SetMotor [a14ad::Shock_SetMotor]",
+      0.005
+     ],
+     [
+      "sceVibSetActParam [lift_d1::sceVibSetActParam]",
+      0.005
+     ],
+     [
+      "iosPadTickProc [lift_d1::iosPadTickProc]",
+      0.005
+     ]
+    ]
+   },
+   "B.libc": {
+    "label": "(b) PS2 libc / libm / softfloat as guest code",
+    "ms": 0.205,
+    "share": 0.00473,
+    "top": [
+     [
+      "ps2___ieee754_powf",
+      0.062
+     ],
+     [
+      "floorf [decomp_leaves::floorSw]",
+      0.038
+     ],
+     [
+      "iosSPrintf [lift_d1::iosSPrintf]",
+      0.012
+     ],
+     [
+      "ps2___udivdi3 [lift_d1::ps2___udivdi3]",
+      0.012
+     ],
+     [
+      "ps2___ieee754_asinf [decomp_hot43b::asinF]",
+      0.011
+     ],
+     [
+      "dpadd [dpadd]",
+      0.009
+     ],
+     [
+      "ps2___floatdisf [floatdisf]",
+      0.008
+     ],
+     [
+      "mktime [decomp_time::mktime]",
+      0.007
+     ]
+    ]
+   },
+   "C.hook": {
+    "label": "(c) native renderer front end on the game thread (modelDispHook phases, 2D feed)",
+    "ms": 1.113,
+    "share": 0.02561,
+    "top": [
+     [
+      "manager_sub_010F3A08 {zone 0x2005}",
+      0.226
+     ],
+     [
+      "manager_sub_010F3A08 {zone 0x2003}",
+      0.194
+     ],
+     [
+      "manager_sub_010F3A08 {zone 0x2002}",
+      0.187
+     ],
+     [
+      "modelDisp [void sotc_p2::wrapped<1>]",
+      0.181
+     ],
+     [
+      "manager_sub_010F3FB0 {zone 0x2013}",
+      0.129
+     ],
+     [
+      "manager_sub_010F3CF0 {zone 0x2005}",
+      0.064
+     ],
+     [
+      "manager_sub_010F3A08 {zone 0x2004}",
+      0.049
+     ],
+     [
+      "manager_sub_010F3CF0 {zone 0x2002}",
+      0.023
+     ]
+    ]
+   },
+   "C.sync": {
+    "label": "(c) frame hand-over to the render thread (syncFrame / endFrame), running",
+    "ms": 1.214,
+    "share": 0.02795,
+    "top": [
+     [
+      "modelDisp [void sotc_p2::wrapped<1>] {zone 0x2020}",
+      1.214
+     ]
+    ]
+   },
+   "W.blocked": {
+    "label": "wait (b): every guest thread blocked, the EE scheduler idles to a VBlank / deadline",
+    "ms": 1.101,
+    "share": 0.02536,
+    "top": [
+     [
+      "-",
+      1.101
+     ]
+    ]
+   },
+   "W.render": {
+    "label": "wait (c): the render thread hand-over",
+    "ms": 0.76,
+    "share": 0.0175,
+    "top": [
+     [
+      "-",
+      0.76
+     ]
+    ]
+   },
+   "W.hookjoin": {
+    "label": "wait (c): the hook jobs joined",
+    "ms": 0.521,
+    "share": 0.01199,
+    "top": [
+     [
+      "-",
+      0.521
+     ]
+    ]
+   },
+   "W.other": {
+    "label": "wait: other sites",
+    "ms": 0.004,
+    "share": 9e-05,
+    "top": [
+     [
+      "-",
+      0.004
+     ]
+    ]
+   },
+   "X.none": {
+    "label": "outside the table (no guest pc)",
+    "ms": 0.012,
+    "share": 0.00027,
+    "top": [
+     [
+      "-",
+      0.012
+     ]
+    ]
+   }
+  },
+  "host": {
+   "profile": "build/agent-scratch/cf1/runs/profRD/prof.txt (Vita3K 222 MHz, ride7, celosia-cf1-base = main 3edd3a1)",
+   "tid": "258",
+   "samples": 118403315698,
+   "groups": {
+    "A.rest": {
+     "share": 0.85255,
+     "top": []
+    },
+    "B.sched": {
+     "share": 0.00352,
+     "top": [
+      [
+       "EeScheduler::checkpointSlowInner",
+       0.00048
+      ],
+      [
+       "EeScheduler::processDueDeadlines",
+       0.00034
+      ],
+      [
+       "EeScheduler::processPendingEvents",
+       0.0003
+      ],
+      [
+       "EeScheduler::publishSnapshot",
+       0.00029
+      ],
+      [
+       "EeScheduler::waitSemaphore",
+       0.00028
+      ]
+     ]
+    },
+    "X.veneer": {
+     "share": 0.01756,
+     "top": [
+      [
+       "__strncmp_veneer",
+       0.00672
+      ],
+      [
+       "___ZNSt9basic_iosIcSt11char_traitsIcEE4initEPSt15basic_streambufIcS1_E_veneer",
+       0.00136
+      ],
+      [
+       "____cxa_thread_atexit_veneer",
+       0.00127
+      ],
+      [
+       "___ZNSt10filesystem7__cxx1118directory_iterator9incrementERSt10error_code_veneer",
+       0.00125
+      ],
+      [
+       "___Z43doit_camera_lws_animation_manager_0x1162498PhP12R5900ContextP10PS2Runtime_veneer",
+       0.00062
+      ]
+     ]
+    },
+    "C.diag": {
+     "share": 0.00196,
+     "top": [
+      [
+       "decomp_walk::wprof::on",
+       0.00103
+      ],
+      [
+       "decomp_walk::clip140::logOn",
+       0.00058
+      ],
+      [
+       "sotc_p2::install",
+       0.00025
+      ],
+      [
+       "_vfprintf_r",
+       4e-05
+      ],
+      [
+       "_svfprintf_r",
+       2e-05
+      ]
+     ]
+    },
+    "C.hook_hidden": {
+     "share": 0.02196,
+     "top": [
+      [
+       "sotc_native::ptclS1Commit",
+       0.00436
+      ],
+      [
+       "sotc_native::vertex2D",
+       0.00249
+      ],
+      [
+       "sotc_native::hookScrolls127",
+       0.00215
+      ],
+      [
+       "sotc_native::queueNextDraw",
+       0.00177
+      ],
+      [
+       "sotc_native::gameLodRaw",
+       0.00107
+      ]
+     ]
+    },
+    "C.hook_slot": {
+     "share": 0.02317,
+     "top": [
+      [
+       "sotc_native::modelDispHook",
+       0.01125
+      ],
+      [
+       "sotc_native::gsRegHook",
+       0.00304
+      ],
+      [
+       "sotc_native::pushLayerHook",
+       0.00225
+      ],
+      [
+       "sotc_native::popLayerHook",
+       0.00193
+      ],
+      [
+       "sotc_native::immFeed128",
+       0.00171
+      ]
+     ]
+    },
+    "B.iop": {
+     "share": 0.0013,
+     "top": [
+      [
+       "sound_n2::",
+       0.00022
+      ],
+      [
+       "ps2x::iop::detail::Sg2Driver::fillReply",
+       0.00016
+      ],
+      [
+       "ps2x::iop::detail::Sg2Driver::streamTick",
+       0.00016
+      ],
+      [
+       "ps2x::iop::detail::Sg2Driver::runCommand",
+       0.00014
+      ],
+      [
+       "___ZN4ps2x3iop6detail9Sg2Driver9fillReplyEv_veneer",
+       0.00011
+      ]
+     ]
+    },
+    "X.libc": {
+     "share": 0.00304,
+     "top": [
+      [
+       "strncmp",
+       0.00074
+      ],
+      [
+       "pthread_mutex_unlock",
+       0.00039
+      ],
+      [
+       "pthread_mutex_lock",
+       0.00034
+      ],
+      [
+       "_malloc_r",
+       0.00029
+      ],
+      [
+       "strlen",
+       0.00024
+      ]
+     ]
+    },
+    "B.sched_run": {
+     "share": 0.00121,
+     "top": [
+      [
+       "EeScheduler::run",
+       0.00121
+      ]
+     ]
+    },
+    "B.mem": {
+     "share": 0.00147,
+     "top": [
+      [
+       "ps2_guest_mem::write32",
+       0.00051
+      ],
+      [
+       "PS2Memory::readIORegister",
+       0.00027
+      ],
+      [
+       "ps2_guest_mem::read32",
+       0.00019
+      ],
+      [
+       "PS2Memory::writeIORegister",
+       0.00012
+      ],
+      [
+       "ps2_guest_mem::write128",
+       6e-05
+      ]
+     ]
+    },
+    "B.abi": {
+     "share": 0.01733,
+     "top": [
+      [
+       "a6Is",
+       0.00401
+      ],
+      [
+       "sotc_decomp::callGuest",
+       0.00351
+      ],
+      [
+       "a10Holds",
+       0.00329
+      ],
+      [
+       "a6IsBase",
+       0.00176
+      ],
+      [
+       "sotc_decomp::recompiled",
+       0.00115
+      ]
+     ]
+    },
+    "B.sys": {
+     "share": 0.00361,
+     "top": [
+      [
+       "decomp_sema::signalSema",
+       0.00138
+      ],
+      [
+       "ps2_stubs::",
+       0.00065
+      ],
+      [
+       "ps2_stubs::memcpyCore",
+       0.00046
+      ],
+      [
+       "ps2_stubs::fmt102::format",
+       0.00029
+      ],
+      [
+       "ps2_stubs::memsetCore",
+       0.00014
+      ]
+     ]
+    },
+    "X.div": {
+     "share": 0.00396,
+     "top": [
+      [
+       ".udivsi3_skip_div0_test",
+       0.0027
+      ],
+      [
+       "__udivmoddi4",
+       0.00081
+      ],
+      [
+       "__aeabi_uidivmod",
+       0.0002
+      ],
+      [
+       ".divsi3_skip_div0_test",
+       0.00016
+      ],
+      [
+       "__aeabi_uldivmod",
+       4e-05
+      ]
+     ]
+    },
+    "C.offload": {
+     "share": 0.02029,
+     "top": [
+      [
+       "decomp_prefetch::note",
+       0.00944
+      ],
+      [
+       "decomp_prefetch::aheadWalkClip",
+       0.00279
+      ],
+      [
+       "decomp_prefetch::objectLines",
+       0.00257
+      ],
+      [
+       "pf141::noteClothSlow",
+       0.00245
+      ],
+      [
+       "decomp_prefetch::aheadWalkDisp",
+       0.00244
+      ]
+     ]
+    },
+    "X.mem": {
+     "share": 0.02663,
+     "top": [
+      [
+       "memcpy",
+       0.02275
+      ],
+      [
+       "memset",
+       0.00329
+      ],
+      [
+       "memcmp",
+       0.00059
+      ]
+     ]
+    },
+    "B.sys_guest": {
+     "share": 0.00043,
+     "top": [
+      [
+       "b6sync::",
+       0.00043
+      ],
+      [
+       "b6sync::installLate",
+       0.0
+      ]
+     ]
+    }
+   }
+  },
+  "moved_from_a_ms": {
+   "B.abi": 0.711,
+   "B.sched": 0.144,
+   "B.iop": 0.053,
+   "B.sys": 0.148,
+   "B.mem": 0.06,
+   "C.hook_hidden": 0.901,
+   "C.offload": 0.833,
+   "C.diag": 0.08
+  },
+  "adjusted_ms": {
+   "W.blocked": 1.101,
+   "C.sync": 1.214,
+   "A.coll": 2.586,
+   "B.heap": 0.717,
+   "A.disp": 6.511,
+   "A.chars": 7.115,
+   "A.ptcl": 1.852,
+   "W.hookjoin": 0.521,
+   "A.script": 10.835,
+   "W.render": 0.76,
+   "B.kernel": 1.358,
+   "C.hook": 2.014,
+   "A.engine": 2.391,
+   "B.sound": 0.614,
+   "B.load": 0.399,
+   "B.subthr": 0.24,
+   "B.gs": 0.744,
+   "B.libc": 0.205,
+   "A.cam": 0.434,
+   "B.pad": 0.124,
+   "X.none": 0.012,
+   "W.other": 0.004,
+   "B.abi": 0.772,
+   "C.offload": 0.833,
+   "C.diag": 0.08
+  }
+ },
+ "summary_ms": {
+  "console_measured": {
+   "a": 34.65,
+   "b": 4.06,
+   "c": 2.33,
+   "wait_b": 1.1,
+   "wait_c": 1.28
+  },
+  "adjusted_estimate": {
+   "a": 31.72,
+   "b": 5.17,
+   "c": 4.14,
+   "wait_b": 1.1,
+   "wait_c": 1.28
+  }
+ },
+ "cross_check_runs_no_brackets": [
+  {
+   "run": "run-20261125-k2pmu",
+   "windows": "1-5",
+   "frames": 6784,
+   "ms_per_frame": 44.97,
+   "buckets_ms": {
+    "A.chars": 7.342,
+    "A.disp": 7.536,
+    "A.coll": 3.675,
+    "A.ptcl": 2.225,
+    "A.script": 13.093,
+    "A.cam": 0.544,
+    "A.engine": 3.15,
+    "B.kernel": 1.025,
+    "B.subthr": 0.288,
+    "B.sound": 0.594,
+    "B.gs": 0.75,
+    "B.load": 0.341,
+    "B.heap": 0.572,
+    "B.pad": 0.147,
+    "B.libc": 0.23,
+    "C.hook": 0.808,
+    "C.sync": 0.644,
+    "W.blocked": 0.943,
+    "W.render": 0.461,
+    "W.hookjoin": 0.591,
+    "W.other": 0.001,
+    "X.none": 0.012
+   }
+  },
+  {
+   "run": "run-20261125-p2dmiss",
+   "windows": "1-3",
+   "frames": 3561,
+   "ms_per_frame": 51.36,
+   "buckets_ms": {
+    "A.chars": 8.261,
+    "A.disp": 7.887,
+    "A.coll": 4.718,
+    "A.ptcl": 2.02,
+    "A.script": 16.297,
+    "A.cam": 0.472,
+    "A.engine": 3.291,
+    "B.kernel": 1.041,
+    "B.subthr": 0.362,
+    "B.sound": 0.7,
+    "B.gs": 0.76,
+    "B.load": 0.384,
+    "B.heap": 0.653,
+    "B.pad": 0.139,
+    "B.libc": 0.262,
+    "C.hook": 0.769,
+    "C.sync": 0.837,
+    "W.blocked": 1.067,
+    "W.render": 0.493,
+    "W.hookjoin": 0.932,
+    "W.other": 0.005,
+    "X.none": 0.013
+   }
+  }
+ ],
+ "other_threads_cpu_ms_a3off_frames_1928_6186": {
+  "game": 39.27,
+  "worker (hook jobs: VU1 replacement over PS2 model packets)": 8.69,
+  "render": 14.79,
+  "audio (SPU2-style mixer)": 4.6,
+  "loader (CD read-ahead)": 4.91,
+  "dma (VIF1 chain walk)": 1.68,
+  "lane": 2.89,
+  "offload": 6.44,
+  "log": 1.22,
+  "main": 1.26,
+  "build": 0.29
+ },
+ "pmu_lean444_frames_1502_3002": {
+  "ms_per_frame_cycles": 46.7,
+  "dcache_miss": 120900,
+  "dcache_stall_ms": 11.2,
+  "icache_miss": 461100,
+  "icache_stall_ms": 7.3,
+  "dtlb_miss": 35300,
+  "itlb_miss": 5460,
+  "r0_guest_dcache_floor_ms": 5.6,
+  "host_side_dcache_ms_estimate": 5.6
+ },
+ "profiler_overhead_a3off_ms_estimate": {
+  "p2_brackets": "~1 (PMU cycles of the same frames vs lean444: +1.1 / +0.8 ms); modelDisp alone 66.5 bracket calls a frame = 0.33 ms"
+ },
+ "replacements": [
+  {
+   "rank": 1,
+   "what": "A/B the cache-warming plumbing on the console (SOTC_OBJ_PREFETCH=0, SOTC_PF141=0): decomp_prefetch notes + pf141 cost the game thread",
+   "removes_ms": "0..0.8 (cost 0.83 ms est. from Vita3K 2.0%; net depends on what the prefetch thread buys)",
+   "weeks": 0.2,
+   "verify_first": true
+  },
+  {
+   "rank": 2,
+   "what": "No heap compaction while playing: streamed stage / model files from their own arena (or host memory), garbage pass only at area loads or on a failed allocation",
+   "removes_ms": "0.6..0.8 (heap bucket 0.72 + module relocations after moves ~0.1)",
+   "weeks": 1.0
+  },
+  {
+   "rank": 3,
+   "what": "Freeze the function table in the release build: typed calls direct, A*_HOLDS slot tests compile to constants except the slots hooked at run time; no callGuest / aliasOf on hot paths",
+   "removes_ms": "0.8..1.2 (ABI glue 0.77 est. + 20 MB table lines / dTLB 0.2..0.7 est.)",
+   "weeks": 1.75
+  },
+  {
+   "rank": 4,
+   "what": "Host libm / softfloat instead of the guest powf / floorf / asinf / dp*; pads read once a frame with sceCtrl (no padSys / DBC / vibration SDK emulation)",
+   "removes_ms": "0.2..0.3 (libc 0.21 + pad 0.12)",
+   "weeks": 0.5
+  },
+  {
+   "rank": 5,
+   "what": "Non-blocking render hand-over (one more command buffer: endFrame never waits for the render thread) and hook results joined where used, not at the frame end",
+   "removes_ms": "0.8..1.5 (render wait 0.76 + hookjoin 0.52 + part of syncFrame 1.21)",
+   "weeks": 2.5
+  },
+  {
+   "rank": 6,
+   "what": "Native frame loop: no EE scheduler after GAMECORE; t9 loop as C++, t8 (VBlank: pads, sound tick) and t10 (GP turn) work called at fixed points, message boxes as calls, idle thread gone, VBlank a host tick",
+   "removes_ms": "1.5..2.4 (EE kernel 1.36 adj. + most of the 1.10 blocked wait)",
+   "weeks": 5.0
+  },
+  {
+   "rank": 7,
+   "what": "Cache resolved symbols (sheetMgrResolve, resolveImports) per module, dropped when a module moves",
+   "removes_ms": "0.15",
+   "weeks": 0.5
+  },
+  {
+   "rank": 8,
+   "what": "Native data shapes for the hot guest data (R0 families R, D, M first)",
+   "removes_ms": "2.3 (R0 estimate, dcache only)",
+   "weeks": 10
+  },
+  {
+   "rank": 9,
+   "what": "Meshes and draw plans converted at load; particle / 2D submission batched into the renderer (no per-frame parse of PS2 model packets on the game thread)",
+   "removes_ms": "0.8..1.2 (C.hook 2.0 adj.)",
+   "weeks": 4.5
+  },
+  {
+   "rank": 10,
+   "what": "SG2 sequencer ticks on the audio thread behind a command queue (the mixer is already host code, N2); the game thread only queues sound calls",
+   "removes_ms": "0.5 (sound 0.61 adj.; the work moves to the audio core)",
+   "weeks": 2.5
+  },
+  {
+   "rank": 11,
+   "what": "Script sub-threads as host coroutines / state machines (no 0x2c0-byte PS2 register frames)",
+   "removes_ms": "0.3 (0.24 + guest-stack misses)",
+   "weeks": 2
+  },
+  {
+   "rank": 12,
+   "what": "Display code calls the renderer directly: no DMA chains, gsReg words, VRAM texture requests, frame-buffer copy packets (and no dma thread)",
+   "removes_ms": "0.6..0.7 game thread (+1.7 ms of the dma thread, other core)",
+   "weeks": 5
+  }
+ ],
+ "host_side_dcache_suspects": [
+  {
+   "what": "the 20 MB function table (g_ps2RecompiledFunctionTable, 5 084 402 x 4 B): every guest call through the table and every typed slot test (~7 800 A*_HOLDS sites) loads a slot; ~2-3 k distinct slots a frame on distinct lines spread over the code range",
+   "estimate_ms": "0.2..0.7",
+   "how_to_measure": "R0 census build, keep non-guest host addresses, bucket by the table range"
+  },
+  {
+   "what": "lines shared across cores: offload / lane / worker / prefetch threads write guest RAM and host rings the game thread reads (R0: ~27.6 k other-thread guest accesses a frame; the single-thread cache simulation cannot see invalidations)",
+   "estimate_ms": "0.5..1.5",
+   "how_to_measure": "PMU on the console with the offload switches off one by one (dcache miss per frame), or a coherency-aware census"
+  },
+  {
+   "what": "renderer state written on the game thread: hook job ring, mdsPlan caches / packetListHash, 2D vertex output (vertex2D, immFeed128, quad117 strips), particle commit buffers",
+   "estimate_ms": "0.3..1.0",
+   "how_to_measure": "census build with the renderer buffers registered as named host ranges"
+  },
+  {
+   "what": "heap compaction memmove (copyViaSpr: 0.54 ms a frame of moves; R0 instrumented memcpy / memset, not memmove)",
+   "estimate_ms": "inside the 0.72 ms heap bucket",
+   "how_to_measure": "count copyViaSpr bytes a frame (g_gcStats.bytes is already kept)"
+  },
+  {
+   "what": "R5900Context switches (8-9 EE thread switches a frame), host stacks of deep native chains, the d1 alias / switch tables, logging",
+   "estimate_ms": "<0.3 together",
+   "how_to_measure": "same census extension"
+  }
+ ],
+ "not_attributed": [
+  "the PS2 shape inside (a): R5900Context traffic, guest-RAM addressing, 128-bit GPR / VU0 macro emulation, recompiled / lifted code size (icache 7.3 ms): not separable in samples",
+  "the host-side half of the dcache stall (~5.6 ms): no host-address data; suspects above",
+  "memcpy / memset (2.7% in Vita3K, ~1.1 ms) and veneers (1.8%, ~0.7 ms) left in (a)",
+  "what the 1.10 ms blocked wait waits for (VBlank vs the GP finish) is not split",
+  "the P2 brackets inside the wrapped (a) functions of the a3off run (~1 ms)",
+  "the hidden-layer moves assume the Vita3K share holds on the console"
+ ]
+}
